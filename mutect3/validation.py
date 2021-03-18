@@ -1,4 +1,5 @@
 from collections import defaultdict
+import matplotlib.pyplot as plt
 
 from mutect3.threshold import F_score
 
@@ -61,6 +62,31 @@ class ValidationStats:
         alt_count_bin = round_alt_count_for_binning(alt_count)
         # sort from highest score to lowest
         return sorted(self.missed_artifacts_by_count[alt_count_bin], key=lambda x: x[0])
+
+    # confusion_matrices is dict of alt count to 2x2 [[,],[,]] confusion matrices where 0/1 is non-artifact/artifact
+    # and 1st index is truth, 2nd index is prediction
+    def plot_sensitivities(self, name):
+        counts = []
+        variant_sensitivities = []
+        artifact_sensitivities = []
+        for alt_count_bin in sorted(self.confusion_matrices().keys()):
+            matrix = self.confusion_matrices()[alt_count_bin]
+            if (matrix[0][0] + matrix[0][1]) == 0 or (matrix[1][0] + matrix[1][1]) == 0:
+                continue
+
+            counts.append(alt_count_bin)
+            variant_sensitivities.append(matrix[0][0] / (matrix[0][0] + matrix[0][1]))
+            artifact_sensitivities.append(matrix[1][1] / (matrix[1][0] + matrix[1][1]))
+
+        fig = plt.figure()
+        accuracy_curve = fig.gca()
+        accuracy_curve.plot(counts, variant_sensitivities, label="variant sensitivity")
+        accuracy_curve.plot(counts, artifact_sensitivities, label="artifact sensitivity")
+        accuracy_curve.set_title("Variant and artifact sensitivity by alt count for " + name)
+        accuracy_curve.set_xlabel("alt count")
+        accuracy_curve.set_ylabel("sensitivity")
+        accuracy_curve.legend()
+        return fig, accuracy_curve
 
 
 # note the m2 filters to keep here are different from those used to generate the training data
