@@ -66,6 +66,14 @@ class ReadSetClassifier(nn.Module):
         # the [1] is the final binary classification in logit space
         self.rho = MLP([2 * read_layers[-1] + info_layers[-1]] + aggregation_layers + [1], batch_normalize=False)
 
+        # since we take the mean of read embeddings we lose all information about alt count.  This is intentional
+        # because a somatic classifier must be largely unaware of the allele fraction in order to avoid simply
+        # calling everything with high allele fraction as good.  However, once we apply the aggregation function
+        # and get logits we can multiply the output logits in an alt count-dependent way to change the confidence
+        # in our predictions.  We initialize the confidence as the sqrt of the alt count which is vaguely in line
+        # with statistical intuition.
+        self.confidence = nn.Parameter(torch.sqrt(torch.range(0, MAX_ALT)))
+
     # see the custom collate_fn for information on the batched input
     def forward(self, batch):
 
@@ -89,10 +97,13 @@ class ReadSetClassifier(nn.Module):
         concatenated = torch.cat((ref_means, alt_means, omega_info), dim=1)
 
         # scale the logits to express greater certainty ~sqrt(N) with increasing alt count.  We might get rid of this.
-        output = self.rho(concatenated) * torch.sqrt(torch.unsqueeze(batch.alt_counts(), 1).float())
+        output = self.rho(concatenated)
 
-        # TODO: get rid of squeezing once we have multi-class logit output
-        return torch.squeeze(output)
+        # TODO: get rid of squeezing once we have multi-class logit output?
+        output = torch.squeeze(output)
+
+        truncated_counts = torch.LongTensor([min(c, MAX_ALT) for c in batch.alt_counts()])
+        return output * torch.index_select(self.confidence, 0, truncated_counts)
 
     def make_posterior_model(self, valid_loader, test_loader, logit_threshold):
         iterations = 3
