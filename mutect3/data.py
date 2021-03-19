@@ -44,7 +44,7 @@ class Batch:
     def metadata(self):
         return self._metadata
 
-    def mutect2_data(self):
+    def mutect_info(self):
         return self._mutect2_data
 
     def labels(self):
@@ -69,7 +69,7 @@ def collate_read_sets(batch):
     info = torch.stack([item.info_tensor() for item in batch], dim=0)
     labels = torch.FloatTensor([item.artifact_label() for item in batch])
     metadata = [item.metadata() for item in batch]
-    mutect2_data = [item.mutect2_data() for item in batch]
+    mutect2_data = [item.mutect_info() for item in batch]
     return Batch(ref, alt, ref_counts, alt_counts, info, metadata, mutect2_data, labels)
 
 EPSILON = 0.00001
@@ -118,7 +118,7 @@ class Mutect3Dataset(Dataset):
         ref = (raw.ref_tensor() - self.read_medians) / self.read_iqrs
         alt = (raw.alt_tensor() - self.read_medians) / self.read_iqrs
         info = (raw.info_tensor() - self.info_medians) / self.info_iqrs
-        return Datum(ref, alt, info, raw.metadata(), raw.mutect2_data(), raw.artifact_label())
+        return Datum(ref, alt, info, raw.metadata(), raw.mutect_info(), raw.artifact_label())
 
 #TODO this should be a class method or something inside Mutect3Dataset
 def make_datasets(training_pickles, test_pickle):

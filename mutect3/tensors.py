@@ -110,7 +110,7 @@ class Datum:
     def metadata(self):
         return self._metadata
 
-    def mutect2_data(self):
+    def mutect_info(self):
         return self._mutect2_data
 
     def artifact_label(self):
@@ -156,14 +156,14 @@ class TableReader:
                                                                            [normal_sample + ".FRS",
                                                                             normal_sample + ".DP"])
 
-    def variant_info_features(self, tokens):
+    def variant_info(self, tokens):
         haplotype_equivalence_counts = [int(n) for n in tokens[self.hec_idx].split(",")]
         haplotype_complexity = int(tokens[self.hapcomp_idx])
         haplotype_dominance = float(tokens[self.hapdom_idx])
         ref_bases = tokens[self.ref_bases_idx]
         return VariantInfo(haplotype_equivalence_counts, haplotype_complexity, haplotype_dominance, ref_bases)
 
-    def site_metadata(self, tokens):
+    def site_info(self, tokens):
         chromosome = tokens[self.chrom_idx]
         position = int(tokens[self.pos_idx])
         ref = tokens[self.ref_allele_idx]
@@ -171,7 +171,7 @@ class TableReader:
         popaf = float(tokens[self.popaf_idx])
         return SiteInfo(chromosome, position, ref, alt, popaf)
 
-    def mutect2_data(self, tokens):
+    def mutect_info(self, tokens):
         tlod = float(tokens[self.tlod_idx])
         tumor_dp = int(tokens[self.tumor_dp_idx])
         filters = set(tokens[self.filter_idx].split(","))
@@ -227,8 +227,8 @@ def make_tensors(raw_file, is_training, sample_name, normal_sample_name=None):
                 print("Processing line " + str(n))
 
             tokens = line.split()
-            metadata = reader.site_metadata(tokens)
-            m2_data = reader.mutect2_data(tokens)
+            metadata = reader.site_info(tokens)
+            m2_data = reader.mutect_info(tokens)
 
             # Contamination and weak evidence / low log odds have low AFs but are not artifacts.  We exclude them
             # from training.  As for testing, M3 will continue to rely on them
@@ -279,7 +279,7 @@ def make_tensors(raw_file, is_training, sample_name, normal_sample_name=None):
                 is_artifact = (status == "FP" or status == "FTN")
 
             # assembly complexity site-level annotations
-            info_tensor = reader.variant_info_features(tokens).info_tensor()
+            info_tensor = reader.variant_info(tokens).info_tensor()
 
             data.append(Datum(ref_tensor, alt_tensor, info_tensor, metadata, m2_data, 1 if is_artifact else 0))
         return data

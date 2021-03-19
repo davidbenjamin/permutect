@@ -1,5 +1,6 @@
 import torch
 from torch import nn, optim
+from mutect3 import spectrum
 
 
 class MLP(nn.Module):
@@ -93,6 +94,18 @@ class ReadSetClassifier(nn.Module):
         # TODO: get rid of squeezing once we have multi-class logit output
         return torch.squeeze(output)
 
+    def make_posterior_model(self, valid_loader, test_loader, logit_threshold):
+        iterations = 3
+        result = ReadSetClassifierWithTemperature(self)
+        result.set_temperature(valid_loader)
+
+        for n in range(iterations):
+            artifact_proportion, artifact_spectrum, variant_spectrum = \
+                spectrum.learn_af_spectra(result, test_loader, m2_filters_to_keep={'normal_artifact'}, threshold=logit_threshold)
+            result = PriorAdjustedReadSetClassifier(result, artifact_proportion, artifact_spectrum,variant_spectrum)
+
+        return result
+
 
 class ReadSetClassifierWithTemperature(nn.Module):
     """
@@ -167,7 +180,7 @@ class PriorAdjustedReadSetClassifier(nn.Module):
         artifact_to_variant_log_likelihood_ratios = self.model(batch)
 
         alt_counts = batch.alt_counts().numpy()
-        depths = [datum.tumor_depth() for datum in batch.mutect2_data()]
+        depths = [datum.tumor_depth() for datum in batch.mutect_info()]
 
         # these are relative log priors of artifacts and variants to have k alt reads out of n total
         artifact_log_priors = torch.FloatTensor(
@@ -181,3 +194,10 @@ class PriorAdjustedReadSetClassifier(nn.Module):
         # the sum of the log prior ratio and the log likelihood ratio is the log posterior ratio
         # that is, it is the output we want, in logit form
         return artifact_to_variant_log_prior_ratios + artifact_to_variant_log_likelihood_ratios
+
+    def get_artifact_spectrum(self):
+        return self.artifact_spectrum
+
+    def get_variant_spectrum(self):
+        return self.variant_spectrum
+

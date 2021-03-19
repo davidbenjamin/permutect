@@ -14,7 +14,7 @@ def calculate_true_prob_threshold(model, loader, m2_filters_to_keep={}):
     true_variant_probs = []
 
     for batch in loader:
-        filters = [m2.filters() for m2 in batch.mutect2_data()]
+        filters = [m2.filters() for m2 in batch.mutect_info()]
         logits = model(batch)
         artifact_probs = torch.exp(logits) / (torch.exp(logits) + 1)
 
