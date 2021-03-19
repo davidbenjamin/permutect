@@ -3,13 +3,36 @@ import matplotlib.pyplot as plt
 
 from mutect3.threshold import F_score
 
+class TrainingMetrics:
+    NLL = "negative log-likelihood"
+    F = "optimal F score"
 
-def round_alt_count_for_binning(alt_count):
-    if alt_count < 15:
-        return alt_count
-    else:
-        return alt_count - alt_count % 5
+    def __init__(self):
+        # metrics[metric type][training type] is a list by epoch
+        self.metrics = defaultdict(lambda: defaultdict(list))
 
+    def add(self, metric_type, train_type, value):
+        self.metrics[metric_type][train_type].append(value)
+
+    def plot_metrics(self, metric_type):
+        metric_dict = self.metrics[metric_type]
+        train_types = list(metric_dict.keys())
+        epochs = range(1, len(metric_dict[train_types[0]]) + 1)
+
+        fig = plt.figure()
+        curve = fig.gca()
+
+        for train_type in train_types:
+            curve.plot(epochs, metric_dict[train_type], label=train_type)
+        curve.set_title("Learning curves: " + metric_type)
+        curve.set_xlabel("epoch")
+        curve.set_ylabel(metric_type)
+        curve.legend()
+        return fig, curve
+
+    def plot_all_metrics(self):
+        for metric_type in self.metrics.keys():
+            self.plot_metrics(metric_type)
 
 class ValidationStats:
     def __init__(self):
@@ -24,7 +47,7 @@ class ValidationStats:
 
     # prediction and truth are 0 if not artifact, 1 if artifact
     def add(self, alt_count, truth, prediction, score, filters, position):
-        alt_count_bin = round_alt_count_for_binning(alt_count)
+        alt_count_bin = ValidationStats._round_alt_count_for_binning(alt_count)
         self.confusion_by_count[alt_count_bin][truth][prediction] += 1
         self.confusion[truth][prediction] += 1
         (self.artifact_scores_by_count if truth == 1 else self.non_artifact_scores_by_count)[alt_count_bin].append(
@@ -42,10 +65,12 @@ class ValidationStats:
         return self.confusion
 
     def sensitivity(self):
-        return self.confusion[0][0] / (self.confusion[0][0] + self.confusion[0][1])
+        denom = self.confusion[0][0] + self.confusion[0][1]
+        return 1.0 if denom == 0 else self.confusion[0][0] / denom
 
     def precision(self):
-        return self.confusion[0][0] / (self.confusion[0][0] + self.confusion[1][0])
+        denom = self.confusion[0][0] + self.confusion[1][0]
+        return 1.0 if denom == 0 else self.confusion[0][0] / denom
 
     def artifact_scores(self):
         return self.artifact_scores_by_count
@@ -54,12 +79,12 @@ class ValidationStats:
         return self.non_artifact_scores_by_count
 
     def worst_missed_variants(self, alt_count):
-        alt_count_bin = round_alt_count_for_binning(alt_count)
+        alt_count_bin = ValidationStats._round_alt_count_for_binning(alt_count)
         # sort from highest score to lowest
         return sorted(self.missed_variants_by_count[alt_count_bin], key=lambda x: -x[0])
 
     def worst_missed_artifacts(self, alt_count):
-        alt_count_bin = round_alt_count_for_binning(alt_count)
+        alt_count_bin = ValidationStats._round_alt_count_for_binning(alt_count)
         # sort from highest score to lowest
         return sorted(self.missed_artifacts_by_count[alt_count_bin], key=lambda x: x[0])
 
@@ -88,6 +113,12 @@ class ValidationStats:
         accuracy_curve.legend()
         return fig, accuracy_curve
 
+    def _round_alt_count_for_binning(alt_count):
+        if alt_count < 15:
+            return alt_count
+        else:
+            return alt_count - alt_count % 5
+
 
 # note the m2 filters to keep here are different from those used to generate the training data
 # above, they were filters that are not artifacts, such as germline, contamination, and weak evidence
@@ -101,7 +132,7 @@ def get_validation_stats(model, loader, m2_filters_to_keep={}, thresholds=[0.0])
     model.train(False)
     for batch in loader:
         labels = batch.labels()
-        filters = [m2.filters() for m2 in batch.mutect2_data()]
+        filters = [m2.filters() for m2 in batch.mutect_info()]
         alt_counts = batch.alt_counts()
         predictions = model(batch)
         positions = [meta.locus() for meta in batch.metadata()]
@@ -122,7 +153,7 @@ def get_optimal_f_score(model, loader, m2_filters_to_keep={}):
     for batch in loader:
         labels = batch.labels()
         predictions = model(batch)
-        filters = [m2.filters() for m2 in batch.mutect2_data()]
+        filters = [m2.filters() for m2 in batch.mutect_info()]
         for n in range(batch.size()):
             pred = 1 if filters[n].intersection(m2_filters_to_keep) else predictions[n].item()
             predictions_and_labels.append((pred, labels[n].item()))
@@ -156,7 +187,7 @@ def get_m2_validation_stats(loader):
 
     for batch in loader:
         labels = batch.labels()
-        filters = [m2.filters() for m2 in batch.mutect2_data()]
+        filters = [m2.filters() for m2 in batch.mutect_info()]
         alt_counts = batch.alt_counts()
         positions = [meta.locus() for meta in batch.metadata()]
         for n in range(batch.size()):

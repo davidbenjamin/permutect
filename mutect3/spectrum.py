@@ -46,7 +46,7 @@ class AFSpectrum:
                 optimizer.step()
 
     # plot the mixture of beta densities
-    def plot_spectrum(self):
+    def plot_spectrum(self, title):
         f = torch.arange(0.01, 0.99, 0.01)
         log_pi = nn.functional.log_softmax(self.z, dim=0)
 
@@ -62,11 +62,13 @@ class AFSpectrum:
         fig = plt.figure()
         spec = fig.gca()
         spec.plot(f.detach().numpy(), torch.exp(log_densities).detach().numpy())
+        spec.set_title(title)
+        return fig, spec
 
 #TODO: move this into the class
 def get_artifact_af_spectrum(dataset):
     artifact_af_spectrum = AFSpectrum()
-    artifact_counts_and_depths = [(len(datum.alt_tensor()), datum.mutect2_data().tumor_depth()) for datum in dataset if datum.artifact_label() == 1]
+    artifact_counts_and_depths = [(len(datum.alt_tensor()), datum.mutect_info().tumor_depth()) for datum in dataset if datum.artifact_label() == 1]
     artifact_af_spectrum.learn(artifact_counts_and_depths)
     return artifact_af_spectrum
 
@@ -76,8 +78,8 @@ def learn_af_spectra(model, loader, m2_filters_to_keep={}, threshold=0.0):
     artifact_k_n = []
     variant_k_n = []
     for batch in loader:
-        depths = [datum.tumor_depth() for datum in batch.mutect2_data()]
-        filters = [m2.filters() for m2 in batch.mutect2_data()]
+        depths = [datum.tumor_depth() for datum in batch.mutect_info()]
+        filters = [m2.filters() for m2 in batch.mutect_info()]
         alt_counts = batch.alt_counts()
         predictions = model(batch)
         for n in range(batch.size()):
