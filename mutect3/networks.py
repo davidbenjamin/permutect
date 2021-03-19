@@ -29,7 +29,7 @@ class MLP(nn.Module):
             if self.bn:
                 x = self.bn[n](x)
             if n < len(self.layers) - 1:
-                x = nn.functional.relu(x)
+                x = nn.functional.leaky_relu(x)
         return x
 
 
