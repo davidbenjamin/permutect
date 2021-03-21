@@ -72,7 +72,7 @@ class ReadSetClassifier(nn.Module):
         # and get logits we can multiply the output logits in an alt count-dependent way to change the confidence
         # in our predictions.  We initialize the confidence as the sqrt of the alt count which is vaguely in line
         # with statistical intuition.
-        self.confidence = nn.Parameter(torch.sqrt(torch.range(0, MAX_ALT)))
+        self.confidence = nn.Parameter(torch.sqrt(torch.range(0, MAX_ALT)), requires_grad=False)
 
     # see the custom collate_fn for information on the batched input
     def forward(self, batch):
@@ -105,64 +105,30 @@ class ReadSetClassifier(nn.Module):
         truncated_counts = torch.LongTensor([min(c, MAX_ALT) for c in batch.alt_counts()])
         return output * torch.index_select(self.confidence, 0, truncated_counts)
 
-    def make_posterior_model(self, valid_loader, test_loader, logit_threshold):
-        iterations = 3
-        result = ReadSetClassifierWithTemperature(self)
-        result.set_temperature(valid_loader)
+    # the self.confidence calibration layer is sort of a hyperparameter that we can learn from the
+    # validation set.  We do not want to learn it from the training set!  This method lets us freeze the whole
+    # model except for calibration.
+    def freeze_everything_except_calibration(self):
+        for param in self.parameters():
+            param.requires_grad = False
+        self.confidence.requires_grad = True
 
+    def unfreeze_everything_except_calibration(self):
+        for param in self.parameters():
+            param.requires_grad = True
+        self.confidence.requires_grad = False
+
+
+    def make_posterior_model(self, test_loader, logit_threshold):
+        iterations = 2
+
+        result = self
         for n in range(iterations):
             artifact_proportion, artifact_spectrum, variant_spectrum = \
                 spectrum.learn_af_spectra(result, test_loader, m2_filters_to_keep={'normal_artifact'}, threshold=logit_threshold)
             result = PriorAdjustedReadSetClassifier(result, artifact_proportion, artifact_spectrum,variant_spectrum)
 
         return result
-
-
-class ReadSetClassifierWithTemperature(nn.Module):
-    """
-    Taken from github.com/gpleiss/temperature_scaling and modified to have alt count-specific temperature
-
-    Wrap an uncalibrated Module with temperature scaling.
-
-    Note that wrapped model must output logits, not probabilities.
-    """
-    def __init__(self, model):
-        super(ReadSetClassifierWithTemperature, self).__init__()
-        self.model = model
-        self.temperature = nn.Parameter(torch.ones(MAX_ALT + 1))    #One temperature for each alt count
-
-    def forward(self, batch):
-        logits = self.model(batch)
-        return self.temperature_scale(logits, batch.alt_counts())
-
-    def temperature_scale(self, logits, alt_counts):
-        truncated_counts = torch.LongTensor([min(c, MAX_ALT) for c in alt_counts])
-        return logits / torch.index_select(self.temperature, 0, truncated_counts)
-
-    # This function probably should live outside of this class, but whatever
-    def set_temperature(self, valid_loader):
-        # First: collect all the logits and labels for the validation set
-        logits_list, labels_list, alt_counts_list = [], [], []
-        with torch.no_grad():
-            for batch in valid_loader:
-                logits_list.append(self.model(batch))
-                labels_list.append(batch.labels())
-                alt_counts_list.append(batch.alt_counts())
-            logits = torch.cat(logits_list)
-            labels = torch.cat(labels_list)
-            alt_counts = torch.cat(alt_counts_list)
-
-        nll_criterion = nn.BCEWithLogitsLoss()
-        optimizer = optim.LBFGS([self.temperature], lr=0.01, max_iter=50)
-
-        def eval():
-            loss = nll_criterion(self.temperature_scale(logits, alt_counts), labels)
-            loss.backward()
-            return loss
-
-        optimizer.step(eval)
-
-        return self
 
 
 # modify the output of a wrapped read set classifier (may be temperature-scaled) to account for

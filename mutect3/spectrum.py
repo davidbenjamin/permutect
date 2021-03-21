@@ -18,7 +18,7 @@ def beta_binomial(n, k, alpha, beta):
            - torch.lgamma(n + alpha + beta) - torch.lgamma(alpha) - torch.lgamma(beta)
 
 
-class AFSpectrum:
+class AFSpectrum(nn.Module):
     LEARNING_RATE = 1e-2
     EPOCHS = 5
 
