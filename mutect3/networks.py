@@ -66,6 +66,14 @@ class ReadSetClassifier(nn.Module):
         # the [1] is the final binary classification in logit space
         self.rho = MLP([2 * read_layers[-1] + info_layers[-1]] + aggregation_layers + [1], batch_normalize=False)
 
+        # since we take the mean of read embeddings we lose all information about alt count.  This is intentional
+        # because a somatic classifier must be largely unaware of the allele fraction in order to avoid simply
+        # calling everything with high allele fraction as good.  However, once we apply the aggregation function
+        # and get logits we can multiply the output logits in an alt count-dependent way to change the confidence
+        # in our predictions.  We initialize the confidence as the sqrt of the alt count which is vaguely in line
+        # with statistical intuition.
+        self.confidence = nn.Parameter(torch.sqrt(torch.range(0, MAX_ALT)), requires_grad=False)
+
     # see the custom collate_fn for information on the batched input
     def forward(self, batch):
 
@@ -89,16 +97,32 @@ class ReadSetClassifier(nn.Module):
         concatenated = torch.cat((ref_means, alt_means, omega_info), dim=1)
 
         # scale the logits to express greater certainty ~sqrt(N) with increasing alt count.  We might get rid of this.
-        output = self.rho(concatenated) * torch.sqrt(torch.unsqueeze(batch.alt_counts(), 1).float())
+        output = self.rho(concatenated)
 
-        # TODO: get rid of squeezing once we have multi-class logit output
-        return torch.squeeze(output)
+        # TODO: get rid of squeezing once we have multi-class logit output?
+        output = torch.squeeze(output)
 
-    def make_posterior_model(self, valid_loader, test_loader, logit_threshold):
-        iterations = 3
-        result = ReadSetClassifierWithTemperature(self)
-        result.set_temperature(valid_loader)
+        truncated_counts = torch.LongTensor([min(c, MAX_ALT) for c in batch.alt_counts()])
+        return output * torch.index_select(self.confidence, 0, truncated_counts)
 
+    # the self.confidence calibration layer is sort of a hyperparameter that we can learn from the
+    # validation set.  We do not want to learn it from the training set!  This method lets us freeze the whole
+    # model except for calibration.
+    def freeze_everything_except_calibration(self):
+        for param in self.parameters():
+            param.requires_grad = False
+        self.confidence.requires_grad = True
+
+    def unfreeze_everything_except_calibration(self):
+        for param in self.parameters():
+            param.requires_grad = True
+        self.confidence.requires_grad = False
+
+
+    def make_posterior_model(self, test_loader, logit_threshold):
+        iterations = 2
+
+        result = self
         for n in range(iterations):
             artifact_proportion, artifact_spectrum, variant_spectrum = \
                 spectrum.learn_af_spectra(result, test_loader, m2_filters_to_keep={'normal_artifact'}, threshold=logit_threshold)
@@ -107,97 +131,20 @@ class ReadSetClassifier(nn.Module):
         return result
 
 
-class ReadSetClassifierWithTemperature(nn.Module):
-    """
-    Taken from github.com/gpleiss/temperature_scaling and modified to have alt count-specific temperature
-
-    Wrap an uncalibrated Module with temperature scaling.
-
-    Note that wrapped model must output logits, not probabilities.
-    """
-    def __init__(self, model):
-        super(ReadSetClassifierWithTemperature, self).__init__()
-        self.model = model
-        self.temperature = nn.Parameter(torch.ones(MAX_ALT + 1))    #One temperature for each alt count
-
-    def forward(self, batch):
-        logits = self.model(batch)
-        return self.temperature_scale(logits, batch.alt_counts())
-
-    def temperature_scale(self, logits, alt_counts):
-        truncated_counts = torch.LongTensor([min(c, MAX_ALT) for c in alt_counts])
-        return logits / torch.index_select(self.temperature, 0, truncated_counts)
-
-    # This function probably should live outside of this class, but whatever
-    def set_temperature(self, valid_loader):
-        # First: collect all the logits and labels for the validation set
-        logits_list, labels_list, alt_counts_list = [], [], []
-        with torch.no_grad():
-            for batch in valid_loader:
-                logits_list.append(self.model(batch))
-                labels_list.append(batch.labels())
-                alt_counts_list.append(batch.alt_counts())
-            logits = torch.cat(logits_list)
-            labels = torch.cat(labels_list)
-            alt_counts = torch.cat(alt_counts_list)
-
-        nll_criterion = nn.BCEWithLogitsLoss()
-        optimizer = optim.LBFGS([self.temperature], lr=0.01, max_iter=50)
-
-        def eval():
-            loss = nll_criterion(self.temperature_scale(logits, alt_counts), labels)
-            loss.backward()
-            return loss
-
-        optimizer.step(eval)
-
-        return self
-
-
 # modify the output of a wrapped read set classifier (may be temperature-scaled) to account for
 # 1. overall prior probability of artifact vs variant
 # 2. artifact AF spectrum
 # 3. variant AF spectrum
 class PriorAdjustedReadSetClassifier(nn.Module):
-    """
-    A thin decorator, which wraps the above model with temperature scaling
-    NB: Output of the neural network should be the classification logits,
-            NOT the softmax (or log softmax)!
-    """
-
-    def __init__(self, model, artifact_proportion, artifact_spectrum, variant_spectrum):
+    def __init__(self, model, prior_model: spectrum.PriorModel):
         super(PriorAdjustedReadSetClassifier, self).__init__()
         self.model = model
-        self.log_artifact_proportion = torch.log(torch.FloatTensor([artifact_proportion]))
-        self.log_variant_proportion = torch.log(torch.FloatTensor([1 - artifact_proportion]))
-        self.artifact_spectrum = artifact_spectrum
-        self.variant_spectrum = variant_spectrum
+        self.prior_model = prior_model
 
     def forward(self, batch):
-        # these logits are from a model trained on a balanced data set i.e. they are (implicitly)
-        # the posterior probability of an artifact when the priors are flat
-        # that is, they represent log likelihood ratio log(P(data|artifact)/P(data|non-artifact))
-        artifact_to_variant_log_likelihood_ratios = self.model(batch)
+        return self.model(batch) + self.prior_model.prior_log_odds(batch)
 
-        alt_counts = batch.alt_counts().numpy()
-        depths = [datum.tumor_depth() for datum in batch.mutect_info()]
+    def get_prior_model(self):
+        return self.prior_model
 
-        # these are relative log priors of artifacts and variants to have k alt reads out of n total
-        artifact_log_priors = torch.FloatTensor(
-            [self.log_artifact_proportion + self.artifact_spectrum.log_likelihood(k, n).item() for (k, n) in
-             zip(alt_counts, depths)])
-        variant_log_priors = torch.FloatTensor(
-            [self.log_variant_proportion + self.variant_spectrum.log_likelihood(k, n).item() for (k, n) in
-             zip(alt_counts, depths)])
-        artifact_to_variant_log_prior_ratios = artifact_log_priors - variant_log_priors
-
-        # the sum of the log prior ratio and the log likelihood ratio is the log posterior ratio
-        # that is, it is the output we want, in logit form
-        return artifact_to_variant_log_prior_ratios + artifact_to_variant_log_likelihood_ratios
-
-    def get_artifact_spectrum(self):
-        return self.artifact_spectrum
-
-    def get_variant_spectrum(self):
-        return self.variant_spectrum
 
