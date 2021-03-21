@@ -69,10 +69,12 @@ class AFSpectrum:
 
 # contains variant spectrum, artifact spectrum, and artifact/variant log prior ratio
 class PriorModel:
+    SPECTRUM_EPOCHS = 5
+
     def __init__(self, initial_log_ratio = 0.0):
         self.variant_spectrum = AFSpectrum()
         self.artifact_spectrum = AFSpectrum()
-        self.log_artifact_to_variant_ratio = 0.5
+        self.log_artifact_to_variant_ratio = torch.tensor(0.0)
 
     def learn_epoch(self, model, loader, m2_filters_to_keep={}, threshold=0.0):
         artifact_k_n = []
@@ -86,9 +88,10 @@ class PriorModel:
                 is_artifact = predictions[n] > threshold or filters[n].intersection(m2_filters_to_keep)
                 (artifact_k_n if is_artifact else variant_k_n).append((alt_counts[n].item(), depths[n]))
 
-        self.artifact_spectrum.learn_epoch(artifact_k_n)
-        self.variant_spectrum.learn_epoch(variant_k_n)
-        self.log_artifact_to_variant_ratio = torch.log(len(artifact_k_n) / len(variant_k_n))
+        for n in range(PriorModel.SPECTRUM_EPOCHS):
+            self.artifact_spectrum.learn_epoch(artifact_k_n)
+            self.variant_spectrum.learn_epoch(variant_k_n)
+        self.log_artifact_to_variant_ratio = torch.log(torch.tensor(len(artifact_k_n) / len(variant_k_n)))
 
     # log prior ratio between artifact and variant
     def prior_log_odds(self, batch):
