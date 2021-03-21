@@ -136,45 +136,15 @@ class ReadSetClassifier(nn.Module):
 # 2. artifact AF spectrum
 # 3. variant AF spectrum
 class PriorAdjustedReadSetClassifier(nn.Module):
-    """
-    A thin decorator, which wraps the above model with temperature scaling
-    NB: Output of the neural network should be the classification logits,
-            NOT the softmax (or log softmax)!
-    """
-
-    def __init__(self, model, artifact_proportion, artifact_spectrum, variant_spectrum):
+    def __init__(self, model, prior_model: spectrum.PriorModel):
         super(PriorAdjustedReadSetClassifier, self).__init__()
         self.model = model
-        self.log_artifact_proportion = torch.log(torch.FloatTensor([artifact_proportion]))
-        self.log_variant_proportion = torch.log(torch.FloatTensor([1 - artifact_proportion]))
-        self.artifact_spectrum = artifact_spectrum
-        self.variant_spectrum = variant_spectrum
+        self.prior_model = prior_model
 
     def forward(self, batch):
-        # these logits are from a model trained on a balanced data set i.e. they are (implicitly)
-        # the posterior probability of an artifact when the priors are flat
-        # that is, they represent log likelihood ratio log(P(data|artifact)/P(data|non-artifact))
-        artifact_to_variant_log_likelihood_ratios = self.model(batch)
+        return self.model(batch) + self.prior_model.prior_log_odds(batch)
 
-        alt_counts = batch.alt_counts().numpy()
-        depths = [datum.tumor_depth() for datum in batch.mutect_info()]
+    def get_prior_model(self):
+        return self.prior_model
 
-        # these are relative log priors of artifacts and variants to have k alt reads out of n total
-        artifact_log_priors = torch.FloatTensor(
-            [self.log_artifact_proportion + self.artifact_spectrum.log_likelihood(k, n).item() for (k, n) in
-             zip(alt_counts, depths)])
-        variant_log_priors = torch.FloatTensor(
-            [self.log_variant_proportion + self.variant_spectrum.log_likelihood(k, n).item() for (k, n) in
-             zip(alt_counts, depths)])
-        artifact_to_variant_log_prior_ratios = artifact_log_priors - variant_log_priors
-
-        # the sum of the log prior ratio and the log likelihood ratio is the log posterior ratio
-        # that is, it is the output we want, in logit form
-        return artifact_to_variant_log_prior_ratios + artifact_to_variant_log_likelihood_ratios
-
-    def get_artifact_spectrum(self):
-        return self.artifact_spectrum
-
-    def get_variant_spectrum(self):
-        return self.variant_spectrum
 

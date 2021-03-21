@@ -13,20 +13,26 @@ from torch import nn
 import matplotlib.pyplot as plt
 
 
+# note: this function works for alpha. beta tensors of the same shape, in which case it broadcasts
 def beta_binomial(n, k, alpha, beta):
     return torch.lgamma(k + alpha) + torch.lgamma(n - k + beta) + torch.lgamma(alpha + beta) \
            - torch.lgamma(n + alpha + beta) - torch.lgamma(alpha) - torch.lgamma(beta)
 
 
-class AFSpectrum(nn.Module):
+class AFSpectrum:
     LEARNING_RATE = 1e-2
-    EPOCHS = 5
 
     def __init__(self):
+        # evenly-spaced beta binomials.  These are constants for now
+        # TODO: should these be learned?
         shapes = [(n + 1, 101 - n) for n in range(0, 100, 5)]
         self.a = torch.FloatTensor([shape[0] for shape in shapes])
         self.b = torch.FloatTensor([shape[1] for shape in shapes])
+
+        # (pre-softmax) weights for the beta-binomial mixture.  Initialized as uniform.
         self.z = nn.Parameter(torch.ones(len(shapes)))
+
+        self.optimizer = torch.optim.Adam([self.z], lr=AFSpectrum.LEARNING_RATE)
 
     # k "successes" out of n "trials"
     def log_likelihood(self, k, n):
@@ -34,16 +40,12 @@ class AFSpectrum(nn.Module):
         log_likelihoods = beta_binomial(n, k, self.a, self.b)
         return torch.logsumexp(log_pi + log_likelihoods, dim=0)
 
-    # k_n_tuples is an iterable of tuples (k,n) as above
-    def learn(self, k_n_tuples):
-        # note -- a, b are constants, not learned
-        optimizer = torch.optim.Adam([self.z], lr=AFSpectrum.LEARNING_RATE)
-        for epoch in range(AFSpectrum.EPOCHS):
-            for (k, n) in k_n_tuples:
-                optimizer.zero_grad()
-                nll = -self.log_likelihood(k, n)
-                nll.backward()
-                optimizer.step()
+    def learn_epoch(self, k_n_tuples):
+        for (k, n) in k_n_tuples:
+            self.optimizer.zero_grad()
+            nll = -self.log_likelihood(k, n)
+            nll.backward()
+            self.optimizer.step()
 
     # plot the mixture of beta densities
     def plot_spectrum(self, title):
@@ -65,32 +67,41 @@ class AFSpectrum(nn.Module):
         spec.set_title(title)
         return fig, spec
 
-#TODO: move this into the class
-def get_artifact_af_spectrum(dataset):
-    artifact_af_spectrum = AFSpectrum()
-    artifact_counts_and_depths = [(len(datum.alt_tensor()), datum.mutect_info().tumor_depth()) for datum in dataset if datum.artifact_label() == 1]
-    artifact_af_spectrum.learn(artifact_counts_and_depths)
-    return artifact_af_spectrum
+# contains variant spectrum, artifact spectrum, and artifact/variant log prior ratio
+class PriorModel:
+    def __init__(self, initial_log_ratio = 0.0):
+        self.variant_spectrum = AFSpectrum()
+        self.artifact_spectrum = AFSpectrum()
+        self.log_artifact_to_variant_ratio = 0.5
 
+    def learn_epoch(self, model, loader, m2_filters_to_keep={}, threshold=0.0):
+        artifact_k_n = []
+        variant_k_n = []
+        for batch in loader:
+            depths = [datum.tumor_depth() for datum in batch.mutect_info()]
+            filters = [m2.filters() for m2 in batch.mutect_info()]
+            alt_counts = batch.alt_counts()
+            predictions = model(batch)
+            for n in range(batch.size()):
+                is_artifact = predictions[n] > threshold or filters[n].intersection(m2_filters_to_keep)
+                (artifact_k_n if is_artifact else variant_k_n).append((alt_counts[n].item(), depths[n]))
 
-# learn artifact and variant AF spectra from a validation or test loader
-def learn_af_spectra(model, loader, m2_filters_to_keep={}, threshold=0.0):
-    artifact_k_n = []
-    variant_k_n = []
-    for batch in loader:
+        self.artifact_spectrum.learn_epoch(artifact_k_n)
+        self.variant_spectrum.learn_epoch(variant_k_n)
+        self.log_artifact_to_variant_ratio = torch.log(len(artifact_k_n) / len(variant_k_n))
+
+    # log prior ratio between artifact and variant
+    def prior_log_odds(self, batch):
+        alt_counts = batch.alt_counts().numpy()
         depths = [datum.tumor_depth() for datum in batch.mutect_info()]
-        filters = [m2.filters() for m2 in batch.mutect_info()]
-        alt_counts = batch.alt_counts()
-        predictions = model(batch)
-        for n in range(batch.size()):
-            is_artifact = predictions[n] > threshold or filters[n].intersection(m2_filters_to_keep)
-            (artifact_k_n if is_artifact else variant_k_n).append((alt_counts[n].item(), depths[n]))
 
-    artifact_af_spectrum = AFSpectrum()
-    variant_af_spectrum = AFSpectrum()
+        # these are relative log priors of artifacts and variants to have k alt reads out of n total
+        spectrum_log_odds = torch.FloatTensor(
+            [self.artifact_spectrum.log_likelihood(k, n).item() - self.variant_spectrum.log_likelihood(k, n).item() \
+             for (k, n) in zip(alt_counts, depths)])
 
-    artifact_af_spectrum.learn(artifact_k_n)
-    variant_af_spectrum.learn(variant_k_n)
-    artifact_proportion = len(artifact_k_n) / (len(artifact_k_n) + len(variant_k_n))
+        return self.log_artifact_to_variant_ratio + spectrum_log_odds
 
-    return artifact_proportion, artifact_af_spectrum, variant_af_spectrum
+    def plot_spectra(self):
+        self.artifact_spectrum.plot_spectrum("Artifact AF spectrum")
+        self.variant_spectrum.plot_spectrum("Variant AF spectrum")
