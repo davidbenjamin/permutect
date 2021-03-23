@@ -1,8 +1,9 @@
 import torch
 import random
 import pickle
+import numpy as np
 
-from torch.utils.data import Dataset, random_split
+from torch.utils.data import Dataset, DataLoader, random_split
 
 from mutect3.tensors import Datum
 
@@ -120,7 +121,6 @@ class Mutect3Dataset(Dataset):
         info = (raw.info_tensor() - self.info_medians) / self.info_iqrs
         return Datum(ref, alt, info, raw.metadata(), raw.mutect_info(), raw.artifact_label())
 
-#TODO this should be a class method or something inside Mutect3Dataset
 def make_datasets(training_pickles, test_pickle):
     # make our training, validation, and testing data
     train_and_valid = Mutect3Dataset(training_pickles)
@@ -133,3 +133,24 @@ def make_datasets(training_pickles, test_pickle):
         len(test)))
     return train, valid, test
 
+BATCH_SIZE = 64
+def make_data_loaders(train, valid, test):
+    train_labels = [datum.artifact_label() for datum in train]
+    valid_labels = [datum.artifact_label() for datum in valid]
+    class_counts = torch.FloatTensor(np.bincount(train_labels).tolist())
+    class_weights = 1.0 / class_counts
+
+    # epoch should roughly go over every artifact O(1) times, but more than once because we want to squeeze more out of the non-artifact
+    samples_per_epoch = 20 * int(class_counts[1])
+
+    train_sampler = torch.utils.data.WeightedRandomSampler(weights=class_weights[train_labels],
+                                                           num_samples=samples_per_epoch)
+    valid_sampler = torch.utils.data.WeightedRandomSampler(weights=class_weights[valid_labels],
+                                                           num_samples=2 * len(valid_labels))
+
+    train_loader = DataLoader(dataset=train, batch_size=BATCH_SIZE, sampler=train_sampler,
+                              collate_fn=collate_read_sets, drop_last=True)
+    valid_loader = DataLoader(dataset=valid, batch_size=BATCH_SIZE, sampler=valid_sampler,
+                              collate_fn=collate_read_sets, drop_last=True)
+    test_loader = DataLoader(dataset=test, batch_size=BATCH_SIZE, collate_fn=collate_read_sets, drop_last=True)
+    return train_loader, valid_loader, test_loader

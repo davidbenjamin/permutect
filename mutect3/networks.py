@@ -1,7 +1,18 @@
 import torch
-from torch import nn, optim
-from mutect3 import spectrum
+from torch import nn
+import matplotlib.pyplot as plt
 
+def freeze(parameters):
+    for parameter in parameters:
+        parameter.requires_grad = False
+
+def unfreeze(parameters):
+    for parameter in parameters:
+        parameter.requires_grad = True
+
+def F_score(tp, fp, total_true):
+    fn = total_true - tp
+    return tp / (tp + (fp + fn) / 2)
 
 class MLP(nn.Module):
     """
@@ -36,6 +47,91 @@ class MLP(nn.Module):
 MAX_ALT = 10
 
 
+# note: this function works for alpha, beta 1D tensors of the same size, and n, k 1D tensors of the same
+# size (different in general from that of alpha, beta)
+# the result is a 2D tensor of the beta binomial
+# result[i,j] = beta_binomial(n[i],k[i],alpha[j],beta[j])
+def beta_binomial(n, k, alpha, beta):
+    n2 = n.unsqueeze(1)
+    k2 = k.unsqueeze(1)
+    alpha2 = alpha.unsqueeze(0)
+    beta2 = beta.unsqueeze(0)
+    return torch.lgamma(k2 + alpha2) + torch.lgamma(n2 - k2 + beta2) + torch.lgamma(alpha2 + beta2) \
+           - torch.lgamma(n2 + alpha2 + beta2) - torch.lgamma(alpha2) - torch.lgamma(beta2)
+
+
+class AFSpectrum(nn.Module):
+
+    def __init__(self):
+        super(AFSpectrum, self).__init__()
+        # evenly-spaced beta binomials.  These are constants for now
+        # TODO: should these be learned by making them Parameters?
+        shapes = [(n + 1, 101 - n) for n in range(0, 100, 5)]
+        self.a = torch.FloatTensor([shape[0] for shape in shapes])
+        self.b = torch.FloatTensor([shape[1] for shape in shapes])
+
+        # (pre-softmax) weights for the beta-binomial mixture.  Initialized as uniform.
+        self.z = nn.Parameter(torch.ones(len(shapes)))
+
+    # k "successes" out of n "trials" -- k and n are 1D tensors of the same size
+    def log_likelihood(self, k, n):
+        # note that we unsqueeze pi along the same dimension as alpha and beta
+        log_pi = torch.unsqueeze(nn.functional.log_softmax(self.z, dim=0), 0)
+        log_likelihoods = beta_binomial(n, k, self.a, self.b)
+
+        # by the convention above, the 0th dimension of log_likelihoods is n,k (batch) and the 1st dimension
+        # is alpha, beta.  We sum over the latter, getting a 1D tensor corresponding to the batch
+        return torch.logsumexp(log_pi + log_likelihoods, dim=1)
+
+    # compute 1D tensor of log-likelihoods P(alt count|n, AF mixture model) over all data in batch
+    def forward(self, batch):
+        depths = torch.LongTensor([datum.tumor_depth() for datum in batch.mutect_info()])
+        return self.log_likelihood(batch.alt_counts(), depths )
+
+    # plot the mixture of beta densities
+    def plot_spectrum(self, title):
+        f = torch.arange(0.01, 0.99, 0.01)
+        log_pi = nn.functional.log_softmax(self.z, dim=0)
+
+        shapes = [(alpha, beta) for (alpha, beta) in zip(self.a.numpy(), self.b.numpy())]
+        betas = [torch.distributions.beta.Beta(torch.FloatTensor([alpha]), torch.FloatTensor([beta])) for (alpha, beta)
+                 in shapes]
+
+        # list of tensors - the list is over the mixture components, the tensors are over AF values f
+        unweighted_log_densities = torch.stack([beta.log_prob(f) for beta in betas], dim=0)
+        # unsqueeze to make log_pi a column vector (2D tensor) for broadcasting
+        weighted_log_densities = torch.unsqueeze(log_pi, 1) + unweighted_log_densities
+        log_densities = torch.logsumexp(weighted_log_densities, dim=0)
+        fig = plt.figure()
+        spec = fig.gca()
+        spec.plot(f.detach().numpy(), torch.exp(log_densities).detach().numpy())
+        spec.set_title(title)
+        return fig, spec
+
+# contains variant spectrum, artifact spectrum, and artifact/variant log prior ratio
+class PriorModel(nn.Module):
+    def __init__(self, initial_log_ratio = 0.0):
+        super(PriorModel, self).__init__()
+        self.variant_spectrum = AFSpectrum()
+        self.artifact_spectrum = AFSpectrum()
+
+        # log of prior ratio P(artifact)/P(variant)
+        self.prior_log_odds = nn.Parameter(torch.tensor(initial_log_ratio))
+
+    # forward pass returns tuple log [P(variant)*P(alt count|variant)], log [P(artifact)*P(alt count|artifact)]
+    def forward(self, batch):
+        log_artifact_prior = nn.functional.logsigmoid(self.prior_log_odds)
+        log_variant_prior = nn.functional.logsigmoid(-self.prior_log_odds)
+
+        artifact_log_likelihood = self.artifact_spectrum(batch)
+        variant_log_likelihood = self.variant_spectrum(batch)
+
+        return log_variant_prior + variant_log_likelihood, log_artifact_prior + artifact_log_likelihood
+
+    def plot_spectra(self):
+        self.artifact_spectrum.plot_spectrum("Artifact AF spectrum")
+        self.variant_spectrum.plot_spectrum("Variant AF spectrum")
+
 class ReadSetClassifier(nn.Module):
     """
     DeepSets framework for reads and variant info.  We embed each read and concatenate the mean ref read
@@ -52,8 +148,11 @@ class ReadSetClassifier(nn.Module):
     read and info embeddings.
     """
 
-    def __init__(self, read_layers, info_layers, aggregation_layers):
+    def __init__(self, read_layers, info_layers, aggregation_layers, m2_filters_to_keep={}):
         super(ReadSetClassifier, self).__init__()
+
+        # note: these are only used for testing, not training
+        self.m2_filters_to_keep = m2_filters_to_keep
 
         # phi is the read embedding
         self.phi = MLP(read_layers, batch_normalize=False)
@@ -74,8 +173,42 @@ class ReadSetClassifier(nn.Module):
         # with statistical intuition.
         self.confidence = nn.Parameter(torch.sqrt(torch.range(0, MAX_ALT)), requires_grad=False)
 
+        self.prior_model = PriorModel()
+
+    def get_prior_model(self):
+        return self.prior_model
+
+    def training_parameters(self):
+        result = []
+        result.extend(self.phi.parameters())
+        result.extend(self.omega.parameters())
+        result.extend(self.rho.parameters())
+        return result
+
+    def calibration_parameters(self):
+        return [self.confidence]
+
+    def spectra_parameters(self):
+        return self.prior_model.parameters()
+
+    def training_mode(self):
+        self.train(True)
+        freeze(self.parameters())
+        unfreeze(self.training_parameters())
+
+    def learn_calibration_mode(self):
+        self.train(False)
+        freeze(self.parameters())
+        unfreeze(self.calibration_parameters())
+
+    def learn_spectrum_mode(self):
+        self.train(False)
+        freeze(self.parameters())
+        unfreeze(self.spectra_parameters())
+
+
     # see the custom collate_fn for information on the batched input
-    def forward(self, batch):
+    def forward(self, batch, posterior=False):
 
         # broadcast the embedding to each read
         num_sets = batch.size()
@@ -96,55 +229,59 @@ class ReadSetClassifier(nn.Module):
         # stack side-by-side to get 2D tensor, where each variant row is (ref mean, alt mean, info
         concatenated = torch.cat((ref_means, alt_means, omega_info), dim=1)
 
-        # scale the logits to express greater certainty ~sqrt(N) with increasing alt count.  We might get rid of this.
-        output = self.rho(concatenated)
+        # squeeze to get 1D tensor
+        output = torch.squeeze(self.rho(concatenated))
 
-        # TODO: get rid of squeezing once we have multi-class logit output?
-        output = torch.squeeze(output)
-
+        # apply alt count-dependent confidence calibration
         truncated_counts = torch.LongTensor([min(c, MAX_ALT) for c in batch.alt_counts()])
-        return output * torch.index_select(self.confidence, 0, truncated_counts)
+        logits = output * torch.index_select(self.confidence, 0, truncated_counts)
+        log_evidence = 0    # this won't be used unless overwritten for prior model case
 
-    # the self.confidence calibration layer is sort of a hyperparameter that we can learn from the
-    # validation set.  We do not want to learn it from the training set!  This method lets us freeze the whole
-    # model except for calibration.
-    def freeze_everything_except_calibration(self):
-        for param in self.parameters():
-            param.requires_grad = False
-        self.confidence.requires_grad = True
+        if posterior:
+            # 1 if we use an M2 filter regardless of M3, 0 otherwise
+            use_m2_filter = torch.LongTensor([1 if m2.filters().intersection(self.m2_filters_to_keep) else 0 for m2 in batch.mutect_info()])
+            logits = (1 - use_m2_filter) * logits + 100 * use_m2_filter
 
-    def unfreeze_everything_except_calibration(self):
-        for param in self.parameters():
-            param.requires_grad = True
-        self.confidence.requires_grad = False
+            log_variant_factor, log_artifact_factor = self.prior_model(batch)
+            log_artifact_likelihood = nn.functional.logsigmoid(logits)
+            log_variant_likelihood = nn.functional.logsigmoid(-logits)
+            logits = logits + log_artifact_factor - log_variant_factor
 
+            # these are 1D tensors, one element for each
+            log_artifact_evidence = log_artifact_factor + log_artifact_likelihood
+            log_variant_evidence = log_variant_factor + log_variant_likelihood
+            log_evidence = torch.mean(torch.logsumexp(torch.stack([log_variant_evidence, log_artifact_evidence]), 0))
 
-    def make_posterior_model(self, test_loader, logit_threshold):
-        iterations = 2
+        return logits, log_evidence
 
-        result = self
-        for n in range(iterations):
-            artifact_proportion, artifact_spectrum, variant_spectrum = \
-                spectrum.learn_af_spectra(result, test_loader, m2_filters_to_keep={'normal_artifact'}, threshold=logit_threshold)
-            result = PriorAdjustedReadSetClassifier(result, artifact_proportion, artifact_spectrum,variant_spectrum)
+    def calculate_logit_threshold(self, loader):
+        self.train(False)
+        variant_probs = []
 
-        return result
+        for batch in loader:
+            logits, _ = self(batch, posterior=True)
+            true_probs = 1 - torch.sigmoid(logits)
 
+            for n in range(batch.size()):
+                variant_probs.append(true_probs[n].item())
 
-# modify the output of a wrapped read set classifier (may be temperature-scaled) to account for
-# 1. overall prior probability of artifact vs variant
-# 2. artifact AF spectrum
-# 3. variant AF spectrum
-class PriorAdjustedReadSetClassifier(nn.Module):
-    def __init__(self, model, prior_model: spectrum.PriorModel):
-        super(PriorAdjustedReadSetClassifier, self).__init__()
-        self.model = model
-        self.prior_model = prior_model
+        variant_probs.sort()
+        total_variants = sum(variant_probs)
 
-    def forward(self, batch):
-        return self.model(batch) + self.prior_model.prior_log_odds(batch)
+        # we are going to start by accepting everything -- the threshold is just below the smallest probability
+        threshold = 0  # must be greater than or equal to this threshold for true variant probability
+        tp = total_variants
+        fp = len(variant_probs) - total_variants
+        best_F = F_score(tp, fp, total_variants)
 
-    def get_prior_model(self):
-        return self.prior_model
+        for prob in variant_probs:  # we successively reject each probability and increase the threshold
+            tp = tp - prob
+            fp = fp - (1 - prob)
+            F = F_score(tp, fp, total_variants)
 
+            if F > best_F:
+                best_F = F
+                threshold = prob
 
+        # we have calculate a variant probability threshold but we want an artifact logit threshold
+        return torch.logit(1 - torch.tensor(threshold)).item()
