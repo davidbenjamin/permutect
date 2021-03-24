@@ -146,24 +146,22 @@ def get_validation_stats(model, loader, thresholds=[0.0]):
 
 
 # compute optimal F score over a single epoch pass over the test loader, optionally doing SGD on the AF spectrum
-def get_optimal_f_score_and_train_spectra(model, loader, optimizer=None):
+def get_optimal_f_score(model, loader, make_plot=False):
     # tuples of (artifact prob, artifact label 0/1)
     predictions_and_labels = []
 
-    model.learn_spectrum_mode()
+    model.freeze_all()
     for batch in loader:
         labels = batch.labels()
-        logits, log_evidence = model(batch, posterior=True)
+        logits, _ = model(batch, posterior=True)
         for n in range(batch.size()):
             predictions_and_labels.append((logits[n].item(), labels[n].item()))
-        if optimizer is not None:
-            optimizer.zero_grad()
-            loss = -log_evidence
-            loss.backward()
-            optimizer.step()
 
     # sort tuples in ascending order of the model prediction
     predictions_and_labels.sort(key=lambda tuple: tuple[0])
+
+    sensitivity = []
+    precision = []
 
     # start at threshold = -infinity; that is, everything is called an artifact, and pick up one variant at a time
     total_true = sum([(1 - label) for _, label in predictions_and_labels])
@@ -172,6 +170,17 @@ def get_optimal_f_score_and_train_spectra(model, loader, optimizer=None):
         fp = fp + label
         tp = tp + (1 - label)
         best_F = max(best_F, F_score(tp, fp, total_true))
+        sensitivity.append(tp / total_true)
+        precision.append(tp / (tp + fp + 0.00001))
+
+    if make_plot:
+        roc_fig = plt.figure()
+        roc_curve = roc_fig.gca()
+        roc_curve.plot(sensitivity, precision)
+        roc_curve.set_title("ROC curve according to M3's own probabilities.")
+        roc_curve.set_xlabel("sensitivity")
+        roc_curve.set_ylabel("precision")
+
     return best_F
 
 
@@ -192,6 +201,7 @@ def get_m2_validation_stats(loader):
 
     return stats
 
+
 def show_validation_plots(model, loader, logit_threshold):
     m3_stats = get_validation_stats(model, loader, [logit_threshold])[0]
     m3_stats.plot_sensitivities("Mutect3 on test set")
@@ -210,7 +220,8 @@ def show_validation_plots(model, loader, logit_threshold):
     distance_to_corner = min(math.sqrt((1 - x) ** 2 + (1 - y) ** 2) for x, y in zip(sens, prec))
     roc_fig = plt.figure()
     roc_curve = roc_fig.gca()
-    roc_curve.plot(sens, prec, label="ROC curve. Distance to corner: " + str(distance_to_corner))
+    roc_curve.plot(sens, prec)
+    roc_curve.set_title("ROC curve. Distance to corner: " + str(distance_to_corner))
     roc_curve.set_xlabel("sensitivity")
     roc_curve.set_ylabel("precision")
     roc_curve.scatter([m2_stats.sensitivity()], [m2_stats.precision()])

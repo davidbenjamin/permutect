@@ -5,7 +5,7 @@ import numpy as np
 
 from torch.utils.data import Dataset, DataLoader, random_split
 
-from mutect3.tensors import Datum
+from mutect3 import tensors
 
 # Read sets have different sizes so we can't form a batch by naively stacking tensors.  We need a custom collate
 # function for our data loader, which our model must understand.
@@ -100,8 +100,7 @@ class Mutect3Dataset(Dataset):
     def __init__(self, pickled_files):
         self.data = []
         for pickled_file in pickled_files:
-            with open(pickled_file, 'rb') as f:
-                self.data.extend(pickle.load(f))
+            self.data.extend(tensors.load_pickle(pickled_file))
         random.shuffle(self.data)
 
         # concatenate a bunch of ref tensors and take element-by-element quantiles
@@ -119,7 +118,7 @@ class Mutect3Dataset(Dataset):
         ref = (raw.ref_tensor() - self.read_medians) / self.read_iqrs
         alt = (raw.alt_tensor() - self.read_medians) / self.read_iqrs
         info = (raw.info_tensor() - self.info_medians) / self.info_iqrs
-        return Datum(ref, alt, info, raw.metadata(), raw.mutect_info(), raw.artifact_label())
+        return tensors.Datum(ref, alt, info, raw.metadata(), raw.mutect_info(), raw.artifact_label())
 
 def make_datasets(training_pickles, test_pickle):
     # make our training, validation, and testing data
