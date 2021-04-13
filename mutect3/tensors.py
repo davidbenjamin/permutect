@@ -1,6 +1,7 @@
 import torch
+import random
 import numpy as np
-
+import pickle
 
 class SiteInfo:
     def __init__(self, chromosome, position, ref, alt, popaf):
@@ -116,9 +117,20 @@ class Datum:
     def artifact_label(self):
         return self._artifact_label
 
+# pickle and unpickle a Python list of Datum objects.  Convenient to have here because unpickling needs to have all
+# the constituent classes of Datum explicitly imported.
+def make_pickle(file, datum_list):
+    with open(file, 'wb') as f:
+        pickle.dump(datum_list, f)
 
-# size of each read's FRS feature vector
-NUM_READ_FEATURES = 11
+def load_pickle(file):
+    with open(file, 'rb') as f:
+        return pickle.load(f)
+
+
+NUM_READ_FEATURES = 11  #size of each read's feature vector from M2 annotation
+NUM_INFO_FEATURES = 9   # size of each variant's info field tensor (3 components for HEC, one each for HAPDOM, HAPCOMP)
+                        # and 5 for ref bases STR info
 
 ARTIFACT_POPAF_THRESHOLD = 5.9  # only let things absent from gnomAD be artifacts out of caution
 GERMLINE_POPAF_THRESHOLD = 1  # also very cautious.  There are so many germline variants we can be wasteful!
@@ -208,10 +220,8 @@ class TableReader:
         return ref, alt
 
 
-# this takes a table from VariantsToTable and produces a list of either
-# (ref tensor, alt tensor, and unsupervised label based on AF) if is_training = true
-# (ref tensor, alt tensor, (position, filters, status)) if is_training = false
-def make_tensors(raw_file, is_training, sample_name, normal_sample_name=None):
+# this takes a table from VariantsToTable and produces a Python list of Datum objects
+def make_tensors(raw_file, is_training, sample_name, normal_sample_name=None, shuffle=True):
     data = []
 
     # simple online method for balanced data set where for each k-alt-read artifact there are
@@ -282,4 +292,6 @@ def make_tensors(raw_file, is_training, sample_name, normal_sample_name=None):
             info_tensor = reader.variant_info(tokens).info_tensor()
 
             data.append(Datum(ref_tensor, alt_tensor, info_tensor, metadata, m2_data, 1 if is_artifact else 0))
+        if shuffle:
+            random.shuffle(data)
         return data

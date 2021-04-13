@@ -1,7 +1,7 @@
 from collections import defaultdict
+import math
 import matplotlib.pyplot as plt
-
-from mutect3.threshold import F_score
+from mutect3.networks import F_score
 
 class TrainingMetrics:
     NLL = "negative log-likelihood"
@@ -126,7 +126,7 @@ class ValidationStats:
 
 # threshold is threshold of logit prediction for considering variant an artifact -- this is a quick way to
 # explore translating likelihoods from balanced training to posteriors, which we will alter do in a principled way
-def get_validation_stats(model, loader, m2_filters_to_keep={}, thresholds=[0.0]):
+def get_validation_stats(model, loader, thresholds=[0.0]):
     all_stats = [ValidationStats() for _ in thresholds]
 
     model.train(False)
@@ -134,50 +134,53 @@ def get_validation_stats(model, loader, m2_filters_to_keep={}, thresholds=[0.0])
         labels = batch.labels()
         filters = [m2.filters() for m2 in batch.mutect_info()]
         alt_counts = batch.alt_counts()
-        predictions = model(batch)
+        predictions, _ = model(batch, posterior = True)
         positions = [meta.locus() for meta in batch.metadata()]
         for n in range(batch.size()):
             truth = 1 if labels[n].item() > 0.5 else 0
             for stats, threshold in zip(all_stats, thresholds):
-                pred = 1 if (predictions[n] > threshold or filters[n].intersection(m2_filters_to_keep)) else 0
+                pred = 1 if predictions[n] > threshold  else 0
                 stats.add(alt_counts[n].item(), truth, pred, predictions[n].item(), filters[n], positions[n])
 
     return all_stats
 
 
-def get_optimal_f_score(model, loader, m2_filters_to_keep={}):
+# compute optimal F score over a single epoch pass over the test loader, optionally doing SGD on the AF spectrum
+def get_optimal_f_score(model, loader, make_plot=False):
     # tuples of (artifact prob, artifact label 0/1)
     predictions_and_labels = []
 
-    model.train(False)
+    model.freeze_all()
     for batch in loader:
         labels = batch.labels()
-        predictions = model(batch)
-        filters = [m2.filters() for m2 in batch.mutect_info()]
+        logits, _ = model(batch, posterior=True)
         for n in range(batch.size()):
-            pred = 1 if filters[n].intersection(m2_filters_to_keep) else predictions[n].item()
-            predictions_and_labels.append((pred, labels[n].item()))
+            predictions_and_labels.append((logits[n].item(), labels[n].item()))
 
     # sort tuples in ascending order of the model prediction
     predictions_and_labels.sort(key=lambda tuple: tuple[0])
 
-    # start at threshold = -infinity; that is, everything is called an artifact
-    # hence there are no false positives and every true variant is a false negative
-    total_true = len([1 for pred, label in predictions_and_labels if label < 0.5])
-    tp = 0
-    fp = 0
-    best_F = 0
-    for pred, label in predictions_and_labels:
-        # now increase the (implicit) threshold and call this variant good
-        # picking up a tp or fp accordingly
-        if label > 0.5:
-            fp = fp + 1
-        else:
-            tp = tp + 1
+    sensitivity = []
+    precision = []
 
-        F = F_score(tp, fp, total_true)
-        if F > best_F:
-            best_F = F
+    # start at threshold = -infinity; that is, everything is called an artifact, and pick up one variant at a time
+    total_true = sum([(1 - label) for _, label in predictions_and_labels])
+    tp, fp, best_F = 0, 0, 0
+    for pred, label in predictions_and_labels:
+        fp = fp + label
+        tp = tp + (1 - label)
+        best_F = max(best_F, F_score(tp, fp, total_true))
+        sensitivity.append(tp / total_true)
+        precision.append(tp / (tp + fp + 0.00001))
+
+    if make_plot:
+        roc_fig = plt.figure()
+        roc_curve = roc_fig.gca()
+        roc_curve.plot(sensitivity, precision)
+        roc_curve.set_title("ROC curve according to M3's own probabilities.")
+        roc_curve.set_xlabel("sensitivity")
+        roc_curve.set_ylabel("precision")
+
     return best_F
 
 
@@ -197,3 +200,35 @@ def get_m2_validation_stats(loader):
             stats.add(alt_counts[n].item(), truth, pred, score, filters[n], positions[n])
 
     return stats
+
+
+def show_validation_plots(model, loader, logit_threshold):
+    m3_stats = get_validation_stats(model, loader, [logit_threshold])[0]
+    m3_stats.plot_sensitivities("Mutect3 on test set")
+
+    m2_stats = get_m2_validation_stats(loader)
+    m2_stats.plot_sensitivities("Mutect2 on test set")
+
+    roc_thresholds = [-16 + 0.5 * n for n in range(64)]
+    roc_stats = get_validation_stats(model, loader, roc_thresholds)
+    sens = [stats.sensitivity() for stats in roc_stats]
+    prec = [stats.precision() for stats in roc_stats]
+
+    labeled_indices = range(16, 48, 4)
+
+    # minimum distance to sens = 1, prec = 1 corner\n",
+    distance_to_corner = min(math.sqrt((1 - x) ** 2 + (1 - y) ** 2) for x, y in zip(sens, prec))
+    roc_fig = plt.figure()
+    roc_curve = roc_fig.gca()
+    roc_curve.plot(sens, prec)
+    roc_curve.set_title("ROC curve. Distance to corner: " + str(distance_to_corner))
+    roc_curve.set_xlabel("sensitivity")
+    roc_curve.set_ylabel("precision")
+    roc_curve.scatter([m2_stats.sensitivity()], [m2_stats.precision()])
+    roc_curve.annotate("Mutect2", (m2_stats.sensitivity(), m2_stats.precision()))
+    roc_curve.scatter([m3_stats.sensitivity()], [m3_stats.precision()])
+    roc_curve.annotate("Mutect3", (m3_stats.sensitivity(), m3_stats.precision()))
+
+    for n in labeled_indices:
+        roc_curve.scatter(roc_stats[n].sensitivity(), roc_stats[n].precision())
+        roc_curve.annotate(str(roc_thresholds[n]), (roc_stats[n].sensitivity(), roc_stats[n].precision()))
