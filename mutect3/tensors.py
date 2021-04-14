@@ -227,7 +227,9 @@ def make_tensors(raw_file, is_training, sample_name, normal_sample_name=None, sh
     # simple online method for balanced data set where for each k-alt-read artifact there are
     # NON_ARTIFACT_PER_ARTIFACT (downsampled) k-alt-read non-artifacts.  That is, alt count is not an informative
     # feature.
-    unmatched_artifact_counts = []
+    unmatched_snv_counts = []
+    unmatched_deletion_counts = []
+    unmatched_insertion_counts = []
 
     with open(raw_file) as fp:
         reader = TableReader(fp.readline().split(), sample_name, normal_sample_name)
@@ -270,6 +272,10 @@ def make_tensors(raw_file, is_training, sample_name, normal_sample_name=None, sh
                     normal_ref, normal_alt = reader.normal_ref_and_alt(tokens, REF_DOWNSAMPLE)
                     normal_af = 0 if normal_dp == 0 else len(normal_alt) / normal_dp
                     # TODO: output normal alt reads in dataset
+
+                variant_size = len(metadata.alt()) - len(metadata.ref())
+                unmatched_artifact_counts = unmatched_snv_counts if variant_size == 0 else \
+                    (unmatched_insertion_counts if variant_size > 0 else unmatched_deletion_counts)
 
                 # low AF in tumor and normal, rare in population implies artifact
                 if (not has_normal or normal_af < 0.2) and af < 0.2 and metadata.popaf() > ARTIFACT_POPAF_THRESHOLD:

@@ -141,21 +141,25 @@ class ReadSetClassifier(nn.Module):
     embedding, mean alt read embedding, and variant info embedding, then apply an aggregation function to
     this concatenation.
 
-    read_layers: dimensions of layers for embedding reads, excluding input dimension, which is the
+    hidden_read_layers: dimensions of layers for embedding reads, excluding input dimension, which is the
     size of each read's 1D tensor
 
-    info_layers: dimensions of layers for embedding variant info, excluding input dimension, which is the
+    hidden_info_layers: dimensions of layers for embedding variant info, excluding input dimension, which is the
     size of variant info 1D tensor
 
     aggregation_layers: dimensions of layers for aggregation, excluding its input which is determined by the
     read and info embeddings.
+
+    output_layers: dimensions of layers after aggregation, excluding the output dimension,
+    which is 1 for a single logit representing artifact/non-artifact.  This is not part of the aggregation layers
+    because we have different output layers for each variant type.
     """
 
-    def __init__(self, read_layers, info_layers, aggregation_layers, m2_filters_to_keep={}):
+    def __init__(self, hidden_read_layers, hidden_info_layers, aggregation_layers, output_layers, m2_filters_to_keep={}):
         super(ReadSetClassifier, self).__init__()
 
-        read_layers = [tensors.NUM_READ_FEATURES] + read_layers
-        info_layers = [tensors.NUM_INFO_FEATURES] + info_layers
+        read_layers = [tensors.NUM_READ_FEATURES] + hidden_read_layers
+        info_layers = [tensors.NUM_INFO_FEATURES] + hidden_info_layers
 
         # note: these are only used for testing, not training
         self.m2_filters_to_keep = m2_filters_to_keep
@@ -169,7 +173,11 @@ class ReadSetClassifier(nn.Module):
         # rho is the universal aggregation function
         # the *2 is for the use of both ref and alt reads
         # the [1] is the final binary classification in logit space
-        self.rho = MLP([2 * read_layers[-1] + info_layers[-1]] + aggregation_layers + [1], batch_normalize=False)
+        self.rho = MLP([2 * read_layers[-1] + info_layers[-1]] + aggregation_layers, batch_normalize=False)
+
+        self.snv_output = MLP([aggregation_layers[-1]] + output_layers + [1])
+        self.insertion_output = MLP([aggregation_layers[-1]] + output_layers + [1])
+        self.deletion_output = MLP([aggregation_layers[-1]] + output_layers + [1])
 
         # since we take the mean of read embeddings we lose all information about alt count.  This is intentional
         # because a somatic classifier must be largely unaware of the allele fraction in order to avoid simply
@@ -186,7 +194,7 @@ class ReadSetClassifier(nn.Module):
         self.max_logit = nn.Parameter(torch.tensor(10.0), requires_grad=False)
 
 
-        # after an count-dependent confidence, one final logit --> logit mapping of the confidence.  This is initialized
+        # after a count-dependent confidence, one final logit --> logit mapping of the confidence.  This is initialized
         # as the identity function but after calibration we want the output logits to saturate, representing the fact
         # that our model can never be certain.
 
@@ -200,6 +208,11 @@ class ReadSetClassifier(nn.Module):
         result.extend(self.phi.parameters())
         result.extend(self.omega.parameters())
         result.extend(self.rho.parameters())
+        result.extend(self.snv_output.parameters())
+        result.extend(self.insertion_output.parameters())
+        result.extend(self.deletion_output.parameters())
+
+        #TODO: should this perhaps not be trained?
         result.append(self.confidence)
         return result
 
@@ -251,8 +264,21 @@ class ReadSetClassifier(nn.Module):
         # stack side-by-side to get 2D tensor, where each variant row is (ref mean, alt mean, info
         concatenated = torch.cat((ref_means, alt_means, omega_info), dim=1)
 
-        # squeeze to get 1D tensor
-        logits = torch.squeeze(self.rho(concatenated))
+        aggregated = self.rho(concatenated)
+
+        # squeeze to get 1D tensor.  It's slightly wasteful to compute output for every variant type when we only
+        # use one, but this is such a small part of the model and it lets us use batches of mixed variant types
+        # without fancy code
+        snv = torch.squeeze(self.snv_output(aggregated))
+        insertion = torch.squeeze(self.insertion_output(aggregated))
+        deletion = torch.squeeze(self.deletion_output(aggregated))
+
+        variant_lengths = [len(site_info.alt()) - len(site_info.ref()) for site_info in batch.metadata()]
+        snv_mask = torch.tensor([1 if length == 0 else 0 for length in variant_lengths])
+        insertion_mask = torch.tensor([1 if length > 0 else 0 for length in variant_lengths])
+        deletion_mask = torch.tensor([1 if length < 0 else 0 for length in variant_lengths])
+
+        logits = snv_mask * snv + insertion_mask * insertion + deletion_mask * deletion
 
         # apply alt count-dependent confidence calibration
         if calibrated:
@@ -261,6 +287,7 @@ class ReadSetClassifier(nn.Module):
             logits = self.max_logit * torch.tanh(logits / self.max_logit)
         log_evidence = 0    # this won't be used unless overwritten for prior model case
 
+        # TODO: maybe have variant type-dependent prior models?
         if posterior:
             # 1 if we use an M2 filter regardless of M3, 0 otherwise
             use_m2_filter = torch.LongTensor([1 if m2.filters().intersection(self.m2_filters_to_keep) else 0 for m2 in batch.mutect_info()])
