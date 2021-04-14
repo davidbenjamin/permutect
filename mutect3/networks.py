@@ -211,13 +211,11 @@ class ReadSetClassifier(nn.Module):
         result.extend(self.snv_output.parameters())
         result.extend(self.insertion_output.parameters())
         result.extend(self.deletion_output.parameters())
-
-        #TODO: should this perhaps not be trained?
-        result.append(self.confidence)
         return result
 
     def calibration_parameters(self):
-        return [self.confidence, self.max_logit]
+        #return [self.confidence, self.max_logit]
+        return [self.max_logit]
 
     def spectra_parameters(self):
         return self.prior_model.parameters()
@@ -247,7 +245,6 @@ class ReadSetClassifier(nn.Module):
 
         # broadcast the embedding to each read
         num_sets = batch.size()
-
         phi_ref = torch.sigmoid(self.phi(batch.ref()))
         phi_alt = torch.sigmoid(self.phi(batch.alt()))
         omega_info = torch.sigmoid(self.omega(batch.info()))
@@ -273,7 +270,7 @@ class ReadSetClassifier(nn.Module):
         insertion = torch.squeeze(self.insertion_output(aggregated))
         deletion = torch.squeeze(self.deletion_output(aggregated))
 
-        variant_lengths = [len(site_info.alt()) - len(site_info.ref()) for site_info in batch.metadata()]
+        variant_lengths = [len(site_info.alt()) - len(site_info.ref()) for site_info in batch.site_info()]
         snv_mask = torch.tensor([1 if length == 0 else 0 for length in variant_lengths])
         insertion_mask = torch.tensor([1 if length > 0 else 0 for length in variant_lengths])
         deletion_mask = torch.tensor([1 if length < 0 else 0 for length in variant_lengths])
@@ -312,7 +309,12 @@ class ReadSetClassifier(nn.Module):
         optimizer = torch.optim.Adam(self.spectra_parameters())
 
         spectra_losses = []
+        converged = False
         for epoch in range(num_epochs):
+            if converged:
+                spectra_losses.append(spectra_losses[-1])
+                continue
+
             print("Prior log odds: " + str(self.prior_model.prior_log_odds.item()))
             epoch_loss = 0
             # each batch gets an E step in which we apply the prior model to the logits to get posteriors and
@@ -342,6 +344,13 @@ class ReadSetClassifier(nn.Module):
 
             self.prior_model.prior_log_odds = nn.Parameter(torch.tensor(math.log(total_artifact/total_variant)))
 
+            # check for convergence
+            if epoch > 5:
+                delta = abs(epoch_loss - spectra_losses[-1])
+                total_delta = abs(epoch_loss - spectra_losses[0])
+                if delta < 0.001 * total_delta:
+                    converged = True
+
             spectra_losses.append(epoch_loss)
 
         # TODO horrible code duplication!!!
@@ -363,9 +372,6 @@ class ReadSetClassifier(nn.Module):
                                              for batch in loader]
         optimizer = torch.optim.Adam(self.calibration_parameters())
         criterion = nn.BCEWithLogitsLoss()
-
-        print("Confidence params before calibration: ")
-        print(self.confidence.tolist())
 
         self.learn_calibration_mode()
         calibration_losses = []
@@ -392,9 +398,6 @@ class ReadSetClassifier(nn.Module):
         curve.set_title("Learning curve for calibration")
         curve.set_xlabel("epoch")
         curve.set_ylabel("loss")
-
-        print("Confidence params after calibration: ")
-        print(self.confidence.tolist())
 
     def calculate_logit_threshold(self, loader):
         self.train(False)
