@@ -2,6 +2,7 @@ import torch
 import random
 import numpy as np
 import pickle
+from typing import Set, List
 
 class SiteInfo:
     def __init__(self, chromosome, position, ref, alt, popaf):
@@ -24,18 +25,18 @@ class SiteInfo:
 
 
 class MutectInfo:
-    def __init__(self, tlod, tumor_dp, filters):
+    def __init__(self, tlod: float, tumor_dp: int, filters: Set[str]):
         self._tlod = tlod
         self._tumor_dp = tumor_dp
         self._filters = filters
 
-    def tlod(self):
+    def tlod(self) -> float:
         return self._tlod
 
-    def tumor_depth(self):
+    def tumor_depth(self) -> int:
         return self._tumor_dp
 
-    def filters(self):
+    def filters(self) -> Set[str]:
         return self._filters
 
 
@@ -56,7 +57,7 @@ class VariantInfo:
         self._info.extend([self.num_repeats(ref_bases, k) for k in range(1, 6)])
         self._info = torch.FloatTensor(self._info)
 
-    def info_tensor(self):
+    def info_tensor(self) -> torch.Tensor:
         return self._info
 
     # count how many repeats of length k surround the middle base
@@ -91,27 +92,27 @@ class VariantInfo:
 
 
 class Datum:
-    def __init__(self, ref_tensor, alt_tensor, info_tensor, metadata, mutect2_data, artifact_label):
+    def __init__(self, ref_tensor: torch.Tensor, alt_tensor: torch.Tensor, info_tensor: torch.Tensor, site_info: SiteInfo, mutect2_data: MutectInfo, artifact_label):
+        self._site_info = site_info
         self._ref_tensor = ref_tensor
         self._alt_tensor = alt_tensor
         self._info_tensor = info_tensor
-        self._metadata = metadata
         self._mutect2_data = mutect2_data
         self._artifact_label = artifact_label
 
-    def ref_tensor(self):
+    def ref_tensor(self) -> torch.Tensor:
         return self._ref_tensor
 
-    def alt_tensor(self):
+    def alt_tensor(self) -> torch.Tensor:
         return self._alt_tensor
 
-    def info_tensor(self):
+    def info_tensor(self) -> torch.Tensor:
         return self._info_tensor
 
-    def metadata(self):
-        return self._metadata
+    def site_info(self) -> SiteInfo:
+        return self._site_info
 
-    def mutect_info(self):
+    def mutect_info(self) -> MutectInfo:
         return self._mutect2_data
 
     def artifact_label(self):
@@ -127,6 +128,12 @@ def load_pickle(file):
     with open(file, 'rb') as f:
         return pickle.load(f)
 
+def downsample(tensor: torch.Tensor, downsample) -> torch.Tensor:
+    if downsample is None or downsample >= len(tensor):
+        return tensor
+    else:
+        return tensor[torch.randperm(len(tensor))[:downsample]]
+
 
 NUM_READ_FEATURES = 11  #size of each read's feature vector from M2 annotation
 NUM_INFO_FEATURES = 9   # size of each variant's info field tensor (3 components for HEC, one each for HAPDOM, HAPCOMP)
@@ -135,11 +142,11 @@ NUM_INFO_FEATURES = 9   # size of each variant's info field tensor (3 components
 ARTIFACT_POPAF_THRESHOLD = 5.9  # only let things absent from gnomAD be artifacts out of caution
 GERMLINE_POPAF_THRESHOLD = 1  # also very cautious.  There are so many germline variants we can be wasteful!
 
-REF_DOWNSAMPLE = 10  # choose this many ref reads randomly
+REF_DOWNSAMPLE = 20  # choose this many ref reads randomly
 MIN_REF = 5
 
 TLOD_THRESHOLD = 6  # we are classified artifacts other than sequencing errors described by base qualities
-NON_ARTIFACT_PER_ARTIFACT = 50  # ratio of non-artifact to artifact in unsupervised training data
+NON_ARTIFACT_PER_ARTIFACT = 20  # ratio of non-artifact to artifact in unsupervised training data
 
 
 class TableReader:
@@ -147,47 +154,27 @@ class TableReader:
     ALLELE_SEPARATOR = '|'
 
     def __init__(self, header_tokens, tumor_sample, normal_sample=None):
-        # site metadata
-        self.chrom_idx, self.pos_idx, self.ref_allele_idx, self.alt_allele_idx, self.popaf_idx = \
-            TableReader._get_indices(header_tokens, ["CHROM", "POS", "REF", "ALT", "POPAF"])
-
-        # Mutect2 data
-        self.filter_idx, self.tlod_idx, self.tumor_dp_idx, = \
-            TableReader._get_indices(header_tokens, ["FILTER", "TLOD", tumor_sample + ".DP"])
-
-        # variant info features
-        self.hec_idx, self.hapcomp_idx, self.hapdom_idx, self.ref_bases_idx = \
-            self._get_indices(header_tokens, ["HEC", "HAPCOMP", "HAPDOM", "REF_BASES"])
-
+        self.site_info_indices = self._get_indices(header_tokens, ["CHROM", "POS", "REF", "ALT", "POPAF"])
+        self.mutect_indices = self._get_indices(header_tokens, ["FILTER", "TLOD", tumor_sample + ".DP"])
+        self.variant_info_indices = self._get_indices(header_tokens, ["HEC", "HAPCOMP", "HAPDOM", "REF_BASES"])
         self.status_idx = TableReader._index_if_exists(header_tokens, "STATUS")
         self.tumor_idx = TableReader._index_if_exists(header_tokens, tumor_sample + ".FRS")
 
         # optional normal data
         if normal_sample is not None:
-            self.normal_idx, self.normal_dp_idx = TableReader._get_indices(header_tokens,
-                                                                           [normal_sample + ".FRS",
-                                                                            normal_sample + ".DP"])
+            self.normal_idx, self.normal_dp_idx = self._get_indices(header_tokens,[normal_sample + ".FRS", normal_sample + ".DP"])
 
-    def variant_info(self, tokens):
-        haplotype_equivalence_counts = [int(n) for n in tokens[self.hec_idx].split(",")]
-        haplotype_complexity = int(tokens[self.hapcomp_idx])
-        haplotype_dominance = float(tokens[self.hapdom_idx])
-        ref_bases = tokens[self.ref_bases_idx]
-        return VariantInfo(haplotype_equivalence_counts, haplotype_complexity, haplotype_dominance, ref_bases)
+    def variant_info(self, tokens) -> VariantInfo:
+        hec, hapcomp, hapdom, ref_bases = (tokens[idx] for idx in self.variant_info_indices)
+        return VariantInfo([int(n) for n in hec.split(",")], int(hapcomp), float(hapdom), ref_bases)
 
-    def site_info(self, tokens):
-        chromosome = tokens[self.chrom_idx]
-        position = int(tokens[self.pos_idx])
-        ref = tokens[self.ref_allele_idx]
-        alt = tokens[self.alt_allele_idx]
-        popaf = float(tokens[self.popaf_idx])
-        return SiteInfo(chromosome, position, ref, alt, popaf)
+    def site_info(self, tokens) -> SiteInfo:
+        chrom, pos, ref, alt, popaf = (tokens[idx] for idx in self.site_info_indices)
+        return SiteInfo(chrom, int(pos), ref, alt, float(popaf))
 
-    def mutect_info(self, tokens):
-        tlod = float(tokens[self.tlod_idx])
-        tumor_dp = int(tokens[self.tumor_dp_idx])
-        filters = set(tokens[self.filter_idx].split(","))
-        return MutectInfo(tlod, tumor_dp, filters)
+    def mutect_info(self, tokens) -> MutectInfo:
+        filters, tlod, tumor_dp = (tokens[idx] for idx in self.mutect_indices)
+        return MutectInfo(float(tlod), int(tumor_dp), set(filters.split(",")))
 
     def status(self, tokens):
         return tokens[self.status_idx]
@@ -215,13 +202,11 @@ class TableReader:
         tokens = token.split(TableReader.ALLELE_SEPARATOR)
         ref, alt = tuple(np.fromstring(x, dtype=int, sep=',').reshape((-1, NUM_READ_FEATURES)) for x in tokens)
         ref, alt = torch.from_numpy(ref).float(), torch.from_numpy(alt).float()
-        if ref_downsample is not None and len(ref) > ref_downsample:
-            ref = ref[torch.randperm(len(ref))[:ref_downsample]]
-        return ref, alt
+        return downsample(ref, ref_downsample), alt
 
 
 # this takes a table from VariantsToTable and produces a Python list of Datum objects
-def make_tensors(raw_file, is_training, sample_name, normal_sample_name=None, shuffle=True):
+def make_tensors(raw_file, is_training, sample_name, normal_sample_name=None, shuffle=True) -> List[Datum]:
     data = []
 
     # simple online method for balanced data set where for each k-alt-read artifact there are
@@ -239,7 +224,7 @@ def make_tensors(raw_file, is_training, sample_name, normal_sample_name=None, sh
                 print("Processing line " + str(n))
 
             tokens = line.split()
-            metadata = reader.site_info(tokens)
+            site_info = reader.site_info(tokens)
             m2_data = reader.mutect_info(tokens)
 
             # Contamination and weak evidence / low log odds have low AFs but are not artifacts.  We exclude them
@@ -254,7 +239,7 @@ def make_tensors(raw_file, is_training, sample_name, normal_sample_name=None, sh
 
             # in training, we want low popaf for true artifacts, high AF for true variants
             # in order to have more confident weak labels.  In between, discard.
-            if is_training and (GERMLINE_POPAF_THRESHOLD < metadata.popaf() < ARTIFACT_POPAF_THRESHOLD):
+            if is_training and (GERMLINE_POPAF_THRESHOLD < site_info.popaf() < ARTIFACT_POPAF_THRESHOLD):
                 continue
 
             ref_tensor, alt_tensor = reader.tumor_ref_and_alt(tokens, REF_DOWNSAMPLE)
@@ -273,17 +258,16 @@ def make_tensors(raw_file, is_training, sample_name, normal_sample_name=None, sh
                     normal_af = 0 if normal_dp == 0 else len(normal_alt) / normal_dp
                     # TODO: output normal alt reads in dataset
 
-                variant_size = len(metadata.alt()) - len(metadata.ref())
+                variant_size = len(site_info.alt()) - len(site_info.ref())
                 unmatched_artifact_counts = unmatched_snv_counts if variant_size == 0 else \
                     (unmatched_insertion_counts if variant_size > 0 else unmatched_deletion_counts)
 
                 # low AF in tumor and normal, rare in population implies artifact
-                if (not has_normal or normal_af < 0.2) and af < 0.2 and metadata.popaf() > ARTIFACT_POPAF_THRESHOLD:
+                if (not has_normal or normal_af < 0.2) and af < 0.2 and site_info.popaf() > ARTIFACT_POPAF_THRESHOLD:
                     unmatched_artifact_counts.extend([alt_count] * NON_ARTIFACT_PER_ARTIFACT)
                     is_artifact = True
                 # high AF in tumor and normal, common in population implies germline, which we downsample
-                elif (
-                        not has_normal or normal_af > 0.35) and af > 0.35 and metadata.popaf() < GERMLINE_POPAF_THRESHOLD and unmatched_artifact_counts:
+                elif (not has_normal or normal_af > 0.35) and af > 0.35 and site_info.popaf() < GERMLINE_POPAF_THRESHOLD and unmatched_artifact_counts:
                     downsample_count = min(alt_count, unmatched_artifact_counts.pop())
                     alt_tensor = alt_tensor[torch.randperm(alt_count)[:downsample_count]]
                 # inconclusive -- don't use for training data
@@ -297,7 +281,7 @@ def make_tensors(raw_file, is_training, sample_name, normal_sample_name=None, sh
             # assembly complexity site-level annotations
             info_tensor = reader.variant_info(tokens).info_tensor()
 
-            data.append(Datum(ref_tensor, alt_tensor, info_tensor, metadata, m2_data, 1 if is_artifact else 0))
+            data.append(Datum(ref_tensor, alt_tensor, info_tensor, site_info, m2_data, 1 if is_artifact else 0))
         if shuffle:
             random.shuffle(data)
         return data

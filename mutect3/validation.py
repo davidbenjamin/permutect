@@ -3,6 +3,18 @@ import math
 import matplotlib.pyplot as plt
 from mutect3.networks import F_score
 
+# one or more simple plots of y data vs x data on shared axes
+def simple_plot(x_y_lab_tuples, xlabel, ylabel, title):
+    fig = plt.figure()
+    curve = fig.gca()
+    for (x,y,lab) in x_y_lab_tuples:
+        curve.plot(x, y, label=lab)
+    curve.set_title(title)
+    curve.set_xlabel(xlabel)
+    curve.set_ylabel(ylabel)
+    curve.legend()
+    return fig, curve
+
 class TrainingMetrics:
     NLL = "negative log-likelihood"
     F = "optimal F score"
@@ -18,16 +30,8 @@ class TrainingMetrics:
         metric_dict = self.metrics[metric_type]
         train_types = list(metric_dict.keys())
         epochs = range(1, len(metric_dict[train_types[0]]) + 1)
-
-        fig = plt.figure()
-        curve = fig.gca()
-
-        for train_type in train_types:
-            curve.plot(epochs, metric_dict[train_type], label=train_type)
-        curve.set_title("Learning curves: " + metric_type)
-        curve.set_xlabel("epoch")
-        curve.set_ylabel(metric_type)
-        curve.legend()
+        x_y_lab = [(epochs, metric_dict[typ], typ) for typ in train_types]
+        fig, curve = simple_plot(x_y_lab, xlabel="epoch", ylabel=metric_type, title="Learning curves: " + metric_type)
         return fig, curve
 
     def plot_all_metrics(self):
@@ -103,15 +107,9 @@ class ValidationStats:
             variant_sensitivities.append(matrix[0][0] / (matrix[0][0] + matrix[0][1]))
             artifact_sensitivities.append(matrix[1][1] / (matrix[1][0] + matrix[1][1]))
 
-        fig = plt.figure()
-        accuracy_curve = fig.gca()
-        accuracy_curve.plot(counts, variant_sensitivities, label="variant sensitivity")
-        accuracy_curve.plot(counts, artifact_sensitivities, label="artifact sensitivity")
-        accuracy_curve.set_title("Variant and artifact sensitivity by alt count for " + name)
-        accuracy_curve.set_xlabel("alt count")
-        accuracy_curve.set_ylabel("sensitivity")
-        accuracy_curve.legend()
-        return fig, accuracy_curve
+        x_y_lab = [(counts, variant_sensitivities, "variant sensitivity"), (counts, artifact_sensitivities, "artifact sensitivity")]
+        fig, curve = simple_plot(x_y_lab, xlabel="alt count", ylabel="sensitivity", title="Variant and artifact sensitivity by alt count for " + name)
+        return fig, curve
 
     def _round_alt_count_for_binning(alt_count):
         if alt_count < 15:
@@ -135,7 +133,7 @@ def get_validation_stats(model, loader, thresholds=[0.0]):
         filters = [m2.filters() for m2 in batch.mutect_info()]
         alt_counts = batch.alt_counts()
         predictions, _ = model(batch, posterior = True)
-        positions = [meta.locus() for meta in batch.metadata()]
+        positions = [meta.locus() for meta in batch.site_info()]
         for n in range(batch.size()):
             truth = 1 if labels[n].item() > 0.5 else 0
             for stats, threshold in zip(all_stats, thresholds):
@@ -174,13 +172,8 @@ def get_optimal_f_score(model, loader, make_plot=False):
         precision.append(tp / (tp + fp + 0.00001))
 
     if make_plot:
-        roc_fig = plt.figure()
-        roc_curve = roc_fig.gca()
-        roc_curve.plot(sensitivity, precision)
-        roc_curve.set_title("ROC curve according to M3's own probabilities.")
-        roc_curve.set_xlabel("sensitivity")
-        roc_curve.set_ylabel("precision")
-
+        x_y_lab = [(sensitivity, precision, "ROC")]
+        fig, curve = simple_plot(x_y_lab, xlabel="sensitivity", ylabel="precision", title="ROC curve according to M3's own probabilities.")
     return best_F
 
 
@@ -192,7 +185,7 @@ def get_m2_validation_stats(loader):
         labels = batch.labels()
         filters = [m2.filters() for m2 in batch.mutect_info()]
         alt_counts = batch.alt_counts()
-        positions = [meta.locus() for meta in batch.metadata()]
+        positions = [meta.locus() for meta in batch.site_info()]
         for n in range(batch.size()):
             truth = 1 if labels[n].item() > 0.5 else 0
             pred = 0 if 'PASS' in filters[n] else 1
@@ -218,12 +211,10 @@ def show_validation_plots(model, loader, logit_threshold):
 
     # minimum distance to sens = 1, prec = 1 corner\n",
     distance_to_corner = min(math.sqrt((1 - x) ** 2 + (1 - y) ** 2) for x, y in zip(sens, prec))
-    roc_fig = plt.figure()
-    roc_curve = roc_fig.gca()
-    roc_curve.plot(sens, prec)
-    roc_curve.set_title("ROC curve. Distance to corner: " + str(distance_to_corner))
-    roc_curve.set_xlabel("sensitivity")
-    roc_curve.set_ylabel("precision")
+
+    x_y_lab = [(sens, prec, "ROC")]
+    roc_fig, roc_curve = simple_plot(x_y_lab, xlabel="sensitivity", ylabel="precision",
+                             title="ROC curve. Distance to corner: " + str(distance_to_corner))
     roc_curve.scatter([m2_stats.sensitivity()], [m2_stats.precision()])
     roc_curve.annotate("Mutect2", (m2_stats.sensitivity(), m2_stats.precision()))
     roc_curve.scatter([m3_stats.sensitivity()], [m3_stats.precision()])
