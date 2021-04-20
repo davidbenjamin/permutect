@@ -1,8 +1,10 @@
 import torch
 import math
 from torch import nn
-from mutect3 import validation, tensors
+from mutect3 import validation, tensors, data
 import matplotlib.pyplot as plt
+from tqdm.autonotebook import tqdm, trange
+
 
 
 def freeze(parameters):
@@ -239,9 +241,8 @@ class ReadSetClassifier(nn.Module):
         freeze(self.parameters())
         unfreeze(self.spectra_parameters())
 
-
     # see the custom collate_fn for information on the batched input
-    def forward(self, batch, calibrated=True, posterior=False):
+    def forward(self, batch: data.Batch, calibrated=True, posterior=False):
 
         # broadcast the embedding to each read
         num_sets = batch.size()
@@ -310,12 +311,13 @@ class ReadSetClassifier(nn.Module):
 
         spectra_losses = []
         converged = False
-        for epoch in range(num_epochs):
+        pbar = trange(num_epochs, desc="AF spectra epoch")
+        for epoch in pbar:
             if converged:
                 spectra_losses.append(spectra_losses[-1])
                 continue
 
-            print("Prior log odds: " + str(self.prior_model.prior_log_odds.item()))
+            pbar.set_description("Prior log odds: " + str(self.prior_model.prior_log_odds.item()))
             epoch_loss = 0
             # each batch gets an E step in which we apply the prior model to the logits to get posteriors and
             # an M step in which we do gradient descent on the prior model parameters
@@ -342,7 +344,7 @@ class ReadSetClassifier(nn.Module):
                 optimizer.step()
                 epoch_loss += loss.item()
 
-            self.prior_model.prior_log_odds = nn.Parameter(torch.tensor(math.log(total_artifact/total_variant)))
+            self.prior_model.prior_log_odds = nn.Parameter(torch.tensor(math.log((total_artifact+ 0.001)/(total_variant + 0.001))))
 
             # check for convergence
             if epoch > 5:
@@ -367,9 +369,9 @@ class ReadSetClassifier(nn.Module):
     def learn_calibration(self, loader, num_epochs):
 
         # the training pass may cause overconfidence and spoil our calibration. Let's re-calibrate.
-        uncalibrated_logits_labels_counts = [(self(batch, calibrated=False)[0].detach(), batch.labels(), \
-                                              torch.LongTensor([min(c, MAX_ALT) for c in batch.alt_counts()]))
-                                             for batch in loader]
+        uncalibrated_logits_labels_counts = [(self(batch.original_batch(), calibrated=False)[0].detach(), batch.original_batch().labels(), \
+                                              torch.LongTensor([min(c, MAX_ALT) for c in batch.original_batch().alt_counts()]))
+                                             for batch in loader if batch.is_labeled()]
         optimizer = torch.optim.Adam(self.calibration_parameters())
         criterion = nn.BCEWithLogitsLoss()
 
@@ -391,13 +393,8 @@ class ReadSetClassifier(nn.Module):
             calibration_losses.append(epoch_loss)
 
         epochs = range(1, num_epochs + 1)
-        fig = plt.figure()
-        curve = fig.gca()
 
-        curve.plot(epochs, calibration_losses)
-        curve.set_title("Learning curve for calibration")
-        curve.set_xlabel("epoch")
-        curve.set_ylabel("loss")
+        validation.simple_plot([(epochs, calibration_losses, "curve")], "epoch","loss", "Learning curve for calibration")
 
     def calculate_logit_threshold(self, loader):
         self.train(False)
@@ -431,17 +428,12 @@ class ReadSetClassifier(nn.Module):
         # we have calculate a variant probability threshold but we want an artifact logit threshold
         return torch.logit(1 - torch.tensor(threshold)).item()
 
-    def train_model(self, train_loader, valid_loader, test_loader, num_epochs, batch_size):
-        criterion = torch.nn.BCEWithLogitsLoss()
+    def train_model(self, train_loader, valid_loader, test_loader, num_epochs):
+        bce = torch.nn.BCEWithLogitsLoss(reduction='sum')
         train_optimizer = torch.optim.Adam(self.training_parameters())
-
-        # we optimize the AF spectra -- without supervision -- on the test set
-        test_optimizer = torch.optim.Adam(self.spectra_parameters())
-
         training_metrics = validation.TrainingMetrics()
-        for epoch in range(1, num_epochs + 1):
-            print("Epoch " + str(epoch))
 
+        for epoch in trange(1, num_epochs + 1, desc="Epoch"):
             # training epoch, then validation epoch
             for train_vs_valid in [True, False]:
                 loader = train_loader if train_vs_valid else valid_loader
@@ -451,19 +443,37 @@ class ReadSetClassifier(nn.Module):
                 else:
                     self.freeze_all()
 
-                epoch_loss = 0
-                for batch_number, batch in enumerate(loader):
-                    predictions, _ = self(batch)
-                    loss = criterion(predictions, batch.labels())
-                    epoch_loss += loss.item()
+                epoch_labeled_loss, epoch_unlabeled_loss = 0, 0
+                epoch_labeled_count, epoch_unlabeled_count = 0, 0
+                for batch in loader:
+                    # batch is data.AugmentedBatch
+                    orig_pred, _ = self(batch.original_batch())
+                    aug1_pred, _ = self(batch.first_augmented_batch())
+                    aug2_pred, _ = self(batch.second_augmented_batch())
+
+                    if (batch.is_labeled()):
+                        labels = batch.original_batch().labels()
+                        # labeled loss: cross entropy for original and both augmente copies
+                        loss = bce(orig_pred, labels) + bce(aug1_pred, labels) + bce(aug2_pred, labels)
+                        epoch_labeled_count += batch.size()
+                        epoch_labeled_loss += loss.item()
+                    else:
+                        # unlabeled loss: consistency cross entropy between original and both augmented copies
+                        loss1 = bce(aug1_pred, torch.sigmoid(orig_pred.detach()))
+                        loss2 = bce(aug2_pred, torch.sigmoid(orig_pred.detach()))
+                        loss3 = bce(aug1_pred, torch.sigmoid(aug2_pred.detach()))
+                        loss = loss1 + loss2 + loss3
+                        epoch_unlabeled_count += batch.size()
+                        epoch_unlabeled_loss += loss.item()
 
                     if train_vs_valid:
                         train_optimizer.zero_grad()
                         loss.backward()
                         train_optimizer.step()
 
-                training_metrics.add(validation.TrainingMetrics.NLL, "training" if train_vs_valid else "validating",
-                                     epoch_loss / (len(loader) * batch_size))
+                type = "training" if train_vs_valid else "validating"
+                training_metrics.add("labeled NLL", type, epoch_labeled_loss/epoch_labeled_count)
+                training_metrics.add("unlabeled NLL", type, epoch_unlabeled_loss / epoch_unlabeled_count)
 
             # done with training and validation for this epoch, now calculate best F on test set
             # note that we have not learned the AF spectrum yet
