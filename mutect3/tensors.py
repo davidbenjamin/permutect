@@ -2,7 +2,9 @@ import torch
 import random
 import numpy as np
 import pickle
+from torch.distributions.beta import Beta
 from typing import Set, List
+from tqdm.autonotebook import tqdm, trange
 
 class SiteInfo:
     def __init__(self, chromosome, position, ref, alt, popaf):
@@ -118,6 +120,17 @@ class Datum:
     def artifact_label(self):
         return self._artifact_label
 
+    # beta is distribution of downsampling fractions
+    def downsampled_copy(self, beta: Beta):
+        ref_frac = beta.sample().item()
+        alt_frac = beta.sample().item()
+
+        ref_length = max(1, round(ref_frac * len(self._ref_tensor)))
+        alt_length = max(1, round(alt_frac * len(self._alt_tensor)))
+        ref = downsample(self._ref_tensor, ref_length)
+        alt = downsample(self._alt_tensor, alt_length)
+        return Datum(ref, alt, self.info_tensor(), self.site_info(), self.mutect_info(), self.artifact_label())
+
 # pickle and unpickle a Python list of Datum objects.  Convenient to have here because unpickling needs to have all
 # the constituent classes of Datum explicitly imported.
 def make_pickle(file, datum_list):
@@ -139,8 +152,8 @@ NUM_READ_FEATURES = 11  #size of each read's feature vector from M2 annotation
 NUM_INFO_FEATURES = 9   # size of each variant's info field tensor (3 components for HEC, one each for HAPDOM, HAPCOMP)
                         # and 5 for ref bases STR info
 
-ARTIFACT_POPAF_THRESHOLD = 5.9  # only let things absent from gnomAD be artifacts out of caution
-GERMLINE_POPAF_THRESHOLD = 1  # also very cautious.  There are so many germline variants we can be wasteful!
+RARE_POPAF = 5.9  # only let things absent from gnomAD be artifacts out of caution
+COMMON_POPAF = 1  # also very cautious.  There are so many germline variants we can be wasteful!
 
 REF_DOWNSAMPLE = 20  # choose this many ref reads randomly
 MIN_REF = 5
@@ -207,6 +220,7 @@ class TableReader:
 
 # this takes a table from VariantsToTable and produces a Python list of Datum objects
 def make_tensors(raw_file, is_training, sample_name, normal_sample_name=None, shuffle=True) -> List[Datum]:
+    trusted_m2_filters = {"contamination", "germline", "weak_evidence"}
     data = []
 
     # simple online method for balanced data set where for each k-alt-read artifact there are
@@ -216,31 +230,29 @@ def make_tensors(raw_file, is_training, sample_name, normal_sample_name=None, sh
     unmatched_deletion_counts = []
     unmatched_insertion_counts = []
 
+    artifact_count, unlabeled_count = 0, 0
     with open(raw_file) as fp:
         reader = TableReader(fp.readline().split(), sample_name, normal_sample_name)
 
-        for n, line in enumerate(fp):
-            if n % 100000 == 0:
-                print("Processing line " + str(n))
+        pbar = tqdm(enumerate(fp))
+        for n, line in pbar:
+            if n % 10000 == 0:
+                pbar.set_description("Artifact count: " + str(artifact_count) + ", unlabled count: " + str(unlabeled_count))
 
             tokens = line.split()
             site_info = reader.site_info(tokens)
             m2_data = reader.mutect_info(tokens)
+            filters = m2_data.filters()
+            popaf = site_info.popaf()
 
-            # Contamination and weak evidence / low log odds have low AFs but are not artifacts.  We exclude them
-            # from training.  As for testing, M3 will continue to rely on them
-            if "contamination" in m2_data.filters() or "weak_evidence" in m2_data.filters() or m2_data.tlod() < TLOD_THRESHOLD:
+            # For testing we still rely on the M2 contamination, germline, and evidence filters.
+            # For training, contamination has low-AF but is not an artifact, which we don't want
+            if not is_training and filters.intersection(trusted_m2_filters):
+                continue
+            elif "contamination" in filters:
                 continue
 
-            # for testing, M3 relies on the existing germline filter.  For training, we keep germline variants
-            # and downsample to simulate true non-artifacts with varying allele fraction
-            if "germline" in m2_data.filters() and not is_training:
-                continue
-
-            # in training, we want low popaf for true artifacts, high AF for true variants
-            # in order to have more confident weak labels.  In between, discard.
-            if is_training and (GERMLINE_POPAF_THRESHOLD < site_info.popaf() < ARTIFACT_POPAF_THRESHOLD):
-                continue
+            weak = "weak_evidence" in filters or m2_data.tlod() < TLOD_THRESHOLD
 
             ref_tensor, alt_tensor = reader.tumor_ref_and_alt(tokens, REF_DOWNSAMPLE)
             alt_count = len(alt_tensor)
@@ -248,7 +260,7 @@ def make_tensors(raw_file, is_training, sample_name, normal_sample_name=None, sh
                 continue
 
             af = alt_count / m2_data.tumor_depth()
-            is_artifact = False
+            is_artifact = None
             if is_training:
                 normal_af = 0
                 has_normal = normal_sample_name is not None
@@ -263,14 +275,22 @@ def make_tensors(raw_file, is_training, sample_name, normal_sample_name=None, sh
                     (unmatched_insertion_counts if variant_size > 0 else unmatched_deletion_counts)
 
                 # low AF in tumor and normal, rare in population implies artifact
-                if (not has_normal or normal_af < 0.2) and af < 0.2 and site_info.popaf() > ARTIFACT_POPAF_THRESHOLD:
+                if not weak and (not has_normal or normal_af < 0.2) and af < 0.2 and popaf > RARE_POPAF:
                     unmatched_artifact_counts.extend([alt_count] * NON_ARTIFACT_PER_ARTIFACT)
-                    is_artifact = True
+                    is_artifact = 1
+                    artifact_count += 1
                 # high AF in tumor and normal, common in population implies germline, which we downsample
-                elif (not has_normal or normal_af > 0.35) and af > 0.35 and site_info.popaf() < GERMLINE_POPAF_THRESHOLD and unmatched_artifact_counts:
+                elif not weak and (not has_normal or normal_af > 0.35) and af > 0.35 and popaf < COMMON_POPAF and unmatched_artifact_counts:
                     downsample_count = min(alt_count, unmatched_artifact_counts.pop())
                     alt_tensor = alt_tensor[torch.randperm(alt_count)[:downsample_count]]
-                # inconclusive -- don't use for training data
+                    is_artifact = 0
+                # inconclusive -- unlabeled datum
+                # to avoid too large a dataset, we try to bias toward possible artifacts and keep out obvious sequencing errors
+                elif m2_data.tlod() > 4.0 and af < 0.3:
+                    is_artifact = None
+                    downsample_count = min(alt_count, 10)
+                    alt_tensor = alt_tensor[torch.randperm(alt_count)[:downsample_count]]
+                    unlabeled_count += 1
                 else:
                     continue
             else:
@@ -281,7 +301,8 @@ def make_tensors(raw_file, is_training, sample_name, normal_sample_name=None, sh
             # assembly complexity site-level annotations
             info_tensor = reader.variant_info(tokens).info_tensor()
 
-            data.append(Datum(ref_tensor, alt_tensor, info_tensor, site_info, m2_data, 1 if is_artifact else 0))
+            data.append(Datum(ref_tensor, alt_tensor, info_tensor, site_info, m2_data, is_artifact))
         if shuffle:
             random.shuffle(data)
+        print("Done")
         return data
