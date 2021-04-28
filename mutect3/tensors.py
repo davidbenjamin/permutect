@@ -306,3 +306,33 @@ def make_tensors(raw_file, is_training, sample_name, normal_sample_name=None, sh
             random.shuffle(data)
         print("Done")
         return data
+
+def generate_pickles(tumor_table, normal_table, tumor_sample, normal_sample, pickle_dir, pickle_prefix):
+
+    pair_train_pickle, small_pair_train_pickle, tumor_train_pickle, normal_train_pickle, test_pickle, small_test_pickle = \
+        (pickle_dir + pickle_prefix + suffix for suffix in ('-pair-train.pickle', '-small-pair-train.pickle', '-tumor-train.pickle', \
+                                                            '-normal-train.pickle', '-test.pickle', '-small-test.pickle'))
+
+    # we form a few kinds of training data: tumor data using the normal
+    # (the normal doesn't change the format but helps make better truth guesses)
+    print("Generating and pickling tumor tensors for training using tumor and normal")
+    pair_train_data = make_tensors(tumor_table, True, tumor_sample, normal_sample)
+    make_pickle(pair_train_pickle, pair_train_data)
+
+    print("Generating and pickling small (by 10x) tumor tensors for training using tumor and normal")
+    make_pickle(small_pair_train_pickle, pair_train_data[:int(len(pair_train_data)/10)])
+
+    print("Generating and pickling tumor tensors for training using only tumor")
+    tumor_train_data = make_tensors(tumor_table, True, tumor_sample)
+    make_pickle(tumor_train_pickle, tumor_train_data)
+
+    print("Generating and pickling normal tensors for training using only normal")
+    normal_train_data = make_tensors(normal_table, True, normal_sample)
+    make_pickle(normal_train_pickle, normal_train_data)
+
+    print("Generating and pickling tumor tensors for testing using STATUS labels")
+    test_data = make_tensors(tumor_table, False, tumor_sample, normal_sample)
+    make_pickle(test_pickle, test_data)
+
+    print("Generating and pickling small (by 10x) tumor tensors for for testing using STATUS labels")
+    make_pickle(small_test_pickle, test_data[:int(len(test_data)/10)])

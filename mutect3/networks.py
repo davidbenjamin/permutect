@@ -27,23 +27,30 @@ class MLP(nn.Module):
     is applied after the last linear transformation.
     """
 
-    def __init__(self, layer_sizes, batch_normalize=False):
+    def __init__(self, layer_sizes, batch_normalize=False, dropout_p = None):
         super(MLP, self).__init__()
 
         self.layers = nn.ModuleList()
+        self.bn = nn.ModuleList()
+        self.dropout = nn.ModuleList()
         for k in range(len(layer_sizes) - 1):
             self.layers.append(nn.Linear(layer_sizes[k], layer_sizes[k + 1]))
 
-        self.bn = nn.ModuleList()
         if batch_normalize:
             for size in layer_sizes[1:]:
                 self.bn.append(nn.BatchNorm1d(num_features=size))
+
+        if dropout_p is not None:
+            for n in layer_sizes[1:]:
+                self.dropout.append(nn.Dropout(p=dropout_p))
 
     def forward(self, x):
         for n, layer in enumerate(self.layers):
             x = layer(x)
             if self.bn:
                 x = self.bn[n](x)
+            if self.dropout:
+                x = self.dropout[n](x)
             if n < len(self.layers) - 1:
                 x = nn.functional.leaky_relu(x)
         return x
@@ -157,7 +164,7 @@ class ReadSetClassifier(nn.Module):
     because we have different output layers for each variant type.
     """
 
-    def __init__(self, hidden_read_layers, hidden_info_layers, aggregation_layers, output_layers, m2_filters_to_keep={}):
+    def __init__(self, hidden_read_layers, hidden_info_layers, aggregation_layers, output_layers, m2_filters_to_keep={}, dropout_p = None):
         super(ReadSetClassifier, self).__init__()
 
         read_layers = [tensors.NUM_READ_FEATURES] + hidden_read_layers
@@ -167,16 +174,17 @@ class ReadSetClassifier(nn.Module):
         self.m2_filters_to_keep = m2_filters_to_keep
 
         # phi is the read embedding
-        self.phi = MLP(read_layers, batch_normalize=False)
+        self.phi = MLP(read_layers, batch_normalize=False, dropout_p = dropout_p)
 
         # omega is the universal embedding of info field variant-level data
-        self.omega = MLP(info_layers, batch_normalize=False)
+        self.omega = MLP(info_layers, batch_normalize=False, dropout_p = dropout_p)
 
         # rho is the universal aggregation function
         # the *2 is for the use of both ref and alt reads
         # the [1] is the final binary classification in logit space
-        self.rho = MLP([2 * read_layers[-1] + info_layers[-1]] + aggregation_layers, batch_normalize=False)
+        self.rho = MLP([2 * read_layers[-1] + info_layers[-1]] + aggregation_layers, batch_normalize=False, dropout_p = dropout_p)
 
+        # We probably don't need dropout for the final output layers
         self.snv_output = MLP([aggregation_layers[-1]] + output_layers + [1])
         self.insertion_output = MLP([aggregation_layers[-1]] + output_layers + [1])
         self.deletion_output = MLP([aggregation_layers[-1]] + output_layers + [1])
@@ -433,6 +441,16 @@ class ReadSetClassifier(nn.Module):
         train_optimizer = torch.optim.Adam(self.training_parameters())
         training_metrics = validation.TrainingMetrics()
 
+        # In case the DataLoader is not balanced between labeled and unlabeled, we do so with the loss function
+        total_labeled, total_unlabeled = 0, 0
+        for batch in train_loader:
+            if batch.is_labeled():
+                total_labeled += batch.size()
+            else:
+                total_unlabeled += batch.size()
+        labeled_to_unlabeled_ratio = total_labeled / total_unlabeled
+
+
         for epoch in trange(1, num_epochs + 1, desc="Epoch"):
             # training epoch, then validation epoch
             for train_vs_valid in [True, False]:
@@ -453,7 +471,7 @@ class ReadSetClassifier(nn.Module):
 
                     if (batch.is_labeled()):
                         labels = batch.original_batch().labels()
-                        # labeled loss: cross entropy for original and both augmente copies
+                        # labeled loss: cross entropy for original and both augmented copies
                         loss = bce(orig_pred, labels) + bce(aug1_pred, labels) + bce(aug2_pred, labels)
                         epoch_labeled_count += batch.size()
                         epoch_labeled_loss += loss.item()
@@ -462,7 +480,7 @@ class ReadSetClassifier(nn.Module):
                         loss1 = bce(aug1_pred, torch.sigmoid(orig_pred.detach()))
                         loss2 = bce(aug2_pred, torch.sigmoid(orig_pred.detach()))
                         loss3 = bce(aug1_pred, torch.sigmoid(aug2_pred.detach()))
-                        loss = loss1 + loss2 + loss3
+                        loss = (loss1 + loss2 + loss3)*labeled_to_unlabeled_ratio
                         epoch_unlabeled_count += batch.size()
                         epoch_unlabeled_loss += loss.item()
 
