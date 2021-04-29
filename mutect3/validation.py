@@ -1,7 +1,7 @@
 from collections import defaultdict
 import math
 import matplotlib.pyplot as plt
-from mutect3.networks import F_score
+from mutect3.networks import f_score
 
 # one or more simple plots of y data vs x data on shared axes
 def simple_plot(x_y_lab_tuples, xlabel, ylabel, title):
@@ -132,7 +132,7 @@ def get_validation_stats(model, loader, thresholds=[0.0]):
         labels = batch.labels()
         filters = [m2.filters() for m2 in batch.mutect_info()]
         alt_counts = batch.alt_counts()
-        predictions, _ = model(batch, posterior = True)
+        predictions = model(batch, posterior = True)
         positions = [meta.locus() for meta in batch.site_info()]
         for n in range(batch.size()):
             truth = 1 if labels[n].item() > 0.5 else 0
@@ -151,7 +151,7 @@ def get_optimal_f_score(model, loader, make_plot=False):
     model.freeze_all()
     for batch in loader:
         labels = batch.labels()
-        logits, _ = model(batch, posterior=True)
+        logits = model(batch, posterior=True)
         for n in range(batch.size()):
             predictions_and_labels.append((logits[n].item(), labels[n].item()))
 
@@ -167,7 +167,7 @@ def get_optimal_f_score(model, loader, make_plot=False):
     for pred, label in predictions_and_labels:
         fp = fp + label
         tp = tp + (1 - label)
-        best_F = max(best_F, F_score(tp, fp, total_true))
+        best_F = max(best_F, f_score(tp, fp, total_true))
         sensitivity.append(tp / total_true)
         precision.append(tp / (tp + fp + 0.00001))
 
