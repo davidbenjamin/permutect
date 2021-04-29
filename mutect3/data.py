@@ -163,6 +163,8 @@ def chunk(indices, chunk_size):
     return torch.split(torch.tensor(indices), chunk_size)
 
 # make batches that are all supervised or all unsupervised
+# the model handles balancing the losses between supervised and unsupervised in training, so we don't need to worry
+# it's convenient to have equal numbers of labeled and unlabeled batches, so we adjust the unlabeled batch size
 class SemiSupervisedBatchSampler(Sampler):
     def __init__(self, dataset: Mutect3Dataset, batch_size):
         self.artifact_indices = [n for n in range(len(dataset)) if dataset[n].artifact_label() == 1]
@@ -180,10 +182,11 @@ class SemiSupervisedBatchSampler(Sampler):
         # balanced dataset in each epoch -- labeled vs unlabeled and artifact vs non-artifact
         labeled_indices = self.artifact_indices[:artifact_count] + self.non_artifact_indices[:artifact_count]
         random.shuffle(labeled_indices)
-        unlabeled = self.unlabeled_indices[:len(labeled_indices)]
 
-        labeled_batches = chunk(labeled_indices, self.batch_size)
-        unlabeled_batches = chunk(unlabeled, self.batch_size)
+        unlabeled_batch_size = round((len(labeled_indices)/len(self.unlabeled_indices))*self.batch_size)
+
+        labeled_batches = chunk(labeled_indices, unlabeled_batch_size)
+        unlabeled_batches = chunk(self.unlabeled_indices, self.batch_size)
         combined = [batch.tolist() for batch in list(labeled_batches + unlabeled_batches)]
         random.shuffle(combined)
         return iter(combined)
@@ -191,7 +194,6 @@ class SemiSupervisedBatchSampler(Sampler):
     def __len__(self):
         return len(self.artifact_indices)*2 // self.batch_size + len(self.artifact_indices) // self.batch_size
 
-BATCH_SIZE = 64
 def make_data_loaders(train, valid, test, batch_size, beta1: Beta, beta2: Beta = None):
     train_sampler = SemiSupervisedBatchSampler(train, batch_size)
     valid_sampler = SemiSupervisedBatchSampler(valid, batch_size)
