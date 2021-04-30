@@ -1,23 +1,32 @@
-import torch
-import math
-from torch import nn
-from mutect3 import validation, tensors, data
 import matplotlib.pyplot as plt
-from tqdm.autonotebook import tqdm, trange
+import torch
+from torch import nn
+from tqdm.autonotebook import trange
 
+from mutect3 import validation, tensors, data
 
 
 def freeze(parameters):
     for parameter in parameters:
         parameter.requires_grad = False
 
+
 def unfreeze(parameters):
     for parameter in parameters:
         parameter.requires_grad = True
 
-def F_score(tp, fp, total_true):
+
+def f_score(tp, fp, total_true):
     fn = total_true - tp
     return tp / (tp + (fp + fn) / 2)
+
+
+# given list of slice sizes, produce a list of index slice objects
+# eg input = [2,3,1] --> [slice(0,2), slice(2,5), slice(5,6)]
+def make_slices(sizes):
+    slice_ends = torch.cumsum(sizes, dim=0)
+    return [slice(0 if n == 0 else slice_ends[n - 1], slice_ends[n]) for n in range(len(sizes))]
+
 
 class MLP(nn.Module):
     """
@@ -27,7 +36,7 @@ class MLP(nn.Module):
     is applied after the last linear transformation.
     """
 
-    def __init__(self, layer_sizes, batch_normalize=False, dropout_p = None):
+    def __init__(self, layer_sizes, batch_normalize=False, dropout_p=None):
         super(MLP, self).__init__()
 
         self.layers = nn.ModuleList()
@@ -98,7 +107,7 @@ class AFSpectrum(nn.Module):
     # compute 1D tensor of log-likelihoods P(alt count|n, AF mixture model) over all data in batch
     def forward(self, batch):
         depths = torch.LongTensor([datum.tumor_depth() for datum in batch.mutect_info()])
-        return self.log_likelihood(batch.alt_counts(), depths )
+        return self.log_likelihood(batch.alt_counts(), depths)
 
     # plot the mixture of beta densities
     def plot_spectrum(self, title):
@@ -120,29 +129,73 @@ class AFSpectrum(nn.Module):
         spec.set_title(title)
         return fig, spec
 
+
 # contains variant spectrum, artifact spectrum, and artifact/variant log prior ratio
 class PriorModel(nn.Module):
-    def __init__(self, initial_log_ratio = 0.0):
+    def __init__(self, initial_log_ratio=0.0):
         super(PriorModel, self).__init__()
         self.variant_spectrum = AFSpectrum()
-        self.artifact_spectrum = AFSpectrum()
+        self.snv_artifact_spectrum = AFSpectrum()
+        self.insertion_artifact_spectrum = AFSpectrum()
+        self.deletion_artifact_spectrum = AFSpectrum()
 
-        # log of prior ratio P(artifact)/P(variant)
+        # log prior ratio log[P(artifact)/P(variant)]
         self.prior_log_odds = nn.Parameter(torch.tensor(initial_log_ratio))
 
-    # forward pass returns tuple log [P(variant)*P(alt count|variant)], log [P(artifact)*P(alt count|artifact)]
-    def forward(self, batch):
-        log_artifact_prior = nn.functional.logsigmoid(self.prior_log_odds)
-        log_variant_prior = nn.functional.logsigmoid(-self.prior_log_odds)
+        self.snv_prior_log_odds = nn.Parameter(torch.tensor(initial_log_ratio))
+        self.insertion_prior_log_odds = nn.Parameter(torch.tensor(initial_log_ratio))
+        self.deletion_prior_log_odds = nn.Parameter(torch.tensor(initial_log_ratio))
 
-        artifact_log_likelihood = self.artifact_spectrum(batch)
-        variant_log_likelihood = self.variant_spectrum(batch)
+    # forward pass returns posterior logits of being artifact given likelihood logits
+    def forward(self, logits, batch):
+        variant_spectrum_ll = self.variant_spectrum(batch)
 
-        return log_variant_prior + variant_log_likelihood, log_artifact_prior + artifact_log_likelihood
+        snv = logits + self.snv_prior_log_odds + self.snv_artifact_spectrum(batch) - variant_spectrum_ll
+        insertion = logits + self.insertion_prior_log_odds + self.insertion_artifact_spectrum(batch) - variant_spectrum_ll
+        deletion = logits + self.deletion_prior_log_odds + self.deletion_artifact_spectrum(batch) - variant_spectrum_ll
+
+        variant_lengths = [len(site_info.alt()) - len(site_info.ref()) for site_info in batch.site_info()]
+        snv_mask = torch.tensor([1 if length == 0 else 0 for length in variant_lengths])
+        insertion_mask = torch.tensor([1 if length > 0 else 0 for length in variant_lengths])
+        deletion_mask = torch.tensor([1 if length < 0 else 0 for length in variant_lengths])
+
+        return snv_mask * snv + insertion_mask * insertion + deletion_mask * deletion
 
     def plot_spectra(self):
-        self.artifact_spectrum.plot_spectrum("Artifact AF spectrum")
+        self.snv_artifact_spectrum.plot_spectrum("SNV artifact AF spectrum")
+        self.insertion_artifact_spectrum.plot_spectrum("Insertion artifact AF spectrum")
+        self.deletion_artifact_spectrum.plot_spectrum("Deletion artifact AF spectrum")
         self.variant_spectrum.plot_spectrum("Variant AF spectrum")
+
+
+class Mutect3Parameters:
+    def __init__(self, hidden_read_layers, hidden_info_layers, aggregation_layers, output_layers, dropout_p):
+        self.hidden_read_layers = hidden_read_layers
+        self.hidden_info_layers = hidden_info_layers
+        self.aggregation_layers = aggregation_layers
+        self.output_layers = output_layers
+        self.dropout_p = dropout_p
+
+
+# calibrate the confidence of uncalibrated logits
+class Calibration(nn.Module):
+    def __init__(self):
+        super(Calibration, self).__init__()
+        # Taking the mean of read embeddings erases the alt count, by design.  However, it is fine to multiply
+        # the output logits in a count-dependent way to modulate confidence.  We initialize as the sqrt of the alt count.
+        self.confidence = nn.Parameter(torch.sqrt(torch.arange(0, MAX_ALT + 1).float()))
+
+        # we apply as asymptotic threshold function logit --> M * tanh(logit/M) where M is the maximum absolute
+        # value of the thresholded output.  For logits << M this is the identity, and approaching M the asymptote
+        # gradually turns on.  This is a continuous way to truncate the model's confidence and is part of calibration.
+        # We initialize it to something large.
+        self.max_logit = nn.Parameter(torch.tensor(10.0))
+
+    def forward(self, logits, alt_counts):
+        truncated_counts = torch.LongTensor([min(c, MAX_ALT) for c in alt_counts])
+        logits = logits * torch.index_select(self.confidence, 0, truncated_counts)
+        return self.max_logit * torch.tanh(logits / self.max_logit)
+
 
 class ReadSetClassifier(nn.Module):
     """
@@ -164,49 +217,32 @@ class ReadSetClassifier(nn.Module):
     because we have different output layers for each variant type.
     """
 
-    def __init__(self, hidden_read_layers, hidden_info_layers, aggregation_layers, output_layers, m2_filters_to_keep={}, dropout_p = None):
+    def __init__(self, m3_params: Mutect3Parameters, m2_filters_to_keep={}):
         super(ReadSetClassifier, self).__init__()
-
-        read_layers = [tensors.NUM_READ_FEATURES] + hidden_read_layers
-        info_layers = [tensors.NUM_INFO_FEATURES] + hidden_info_layers
 
         # note: these are only used for testing, not training
         self.m2_filters_to_keep = m2_filters_to_keep
 
         # phi is the read embedding
-        self.phi = MLP(read_layers, batch_normalize=False, dropout_p = dropout_p)
+        read_layers = [tensors.NUM_READ_FEATURES] + m3_params.hidden_read_layers
+        self.phi = MLP(read_layers, batch_normalize=False, dropout_p=m3_params.dropout_p)
 
         # omega is the universal embedding of info field variant-level data
-        self.omega = MLP(info_layers, batch_normalize=False, dropout_p = dropout_p)
+        info_layers = [tensors.NUM_INFO_FEATURES] + m3_params.hidden_info_layers
+        self.omega = MLP(info_layers, batch_normalize=False, dropout_p=m3_params.dropout_p)
 
         # rho is the universal aggregation function
-        # the *2 is for the use of both ref and alt reads
-        # the [1] is the final binary classification in logit space
-        self.rho = MLP([2 * read_layers[-1] + info_layers[-1]] + aggregation_layers, batch_normalize=False, dropout_p = dropout_p)
+        ref_alt_info_embedding_dimension = 2 * read_layers[-1] + info_layers[-1]
+        self.rho = MLP([ref_alt_info_embedding_dimension] + m3_params.aggregation_layers, batch_normalize=False,
+                       dropout_p=m3_params.dropout_p)
 
         # We probably don't need dropout for the final output layers
-        self.snv_output = MLP([aggregation_layers[-1]] + output_layers + [1])
-        self.insertion_output = MLP([aggregation_layers[-1]] + output_layers + [1])
-        self.deletion_output = MLP([aggregation_layers[-1]] + output_layers + [1])
+        output_layers_sizes = [m3_params.aggregation_layers[-1]] + m3_params.output_layers + [1]
+        self.snv_output = MLP(output_layers_sizes)
+        self.insertion_output = MLP(output_layers_sizes)
+        self.deletion_output = MLP(output_layers_sizes)
 
-        # since we take the mean of read embeddings we lose all information about alt count.  This is intentional
-        # because a somatic classifier must be largely unaware of the allele fraction in order to avoid simply
-        # calling everything with high allele fraction as good.  However, once we apply the aggregation function
-        # and get logits we can multiply the output logits in an alt count-dependent way to change the confidence
-        # in our predictions.  We initialize the confidence as the sqrt of the alt count which is vaguely in line
-        # with statistical intuition.
-        self.confidence = nn.Parameter(torch.sqrt(torch.arange(0, MAX_ALT + 1).float()), requires_grad=False)
-
-        # we apply as asymptotic threshold function logit --> M * tanh(logit/M) where M is the maximum absolute
-        # value of the thresholded output.  For logits << M this is the identity, and approaching M the asymptote
-        # gradually turns on.  This is a continuous way to truncate the model's confidence and is part of calibration.
-        # We initialize it to something large.
-        self.max_logit = nn.Parameter(torch.tensor(10.0), requires_grad=False)
-
-
-        # after a count-dependent confidence, one final logit --> logit mapping of the confidence.  This is initialized
-        # as the identity function but after calibration we want the output logits to saturate, representing the fact
-        # that our model can never be certain.
+        self.calibration = Calibration()
 
         self.prior_model = PriorModel(4.0)
 
@@ -224,8 +260,7 @@ class ReadSetClassifier(nn.Module):
         return result
 
     def calibration_parameters(self):
-        #return [self.confidence, self.max_logit]
-        return [self.max_logit]
+        return [self.calibration.max_logit]
 
     def spectra_parameters(self):
         return self.prior_model.parameters()
@@ -249,27 +284,19 @@ class ReadSetClassifier(nn.Module):
         freeze(self.parameters())
         unfreeze(self.spectra_parameters())
 
-    # see the custom collate_fn for information on the batched input
     def forward(self, batch: data.Batch, calibrated=True, posterior=False):
 
-        # broadcast the embedding to each read
-        num_sets = batch.size()
+        # embed each read and take mean within each datum to get tensors of shape (batch size x embedding dimension)
         phi_ref = torch.sigmoid(self.phi(batch.ref()))
         phi_alt = torch.sigmoid(self.phi(batch.alt()))
-        omega_info = torch.sigmoid(self.omega(batch.info()))
-
-        ref_end = torch.cumsum(batch.ref_counts(), dim=0)
-        ref_slices = [slice(0 if n == 0 else ref_end[n - 1], ref_end[n]) for n in range(num_sets)]
-        alt_end = torch.cumsum(batch.alt_counts(), dim=0)
-        alt_slices = [slice(0 if n == 0 else alt_end[n - 1], alt_end[n]) for n in range(num_sets)]
-
-        # note that after taking means, tensors are now num_sets x embedding dimension
+        ref_slices = make_slices(batch.ref_counts())
+        alt_slices = make_slices(batch.alt_counts())
         ref_means = torch.cat([torch.mean(phi_ref[s], dim=0, keepdim=True) for s in ref_slices], dim=0)
         alt_means = torch.cat([torch.mean(phi_alt[s], dim=0, keepdim=True) for s in alt_slices], dim=0)
 
-        # stack side-by-side to get 2D tensor, where each variant row is (ref mean, alt mean, info
+        # stack side-by-side to get 2D tensor, where each variant row is (ref mean, alt mean, info)
+        omega_info = torch.sigmoid(self.omega(batch.info()))
         concatenated = torch.cat((ref_means, alt_means, omega_info), dim=1)
-
         aggregated = self.rho(concatenated)
 
         # squeeze to get 1D tensor.  It's slightly wasteful to compute output for every variant type when we only
@@ -286,100 +313,57 @@ class ReadSetClassifier(nn.Module):
 
         logits = snv_mask * snv + insertion_mask * insertion + deletion_mask * deletion
 
-        # apply alt count-dependent confidence calibration
         if calibrated:
-            truncated_counts = torch.LongTensor([min(c, MAX_ALT) for c in batch.alt_counts()])
-            logits = logits * torch.index_select(self.confidence, 0, truncated_counts)
-            logits = self.max_logit * torch.tanh(logits / self.max_logit)
-        log_evidence = 0    # this won't be used unless overwritten for prior model case
+            logits = self.calibration(logits, batch.alt_counts())
 
         # TODO: maybe have variant type-dependent prior models?
         if posterior:
-            # 1 if we use an M2 filter regardless of M3, 0 otherwise
-            use_m2_filter = torch.LongTensor([1 if m2.filters().intersection(self.m2_filters_to_keep) else 0 for m2 in batch.mutect_info()])
+            use_m2_filter = torch.LongTensor(
+                [1 if m2.filters().intersection(self.m2_filters_to_keep) else 0 for m2 in batch.mutect_info()])
             logits = (1 - use_m2_filter) * logits + 100 * use_m2_filter
+            logits = self.prior_model(logits, batch)
 
-            log_variant_factor, log_artifact_factor = self.prior_model(batch)
-            log_artifact_likelihood = nn.functional.logsigmoid(logits)
-            log_variant_likelihood = nn.functional.logsigmoid(-logits)
-            logits = logits + log_artifact_factor - log_variant_factor
-
-            # these are 1D tensors, one element for each
-            log_artifact_evidence = log_artifact_factor + log_artifact_likelihood
-            log_variant_evidence = log_variant_factor + log_variant_likelihood
-            log_evidence = torch.mean(torch.logsumexp(torch.stack([log_variant_evidence, log_artifact_evidence]), 0))
-
-        return logits, log_evidence
+        return logits
 
     def learn_spectra(self, loader, num_epochs):
         self.learn_spectrum_mode()
-
-        logits_and_batches = [(self(batch)[0].detach(), batch) for batch in loader]
+        logits_and_batches = [(self(batch).detach(), batch) for batch in loader]
         optimizer = torch.optim.Adam(self.spectra_parameters())
+        criterion = nn.BCEWithLogitsLoss()
 
         spectra_losses = []
-        converged = False
+        epochs = []
         pbar = trange(num_epochs, desc="AF spectra epoch")
         for epoch in pbar:
-            if converged:
-                spectra_losses.append(spectra_losses[-1])
-                continue
-
-            pbar.set_description("Prior log odds: " + str(self.prior_model.prior_log_odds.item()))
+            epochs.append(epoch + 1)
             epoch_loss = 0
-            # each batch gets an E step in which we apply the prior model to the logits to get posteriors and
-            # an M step in which we do gradient descent on the prior model parameters
-            total_variant, total_artifact = 0, 0
             for logits, batch in logits_and_batches:
-                # E step -- note that we detach at the end!
                 use_m2_filter = torch.LongTensor(
                     [1 if m2.filters().intersection(self.m2_filters_to_keep) else 0 for m2 in batch.mutect_info()])
                 filter_logits = (1 - use_m2_filter) * logits + 100 * use_m2_filter
-                log_variant_factor, log_artifact_factor = self.prior_model(batch)
-                posterior_logits = filter_logits + log_artifact_factor - log_variant_factor
-                artifact_probs = torch.sigmoid(posterior_logits).detach()
-                num_artifacts = torch.sum(artifact_probs).item()
-                num_variants = len(logits) - num_artifacts
-                total_artifact += num_artifacts
-                total_variant += num_variants
+                posterior_logits = self.prior_model(filter_logits, batch)
 
-                # M step
-                variant_ll, artifact_ll = self.prior_model(batch)
-                weighted_ll = variant_ll * (1 - artifact_probs) + artifact_ll * artifact_probs
-                loss = -torch.mean(weighted_ll)
+                loss = criterion(posterior_logits, batch.labels())
                 optimizer.zero_grad()
                 loss.backward()
                 optimizer.step()
                 epoch_loss += loss.item()
 
-            self.prior_model.prior_log_odds = nn.Parameter(torch.tensor(math.log((total_artifact+ 0.001)/(total_variant + 0.001))))
-
+            spectra_losses.append(epoch_loss)
             # check for convergence
             if epoch > 5:
-                delta = abs(epoch_loss - spectra_losses[-1])
+                delta = abs(epoch_loss - spectra_losses[-2])
                 total_delta = abs(epoch_loss - spectra_losses[0])
                 if delta < 0.001 * total_delta:
-                    converged = True
+                    break
 
-            spectra_losses.append(epoch_loss)
+        fig, curve = validation.simple_plot([(epochs, spectra_losses, "AF learning curve")], "epoch", "loss", "AF Learning curve")
 
-        # TODO horrible code duplication!!!
-        epochs = range(1, num_epochs + 1)
-        fig = plt.figure()
-        curve = fig.gca()
-
-        curve.plot(epochs, spectra_losses)
-        curve.set_title("Learning curve for AF spectrum")
-        curve.set_xlabel("epoch")
-        curve.set_ylabel("loss")
-
-    # calculate and detach the likelihoods layers, then learn the top calibration layer through several SGD epochs
+    # calculate and detach the likelihoods layers, then learn the calibration layer with SGD
     def learn_calibration(self, loader, num_epochs):
-
-        # the training pass may cause overconfidence and spoil our calibration. Let's re-calibrate.
-        uncalibrated_logits_labels_counts = [(self(batch.original_batch(), calibrated=False)[0].detach(), batch.original_batch().labels(), \
-                                              torch.LongTensor([min(c, MAX_ALT) for c in batch.original_batch().alt_counts()]))
-                                             for batch in loader if batch.is_labeled()]
+        uncalibrated_logits_labels_counts = [
+            (self(batch.original_batch(), calibrated=False).detach(), batch.original_batch().labels(),
+             batch.original_batch().alt_counts()) for batch in loader if batch.is_labeled()]
         optimizer = torch.optim.Adam(self.calibration_parameters())
         criterion = nn.BCEWithLogitsLoss()
 
@@ -389,9 +373,7 @@ class ReadSetClassifier(nn.Module):
         for epoch in range(num_epochs):
             epoch_loss = 0
             for logits, labels, counts in uncalibrated_logits_labels_counts:
-                #TODO: these two lines are duplicated from forward!!!
-                calibrated_logits = logits * torch.index_select(self.confidence, 0, counts)
-                calibrated_logits = self.max_logit * torch.tanh(calibrated_logits / self.max_logit)
+                calibrated_logits = self.calibration(logits, counts)
                 loss = criterion(calibrated_logits, labels)
                 optimizer.zero_grad()
                 loss.backward()
@@ -402,14 +384,15 @@ class ReadSetClassifier(nn.Module):
 
         epochs = range(1, num_epochs + 1)
 
-        validation.simple_plot([(epochs, calibration_losses, "curve")], "epoch","loss", "Learning curve for calibration")
+        validation.simple_plot([(epochs, calibration_losses, "curve")], "epoch", "loss",
+                               "Learning curve for calibration")
 
     def calculate_logit_threshold(self, loader):
         self.train(False)
         variant_probs = []
 
         for batch in loader:
-            logits, _ = self(batch, posterior=True)
+            logits = self(batch, posterior=True)
             true_probs = 1 - torch.sigmoid(logits)
 
             for n in range(batch.size()):
@@ -422,12 +405,12 @@ class ReadSetClassifier(nn.Module):
         threshold = 0  # must be greater than or equal to this threshold for true variant probability
         tp = total_variants
         fp = len(variant_probs) - total_variants
-        best_F = F_score(tp, fp, total_variants)
+        best_F = f_score(tp, fp, total_variants)
 
         for prob in variant_probs:  # we successively reject each probability and increase the threshold
             tp = tp - prob
             fp = fp - (1 - prob)
-            F = F_score(tp, fp, total_variants)
+            F = f_score(tp, fp, total_variants)
 
             if F > best_F:
                 best_F = F
@@ -450,7 +433,6 @@ class ReadSetClassifier(nn.Module):
                 total_unlabeled += batch.size()
         labeled_to_unlabeled_ratio = total_labeled / total_unlabeled
 
-
         for epoch in trange(1, num_epochs + 1, desc="Epoch"):
             # training epoch, then validation epoch
             for train_vs_valid in [True, False]:
@@ -465,9 +447,9 @@ class ReadSetClassifier(nn.Module):
                 epoch_labeled_count, epoch_unlabeled_count = 0, 0
                 for batch in loader:
                     # batch is data.AugmentedBatch
-                    orig_pred, _ = self(batch.original_batch())
-                    aug1_pred, _ = self(batch.first_augmented_batch())
-                    aug2_pred, _ = self(batch.second_augmented_batch())
+                    orig_pred = self(batch.original_batch())
+                    aug1_pred = self(batch.first_augmented_batch())
+                    aug2_pred = self(batch.second_augmented_batch())
 
                     if (batch.is_labeled()):
                         labels = batch.original_batch().labels()
@@ -480,7 +462,7 @@ class ReadSetClassifier(nn.Module):
                         loss1 = bce(aug1_pred, torch.sigmoid(orig_pred.detach()))
                         loss2 = bce(aug2_pred, torch.sigmoid(orig_pred.detach()))
                         loss3 = bce(aug1_pred, torch.sigmoid(aug2_pred.detach()))
-                        loss = (loss1 + loss2 + loss3)*labeled_to_unlabeled_ratio
+                        loss = (loss1 + loss2 + loss3) * labeled_to_unlabeled_ratio
                         epoch_unlabeled_count += batch.size()
                         epoch_unlabeled_loss += loss.item()
 
@@ -490,7 +472,7 @@ class ReadSetClassifier(nn.Module):
                         train_optimizer.step()
 
                 type = "training" if train_vs_valid else "validating"
-                training_metrics.add("labeled NLL", type, epoch_labeled_loss/epoch_labeled_count)
+                training_metrics.add("labeled NLL", type, epoch_labeled_loss / epoch_labeled_count)
                 training_metrics.add("unlabeled NLL", type, epoch_unlabeled_loss / epoch_unlabeled_count)
 
             # done with training and validation for this epoch, now calculate best F on test set
@@ -500,7 +482,7 @@ class ReadSetClassifier(nn.Module):
             # done with epoch
         # done with training
 
-        #TODO: this is a lot of epochs.  Make this more efficient
+        # TODO: this is a lot of epochs.  Make this more efficient
         self.learn_calibration(valid_loader, num_epochs=100)
         self.learn_spectra(test_loader, num_epochs=200)
         # model is trained
