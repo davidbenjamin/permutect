@@ -1,5 +1,6 @@
 import matplotlib.pyplot as plt
 import torch
+import enum
 from torch import nn
 from tqdm.autonotebook import trange
 
@@ -26,6 +27,11 @@ def f_score(tp, fp, total_true):
 def make_slices(sizes):
     slice_ends = torch.cumsum(sizes, dim=0)
     return [slice(0 if n == 0 else slice_ends[n - 1], slice_ends[n]) for n in range(len(sizes))]
+
+class EpochType(enum.Enum):
+   TRAIN = "train"
+   VALID = "valid"
+   TEST = "test"
 
 
 class MLP(nn.Module):
@@ -148,11 +154,11 @@ class PriorModel(nn.Module):
 
     # forward pass returns posterior logits of being artifact given likelihood logits
     def forward(self, logits, batch):
-        variant_spectrum_ll = self.variant_spectrum(batch)
+        variant_ll = self.variant_spectrum(batch)
 
-        snv = logits + self.snv_prior_log_odds + self.snv_artifact_spectrum(batch) - variant_spectrum_ll
-        insertion = logits + self.insertion_prior_log_odds + self.insertion_artifact_spectrum(batch) - variant_spectrum_ll
-        deletion = logits + self.deletion_prior_log_odds + self.deletion_artifact_spectrum(batch) - variant_spectrum_ll
+        snv = logits + self.snv_prior_log_odds + self.snv_artifact_spectrum(batch) - variant_ll
+        insertion = logits + self.insertion_prior_log_odds + self.insertion_artifact_spectrum(batch) - variant_ll
+        deletion = logits + self.deletion_prior_log_odds + self.deletion_artifact_spectrum(batch) - variant_ll
 
         variant_lengths = [len(site_info.alt()) - len(site_info.ref()) for site_info in batch.site_info()]
         snv_mask = torch.tensor([1 if length == 0 else 0 for length in variant_lengths])
@@ -182,7 +188,7 @@ class Calibration(nn.Module):
     def __init__(self):
         super(Calibration, self).__init__()
         # Taking the mean of read embeddings erases the alt count, by design.  However, it is fine to multiply
-        # the output logits in a count-dependent way to modulate confidence.  We initialize as the sqrt of the alt count.
+        # the output logits in a count-dependent way to modulate confidence.  We initialize as sqrt(alt count).
         self.confidence = nn.Parameter(torch.sqrt(torch.arange(0, MAX_ALT + 1).float()))
 
         # we apply as asymptotic threshold function logit --> M * tanh(logit/M) where M is the maximum absolute
@@ -268,6 +274,12 @@ class ReadSetClassifier(nn.Module):
     def freeze_all(self):
         freeze(self.parameters())
 
+    def set_epoch_type(self, epoch_type: EpochType):
+        if epoch_type == EpochType.TRAIN:
+            self.training_mode()
+        else:
+            self.freeze_all()
+
     def training_mode(self):
         self.train(True)
         freeze(self.parameters())
@@ -285,8 +297,7 @@ class ReadSetClassifier(nn.Module):
         unfreeze(self.spectra_parameters())
 
     def forward(self, batch: data.Batch, calibrated=True, posterior=False):
-
-        # embed each read and take mean within each datum to get tensors of shape (batch size x embedding dimension)
+        # embed reads and take mean within each datum to get tensors of shape (batch size x embedding dimension)
         phi_ref = torch.sigmoid(self.phi(batch.ref()))
         phi_alt = torch.sigmoid(self.phi(batch.alt()))
         ref_slices = make_slices(batch.ref_counts())
@@ -301,7 +312,6 @@ class ReadSetClassifier(nn.Module):
 
         # squeeze to get 1D tensor.  It's slightly wasteful to compute output for every variant type when we only
         # use one, but this is such a small part of the model and it lets us use batches of mixed variant types
-        # without fancy code
         snv = torch.squeeze(self.snv_output(aggregated))
         insertion = torch.squeeze(self.insertion_output(aggregated))
         deletion = torch.squeeze(self.deletion_output(aggregated))
@@ -316,7 +326,6 @@ class ReadSetClassifier(nn.Module):
         if calibrated:
             logits = self.calibration(logits, batch.alt_counts())
 
-        # TODO: maybe have variant type-dependent prior models?
         if posterior:
             use_m2_filter = torch.LongTensor(
                 [1 if m2.filters().intersection(self.m2_filters_to_keep) else 0 for m2 in batch.mutect_info()])
@@ -351,13 +360,12 @@ class ReadSetClassifier(nn.Module):
 
             spectra_losses.append(epoch_loss)
             # check for convergence
-            if epoch > 5:
-                delta = abs(epoch_loss - spectra_losses[-2])
-                total_delta = abs(epoch_loss - spectra_losses[0])
-                if delta < 0.001 * total_delta:
-                    break
+            delta = abs(epoch_loss - spectra_losses[-2])
+            total_delta = abs(epoch_loss - spectra_losses[0])
+            if epoch > 5 and delta < 0.001 * total_delta:
+                break
 
-        fig, curve = validation.simple_plot([(epochs, spectra_losses, "AF learning curve")], "epoch", "loss", "AF Learning curve")
+        validation.simple_plot([(epochs, spectra_losses, "loss")], "epoch", "loss", "AF Learning curve")
 
     # calculate and detach the likelihoods layers, then learn the calibration layer with SGD
     def learn_calibration(self, loader, num_epochs):
@@ -405,15 +413,15 @@ class ReadSetClassifier(nn.Module):
         threshold = 0  # must be greater than or equal to this threshold for true variant probability
         tp = total_variants
         fp = len(variant_probs) - total_variants
-        best_F = f_score(tp, fp, total_variants)
+        best_f = f_score(tp, fp, total_variants)
 
         for prob in variant_probs:  # we successively reject each probability and increase the threshold
             tp = tp - prob
             fp = fp - (1 - prob)
-            F = f_score(tp, fp, total_variants)
+            current_f = f_score(tp, fp, total_variants)
 
-            if F > best_F:
-                best_F = F
+            if current_f > best_f:
+                best_f = current_f
                 threshold = prob
 
         # we have calculate a variant probability threshold but we want an artifact logit threshold
@@ -424,24 +432,16 @@ class ReadSetClassifier(nn.Module):
         train_optimizer = torch.optim.Adam(self.training_parameters())
         training_metrics = validation.TrainingMetrics()
 
-        # In case the DataLoader is not balanced between labeled and unlabeled, we do so with the loss function
-        total_labeled, total_unlabeled = 0, 0
-        for batch in train_loader:
-            if batch.is_labeled():
-                total_labeled += batch.size()
-            else:
-                total_unlabeled += batch.size()
+        # balance training by weighting the loss function
+        total_labeled = sum(batch.size() for batch in train_loader if batch.is_labeled())
+        total_unlabeled = sum(batch.size() for batch in train_loader if not batch.is_labeled())
         labeled_to_unlabeled_ratio = total_labeled / total_unlabeled
 
         for epoch in trange(1, num_epochs + 1, desc="Epoch"):
             # training epoch, then validation epoch
-            for train_vs_valid in [True, False]:
-                loader = train_loader if train_vs_valid else valid_loader
-
-                if train_vs_valid:
-                    self.training_mode()
-                else:
-                    self.freeze_all()
+            for epoch_type in [EpochType.TRAIN, EpochType.VALID]:
+                self.set_epoch_type(epoch_type)
+                loader = train_loader if epoch_type == EpochType.TRAIN else valid_loader
 
                 epoch_labeled_loss, epoch_unlabeled_loss = 0, 0
                 epoch_labeled_count, epoch_unlabeled_count = 0, 0
@@ -451,7 +451,7 @@ class ReadSetClassifier(nn.Module):
                     aug1_pred = self(batch.first_augmented_batch())
                     aug2_pred = self(batch.second_augmented_batch())
 
-                    if (batch.is_labeled()):
+                    if batch.is_labeled():
                         labels = batch.original_batch().labels()
                         # labeled loss: cross entropy for original and both augmented copies
                         loss = bce(orig_pred, labels) + bce(aug1_pred, labels) + bce(aug2_pred, labels)
@@ -466,24 +466,22 @@ class ReadSetClassifier(nn.Module):
                         epoch_unlabeled_count += batch.size()
                         epoch_unlabeled_loss += loss.item()
 
-                    if train_vs_valid:
+                    if epoch_type == EpochType.TRAIN:
                         train_optimizer.zero_grad()
                         loss.backward()
                         train_optimizer.step()
 
-                type = "training" if train_vs_valid else "validating"
-                training_metrics.add("labeled NLL", type, epoch_labeled_loss / epoch_labeled_count)
-                training_metrics.add("unlabeled NLL", type, epoch_unlabeled_loss / epoch_unlabeled_count)
+                training_metrics.add("labeled NLL", epoch_type.name, epoch_labeled_loss / epoch_labeled_count)
+                training_metrics.add("unlabeled NLL", epoch_type.name, epoch_unlabeled_loss / epoch_unlabeled_count)
 
             # done with training and validation for this epoch, now calculate best F on test set
             # note that we have not learned the AF spectrum yet
             optimal_f = validation.get_optimal_f_score(self, test_loader)
-            training_metrics.add(validation.TrainingMetrics.F, "test", optimal_f)
+            training_metrics.add("optimal F score", "test", optimal_f)
             # done with epoch
         # done with training
 
-        # TODO: this is a lot of epochs.  Make this more efficient
-        self.learn_calibration(valid_loader, num_epochs=100)
+        self.learn_calibration(valid_loader, num_epochs=200)
         self.learn_spectra(test_loader, num_epochs=200)
         # model is trained
         return training_metrics
