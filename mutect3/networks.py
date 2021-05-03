@@ -1,10 +1,15 @@
 import matplotlib.pyplot as plt
 import torch
 import enum
+from enum import IntEnum
 from torch import nn
 from tqdm.autonotebook import trange
 
 from mutect3 import validation, tensors, data
+
+# bug before PyTorch 1.7.1 that warns when constructing ParameterList
+import warnings
+warnings.filterwarnings("ignore", message="Setting attributes on ParameterList is not supported.")
 
 
 def freeze(parameters):
@@ -32,6 +37,16 @@ class EpochType(enum.Enum):
    TRAIN = "train"
    VALID = "valid"
    TEST = "test"
+
+class VariantType(enum.IntEnum):
+    SNV = 0
+    INSERTION = 1
+    DELETION = 2
+
+    def is_same_type(self, site_info: tensors.SiteInfo):
+        diff = len(site_info.alt()) - len(site_info.ref())
+        return (self == VariantType.SNV and diff == 0) or (self == VariantType.INSERTION and diff > 0) \
+               or (self == VariantType.DELETION and diff < 0)
 
 
 class MLP(nn.Module):
@@ -141,36 +156,28 @@ class PriorModel(nn.Module):
     def __init__(self, initial_log_ratio=0.0):
         super(PriorModel, self).__init__()
         self.variant_spectrum = AFSpectrum()
-        self.snv_artifact_spectrum = AFSpectrum()
-        self.insertion_artifact_spectrum = AFSpectrum()
-        self.deletion_artifact_spectrum = AFSpectrum()
 
-        # log prior ratio log[P(artifact)/P(variant)]
-        self.prior_log_odds = nn.Parameter(torch.tensor(initial_log_ratio))
-
-        self.snv_prior_log_odds = nn.Parameter(torch.tensor(initial_log_ratio))
-        self.insertion_prior_log_odds = nn.Parameter(torch.tensor(initial_log_ratio))
-        self.deletion_prior_log_odds = nn.Parameter(torch.tensor(initial_log_ratio))
+        self.artifact_spectra = nn.ModuleList()
+        self.prior_log_odds = nn.ParameterList() #log prior ratio log[P(artifact)/P(variant)] for each type
+        for artifact_type in VariantType:
+            self.artifact_spectra.append(AFSpectrum())
+            self.prior_log_odds.append(nn.Parameter(torch.tensor(initial_log_ratio)))
 
     # forward pass returns posterior logits of being artifact given likelihood logits
     def forward(self, logits, batch):
         variant_ll = self.variant_spectrum(batch)
 
-        snv = logits + self.snv_prior_log_odds + self.snv_artifact_spectrum(batch) - variant_ll
-        insertion = logits + self.insertion_prior_log_odds + self.insertion_artifact_spectrum(batch) - variant_ll
-        deletion = logits + self.deletion_prior_log_odds + self.deletion_artifact_spectrum(batch) - variant_ll
+        result = torch.zeros_like(logits)
+        for variant_type in VariantType:
+            output = logits + self.prior_log_odds[variant_type.value] + self.artifact_spectra[variant_type.value](batch) - variant_ll
+            mask = torch.tensor([1 if variant_type.is_same_type(site_info) else 0 for site_info in batch.site_info()])
+            result += mask * output
 
-        variant_lengths = [len(site_info.alt()) - len(site_info.ref()) for site_info in batch.site_info()]
-        snv_mask = torch.tensor([1 if length == 0 else 0 for length in variant_lengths])
-        insertion_mask = torch.tensor([1 if length > 0 else 0 for length in variant_lengths])
-        deletion_mask = torch.tensor([1 if length < 0 else 0 for length in variant_lengths])
-
-        return snv_mask * snv + insertion_mask * insertion + deletion_mask * deletion
+        return result
 
     def plot_spectra(self):
-        self.snv_artifact_spectrum.plot_spectrum("SNV artifact AF spectrum")
-        self.insertion_artifact_spectrum.plot_spectrum("Insertion artifact AF spectrum")
-        self.deletion_artifact_spectrum.plot_spectrum("Deletion artifact AF spectrum")
+        for variant_type in VariantType:
+            self.artifact_spectra[variant_type.value].plot_spectrum(variant_type.name + " artifact AF spectrum")
         self.variant_spectrum.plot_spectrum("Variant AF spectrum")
 
 
@@ -244,9 +251,7 @@ class ReadSetClassifier(nn.Module):
 
         # We probably don't need dropout for the final output layers
         output_layers_sizes = [m3_params.aggregation_layers[-1]] + m3_params.output_layers + [1]
-        self.snv_output = MLP(output_layers_sizes)
-        self.insertion_output = MLP(output_layers_sizes)
-        self.deletion_output = MLP(output_layers_sizes)
+        self.outputs = nn.ModuleList(MLP(output_layers_sizes) for _ in VariantType)
 
         self.calibration = Calibration()
 
@@ -260,9 +265,7 @@ class ReadSetClassifier(nn.Module):
         result.extend(self.phi.parameters())
         result.extend(self.omega.parameters())
         result.extend(self.rho.parameters())
-        result.extend(self.snv_output.parameters())
-        result.extend(self.insertion_output.parameters())
-        result.extend(self.deletion_output.parameters())
+        result.extend(self.outputs.parameters())
         return result
 
     def calibration_parameters(self):
@@ -310,18 +313,13 @@ class ReadSetClassifier(nn.Module):
         concatenated = torch.cat((ref_means, alt_means, omega_info), dim=1)
         aggregated = self.rho(concatenated)
 
-        # squeeze to get 1D tensor.  It's slightly wasteful to compute output for every variant type when we only
-        # use one, but this is such a small part of the model and it lets us use batches of mixed variant types
-        snv = torch.squeeze(self.snv_output(aggregated))
-        insertion = torch.squeeze(self.insertion_output(aggregated))
-        deletion = torch.squeeze(self.deletion_output(aggregated))
-
-        variant_lengths = [len(site_info.alt()) - len(site_info.ref()) for site_info in batch.site_info()]
-        snv_mask = torch.tensor([1 if length == 0 else 0 for length in variant_lengths])
-        insertion_mask = torch.tensor([1 if length > 0 else 0 for length in variant_lengths])
-        deletion_mask = torch.tensor([1 if length < 0 else 0 for length in variant_lengths])
-
-        logits = snv_mask * snv + insertion_mask * insertion + deletion_mask * deletion
+        logits = torch.zeros(batch.size())
+        for variant_type in VariantType:
+            # It's slightly wasteful to compute output for every variant type when we only
+            # use one, but this is such a small part of the model and it lets us use batches of mixed variant types
+            output = torch.squeeze(self.outputs[variant_type.value](aggregated))
+            mask = torch.tensor([1 if variant_type.is_same_type(site_info) else 0 for site_info in batch.site_info()])
+            logits += mask * output
 
         if calibrated:
             logits = self.calibration(logits, batch.alt_counts())
@@ -360,7 +358,7 @@ class ReadSetClassifier(nn.Module):
 
             spectra_losses.append(epoch_loss)
             # check for convergence
-            delta = abs(epoch_loss - spectra_losses[-2])
+            delta = 0 if epoch < 2 else abs(epoch_loss - spectra_losses[-2])
             total_delta = abs(epoch_loss - spectra_losses[0])
             if epoch > 5 and delta < 0.001 * total_delta:
                 break
