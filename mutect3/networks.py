@@ -403,7 +403,7 @@ class ReadSetClassifier(nn.Module):
 
         return torch.logit(torch.tensor(threshold)).item()
 
-    def train_model(self, train_loader, valid_loader, test_loader, num_epochs):
+    def train_model(self, train_loader, valid_loader, test_loader, num_epochs, beta1, beta2):
         bce = torch.nn.BCEWithLogitsLoss(reduction='sum')
         train_optimizer = torch.optim.Adam(self.training_parameters())
         training_metrics = validation.TrainingMetrics()
@@ -421,13 +421,12 @@ class ReadSetClassifier(nn.Module):
                 epoch_labeled_loss, epoch_unlabeled_loss = 0, 0
                 epoch_labeled_count, epoch_unlabeled_count = 0, 0
                 for batch in loader:
-                    # batch is data.AugmentedBatch
-                    orig_pred = self(batch.original_batch())
-                    aug1_pred = self(batch.first_augmented_batch())
-                    aug2_pred = self(batch.second_augmented_batch())
+                    orig_pred = self(batch)
+                    aug1_pred = self(batch.augmented_copy(beta1))
+                    aug2_pred = self(batch.augmented_copy(beta2))
 
                     if batch.is_labeled():
-                        labels = batch.original_batch().labels()
+                        labels = batch.labels()
                         # labeled loss: cross entropy for original and both augmented copies
                         loss = bce(orig_pred, labels) + bce(aug1_pred, labels) + bce(aug2_pred, labels)
                         epoch_labeled_count += batch.size()

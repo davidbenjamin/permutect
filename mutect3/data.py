@@ -30,22 +30,30 @@ class Batch:
         slice_ends = offset + torch.cumsum(sizes, dim=0)
         return [slice(offset if n == 0 else slice_ends[n - 1], slice_ends[n]) for n in range(len(sizes))]
 
-    def __init__(self, batch: List[tensors.Datum]):
-        self.labeled = batch[0].artifact_label() is not None
-        for datum in batch:
+    def __init__(self, data: List[tensors.Datum]):
+        self._original_list = data #keep this for downsampling augmentation
+        self.labeled = data[0].artifact_label() is not None
+        for datum in data:
             if (datum.artifact_label() is not None) != self.labeled:
                 raise Exception("Batch may not mix labeled and unlabeled")
 
-        self._ref_counts = torch.IntTensor([len(item.ref_tensor()) for item in batch])
-        self._alt_counts = torch.IntTensor([len(item.alt_tensor()) for item in batch])
+        self._ref_counts = torch.IntTensor([len(item.ref_tensor()) for item in data])
+        self._alt_counts = torch.IntTensor([len(item.alt_tensor()) for item in data])
         self._ref_slices = Batch.make_slices(self._ref_counts)
         self._alt_slices = Batch.make_slices(self._alt_counts, torch.sum(self._ref_counts))
-        self._reads = torch.cat([item.ref_tensor() for item in batch] + [item.alt_tensor() for item in batch], dim=0)
-        self._info = torch.stack([item.info_tensor() for item in batch], dim=0)
-        self._labels = torch.FloatTensor([item.artifact_label() for item in batch]) if self.labeled else None
-        self._site_info = [item.site_info() for item in batch]
-        self._mutect2_data = [item.mutect_info() for item in batch]
-        self._size = len(batch)
+        self._reads = torch.cat([item.ref_tensor() for item in data] + [item.alt_tensor() for item in data], dim=0)
+        self._info = torch.stack([item.info_tensor() for item in data], dim=0)
+        self._labels = torch.FloatTensor([item.artifact_label() for item in data]) if self.labeled else None
+        self._site_info = [item.site_info() for item in data]
+        self._mutect2_data = [item.mutect_info() for item in data]
+        self._size = len(data)
+
+    def augmented_copy(self, beta):
+        return Batch([datum.downsampled_copy(beta) for datum in self._original_list])
+
+
+    def is_labeled(self):
+        return self.labeled
 
     def size(self):
         return self._size
@@ -76,37 +84,6 @@ class Batch:
 
     def labels(self):
         return self._labels
-
-# given a list of Datum, produce three batches: the original batch and two augmented batches.
-# augmentation is downsampling of alt and ref reads according to a beta distribution of downsampling fraction
-# this is used for both supervised learning with augmentation and semi supervised learning with consistency loss
-class AugmentedBatch:
-    def __init__(self, batch: List[tensors.Datum], beta1: Beta, beta2: Beta = None):
-        self.original = Batch(batch)
-        self.aug1 = Batch([datum.downsampled_copy(beta1) for datum in batch])
-        self.aug2 = Batch([datum.downsampled_copy(beta1 if beta2 is None else beta2) for datum in batch])
-
-        self.labeled = batch[0].artifact_label() is not None
-        for datum in batch:
-            if (datum.artifact_label() is not None) != self.labeled:
-                raise Exception("Batch may not mix labeled and unlabeled")
-
-    def size(self):
-        return self.original.size()
-
-    def is_labeled(self):
-        return self.labeled
-
-    def original_batch(self):
-        return self.original
-
-    def first_augmented_batch(self):
-        return self.aug1
-
-    def second_augmented_batch(self):
-        return self.aug2
-
-
 
 
 EPSILON = 0.00001
@@ -205,12 +182,11 @@ class SemiSupervisedBatchSampler(Sampler):
     def __len__(self):
         return len(self.artifact_indices)*2 // self.batch_size + len(self.artifact_indices) // self.batch_size
 
-def make_data_loaders(train, valid, test, batch_size, beta1: Beta, beta2: Beta = None):
+def make_data_loaders(train, valid, test, batch_size):
     train_sampler = SemiSupervisedBatchSampler(train, batch_size)
     valid_sampler = SemiSupervisedBatchSampler(valid, batch_size)
-    collate = lambda lis: AugmentedBatch(lis, beta1, beta2)
 
-    train_loader = DataLoader(dataset=train, batch_sampler=train_sampler, collate_fn=collate)
-    valid_loader = DataLoader(dataset=valid, batch_sampler=valid_sampler, collate_fn=collate)
-    test_loader = DataLoader(dataset=test, batch_size=batch_size, collate_fn=lambda lis: Batch(lis))
+    train_loader = DataLoader(dataset=train, batch_sampler=train_sampler, collate_fn=Batch)
+    valid_loader = DataLoader(dataset=valid, batch_sampler=valid_sampler, collate_fn=Batch)
+    test_loader = DataLoader(dataset=test, batch_size=batch_size, collate_fn=Batch)
     return train_loader, valid_loader, test_loader
