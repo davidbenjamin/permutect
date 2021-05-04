@@ -395,35 +395,27 @@ class ReadSetClassifier(nn.Module):
 
     def calculate_logit_threshold(self, loader):
         self.train(False)
-        variant_probs = []
+        artifact_probs = []
 
         for batch in loader:
-            logits = self(batch, posterior=True)
-            true_probs = 1 - torch.sigmoid(logits)
+            artifact_probs.extend(torch.sigmoid(self(batch, posterior=True)).tolist())
 
-            for n in range(batch.size()):
-                variant_probs.append(true_probs[n].item())
+        artifact_probs.sort()
+        total_variants = len(artifact_probs) - sum(artifact_probs)
 
-        variant_probs.sort()
-        total_variants = sum(variant_probs)
+        # start by rejecting everything, then raise threshold one datum at a time
+        threshold, tp, fp, best_f = 0, 0, 0, 0
 
-        # we are going to start by accepting everything -- the threshold is just below the smallest probability
-        threshold = 0  # must be greater than or equal to this threshold for true variant probability
-        tp = total_variants
-        fp = len(variant_probs) - total_variants
-        best_f = f_score(tp, fp, total_variants)
-
-        for prob in variant_probs:  # we successively reject each probability and increase the threshold
-            tp = tp - prob
-            fp = fp - (1 - prob)
+        for prob in artifact_probs:
+            tp += (1 - prob)
+            fp += prob
             current_f = f_score(tp, fp, total_variants)
 
             if current_f > best_f:
                 best_f = current_f
                 threshold = prob
 
-        # we have calculate a variant probability threshold but we want an artifact logit threshold
-        return torch.logit(1 - torch.tensor(threshold)).item()
+        return torch.logit(torch.tensor(threshold)).item()
 
     def train_model(self, train_loader, valid_loader, test_loader, num_epochs):
         bce = torch.nn.BCEWithLogitsLoss(reduction='sum')
