@@ -126,7 +126,7 @@ class AFSpectrum(nn.Module):
         return torch.logsumexp(log_pi + log_likelihoods, dim=1)
 
     # compute 1D tensor of log-likelihoods P(alt count|n, AF mixture model) over all data in batch
-    def forward(self, batch):
+    def forward(self, batch: data.Batch):
         depths = torch.LongTensor([datum.tumor_depth() for datum in batch.mutect_info()])
         return self.log_likelihood(batch.alt_counts(), depths)
 
@@ -143,12 +143,9 @@ class AFSpectrum(nn.Module):
         unweighted_log_densities = torch.stack([beta.log_prob(f) for beta in betas], dim=0)
         # unsqueeze to make log_pi a column vector (2D tensor) for broadcasting
         weighted_log_densities = torch.unsqueeze(log_pi, 1) + unweighted_log_densities
-        log_densities = torch.logsumexp(weighted_log_densities, dim=0)
-        fig = plt.figure()
-        spec = fig.gca()
-        spec.plot(f.detach().numpy(), torch.exp(log_densities).detach().numpy())
-        spec.set_title(title)
-        return fig, spec
+        densities = torch.exp(torch.logsumexp(weighted_log_densities, dim=0))
+
+        return validation.simple_plot((f.numpy(), densities.numpy()," "), "AF", "density", title)
 
 
 # contains variant spectrum, artifact spectrum, and artifact/variant log prior ratio
@@ -428,7 +425,6 @@ class ReadSetClassifier(nn.Module):
         labeled_to_unlabeled_ratio = total_labeled / total_unlabeled
 
         for epoch in trange(1, num_epochs + 1, desc="Epoch"):
-            # training epoch, then validation epoch
             for epoch_type in [EpochType.TRAIN, EpochType.VALID]:
                 self.set_epoch_type(epoch_type)
                 loader = train_loader if epoch_type == EpochType.TRAIN else valid_loader
