@@ -23,6 +23,13 @@ from mutect3 import tensors
 # [[0,1,2], [3,4,5], [6,7,8], [9,10,11], [12,13,14]] and the output counts are [2,3]
 # inside the model, the counts will be used to separate the reads into sets
 class Batch:
+
+    # given list of slice sizes, produce a list of index slice objects
+    # eg input = [2,3,1] --> [slice(0,2), slice(2,5), slice(5,6)]
+    def make_slices(sizes, offset = 0):
+        slice_ends = offset + torch.cumsum(sizes, dim=0)
+        return [slice(offset if n == 0 else slice_ends[n - 1], slice_ends[n]) for n in range(len(sizes))]
+
     def __init__(self, batch: List[tensors.Datum]):
         self.labeled = batch[0].artifact_label() is not None
         for datum in batch:
@@ -31,8 +38,9 @@ class Batch:
 
         self._ref_counts = torch.IntTensor([len(item.ref_tensor()) for item in batch])
         self._alt_counts = torch.IntTensor([len(item.alt_tensor()) for item in batch])
-        self._ref = torch.cat([item.ref_tensor() for item in batch], dim=0)
-        self._alt = torch.cat([item.alt_tensor() for item in batch], dim=0)
+        self._ref_slices = Batch.make_slices(self._ref_counts)
+        self._alt_slices = Batch.make_slices(self._alt_counts, torch.sum(self._ref_counts))
+        self._reads = torch.cat([item.ref_tensor() for item in batch] + [item.alt_tensor() for item in batch], dim=0)
         self._info = torch.stack([item.info_tensor() for item in batch], dim=0)
         self._labels = torch.FloatTensor([item.artifact_label() for item in batch]) if self.labeled else None
         self._site_info = [item.site_info() for item in batch]
@@ -42,11 +50,14 @@ class Batch:
     def size(self):
         return self._size
 
-    def ref(self):
-        return self._ref
+    def reads(self):
+        return self._reads
 
-    def alt(self):
-        return self._alt
+    def ref_slices(self):
+        return self._ref_slices
+
+    def alt_slices(self):
+        return self._alt_slices
 
     def ref_counts(self):
         return self._ref_counts

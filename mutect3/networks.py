@@ -26,13 +26,6 @@ def f_score(tp, fp, total_true):
     fn = total_true - tp
     return tp / (tp + (fp + fn) / 2)
 
-
-# given list of slice sizes, produce a list of index slice objects
-# eg input = [2,3,1] --> [slice(0,2), slice(2,5), slice(5,6)]
-def make_slices(sizes):
-    slice_ends = torch.cumsum(sizes, dim=0)
-    return [slice(0 if n == 0 else slice_ends[n - 1], slice_ends[n]) for n in range(len(sizes))]
-
 class EpochType(enum.Enum):
    TRAIN = "train"
    VALID = "valid"
@@ -84,9 +77,6 @@ class MLP(nn.Module):
             if n < len(self.layers) - 1:
                 x = nn.functional.leaky_relu(x)
         return x
-
-
-MAX_ALT = 10
 
 
 # note: this function works for alpha, beta 1D tensors of the same size, and n, k 1D tensors of the same
@@ -145,7 +135,7 @@ class AFSpectrum(nn.Module):
         weighted_log_densities = torch.unsqueeze(log_pi, 1) + unweighted_log_densities
         densities = torch.exp(torch.logsumexp(weighted_log_densities, dim=0))
 
-        return validation.simple_plot((f.numpy(), densities.numpy()," "), "AF", "density", title)
+        return validation.simple_plot([(f.detach().numpy(), densities.detach().numpy()," ")], "AF", "density", title)
 
 
 # contains variant spectrum, artifact spectrum, and artifact/variant log prior ratio
@@ -189,11 +179,13 @@ class Mutect3Parameters:
 
 # calibrate the confidence of uncalibrated logits
 class Calibration(nn.Module):
+    MAX_ALT = 10
+
     def __init__(self):
         super(Calibration, self).__init__()
         # Taking the mean of read embeddings erases the alt count, by design.  However, it is fine to multiply
         # the output logits in a count-dependent way to modulate confidence.  We initialize as sqrt(alt count).
-        self.confidence = nn.Parameter(torch.sqrt(torch.arange(0, MAX_ALT + 1).float()))
+        self.confidence = nn.Parameter(torch.sqrt(torch.arange(0, Calibration.MAX_ALT + 1).float()))
 
         # we apply as asymptotic threshold function logit --> M * tanh(logit/M) where M is the maximum absolute
         # value of the thresholded output.  For logits << M this is the identity, and approaching M the asymptote
@@ -202,7 +194,7 @@ class Calibration(nn.Module):
         self.max_logit = nn.Parameter(torch.tensor(10.0))
 
     def forward(self, logits, alt_counts):
-        truncated_counts = torch.LongTensor([min(c, MAX_ALT) for c in alt_counts])
+        truncated_counts = torch.LongTensor([min(c, Calibration.MAX_ALT) for c in alt_counts])
         logits = logits * torch.index_select(self.confidence, 0, truncated_counts)
         return self.max_logit * torch.tanh(logits / self.max_logit)
 
@@ -298,12 +290,9 @@ class ReadSetClassifier(nn.Module):
 
     def forward(self, batch: data.Batch, calibrated=True, posterior=False):
         # embed reads and take mean within each datum to get tensors of shape (batch size x embedding dimension)
-        phi_ref = torch.sigmoid(self.phi(batch.ref()))
-        phi_alt = torch.sigmoid(self.phi(batch.alt()))
-        ref_slices = make_slices(batch.ref_counts())
-        alt_slices = make_slices(batch.alt_counts())
-        ref_means = torch.cat([torch.mean(phi_ref[s], dim=0, keepdim=True) for s in ref_slices], dim=0)
-        alt_means = torch.cat([torch.mean(phi_alt[s], dim=0, keepdim=True) for s in alt_slices], dim=0)
+        phi_reads = torch.sigmoid(self.phi(batch.reads()))
+        ref_means = torch.cat([torch.mean(phi_reads[s], dim=0, keepdim=True) for s in batch.ref_slices()], dim=0)
+        alt_means = torch.cat([torch.mean(phi_reads[s], dim=0, keepdim=True) for s in batch.alt_slices()], dim=0)
 
         # stack side-by-side to get 2D tensor, where each variant row is (ref mean, alt mean, info)
         omega_info = torch.sigmoid(self.omega(batch.info()))
