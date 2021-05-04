@@ -354,8 +354,8 @@ class ReadSetClassifier(nn.Module):
     # calculate and detach the likelihoods layers, then learn the calibration layer with SGD
     def learn_calibration(self, loader, num_epochs):
         uncalibrated_logits_labels_counts = [
-            (self(batch.original_batch(), calibrated=False).detach(), batch.original_batch().labels(),
-             batch.original_batch().alt_counts()) for batch in loader if batch.is_labeled()]
+            (self(batch, calibrated=False).detach(), batch.labels(),
+             batch.alt_counts()) for batch in loader if batch.is_labeled()]
         optimizer = torch.optim.Adam(self.calibration_parameters())
         criterion = nn.BCEWithLogitsLoss()
 
