@@ -17,9 +17,9 @@ def run_evaluation(training_pickles, test_pickle, params: TrainingParameters, m3
         [1 for datum in train if 'PASS' in datum.mutect_info().filters() and datum.artifact_label() == 1])
     print("Training data includes " + str(train_false_artifacts) + " PASS variants labelled as artifacts.")
 
-    train_loader, valid_loader, test_loader = data.make_data_loaders(train, valid, test, params.batch_size, params.beta1, params.beta2)
+    train_loader, valid_loader, test_loader = data.make_data_loaders(train, valid, test, params.batch_size)
     model = networks.ReadSetClassifier(m3_params, m2_filters_to_keep={'normal_artifact'}).float()
-    training_metrics = model.train_model(train_loader, valid_loader, test_loader, params.num_epochs)
+    training_metrics = model.train_model(train_loader, valid_loader, test_loader, params.num_epochs, params.beta1, params.beta2)
     training_metrics.plot_all_metrics()
     model.get_prior_model().plot_spectra()
 

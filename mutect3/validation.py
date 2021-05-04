@@ -16,9 +16,6 @@ def simple_plot(x_y_lab_tuples, xlabel, ylabel, title):
     return fig, curve
 
 class TrainingMetrics:
-    NLL = "negative log-likelihood"
-    F = "optimal F score"
-
     def __init__(self):
         # metrics[metric type][training type] is a list by epoch
         self.metrics = defaultdict(lambda: defaultdict(list))
@@ -43,24 +40,22 @@ class ValidationStats:
         self.confusion_by_count = defaultdict(lambda: [[0, 0], [0, 0]])
         self.confusion = [[0, 0], [0, 0]]
 
-        self.artifact_scores_by_count = defaultdict(list)
-        self.non_artifact_scores_by_count = defaultdict(list)
+        # artifact and non-artifact scores/logits by alt count
+        self.artifact_scores = defaultdict(list)
+        self.non_artifact_scores = defaultdict(list)
 
-        self.missed_artifacts_by_count = defaultdict(list)
-        self.missed_variants_by_count = defaultdict(list)
+        self.missed_artifacts = defaultdict(list)
+        self.missed_variants = defaultdict(list)
 
     # prediction and truth are 0 if not artifact, 1 if artifact
     def add(self, alt_count, truth, prediction, score, filters, position):
         alt_count_bin = ValidationStats._round_alt_count_for_binning(alt_count)
         self.confusion_by_count[alt_count_bin][truth][prediction] += 1
         self.confusion[truth][prediction] += 1
-        (self.artifact_scores_by_count if truth == 1 else self.non_artifact_scores_by_count)[alt_count_bin].append(
-            score)
+        (self.artifact_scores if truth == 1 else self.non_artifact_scores)[alt_count_bin].append(score)
 
-        if truth == 1 and prediction == 0:
-            self.missed_artifacts_by_count[alt_count_bin].append((score, position, filters))
-        elif truth == 0 and prediction == 1:
-            self.missed_variants_by_count[alt_count_bin].append((score, position, filters))
+        if truth != prediction:
+            (self.missed_variants if truth == 1 else self.missed_variants)[alt_count_bin].append((score, position, filters))
 
     def confusion_matrices(self):
         return self.confusion_by_count
@@ -77,20 +72,20 @@ class ValidationStats:
         return 1.0 if denom == 0 else self.confusion[0][0] / denom
 
     def artifact_scores(self):
-        return self.artifact_scores_by_count
+        return self.artifact_scores
 
     def non_artifact_scores(self):
-        return self.non_artifact_scores_by_count
+        return self.non_artifact_scores
 
     def worst_missed_variants(self, alt_count):
         alt_count_bin = ValidationStats._round_alt_count_for_binning(alt_count)
         # sort from highest score to lowest
-        return sorted(self.missed_variants_by_count[alt_count_bin], key=lambda x: -x[0])
+        return sorted(self.missed_variants[alt_count_bin], key=lambda x: -x[0])
 
     def worst_missed_artifacts(self, alt_count):
         alt_count_bin = ValidationStats._round_alt_count_for_binning(alt_count)
         # sort from highest score to lowest
-        return sorted(self.missed_artifacts_by_count[alt_count_bin], key=lambda x: x[0])
+        return sorted(self.missed_artifacts[alt_count_bin], key=lambda x: x[0])
 
     # confusion_matrices is dict of alt count to 2x2 [[,],[,]] confusion matrices where 0/1 is non-artifact/artifact
     # and 1st index is truth, 2nd index is prediction
