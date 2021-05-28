@@ -5,7 +5,7 @@ import torch
 from torch import nn
 import math
 
-from torch.utils.data import Dataset
+from torch.utils.data import Dataset, DataLoader
 from tqdm.autonotebook import tqdm
 from mutect3 import networks
 
@@ -115,6 +115,44 @@ class NormalArtifactDataset(Dataset):
     def __getitem__(self, index):
         return self.data[index]
 
+
+# take a list of normal artifact data and package it as several 1D tensors
+class NormalArtifactBatch:
+
+    def __init__(self, data: List[NormalArtifactDatum]):
+        self._normal_alt = torch.IntTensor([datum.normal_alt_count() for datum in data])
+        self._normal_depth = torch.IntTensor([datum.normal_depth() for datum in data])
+        self._tumor_alt = torch.IntTensor([datum.tumor_alt_count() for datum in data])
+        self._tumor_depth = torch.IntTensor([datum.tumor_depth() for datum in data])
+        self._downsampling = torch.FloatTensor([datum.downsampling() for datum in data])
+        self._variant_type = [datum.variant_type() for datum in data]
+        self._size = len(data)
+
+    def size(self):
+        return self._size
+
+    def normal_alt(self):
+        return self._normal_alt
+
+    def normal_depth(self):
+        return self._normal_depth
+
+    def tumor_alt(self):
+        return self._tumor_alt
+
+    def tumor_depth(self):
+        return self._tumor_depth
+
+    def downsampling(self):
+        return self._downsampling
+
+    def variant_type(self):
+        return self._variant_type
+
+def make_normal_artifact_data_loader(dataset: NormalArtifactDataset, batch_size):
+    return DataLoader(dataset=dataset, batch_size=batch_size, collate_fn=NormalArtifactBatch)
+
+
 class NormalArtifactModel(nn.Module):
 
     def __init__(self, hidden_layers: List[int], dropout_p: float = None):
@@ -124,17 +162,20 @@ class NormalArtifactModel(nn.Module):
         all_layers = [2] + hidden_layers + [1]
         self.phi = networks.MLP(all_layers, batch_normalize=False, dropout_p=dropout_p)
 
-    # given normal alt, normal depth, tumor depth, what is the log likelihood of a given tumor alt count
-    def log_likelihood(self, datum: NormalArtifactDatum):
+    # given normal alts, normal depths, tumor depths, what is the log likelihood of given tumor alt counts
+    # that is, this returns the 1D tensor of log likelihoods
+    def log_likelihood(self, batch: NormalArtifactBatch):
         # beta posterior of normal counts with flat 1,1 prior
-        alpha = datum.normal_alt_count() + 1
-        beta = datum.normal_depth() - datum.normal_alt_count() + 1
+        # alpha, bet, mu, sigma are all 1D tensors
+        alpha = batch.normal_alt() + 1
+        beta = batch.normal_depth() - batch.normal_alt() + 1
         mu = alpha / (alpha + beta)
-        sigma = math.sqrt(alpha*beta/((alpha+beta)*(alpha+beta)*(alpha + beta + 1)))
+        sigma = torch.sqrt(alpha*beta/((alpha+beta)*(alpha+beta)*(alpha + beta + 1)))
 
+        #TODO this should become stack or cat
         # parametrize the input as the mean and std of this beta
         normal_tensor = torch.tensor([mu, sigma])
 
-        tumor_alt_count = datum.tumor_alt_count()
-        tumor_depth = datum.tumor_depth()
+        tumor_alt_count = batch.tumor_alt_count()
+        tumor_depth = batch.tumor_depth()
 
