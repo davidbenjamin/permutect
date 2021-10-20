@@ -26,10 +26,10 @@ class NormalArtifactDatum:
         return self._normal_depth
 
     def tumor_alt_count(self) -> int:
-        return self._normal_alt_count
+        return self._tumor_alt_count
 
     def tumor_depth(self) -> int:
-        return self._normal_depth
+        return self._tumor_depth
 
     def downsampling(self) -> float:
         return self._downsampling
@@ -166,9 +166,7 @@ class NormalArtifactModel(nn.Module):
     def forward(self, batch: NormalArtifactBatch):
         return self.log_likelihood(batch)
 
-    # given normal alts, normal depths, tumor depths, what is the log likelihood of given tumor alt counts
-    # that is, this returns the 1D tensor of log likelihoods
-    def log_likelihood(self, batch: NormalArtifactBatch):
+    def get_beta_parameters(self, batch: NormalArtifactBatch):
         # beta posterior of normal counts with flat 1,1 prior
         # alpha, bet, mu, sigma are all 1D tensors
         alpha = batch.normal_alt() + 1
@@ -176,7 +174,7 @@ class NormalArtifactModel(nn.Module):
         beta = batch.normal_depth() - batch.normal_alt() + 1
         beta = beta.float()
         mu = alpha / (alpha + beta)
-        sigma = torch.sqrt(alpha*beta/((alpha+beta)*(alpha+beta)*(alpha + beta + 1)))
+        sigma = torch.sqrt(alpha * beta / ((alpha + beta) * (alpha + beta) * (alpha + beta + 1)))
 
         # parametrize the input as the mean and std of this beta
         # each row is one datum of the batch
@@ -187,6 +185,12 @@ class NormalArtifactModel(nn.Module):
         output_alpha = torch.squeeze(torch.exp(self.mlp_alpha(mu_sigma)))
         output_beta = torch.squeeze(torch.exp(self.mlp_beta(mu_sigma)))
 
+        return output_alpha, output_beta
+
+    # given normal alts, normal depths, tumor depths, what is the log likelihood of given tumor alt counts
+    # that is, this returns the 1D tensor of log likelihoods
+    def log_likelihood(self, batch: NormalArtifactBatch):
+        output_alpha, output_beta = self.get_beta_parameters(batch)
 
         # the log likelihood is the beta binomial log likelihood
         tumor_alt_count = batch.tumor_alt()
@@ -195,10 +199,7 @@ class NormalArtifactModel(nn.Module):
         # depth and alt count are the n and k of the beta binomial, 1D tensors indexed by the batch
         # output alpha and output beta are 1D tensors of the same length
         # beta_binomial(n,k,alpha,beta)[i,j] is the beta binomial log likelihood of n[i],k[i], alpha[j], beta[j]
-        log_likelihoods = networks.beta_binomial(tumor_depth, tumor_alt_count, output_alpha, output_beta)
-
-        return log_likelihoods
-
+        return networks.beta_binomial(tumor_depth, tumor_alt_count, output_alpha, output_beta)
 
     def train_model(self, train_loader, valid_loader, num_epochs):
         optimizer = torch.optim.Adam(self.parameters())
