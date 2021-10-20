@@ -6,8 +6,8 @@ from torch import nn
 import math
 
 from torch.utils.data import Dataset, DataLoader
-from tqdm.autonotebook import tqdm
-from mutect3 import networks
+from tqdm.autonotebook import tqdm, trange
+from mutect3 import networks, validation
 
 
 class NormalArtifactDatum:
@@ -157,10 +157,14 @@ class NormalArtifactModel(nn.Module):
 
     def __init__(self, hidden_layers: List[int], dropout_p: float = None):
         super(NormalArtifactModel, self).__init__()
-        # we will convert the normal alt and normal depth into the mean and standard deviation of
-        # the beta distribution they define.  Then we will predict a mixture of
-        all_layers = [2] + hidden_layers + [1]
-        self.phi = networks.MLP(all_layers, batch_normalize=False, dropout_p=dropout_p)
+        # we will convert the normal alt and normal depth into the shape parameters of
+        # the beta distribution they define.
+        mu_sigma_1_layers = [2] + hidden_layers + [1]
+        self.mlp_alpha = networks.MLP(mu_sigma_1_layers, batch_normalize=False, dropout_p=dropout_p)
+        self.mlp_beta = networks.MLP(mu_sigma_1_layers, batch_normalize=False, dropout_p=dropout_p)
+
+    def forward(self, batch: NormalArtifactBatch):
+        return self.log_likelihood(batch)
 
     # given normal alts, normal depths, tumor depths, what is the log likelihood of given tumor alt counts
     # that is, this returns the 1D tensor of log likelihoods
@@ -168,14 +172,61 @@ class NormalArtifactModel(nn.Module):
         # beta posterior of normal counts with flat 1,1 prior
         # alpha, bet, mu, sigma are all 1D tensors
         alpha = batch.normal_alt() + 1
+        alpha = alpha.float()
         beta = batch.normal_depth() - batch.normal_alt() + 1
+        beta = beta.float()
         mu = alpha / (alpha + beta)
         sigma = torch.sqrt(alpha*beta/((alpha+beta)*(alpha+beta)*(alpha + beta + 1)))
 
-        #TODO this should become stack or cat
         # parametrize the input as the mean and std of this beta
-        normal_tensor = torch.tensor([mu, sigma])
+        # each row is one datum of the batch
+        mu_sigma = torch.stack((mu, sigma), dim=1)
 
-        tumor_alt_count = batch.tumor_alt_count()
+        # parametrize the generative model in terms of the beta shape parameters
+        # note the exp to make it positive and the squeeze to make it 1D, as required by the beta binomial
+        output_alpha = torch.squeeze(torch.exp(self.mlp_alpha(mu_sigma)))
+        output_beta = torch.squeeze(torch.exp(self.mlp_beta(mu_sigma)))
+
+
+        # the log likelihood is the beta binomial log likelihood
+        tumor_alt_count = batch.tumor_alt()
         tumor_depth = batch.tumor_depth()
+
+        # depth and alt count are the n and k of the beta binomial, 1D tensors indexed by the batch
+        # output alpha and output beta are 1D tensors of the same length
+        # beta_binomial(n,k,alpha,beta)[i,j] is the beta binomial log likelihood of n[i],k[i], alpha[j], beta[j]
+        log_likelihoods = networks.beta_binomial(tumor_depth, tumor_alt_count, output_alpha, output_beta)
+
+        return log_likelihoods
+
+
+    def train_model(self, train_loader, valid_loader, num_epochs):
+        optimizer = torch.optim.Adam(self.parameters())
+        training_metrics = validation.TrainingMetrics()
+
+
+        for epoch in trange(1, num_epochs + 1, desc="Epoch"):
+            for epoch_type in [networks.EpochType.TRAIN, networks.EpochType.VALID]:
+                loader = train_loader if epoch_type == networks.EpochType.TRAIN else valid_loader
+
+                epoch_loss = 0
+                epoch_count = 0
+                for batch in loader:
+                    log_likelihoods = self(batch)
+                    loss = -torch.mean(log_likelihoods)
+                    epoch_loss += loss.item()
+                    epoch_count += 1
+
+                    if epoch_type == networks.EpochType.TRAIN:
+                        optimizer.zero_grad()
+                        loss.backward()
+                        optimizer.step()
+
+                training_metrics.add("NLL", epoch_type.name, epoch_loss / epoch_count)
+            # done with epoch
+        # done with training
+        # model is trained
+        return training_metrics
+
+
 
