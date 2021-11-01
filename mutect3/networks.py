@@ -79,17 +79,13 @@ class MLP(nn.Module):
         return x
 
 
-# note: this function works for alpha, beta 1D tensors of the same size, and n, k 1D tensors of the same
-# size (different in general from that of alpha, beta)
-# the result is a 2D tensor of the beta binomial
-# result[i,j] = beta_binomial(n[i],k[i],alpha[j],beta[j])
+# note: this function works for n, k, alpha, beta tensors of the same shape
+# the result is computed element-wise ie result[i,j. . .] = beta_binomial(n[i,j..], k[i,j..], alpha[i,j..], beta[i,j..)
+# often n, k will correspond to a batch dimension and alpha, beta correspond to a model, in which case
+# unsqueezing is necessary
 def beta_binomial(n, k, alpha, beta):
-    n2 = n.unsqueeze(1)
-    k2 = k.unsqueeze(1)
-    alpha2 = alpha.unsqueeze(0)
-    beta2 = beta.unsqueeze(0)
-    return torch.lgamma(k2 + alpha2) + torch.lgamma(n2 - k2 + beta2) + torch.lgamma(alpha2 + beta2) \
-           - torch.lgamma(n2 + alpha2 + beta2) - torch.lgamma(alpha2) - torch.lgamma(beta2)
+    return torch.lgamma(k + alpha) + torch.lgamma(n - k + beta) + torch.lgamma(alpha + beta) \
+           - torch.lgamma(n + alpha + beta) - torch.lgamma(alpha) - torch.lgamma(beta)
 
 
 class AFSpectrum(nn.Module):
@@ -109,7 +105,12 @@ class AFSpectrum(nn.Module):
     def log_likelihood(self, k, n):
         # note that we unsqueeze pi along the same dimension as alpha and beta
         log_pi = torch.unsqueeze(nn.functional.log_softmax(self.z, dim=0), 0)
-        log_likelihoods = beta_binomial(n, k, self.a, self.b)
+
+
+        # n, k, a, b are all 1D tensors.  If we unsqueeze n,k along dim=1 and unsqueeze a,,b along dim=0
+        # the resulting 2D log_likelihoods will have the structure
+        # likelihoods[i,j] = beta_binomial(n[i],k[i],alpha[j],beta[j])
+        log_likelihoods = beta_binomial(n.unsqueeze(1), k.unsqueeze(1), self.a.unsqueeze(0), self.b.unsqueeze(0))
 
         # by the convention above, the 0th dimension of log_likelihoods is n,k (batch) and the 1st dimension
         # is alpha, beta.  We sum over the latter, getting a 1D tensor corresponding to the batch
