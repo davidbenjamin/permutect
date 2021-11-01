@@ -223,11 +223,11 @@ class NormalArtifactModel(nn.Module):
         # remove dummy batch dimension
         output_alpha = output_alpha.squeeze()
         output_beta = output_beta.squeeze()
-        log_pi = log_pi.squueze()
+        log_pi = log_pi.squeeze()
 
 
         # list of component beta distributions
-        betas = [torch.distributions.beta.Beta(torch.FloatTensor([alpha]), torch.FloatTensor([beta])) for (alpha, beta) in zip(output_alpha.numpy(), output_beta.numpy())]
+        betas = [torch.distributions.beta.Beta(torch.FloatTensor([alpha]), torch.FloatTensor([beta])) for (alpha, beta) in zip(output_alpha.detach().numpy(), output_beta.detach().numpy())]
 
         # list of tensors - the list is over the mixture components, the tensors are over AF values f
         unweighted_log_densities = torch.stack([beta.log_prob(f) for beta in betas], dim=0)
@@ -251,7 +251,8 @@ class NormalArtifactModel(nn.Module):
                 epoch_count = 0
                 for batch in loader:
                     log_likelihoods = self(batch)
-                    loss = -torch.mean(log_likelihoods)
+                    weights = 1/batch.downsampling()
+                    loss = -torch.mean(weights * log_likelihoods)
                     epoch_loss += loss.item()
                     epoch_count += 1
 
