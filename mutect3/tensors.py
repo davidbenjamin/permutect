@@ -27,6 +27,9 @@ class SiteInfo:
     def popaf(self):
         return self._popaf
 
+    def variant_type(self) -> utils.VariantType:
+        diff = len(self.alt()) - len(self.ref())
+        return utils.VariantType.SNV if diff == 0 else (utils.VariantType.INSERTION if diff > 0 else utils.VariantType.DELETION)
 
 class MutectInfo:
     def __init__(self, tlod: float, tumor_dp: int, filters: Set[str]):
@@ -268,7 +271,7 @@ def make_tensors(raw_file, is_training, sample_name, normal_sample_name=None, sh
 
             has_normal = normal_sample_name is not None
             normal_dp = reader.normal_dp(tokens) if has_normal else 0
-            normal_ref, normal_alt = reader.normal_ref_and_alt(tokens, REF_DOWNSAMPLE) if has_normal else None, None
+            normal_ref, normal_alt = reader.normal_ref_and_alt(tokens, REF_DOWNSAMPLE) if has_normal else (None, None)
             normal_alt_count = len(normal_alt) if has_normal else 0
             normal_af = 0 if normal_dp == 0 else normal_alt_count / normal_dp
 

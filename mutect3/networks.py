@@ -143,7 +143,7 @@ class PriorModel(nn.Module):
         result = torch.zeros_like(logits)
         for variant_type in VariantType:
             output = logits + self.prior_log_odds[variant_type.value] + self.artifact_spectra[variant_type.value](batch) - variant_ll
-            mask = torch.tensor([1 if variant_type.is_same_type(site_info) else 0 for site_info in batch.site_info()])
+            mask = torch.tensor([1 if variant_type == site_info.variant_type() else 0 for site_info in batch.site_info()])
             result += mask * output
 
         return result
@@ -290,7 +290,7 @@ class ReadSetClassifier(nn.Module):
             # It's slightly wasteful to compute output for every variant type when we only
             # use one, but this is such a small part of the model and it lets us use batches of mixed variant types
             output = torch.squeeze(self.outputs[variant_type.value](aggregated))
-            mask = torch.tensor([1 if variant_type.is_same_type(site_info) else 0 for site_info in batch.site_info()])
+            mask = torch.tensor([1 if variant_type == site_info.variant_type() else 0 for site_info in batch.site_info()])
             logits += mask * output
 
         if calibrated:
