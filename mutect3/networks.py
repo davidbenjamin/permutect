@@ -299,27 +299,28 @@ class ReadSetClassifier(nn.Module):
         if posterior:
             logits = self.prior_model(logits, batch)
 
-        # posterior probability of normal artifact given observed read counts
-        # log likelihood of tumor read counts given tumor variant spectrum P(tumor counts | somatic variant)
-        somatic_log_lk = self.prior_model.variant_spectrum.log_likelihood(batch.alt_counts, batch.alt_counts() + batch.ref_counts())
+            ### NORMAL ARTIFACT CALCULATION BEGINS
+            # posterior probability of normal artifact given observed read counts
+            # log likelihood of tumor read counts given tumor variant spectrum P(tumor counts | somatic variant)
+            somatic_log_lk = self.prior_model.variant_spectrum.log_likelihood(batch.alt_counts, batch.alt_counts() + batch.ref_counts())
 
-        # log likelihood of tumor read counts given the normal read counts under normal artifact sub-model
-        # P(tumor counts | normal counts)
-        na_log_lk = self.normal_artifact_model.log_likelihood(batch.normal_artifact_batch())
+            # log likelihood of tumor read counts given the normal read counts under normal artifact sub-model
+            # P(tumor counts | normal counts)
+            na_log_lk = self.normal_artifact_model.log_likelihood(batch.normal_artifact_batch())
 
-        # note that prior of normal artifact is essentially 1
-        # posterior is P(artifact) = P(tumor counts | normal counts) /[P(tumor counts | normal) + P(somatic)*P(tumor counts | somatic)]
-        # so, with n_ll = normal artifact log likelhood and som_ll = somatic log likelihood and pi = log P(somatic)
-        # log P(artifact) = na_ll - log [exp(na_ll) + exp(pi + som_ll)]
-        #                 = na_ll - log_sum_exp(na_ll, pi + som_ll)
+            # note that prior of normal artifact is essentially 1
+            # posterior is P(artifact) = P(tumor counts | normal counts) /[P(tumor counts | normal) + P(somatic)*P(tumor counts | somatic)]
+            # and posterior logits are log(post prob artifact / post prob somatic)
+            # so, with n_ll = normal artifact log likelhood and som_ll = somatic log likelihood and pi = log P(somatic)
+            # posterior logit = na_ll - pi - som_ll
 
-        #WARNING: HARD-CODED MAGIC CONSTANT!!!!!
-        log_somatic_prior = -11.0
+            #WARNING: HARD-CODED MAGIC CONSTANT!!!!!
+            log_somatic_prior = -11.0
+            na_logits = na_log_lk - log_somatic_prior - somatic_log_lk
+            ### NORMAL ARTIFACT CALCULATION ENDS
 
-        # stacking na_ll and som_ll makes 2D tensor, 1st column is na, 2nd column is som
-        # log_sum_exp with dim=1 sums over the columns, yielding 1D tensor one element per datum
-        denominator = torch.logsumexp(torch.stack([na_log_lk, log_somatic_prior + somatic_log_lk], dim=1))
-        log_normal_artifact_posterior = na_log_lk - denominator
+            # primitive approach -- just take whichever is greater between the two models' posteriors
+            logits = torch.maximum(logits, na_logits)
 
         return logits
 
