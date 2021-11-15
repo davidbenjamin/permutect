@@ -5,6 +5,8 @@ import pickle
 from torch.distributions.beta import Beta
 from typing import Set, List
 from tqdm.autonotebook import tqdm, trange
+from collections import defaultdict
+from mutect3 import utils
 
 class SiteInfo:
     def __init__(self, chromosome, position, ref, alt, popaf):
@@ -94,13 +96,16 @@ class VariantInfo:
 
 
 class Datum:
-    def __init__(self, ref_tensor: torch.Tensor, alt_tensor: torch.Tensor, info_tensor: torch.Tensor, site_info: SiteInfo, mutect2_data: MutectInfo, artifact_label):
+    def __init__(self, ref_tensor: torch.Tensor, alt_tensor: torch.Tensor, info_tensor: torch.Tensor, site_info: SiteInfo,
+                 mutect2_data: MutectInfo, artifact_label, normal_depth: int, normal_alt_count: int):
         self._site_info = site_info
         self._ref_tensor = ref_tensor
         self._alt_tensor = alt_tensor
         self._info_tensor = info_tensor
         self._mutect2_data = mutect2_data
         self._artifact_label = artifact_label
+        self._normal_depth = normal_depth
+        self._normal_alt_count = normal_alt_count
 
     def ref_tensor(self) -> torch.Tensor:
         return self._ref_tensor
@@ -120,6 +125,14 @@ class Datum:
     def artifact_label(self):
         return self._artifact_label
 
+    def normal_depth(self) -> int:
+        return self._normal_depth
+
+    def normal_alt_count(self) -> int:
+        return self._normal_alt_count
+
+
+
     # beta is distribution of downsampling fractions
     def downsampled_copy(self, beta: Beta):
         ref_frac = beta.sample().item()
@@ -129,7 +142,7 @@ class Datum:
         alt_length = max(1, round(alt_frac * len(self._alt_tensor)))
         ref = downsample(self._ref_tensor, ref_length)
         alt = downsample(self._alt_tensor, alt_length)
-        return Datum(ref, alt, self.info_tensor(), self.site_info(), self.mutect_info(), self.artifact_label())
+        return Datum(ref, alt, self.info_tensor(), self.site_info(), self.mutect_info(), self.artifact_label(), self.normal_depth(), self.normal_alt_count())
 
 # pickle and unpickle a Python list of Datum objects.  Convenient to have here because unpickling needs to have all
 # the constituent classes of Datum explicitly imported.
@@ -223,21 +236,14 @@ def make_tensors(raw_file, is_training, sample_name, normal_sample_name=None, sh
     trusted_m2_filters = {"contamination", "germline", "weak_evidence"}
     data = []
 
-    # simple online method for balanced data set where for each k-alt-read artifact there are
-    # NON_ARTIFACT_PER_ARTIFACT (downsampled) k-alt-read non-artifacts.  That is, alt count is not an informative
-    # feature.
-    unmatched_snv_counts = []
-    unmatched_deletion_counts = []
-    unmatched_insertion_counts = []
+    # simple method to balance data: for each k-alt-read artifact there are
+    # NON_ARTIFACT_PER_ARTIFACT (downsampled) k-alt-read non-artifacts.
+    unmatched_counts_by_type = defaultdict(list)
 
-    artifact_count, unlabeled_count = 0, 0
     with open(raw_file) as fp:
         reader = TableReader(fp.readline().split(), sample_name, normal_sample_name)
-
         pbar = tqdm(enumerate(fp))
         for n, line in pbar:
-            if n % 10000 == 0:
-                pbar.set_description("Artifact count: " + str(artifact_count) + ", unlabled count: " + str(unlabeled_count))
 
             tokens = line.split()
             site_info = reader.site_info(tokens)
@@ -252,45 +258,44 @@ def make_tensors(raw_file, is_training, sample_name, normal_sample_name=None, sh
             elif "contamination" in filters:
                 continue
 
-            weak = "weak_evidence" in filters or m2_data.tlod() < TLOD_THRESHOLD
-
             ref_tensor, alt_tensor = reader.tumor_ref_and_alt(tokens, REF_DOWNSAMPLE)
             alt_count = len(alt_tensor)
             if alt_count == 0 or len(ref_tensor) < MIN_REF:
                 continue
 
-            af = alt_count / m2_data.tumor_depth()
+            tumor_af = alt_count / m2_data.tumor_depth()
             is_artifact = None
-            if is_training:
-                normal_af = 0
-                has_normal = normal_sample_name is not None
-                if has_normal:
-                    normal_dp = reader.normal_dp(tokens)
-                    normal_ref, normal_alt = reader.normal_ref_and_alt(tokens, REF_DOWNSAMPLE)
-                    normal_af = 0 if normal_dp == 0 else len(normal_alt) / normal_dp
-                    # TODO: output normal alt reads in dataset
 
-                variant_size = len(site_info.alt()) - len(site_info.ref())
-                unmatched_artifact_counts = unmatched_snv_counts if variant_size == 0 else \
-                    (unmatched_insertion_counts if variant_size > 0 else unmatched_deletion_counts)
+            has_normal = normal_sample_name is not None
+            normal_dp = reader.normal_dp(tokens) if has_normal else 0
+            normal_ref, normal_alt = reader.normal_ref_and_alt(tokens, REF_DOWNSAMPLE) if has_normal else None, None
+            normal_alt_count = len(normal_alt) if has_normal else 0
+            normal_af = 0 if normal_dp == 0 else normal_alt_count / normal_dp
+
+            likely_seq_error = "weak_evidence" in filters or m2_data.tlod() < TLOD_THRESHOLD
+            likely_germline = has_normal and normal_af > 0.2
+
+            # extremely strict criteria because there are so many germline variants we can afford to waste a lot
+            definite_germline = not likely_seq_error and popaf < COMMON_POPAF and (tumor_af > 0.35 and popaf < COMMON_POPAF) and (normal_af > 0.35 if has_normal else True)
+
+            if is_training:
+                unmatched_artifact_counts = unmatched_counts_by_type[utils.get_variant_type(site_info.alt(), site_info.ref())]
 
                 # low AF in tumor and normal, rare in population implies artifact
-                if not weak and (not has_normal or normal_af < 0.2) and af < 0.2 and popaf > RARE_POPAF:
+                if not (likely_seq_error or likely_germline) and tumor_af < 0.2 and popaf > RARE_POPAF:
                     unmatched_artifact_counts.extend([alt_count] * NON_ARTIFACT_PER_ARTIFACT)
                     is_artifact = 1
-                    artifact_count += 1
                 # high AF in tumor and normal, common in population implies germline, which we downsample
-                elif not weak and (not has_normal or normal_af > 0.35) and af > 0.35 and popaf < COMMON_POPAF and unmatched_artifact_counts:
+                elif definite_germline and unmatched_artifact_counts:
                     downsample_count = min(alt_count, unmatched_artifact_counts.pop())
                     alt_tensor = alt_tensor[torch.randperm(alt_count)[:downsample_count]]
                     is_artifact = 0
                 # inconclusive -- unlabeled datum
                 # to avoid too large a dataset, we try to bias toward possible artifacts and keep out obvious sequencing errors
-                elif m2_data.tlod() > 4.0 and af < 0.3:
+                elif m2_data.tlod() > 4.0 and tumor_af < 0.3:
                     is_artifact = None
                     downsample_count = min(alt_count, 10)
                     alt_tensor = alt_tensor[torch.randperm(alt_count)[:downsample_count]]
-                    unlabeled_count += 1
                 else:
                     continue
             else:
@@ -301,10 +306,9 @@ def make_tensors(raw_file, is_training, sample_name, normal_sample_name=None, sh
             # assembly complexity site-level annotations
             info_tensor = reader.variant_info(tokens).info_tensor()
 
-            data.append(Datum(ref_tensor, alt_tensor, info_tensor, site_info, m2_data, is_artifact))
+            data.append(Datum(ref_tensor, alt_tensor, info_tensor, site_info, m2_data, is_artifact, normal_dp, normal_alt_count))
         if shuffle:
             random.shuffle(data)
-        print("Done")
         return data
 
 def generate_pickles(tumor_table, normal_table, tumor_sample, normal_sample, pickle_dir, pickle_prefix):

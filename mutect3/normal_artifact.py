@@ -7,6 +7,8 @@ import math
 
 from torch.utils.data import Dataset, DataLoader
 from tqdm.autonotebook import tqdm, trange
+
+import mutect3.utils
 from mutect3 import networks, validation
 
 
@@ -244,8 +246,8 @@ class NormalArtifactModel(nn.Module):
 
 
         for epoch in trange(1, num_epochs + 1, desc="Epoch"):
-            for epoch_type in [networks.EpochType.TRAIN, networks.EpochType.VALID]:
-                loader = train_loader if epoch_type == networks.EpochType.TRAIN else valid_loader
+            for epoch_type in [mutect3.utils.EpochType.TRAIN, mutect3.utils.EpochType.VALID]:
+                loader = train_loader if epoch_type == mutect3.utils.EpochType.TRAIN else valid_loader
 
                 epoch_loss = 0
                 epoch_count = 0
@@ -256,7 +258,7 @@ class NormalArtifactModel(nn.Module):
                     epoch_loss += loss.item()
                     epoch_count += 1
 
-                    if epoch_type == networks.EpochType.TRAIN:
+                    if epoch_type == mutect3.utils.EpochType.TRAIN:
                         optimizer.zero_grad()
                         loss.backward()
                         optimizer.step()

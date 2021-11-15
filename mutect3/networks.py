@@ -1,14 +1,14 @@
-import matplotlib.pyplot as plt
 import torch
-import enum
-from enum import IntEnum
 from torch import nn
 from tqdm.autonotebook import trange
 
-from mutect3 import validation, tensors, data
+from mutect3 import validation, tensors, data, normal_artifact
 
 # bug before PyTorch 1.7.1 that warns when constructing ParameterList
 import warnings
+
+from mutect3.utils import VariantType, EpochType
+
 warnings.filterwarnings("ignore", message="Setting attributes on ParameterList is not supported.")
 
 
@@ -25,21 +25,6 @@ def unfreeze(parameters):
 def f_score(tp, fp, total_true):
     fn = total_true - tp
     return tp / (tp + (fp + fn) / 2)
-
-class EpochType(enum.Enum):
-   TRAIN = "train"
-   VALID = "valid"
-   TEST = "test"
-
-class VariantType(enum.IntEnum):
-    SNV = 0
-    INSERTION = 1
-    DELETION = 2
-
-    def is_same_type(self, site_info: tensors.SiteInfo):
-        diff = len(site_info.alt()) - len(site_info.ref())
-        return (self == VariantType.SNV and diff == 0) or (self == VariantType.INSERTION and diff > 0) \
-               or (self == VariantType.DELETION and diff < 0)
 
 
 class MLP(nn.Module):
@@ -220,11 +205,8 @@ class ReadSetClassifier(nn.Module):
     because we have different output layers for each variant type.
     """
 
-    def __init__(self, m3_params: Mutect3Parameters, m2_filters_to_keep={}):
+    def __init__(self, m3_params: Mutect3Parameters, na_model: normal_artifact.NormalArtifactModel):
         super(ReadSetClassifier, self).__init__()
-
-        # note: these are only used for testing, not training
-        self.m2_filters_to_keep = m2_filters_to_keep
 
         # phi is the read embedding
         read_layers = [tensors.NUM_READ_FEATURES] + m3_params.hidden_read_layers
@@ -246,6 +228,9 @@ class ReadSetClassifier(nn.Module):
         self.calibration = Calibration()
 
         self.prior_model = PriorModel(4.0)
+
+        self.normal_artifact_model = na_model
+        freeze(self.normal_artifact_model.parameters())
 
     def get_prior_model(self):
         return self.prior_model
@@ -312,10 +297,29 @@ class ReadSetClassifier(nn.Module):
             logits = self.calibration(logits, batch.alt_counts())
 
         if posterior:
-            use_m2_filter = torch.LongTensor(
-                [1 if m2.filters().intersection(self.m2_filters_to_keep) else 0 for m2 in batch.mutect_info()])
-            logits = (1 - use_m2_filter) * logits + 100 * use_m2_filter
             logits = self.prior_model(logits, batch)
+
+        # posterior probability of normal artifact given observed read counts
+        # log likelihood of tumor read counts given tumor variant spectrum P(tumor counts | somatic variant)
+        somatic_log_lk = self.prior_model.variant_spectrum.log_likelihood(batch.alt_counts, batch.alt_counts() + batch.ref_counts())
+
+        # log likelihood of tumor read counts given the normal read counts under normal artifact sub-model
+        # P(tumor counts | normal counts)
+        na_log_lk = self.normal_artifact_model.log_likelihood(batch.normal_artifact_batch())
+
+        # note that prior of normal artifact is essentially 1
+        # posterior is P(artifact) = P(tumor counts | normal counts) /[P(tumor counts | normal) + P(somatic)*P(tumor counts | somatic)]
+        # so, with n_ll = normal artifact log likelhood and som_ll = somatic log likelihood and pi = log P(somatic)
+        # log P(artifact) = na_ll - log [exp(na_ll) + exp(pi + som_ll)]
+        #                 = na_ll - log_sum_exp(na_ll, pi + som_ll)
+
+        #WARNING: HARD-CODED MAGIC CONSTANT!!!!!
+        log_somatic_prior = -11.0
+
+        # stacking na_ll and som_ll makes 2D tensor, 1st column is na, 2nd column is som
+        # log_sum_exp with dim=1 sums over the columns, yielding 1D tensor one element per datum
+        denominator = torch.logsumexp(torch.stack([na_log_lk, log_somatic_prior + somatic_log_lk], dim=1))
+        log_normal_artifact_posterior = na_log_lk - denominator
 
         return logits
 
@@ -332,10 +336,7 @@ class ReadSetClassifier(nn.Module):
             epochs.append(epoch + 1)
             epoch_loss = 0
             for logits, batch in logits_and_batches:
-                use_m2_filter = torch.LongTensor(
-                    [1 if m2.filters().intersection(self.m2_filters_to_keep) else 0 for m2 in batch.mutect_info()])
-                filter_logits = (1 - use_m2_filter) * logits + 100 * use_m2_filter
-                posterior_logits = self.prior_model(filter_logits, batch)
+                posterior_logits = self.prior_model(logits, batch)
 
                 loss = criterion(posterior_logits, batch.labels())
                 optimizer.zero_grad()
