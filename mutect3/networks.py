@@ -302,7 +302,7 @@ class ReadSetClassifier(nn.Module):
             ### NORMAL ARTIFACT CALCULATION BEGINS
             # posterior probability of normal artifact given observed read counts
             # log likelihood of tumor read counts given tumor variant spectrum P(tumor counts | somatic variant)
-            somatic_log_lk = self.prior_model.variant_spectrum.log_likelihood(batch.alt_counts, batch.alt_counts() + batch.ref_counts())
+            somatic_log_lk = self.prior_model.variant_spectrum.log_likelihood(batch.alt_counts(), batch.alt_counts() + batch.ref_counts())
 
             # log likelihood of tumor read counts given the normal read counts under normal artifact sub-model
             # P(tumor counts | normal counts)
