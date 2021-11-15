@@ -393,7 +393,7 @@ class ReadSetClassifier(nn.Module):
         total_variants = len(artifact_probs) - sum(artifact_probs)
 
         # start by rejecting everything, then raise threshold one datum at a time
-        threshold, tp, fp, best_f = 0, 0, 0, 0
+        threshold, tp, fp, best_f = 0.0, 0, 0, 0
 
         for prob in artifact_probs:
             tp += (1 - prob)
