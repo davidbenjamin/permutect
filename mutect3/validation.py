@@ -139,14 +139,14 @@ def get_validation_stats(model, loader, thresholds=[0.0]):
 
 
 # compute optimal F score over a single epoch pass over the test loader, optionally doing SGD on the AF spectrum
-def get_optimal_f_score(model, loader, make_plot=False):
+def get_optimal_f_score(model, loader, make_plot=False, normal_artifact=False):
     # tuples of (artifact prob, artifact label 0/1)
     predictions_and_labels = []
 
     model.freeze_all()
     for batch in loader:
         labels = batch.labels()
-        logits = model(batch, posterior=True)
+        logits = model(batch, posterior=True, normal_artifact=normal_artifact)
         for n in range(batch.size()):
             predictions_and_labels.append((logits[n].item(), labels[n].item()))
 

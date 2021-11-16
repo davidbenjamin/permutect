@@ -274,7 +274,7 @@ class ReadSetClassifier(nn.Module):
         freeze(self.parameters())
         unfreeze(self.spectra_parameters())
 
-    def forward(self, batch: data.Batch, calibrated=True, posterior=False):
+    def forward(self, batch: data.Batch, calibrated=True, posterior=False, normal_artifact=False):
         # embed reads and take mean within each datum to get tensors of shape (batch size x embedding dimension)
         phi_reads = torch.sigmoid(self.phi(batch.reads()))
         ref_means = torch.cat([torch.mean(phi_reads[s], dim=0, keepdim=True) for s in batch.ref_slices()], dim=0)
@@ -299,34 +299,38 @@ class ReadSetClassifier(nn.Module):
         if posterior:
             logits = self.prior_model(logits, batch)
 
-            ### NORMAL ARTIFACT CALCULATION BEGINS
+            if normal_artifact:
+                ### NORMAL ARTIFACT CALCULATION BEGINS
 
-            # posterior probability of normal artifact given observed read counts
-            # log likelihood of tumor read counts given tumor variant spectrum P(tumor counts | somatic variant)
-            somatic_log_lk = self.prior_model.variant_spectrum.log_likelihood(batch.alt_counts(), batch.alt_counts() + batch.ref_counts())
+                # posterior probability of normal artifact given observed read counts
+                # log likelihood of tumor read counts given tumor variant spectrum P(tumor counts | somatic variant)
+                somatic_log_lk = self.prior_model.variant_spectrum.log_likelihood(batch.alt_counts(), batch.alt_counts() + batch.ref_counts())
 
-            # log likelihood of tumor read counts given the normal read counts under normal artifact sub-model
-            # P(tumor counts | normal counts)
-            na_log_lk = self.normal_artifact_model.log_likelihood(batch.normal_artifact_batch())
+                # log likelihood of tumor read counts given the normal read counts under normal artifact sub-model
+                # P(tumor counts | normal counts)
+                na_log_lk = self.normal_artifact_model.log_likelihood(batch.normal_artifact_batch())
 
-            # note that prior of normal artifact is essentially 1
-            # posterior is P(artifact) = P(tumor counts | normal counts) /[P(tumor counts | normal) + P(somatic)*P(tumor counts | somatic)]
-            # and posterior logits are log(post prob artifact / post prob somatic)
-            # so, with n_ll = normal artifact log likelhood and som_ll = somatic log likelihood and pi = log P(somatic)
-            # posterior logit = na_ll - pi - som_ll
+                # note that prior of normal artifact is essentially 1
+                # posterior is P(artifact) = P(tumor counts | normal counts) /[P(tumor counts | normal) + P(somatic)*P(tumor counts | somatic)]
+                # and posterior logits are log(post prob artifact / post prob somatic)
+                # so, with n_ll = normal artifact log likelhood and som_ll = somatic log likelihood and pi = log P(somatic)
+                # posterior logit = na_ll - pi - som_ll
 
-            #WARNING: HARD-CODED MAGIC CONSTANT!!!!!
-            log_somatic_prior = -11.0
-            na_logits = na_log_lk - log_somatic_prior - somatic_log_lk
-            ### NORMAL ARTIFACT CALCULATION ENDS
+                #WARNING: HARD-CODED MAGIC CONSTANT!!!!!
+                log_somatic_prior = -11.0
+                na_logits = na_log_lk - log_somatic_prior - somatic_log_lk
+                ### NORMAL ARTIFACT CALCULATION ENDS
 
-            # normal artifact model is only trained and only applies when normal alt counts are non-zero
-            na_mask = torch.tensor([1 if count > 0 else 0 for count in batch.normal_artifact_batch().normal_alt()])
-            na_masked_logits = na_mask * na_logits - 100 * (1 - na_mask) # if no normal alt counts, turn off normal artifact
+                # normal artifact model is only trained and only applies when normal alt counts are non-zero
+                na_mask = torch.tensor([1 if count > 0 else 0 for count in batch.normal_artifact_batch().normal_alt()])
+                na_masked_logits = na_mask * na_logits - 100 * (1 - na_mask) # if no normal alt counts, turn off normal artifact
 
-            # primitive approach -- just take whichever is greater between the two models' posteriors
-            # WARNING -- commenting out the line below cmpletely disables normal artifact filtering!!!
-            logits = torch.maximum(logits, na_masked_logits)
+                # primitive approach -- just take whichever is greater between the two models' posteriors
+                # WARNING -- commenting out the line below completely disables normal artifact filtering!!!
+                logits = torch.maximum(logits, na_masked_logits)
+
+                print(na_masked_logits)
+                print(batch.normal_artifact_batch().normal_alt())
 
         return logits
 
@@ -388,12 +392,12 @@ class ReadSetClassifier(nn.Module):
         validation.simple_plot([(epochs, calibration_losses, "curve")], "epoch", "loss",
                                "Learning curve for calibration")
 
-    def calculate_logit_threshold(self, loader):
+    def calculate_logit_threshold(self, loader, normal_artifact=False):
         self.train(False)
         artifact_probs = []
 
         for batch in loader:
-            artifact_probs.extend(torch.sigmoid(self(batch, posterior=True)).tolist())
+            artifact_probs.extend(torch.sigmoid(self(batch, posterior=True, normal_artifact=normal_artifact)).tolist())
 
         artifact_probs.sort()
         total_variants = len(artifact_probs) - sum(artifact_probs)

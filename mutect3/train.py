@@ -39,7 +39,7 @@ def run_evaluation(training_pickles, test_pickle, normal_artifact_pickle, params
     model.get_prior_model().plot_spectra()
 
     # plot purported ROC curve
-    validation.get_optimal_f_score(model, test_loader, make_plot=True)
+    validation.get_optimal_f_score(model, test_loader, make_plot=True, normal_artifact=True)
 
     logit_threshold = model.calculate_logit_threshold(test_loader)
     print("Optimal logit threshold: " + str(logit_threshold))
