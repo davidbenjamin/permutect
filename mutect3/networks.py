@@ -300,6 +300,7 @@ class ReadSetClassifier(nn.Module):
             logits = self.prior_model(logits, batch)
 
             ### NORMAL ARTIFACT CALCULATION BEGINS
+
             # posterior probability of normal artifact given observed read counts
             # log likelihood of tumor read counts given tumor variant spectrum P(tumor counts | somatic variant)
             somatic_log_lk = self.prior_model.variant_spectrum.log_likelihood(batch.alt_counts(), batch.alt_counts() + batch.ref_counts())
@@ -319,8 +320,13 @@ class ReadSetClassifier(nn.Module):
             na_logits = na_log_lk - log_somatic_prior - somatic_log_lk
             ### NORMAL ARTIFACT CALCULATION ENDS
 
+            # normal artifact model is only trained and only applies when normal alt counts are non-zero
+            na_mask = torch.tensor([1 if count > 0 else 0 for count in batch.normal_artifact_batch().normal_alt()])
+            na_masked_logits = na_mask * na_logits - 100 * (1 - na_mask) # if no normal alt counts, turn off normal artifact
+
             # primitive approach -- just take whichever is greater between the two models' posteriors
-            logits = torch.maximum(logits, na_logits)
+            # WARNING -- commenting out the line below cmpletely disables normal artifact filtering!!!
+            logits = torch.maximum(logits, na_masked_logits)
 
         return logits
 
