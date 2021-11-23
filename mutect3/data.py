@@ -7,7 +7,16 @@ from typing import List
 from torch.utils.data import Dataset, DataLoader, random_split
 from torch.utils.data.sampler import Sampler
 
-from mutect3 import tensors
+from mutect3 import tensors, normal_artifact
+
+
+# TODO: this should change eventually by having normal artifact table w/ ALT and REF, just like
+# the other table.  For now, we just hack a SNV, DELETION, INDEL
+def normal_artifact_type(item: tensors.Datum):
+    ref = item.site_info().ref()
+    alt = item.site_info().alt()
+    diff = len(alt) - len(ref)
+    return "SNV" if diff == 0 else ("INSERTION" if diff > 0 else "DELETION")
 
 # Read sets have different sizes so we can't form a batch by naively stacking tensors.  We need a custom way
 # to collate a list of Datum into a Batch
@@ -48,9 +57,13 @@ class Batch:
         self._mutect2_data = [item.mutect_info() for item in data]
         self._size = len(data)
 
+        #TODO: variant type needs to go in constructor -- and maybe it should be utils.VariantType, not str
+        normal_artifact_data = [normal_artifact.NormalArtifactDatum(item.normal_alt_count(), item.normal_depth(),
+            len(item.alt_tensor()), len(item.alt_tensor()) + len(item.ref_tensor()), 1.0, normal_artifact_type(item) ) for item in data]
+        self._normal_artifact_batch = normal_artifact.NormalArtifactBatch(normal_artifact_data)
+
     def augmented_copy(self, beta):
         return Batch([datum.downsampled_copy(beta) for datum in self._original_list])
-
 
     def is_labeled(self):
         return self.labeled
@@ -84,6 +97,9 @@ class Batch:
 
     def labels(self):
         return self._labels
+
+    def normal_artifact_batch(self):
+        return self._normal_artifact_batch
 
 
 EPSILON = 0.00001
@@ -131,7 +147,7 @@ class Mutect3Dataset(Dataset):
         ref = (raw.ref_tensor() - self.read_medians) / self.read_iqrs
         alt = (raw.alt_tensor() - self.read_medians) / self.read_iqrs
         info = (raw.info_tensor() - self.info_medians) / self.info_iqrs
-        return tensors.Datum(ref, alt, info, raw.site_info(), raw.mutect_info(), raw.artifact_label())
+        return tensors.Datum(ref, alt, info, raw.site_info(), raw.mutect_info(), raw.artifact_label(), raw.normal_depth(), raw.normal_alt_count())
 
 def make_datasets(training_pickles, test_pickle):
     # make our training, validation, and testing data

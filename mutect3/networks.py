@@ -1,14 +1,14 @@
-import matplotlib.pyplot as plt
 import torch
-import enum
-from enum import IntEnum
 from torch import nn
 from tqdm.autonotebook import trange
 
-from mutect3 import validation, tensors, data
+from mutect3 import validation, tensors, data, normal_artifact
 
 # bug before PyTorch 1.7.1 that warns when constructing ParameterList
 import warnings
+
+from mutect3.utils import VariantType, EpochType
+
 warnings.filterwarnings("ignore", message="Setting attributes on ParameterList is not supported.")
 
 
@@ -25,21 +25,6 @@ def unfreeze(parameters):
 def f_score(tp, fp, total_true):
     fn = total_true - tp
     return tp / (tp + (fp + fn) / 2)
-
-class EpochType(enum.Enum):
-   TRAIN = "train"
-   VALID = "valid"
-   TEST = "test"
-
-class VariantType(enum.IntEnum):
-    SNV = 0
-    INSERTION = 1
-    DELETION = 2
-
-    def is_same_type(self, site_info: tensors.SiteInfo):
-        diff = len(site_info.alt()) - len(site_info.ref())
-        return (self == VariantType.SNV and diff == 0) or (self == VariantType.INSERTION and diff > 0) \
-               or (self == VariantType.DELETION and diff < 0)
 
 
 class MLP(nn.Module):
@@ -79,17 +64,13 @@ class MLP(nn.Module):
         return x
 
 
-# note: this function works for alpha, beta 1D tensors of the same size, and n, k 1D tensors of the same
-# size (different in general from that of alpha, beta)
-# the result is a 2D tensor of the beta binomial
-# result[i,j] = beta_binomial(n[i],k[i],alpha[j],beta[j])
+# note: this function works for n, k, alpha, beta tensors of the same shape
+# the result is computed element-wise ie result[i,j. . .] = beta_binomial(n[i,j..], k[i,j..], alpha[i,j..], beta[i,j..)
+# often n, k will correspond to a batch dimension and alpha, beta correspond to a model, in which case
+# unsqueezing is necessary
 def beta_binomial(n, k, alpha, beta):
-    n2 = n.unsqueeze(1)
-    k2 = k.unsqueeze(1)
-    alpha2 = alpha.unsqueeze(0)
-    beta2 = beta.unsqueeze(0)
-    return torch.lgamma(k2 + alpha2) + torch.lgamma(n2 - k2 + beta2) + torch.lgamma(alpha2 + beta2) \
-           - torch.lgamma(n2 + alpha2 + beta2) - torch.lgamma(alpha2) - torch.lgamma(beta2)
+    return torch.lgamma(k + alpha) + torch.lgamma(n - k + beta) + torch.lgamma(alpha + beta) \
+           - torch.lgamma(n + alpha + beta) - torch.lgamma(alpha) - torch.lgamma(beta)
 
 
 class AFSpectrum(nn.Module):
@@ -109,7 +90,12 @@ class AFSpectrum(nn.Module):
     def log_likelihood(self, k, n):
         # note that we unsqueeze pi along the same dimension as alpha and beta
         log_pi = torch.unsqueeze(nn.functional.log_softmax(self.z, dim=0), 0)
-        log_likelihoods = beta_binomial(n, k, self.a, self.b)
+
+
+        # n, k, a, b are all 1D tensors.  If we unsqueeze n,k along dim=1 and unsqueeze a,,b along dim=0
+        # the resulting 2D log_likelihoods will have the structure
+        # likelihoods[i,j] = beta_binomial(n[i],k[i],alpha[j],beta[j])
+        log_likelihoods = beta_binomial(n.unsqueeze(1), k.unsqueeze(1), self.a.unsqueeze(0), self.b.unsqueeze(0))
 
         # by the convention above, the 0th dimension of log_likelihoods is n,k (batch) and the 1st dimension
         # is alpha, beta.  We sum over the latter, getting a 1D tensor corresponding to the batch
@@ -157,7 +143,7 @@ class PriorModel(nn.Module):
         result = torch.zeros_like(logits)
         for variant_type in VariantType:
             output = logits + self.prior_log_odds[variant_type.value] + self.artifact_spectra[variant_type.value](batch) - variant_ll
-            mask = torch.tensor([1 if variant_type.is_same_type(site_info) else 0 for site_info in batch.site_info()])
+            mask = torch.tensor([1 if variant_type == site_info.variant_type() else 0 for site_info in batch.site_info()])
             result += mask * output
 
         return result
@@ -219,11 +205,8 @@ class ReadSetClassifier(nn.Module):
     because we have different output layers for each variant type.
     """
 
-    def __init__(self, m3_params: Mutect3Parameters, m2_filters_to_keep={}):
+    def __init__(self, m3_params: Mutect3Parameters, na_model: normal_artifact.NormalArtifactModel):
         super(ReadSetClassifier, self).__init__()
-
-        # note: these are only used for testing, not training
-        self.m2_filters_to_keep = m2_filters_to_keep
 
         # phi is the read embedding
         read_layers = [tensors.NUM_READ_FEATURES] + m3_params.hidden_read_layers
@@ -245,6 +228,9 @@ class ReadSetClassifier(nn.Module):
         self.calibration = Calibration()
 
         self.prior_model = PriorModel(4.0)
+
+        self.normal_artifact_model = na_model
+        freeze(self.normal_artifact_model.parameters())
 
     def get_prior_model(self):
         return self.prior_model
@@ -288,7 +274,7 @@ class ReadSetClassifier(nn.Module):
         freeze(self.parameters())
         unfreeze(self.spectra_parameters())
 
-    def forward(self, batch: data.Batch, calibrated=True, posterior=False):
+    def forward(self, batch: data.Batch, calibrated=True, posterior=False, normal_artifact=False):
         # embed reads and take mean within each datum to get tensors of shape (batch size x embedding dimension)
         phi_reads = torch.sigmoid(self.phi(batch.reads()))
         ref_means = torch.cat([torch.mean(phi_reads[s], dim=0, keepdim=True) for s in batch.ref_slices()], dim=0)
@@ -304,17 +290,44 @@ class ReadSetClassifier(nn.Module):
             # It's slightly wasteful to compute output for every variant type when we only
             # use one, but this is such a small part of the model and it lets us use batches of mixed variant types
             output = torch.squeeze(self.outputs[variant_type.value](aggregated))
-            mask = torch.tensor([1 if variant_type.is_same_type(site_info) else 0 for site_info in batch.site_info()])
+            mask = torch.tensor([1 if variant_type == site_info.variant_type() else 0 for site_info in batch.site_info()])
             logits += mask * output
 
         if calibrated:
             logits = self.calibration(logits, batch.alt_counts())
 
         if posterior:
-            use_m2_filter = torch.LongTensor(
-                [1 if m2.filters().intersection(self.m2_filters_to_keep) else 0 for m2 in batch.mutect_info()])
-            logits = (1 - use_m2_filter) * logits + 100 * use_m2_filter
             logits = self.prior_model(logits, batch)
+
+            if normal_artifact:
+                ### NORMAL ARTIFACT CALCULATION BEGINS
+
+                # posterior probability of normal artifact given observed read counts
+                # log likelihood of tumor read counts given tumor variant spectrum P(tumor counts | somatic variant)
+                somatic_log_lk = self.prior_model.variant_spectrum.log_likelihood(batch.alt_counts(), batch.alt_counts() + batch.ref_counts())
+
+                # log likelihood of tumor read counts given the normal read counts under normal artifact sub-model
+                # P(tumor counts | normal counts)
+                na_log_lk = self.normal_artifact_model.log_likelihood(batch.normal_artifact_batch())
+
+                # note that prior of normal artifact is essentially 1
+                # posterior is P(artifact) = P(tumor counts | normal counts) /[P(tumor counts | normal) + P(somatic)*P(tumor counts | somatic)]
+                # and posterior logits are log(post prob artifact / post prob somatic)
+                # so, with n_ll = normal artifact log likelhood and som_ll = somatic log likelihood and pi = log P(somatic)
+                # posterior logit = na_ll - pi - som_ll
+
+                #WARNING: HARD-CODED MAGIC CONSTANT!!!!!
+                log_somatic_prior = -11.0
+                na_logits = na_log_lk - log_somatic_prior - somatic_log_lk
+                ### NORMAL ARTIFACT CALCULATION ENDS
+
+                # normal artifact model is only trained and only applies when normal alt counts are non-zero
+                na_mask = torch.tensor([1 if count > 0 else 0 for count in batch.normal_artifact_batch().normal_alt()])
+                na_masked_logits = na_mask * na_logits - 100 * (1 - na_mask) # if no normal alt counts, turn off normal artifact
+
+                # primitive approach -- just take whichever is greater between the two models' posteriors
+                # WARNING -- commenting out the line below completely disables normal artifact filtering!!!
+                logits = torch.maximum(logits, na_masked_logits)
 
         return logits
 
@@ -331,10 +344,7 @@ class ReadSetClassifier(nn.Module):
             epochs.append(epoch + 1)
             epoch_loss = 0
             for logits, batch in logits_and_batches:
-                use_m2_filter = torch.LongTensor(
-                    [1 if m2.filters().intersection(self.m2_filters_to_keep) else 0 for m2 in batch.mutect_info()])
-                filter_logits = (1 - use_m2_filter) * logits + 100 * use_m2_filter
-                posterior_logits = self.prior_model(filter_logits, batch)
+                posterior_logits = self.prior_model(logits, batch)
 
                 loss = criterion(posterior_logits, batch.labels())
                 optimizer.zero_grad()
@@ -379,18 +389,18 @@ class ReadSetClassifier(nn.Module):
         validation.simple_plot([(epochs, calibration_losses, "curve")], "epoch", "loss",
                                "Learning curve for calibration")
 
-    def calculate_logit_threshold(self, loader):
+    def calculate_logit_threshold(self, loader, normal_artifact=False):
         self.train(False)
         artifact_probs = []
 
         for batch in loader:
-            artifact_probs.extend(torch.sigmoid(self(batch, posterior=True)).tolist())
+            artifact_probs.extend(torch.sigmoid(self(batch, posterior=True, normal_artifact=normal_artifact)).tolist())
 
         artifact_probs.sort()
         total_variants = len(artifact_probs) - sum(artifact_probs)
 
         # start by rejecting everything, then raise threshold one datum at a time
-        threshold, tp, fp, best_f = 0, 0, 0, 0
+        threshold, tp, fp, best_f = 0.0, 0, 0, 0
 
         for prob in artifact_probs:
             tp += (1 - prob)
