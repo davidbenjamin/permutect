@@ -305,7 +305,6 @@ def make_tensors(raw_file, is_training, sample_name, normal_sample_name=None, sh
                 # use Concordance STATUS field for test labels
                 status = reader.status(tokens)
                 is_artifact = (status == "FP" or status == "FTN")
-                print(normal_dp, normal_alt_count)
 
             # assembly complexity site-level annotations
             info_tensor = reader.variant_info(tokens).info_tensor()
