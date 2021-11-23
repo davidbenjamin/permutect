@@ -25,8 +25,6 @@ workflow Mutect3TrainingData {
         String? m2_extra_filtering_args
         String? normal_artifact_extra_args
         String? split_intervals_extra_args
-        File? truth_vcf
-        File? truth_vcf_idx
         Boolean? make_bamout
 
         # runtime
@@ -69,42 +67,14 @@ workflow Mutect3TrainingData {
             gatk_override = gatk_override,
             gatk_docker = gatk_docker
     }
-
-    if(defined(truth_vcf)) {
-        call Concordance  {
-            input:
-                intervals = intervals,
-                masks = masks,
-                truth_vcf = select_first([truth_vcf]),
-                truth_vcf_idx = select_first([truth_vcf_idx]),
-                eval_vcf = Tumor.filtered_vcf,
-                eval_vcf_idx = Tumor.filtered_vcf_idx,
-                preemptible = preemptible,
-                gatk_override = gatk_override,
-                gatk_docker = gatk_docker
-        }
-
-        call MakeTableFromConcordance as TumorConcordanceTable {
-            input:
-                tpfp = Concordance.tpfp,
-                tpfp_idx = Concordance.tpfp_idx,
-                ftnfn = Concordance.ftnfn,
-                ftnfn_idx = Concordance.ftnfn_idx,
-                gatk_override = gatk_override,
-                gatk_docker = gatk_docker,
-                preemptible = preemptible
-        }
-    }
-
-    if(!defined(truth_vcf)) {
-        call MakeTableFromMutect2 as TumorTable {
-            input:
-                filtered_vcf = Tumor.filtered_vcf,
-                filtered_vcf_idx = Tumor.filtered_vcf_idx,
-                gatk_override = gatk_override,
-                gatk_docker = gatk_docker,
-                preemptible = preemptible
-        }
+    
+    call MakeTableFromMutect2 as TumorTable {
+        input:
+            filtered_vcf = Tumor.filtered_vcf,
+            filtered_vcf_idx = Tumor.filtered_vcf_idx,
+            gatk_override = gatk_override,
+            gatk_docker = gatk_docker,
+            preemptible = preemptible
     }
 
     # call on the normal, with tumor as "matched normal", to get normal read data and M2 filtering
@@ -134,8 +104,6 @@ workflow Mutect3TrainingData {
                 gatk_override = gatk_override,
                 gatk_docker = gatk_docker
         }
-
-        # there's no reason to call concordance on the normal because the calls will have no relation to the truth VCF
 
         call MakeTableFromMutect2 as NormalTable {
             input:
@@ -184,54 +152,9 @@ workflow Mutect3TrainingData {
     }
 
     output {
-        File tumor_table = select_first([TumorConcordanceTable.table, TumorTable.table])
+        File tumor_table = TumorTable.table
         File? normal_table = NormalTable.table
         File? normal_artifact_table = MergeNormalArtifactData.merged_table
-    }
-}
-
-task Concordance {
-    input {
-        File? intervals
-        File? masks
-        File truth_vcf
-        File truth_vcf_idx
-        File eval_vcf
-        File eval_vcf_idx
-
-        File? gatk_override
-
-        # runtime
-        String gatk_docker
-        Int? preemptible
-    }
-
-    command {
-        export GATK_LOCAL_JAR=${default="/root/gatk.jar" gatk_override}
-
-        gatk --java-options "-Xmx2g" Concordance \
-        ~{"-L " + intervals} \
-        ~{"-XL " + masks} \
-        -truth ~{truth_vcf} -eval ~{eval_vcf} \
-        -tpfp "tpfp.vcf" \
-        -ftnfn "ftnfn.vcf" \
-        -summary "summary.txt"
-    }
-
-    runtime {
-        memory: "5 GB"
-        bootDiskSizeGb: 12
-        docker: "${gatk_docker}"
-        disks: "local-disk " + 100 + " HDD"
-        preemptible: select_first([preemptible, 2])
-    }
-
-    output {
-        File tpfp = "tpfp.vcf"
-        File tpfp_idx = "tpfp.vcf.idx"
-        File ftnfn = "ftnfn.vcf"
-        File ftnfn_idx = "ftnfn.vcf.idx"
-        File summary = "summary.txt"
     }
 }
 
@@ -253,50 +176,6 @@ task MakeTableFromMutect2 {
           -F CHROM -F POS -F REF -F ALT -F POPAF -F TLOD -F STATUS -F REF_BASES -F HEC -F HAPDOM -F HAPCOMP -GF DP -F FILTER -GF FRS \
           --show-filtered \
           -O output.table
-    }
-
-    runtime {
-        memory: "5 GB"
-        bootDiskSizeGb: 12
-        docker: "${gatk_docker}"
-        disks: "local-disk " + 100 + " HDD"
-        preemptible: select_first([preemptible, 2])
-    }
-
-    output {
-        File table = "output.table"
-    }
-}
-
-task MakeTableFromConcordance {
-    input {
-        File tpfp
-        File tpfp_idx
-        File ftnfn
-        File ftnfn_idx
-
-        File? gatk_override
-        String gatk_docker
-        Int? preemptible
-    }
-
-    command {
-        export GATK_LOCAL_JAR=${default="/root/gatk.jar" gatk_override}
-
-        for file in ~{tpfp} ~{ftnfn}; do
-            gatk --java-options "-Xmx2g" SelectVariants -V $file --restrict-alleles-to BIALLELIC -O biallelic.vcf
-            gatk --java-options "-Xmx2g" VariantsToTable -V biallelic.vcf \
-              -F CHROM -F POS -F REF -F ALT -F POPAF -F TLOD -F STATUS -F REF_BASES -F HEC -F HAPDOM -F HAPCOMP -GF DP -F FILTER -GF FRS \
-              --show-filtered \
-              -O tmp.table
-
-            # if it's the first table, copy it to the output; otherwise copy all but the header line
-            if [ ! -f output.table ]; then
-                mv tmp.table output.table
-            else
-                tail -n +2 tmp.table >> output.table
-            fi
-        done
     }
 
     runtime {
