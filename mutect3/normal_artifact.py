@@ -102,9 +102,9 @@ def read_data(table_file, shuffle=True) -> List[NormalArtifactDatum]:
     print("Done")
     return data
 
-def generate_normal_artifact_pickle(table_file, pickle_dir, pickle_prefix):
+def generate_normal_artifact_pickle(table_file, pickle_file):
     data = read_data(table_file)
-    make_normal_artifact_pickle(pickle_dir + pickle_prefix + '-normal-artifact.pickle', data)
+    make_normal_artifact_pickle(pickle_file, data)
 
 class NormalArtifactDataset(Dataset):
     def __init__(self, pickled_file):

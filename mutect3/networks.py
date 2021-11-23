@@ -329,8 +329,7 @@ class ReadSetClassifier(nn.Module):
                 # WARNING -- commenting out the line below completely disables normal artifact filtering!!!
                 logits = torch.maximum(logits, na_masked_logits)
 
-                print(na_masked_logits)
-                print(batch.normal_artifact_batch().normal_alt())
+                print(list(zip(batch.normal_artifact_batch().normal_alt().tolist(), batch.alt_counts().tolist(), na_masked_logits.tolist())))
 
         return logits
 
