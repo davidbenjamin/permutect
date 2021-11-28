@@ -125,6 +125,7 @@ def medians_and_iqrs(tensor_2d):
         adjusted_iqrs.append(value_to_append)
     return medians, torch.FloatTensor(adjusted_iqrs)
 
+
 class Mutect3Dataset(Dataset):
     def __init__(self, pickled_files):
         self.data = []
@@ -149,18 +150,22 @@ class Mutect3Dataset(Dataset):
         info = (raw.info_tensor() - self.info_medians) / self.info_iqrs
         return tensors.Datum(ref, alt, info, raw.site_info(), raw.mutect_info(), raw.artifact_label(), raw.normal_depth(), raw.normal_alt_count())
 
-def make_datasets(training_pickles, test_pickle):
+
+def split_dataset_into_train_and_valid(dataset, train_fraction = 0.9):
+    train_len = int(0.9 * len(dataset))
+    valid_len = len(dataset) - train_len
+    return random_split(dataset, lengths=[train_len, valid_len])
+
+
+def make_training_and_validation_datasets(training_pickles):
     # make our training, validation, and testing data
     train_and_valid = Mutect3Dataset(training_pickles)
-    train_len = int(0.9 * len(train_and_valid))
-    valid_len = len(train_and_valid) - train_len
-    train, valid = random_split(train_and_valid, lengths=[train_len, valid_len])
-    test = Mutect3Dataset([test_pickle])
+    train, valid = split_dataset_into_train_and_valid(train_and_valid, 0.9)
 
     unlabeled_count = sum([1 for datum in train_and_valid if datum.artifact_label() is None])
     print("Unlabeled data: " + str(unlabeled_count) +", labeled data: " + str(len(train_and_valid) - unlabeled_count))
     print("Dataset sizes -- training: " + str(len(train)) + ", validation: " + str(len(valid)) + ", test: " + str(len(test)))
-    return train, valid, test
+    return train, valid
 
 
 def chunk(indices, chunk_size):
@@ -198,11 +203,13 @@ class SemiSupervisedBatchSampler(Sampler):
     def __len__(self):
         return len(self.artifact_indices)*2 // self.batch_size + len(self.artifact_indices) // self.batch_size
 
-def make_data_loaders(train, valid, test, batch_size):
-    train_sampler = SemiSupervisedBatchSampler(train, batch_size)
-    valid_sampler = SemiSupervisedBatchSampler(valid, batch_size)
 
-    train_loader = DataLoader(dataset=train, batch_sampler=train_sampler, collate_fn=Batch)
-    valid_loader = DataLoader(dataset=valid, batch_sampler=valid_sampler, collate_fn=Batch)
-    test_loader = DataLoader(dataset=test, batch_size=batch_size, collate_fn=Batch)
-    return train_loader, valid_loader, test_loader
+# this is used for training and validation but not deployment / testing
+def make_semisupervised_data_loader(training_dataset, batch_size):
+    sampler = SemiSupervisedBatchSampler(training_dataset, batch_size)
+    return DataLoader(dataset=training_dataset, batch_sampler=sampler, collate_fn=Batch)
+
+
+def make_test_data_loader(test_dataset, batch_size):
+    return DataLoader(dataset=test_dataset, batch_size=batch_size, collate_fn=Batch)
+

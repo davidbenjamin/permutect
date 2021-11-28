@@ -413,7 +413,7 @@ class ReadSetClassifier(nn.Module):
 
         return torch.logit(torch.tensor(threshold)).item()
 
-    def train_model(self, train_loader, valid_loader, test_loader, num_epochs, beta1, beta2):
+    def train_model(self, train_loader, valid_loader, num_epochs, beta1, beta2):
         bce = torch.nn.BCEWithLogitsLoss(reduction='sum')
         train_optimizer = torch.optim.Adam(self.training_parameters())
         training_metrics = validation.TrainingMetrics()
@@ -458,14 +458,8 @@ class ReadSetClassifier(nn.Module):
                 training_metrics.add("labeled NLL", epoch_type.name, epoch_labeled_loss / epoch_labeled_count)
                 training_metrics.add("unlabeled NLL", epoch_type.name, epoch_unlabeled_loss / epoch_unlabeled_count)
 
-            # done with training and validation for this epoch, now calculate best F on test set
+            # done with training and validation for this epoch
             # note that we have not learned the AF spectrum yet
-            optimal_f = validation.get_optimal_f_score(self, test_loader)
-            training_metrics.add("optimal F score", "test", optimal_f)
-            # done with epoch
         # done with training
-
         self.learn_calibration(valid_loader, num_epochs=200)
-        self.learn_spectra(test_loader, num_epochs=200)
-        # model is trained
         return training_metrics

@@ -102,13 +102,17 @@ def read_data(table_file, shuffle=True) -> List[NormalArtifactDatum]:
     print("Done")
     return data
 
+
 def generate_normal_artifact_pickle(table_file, pickle_file):
     data = read_data(table_file)
     make_normal_artifact_pickle(pickle_file, data)
 
+
 class NormalArtifactDataset(Dataset):
-    def __init__(self, pickled_file):
-        self.data = load_normal_artifact_pickle(pickled_file)
+    def __init__(self, pickled_files):
+        self.data = []
+        for pickled_file in pickled_files:
+            self.data.extend(load_normal_artifact_pickle(pickled_file))
         random.shuffle(self.data)
 
     def __len__(self):
@@ -150,6 +154,7 @@ class NormalArtifactBatch:
 
     def variant_type(self):
         return self._variant_type
+
 
 def make_normal_artifact_data_loader(dataset: NormalArtifactDataset, batch_size):
     return DataLoader(dataset=dataset, batch_size=batch_size, collate_fn=NormalArtifactBatch)

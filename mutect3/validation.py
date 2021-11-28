@@ -139,7 +139,7 @@ def get_validation_stats(model, loader, thresholds=[0.0]):
 
 
 # compute optimal F score over a single epoch pass over the test loader, optionally doing SGD on the AF spectrum
-def get_optimal_f_score(model, loader, make_plot=False, normal_artifact=False):
+def plot_roc_curve(model, loader, normal_artifact=False):
     # tuples of (artifact prob, artifact label 0/1)
     predictions_and_labels = []
 
@@ -158,18 +158,15 @@ def get_optimal_f_score(model, loader, make_plot=False, normal_artifact=False):
 
     # start at threshold = -infinity; that is, everything is called an artifact, and pick up one variant at a time
     total_true = sum([(1 - label) for _, label in predictions_and_labels])
-    tp, fp, best_F = 0, 0, 0
+    tp, fp = 0, 0
     for pred, label in predictions_and_labels:
         fp = fp + label
         tp = tp + (1 - label)
-        best_F = max(best_F, f_score(tp, fp, total_true))
         sensitivity.append(tp / total_true)
         precision.append(tp / (tp + fp + 0.00001))
 
-    if make_plot:
-        x_y_lab = [(sensitivity, precision, "ROC")]
-        fig, curve = simple_plot(x_y_lab, xlabel="sensitivity", ylabel="precision", title="ROC curve according to M3's own probabilities.")
-    return best_F
+    x_y_lab = [(sensitivity, precision, "ROC")]
+    fig, curve = simple_plot(x_y_lab, xlabel="sensitivity", ylabel="precision", title="ROC curve according to M3's own probabilities.")
 
 
 # get the same stats for Mutect2 using the M2 filters and truth labels
