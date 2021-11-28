@@ -164,7 +164,7 @@ def make_training_and_validation_datasets(training_pickles):
 
     unlabeled_count = sum([1 for datum in train_and_valid if datum.artifact_label() is None])
     print("Unlabeled data: " + str(unlabeled_count) +", labeled data: " + str(len(train_and_valid) - unlabeled_count))
-    print("Dataset sizes -- training: " + str(len(train)) + ", validation: " + str(len(valid)) + ", test: " + str(len(test)))
+    print("Dataset sizes -- training: " + str(len(train)) + ", validation: " + str(len(valid)))
     return train, valid
 
 
