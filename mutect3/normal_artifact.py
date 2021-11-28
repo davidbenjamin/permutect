@@ -13,7 +13,8 @@ from mutect3 import networks, validation
 
 
 class NormalArtifactDatum:
-    def __init__(self, normal_alt_count: int, normal_depth: int, tumor_alt_count: int, tumor_depth: int, downsampling: float, variant_type: str):
+    def __init__(self, normal_alt_count: int, normal_depth: int, tumor_alt_count: int, tumor_depth: int,
+                 downsampling: float, variant_type: str):
         self._normal_alt_count = normal_alt_count
         self._normal_depth = normal_depth
         self._tumor_alt_count = tumor_alt_count
@@ -39,9 +40,11 @@ class NormalArtifactDatum:
     def variant_type(self) -> str:
         return self._variant_type
 
+
 def make_normal_artifact_pickle(file, datum_list):
     with open(file, 'wb') as f:
         pickle.dump(datum_list, f)
+
 
 def load_normal_artifact_pickle(file):
     with open(file, 'rb') as f:
@@ -85,7 +88,6 @@ def read_data(table_file, shuffle=True) -> List[NormalArtifactDatum]:
 
         pbar = tqdm(enumerate(fp))
         for n, line in pbar:
-
             tokens = line.split()
 
             normal_alt_count = reader.normal_alt_count(tokens)
@@ -95,7 +97,8 @@ def read_data(table_file, shuffle=True) -> List[NormalArtifactDatum]:
             downsampling = reader.downsampling(tokens)
             variant_type = reader.variant_type(tokens)
 
-            data.append(NormalArtifactDatum(normal_alt_count,normal_depth, tumor_alt_count, tumor_depth, downsampling, variant_type))
+            data.append(NormalArtifactDatum(normal_alt_count, normal_depth, tumor_alt_count, tumor_depth, downsampling,
+                                            variant_type))
 
     if shuffle:
         random.shuffle(data)
@@ -232,9 +235,9 @@ class NormalArtifactModel(nn.Module):
         output_beta = output_beta.squeeze()
         log_pi = log_pi.squeeze()
 
-
         # list of component beta distributions
-        betas = [torch.distributions.beta.Beta(torch.FloatTensor([alpha]), torch.FloatTensor([beta])) for (alpha, beta) in zip(output_alpha.detach().numpy(), output_beta.detach().numpy())]
+        betas = [torch.distributions.beta.Beta(torch.FloatTensor([alpha]), torch.FloatTensor([beta])) for (alpha, beta)
+                 in zip(output_alpha.detach().numpy(), output_beta.detach().numpy())]
 
         # list of tensors - the list is over the mixture components, the tensors are over AF values f
         unweighted_log_densities = torch.stack([beta.log_prob(f) for beta in betas], dim=0)
@@ -242,13 +245,11 @@ class NormalArtifactModel(nn.Module):
         weighted_log_densities = torch.unsqueeze(log_pi, 1) + unweighted_log_densities
         densities = torch.exp(torch.logsumexp(weighted_log_densities, dim=0))
 
-        return validation.simple_plot([(f.detach().numpy(), densities.detach().numpy()," ")], "AF", "density", title)
-
+        return validation.simple_plot([(f.detach().numpy(), densities.detach().numpy(), " ")], "AF", "density", title)
 
     def train_model(self, train_loader, valid_loader, num_epochs):
         optimizer = torch.optim.Adam(self.parameters())
         training_metrics = validation.TrainingMetrics()
-
 
         for epoch in trange(1, num_epochs + 1, desc="Epoch"):
             for epoch_type in [mutect3.utils.EpochType.TRAIN, mutect3.utils.EpochType.VALID]:
@@ -258,7 +259,7 @@ class NormalArtifactModel(nn.Module):
                 epoch_count = 0
                 for batch in loader:
                     log_likelihoods = self(batch)
-                    weights = 1/batch.downsampling()
+                    weights = 1 / batch.downsampling()
                     loss = -torch.mean(weights * log_likelihoods)
                     epoch_loss += loss.item()
                     epoch_count += 1
@@ -273,6 +274,3 @@ class NormalArtifactModel(nn.Module):
         # done with training
         # model is trained
         return training_metrics
-
-
-
