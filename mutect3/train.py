@@ -1,3 +1,4 @@
+import torch
 from torch.distributions.beta import Beta
 from mutect3 import validation, networks, data, normal_artifact
 
@@ -11,7 +12,7 @@ class TrainingParameters:
 
 
 def run_evaluation(training_pickles, test_pickle, normal_artifact_pickles, params: TrainingParameters, m3_params: networks.Mutect3Parameters):
-    model = make_trained_mutect3_model(m3_params, normal_artifact_pickles, params, training_pickles)
+    model = make_trained_mutect3_model(m3_params, training_pickles, normal_artifact_pickles, params)
 
     test = data.Mutect3Dataset([test_pickle])
     test_loader = data.make_test_data_loader(test, params.batch_size)
@@ -29,7 +30,7 @@ def run_evaluation(training_pickles, test_pickle, normal_artifact_pickles, param
 
 # note: this does not include learning the AF spectra, which is part of the posterior model
 # that is particular to one specific callset or test situation
-def make_trained_mutect3_model(m3_params, normal_artifact_pickles, params, training_pickles):
+def make_trained_mutect3_model(m3_params, training_pickles, normal_artifact_pickles, params):
     na_dataset = normal_artifact.NormalArtifactDataset(normal_artifact_pickles)
     na_train, na_valid = data.split_dataset_into_train_and_valid(na_dataset, 0.9)
 
@@ -37,6 +38,8 @@ def make_trained_mutect3_model(m3_params, normal_artifact_pickles, params, train
     na_batch_size = 64
     na_train_loader = normal_artifact.make_normal_artifact_data_loader(na_train, na_batch_size)
     na_valid_loader = normal_artifact.make_normal_artifact_data_loader(na_valid, na_batch_size)
+
+    #TODO: should have NA params class
     na_model = normal_artifact.NormalArtifactModel([10, 10, 10])
     na_training_metrics = na_model.train_model(na_train_loader, na_valid_loader, num_epochs=10)
     na_training_metrics.plot_all_metrics()
@@ -47,5 +50,24 @@ def make_trained_mutect3_model(m3_params, normal_artifact_pickles, params, train
     model = networks.ReadSetClassifier(m3_params, na_model).float()
     training_metrics = model.train_model(train_loader, valid_loader, params.num_epochs, params.beta1, params.beta2)
     training_metrics.plot_all_metrics()
+    return model
+
+
+def save_mutect3_model(model, m3_params, path):
+    #TODO: introduce constants
+    torch.save({
+        'model_state_dict': model.state_dict(),
+        'm3_params': m3_params
+    }, path)
+
+
+# this presumes that we have a ReadSetClassifier model and we have saved it via save_mutect3_model
+def load_saved_model(path):
+    saved = torch.load(path)
+    m3_params = saved['m3_params']
+    #this should not be hard-coded.  See above above introducing na_params
+    na_model = normal_artifact.NormalArtifactModel([10, 10, 10])
+    model = networks.ReadSetClassifier(m3_params, na_model)
+    model.load_state_dict(saved['model_state_dict'])
     return model
 
