@@ -11,9 +11,7 @@ class TrainingParameters:
         self.beta2 = beta2
 
 
-def run_evaluation(training_pickles, test_pickle, normal_artifact_pickles, params: TrainingParameters, m3_params: networks.Mutect3Parameters):
-    model = make_trained_mutect3_model(m3_params, training_pickles, normal_artifact_pickles, params)
-
+def run_evaluation(model: networks.ReadSetClassifier, test_pickle, params: TrainingParameters):
     test = data.Mutect3Dataset([test_pickle])
     test_loader = data.make_test_data_loader(test, params.batch_size)
     model.learn_spectra(test_loader, num_epochs=200)
@@ -24,8 +22,6 @@ def run_evaluation(training_pickles, test_pickle, normal_artifact_pickles, param
     print("Optimal logit threshold: " + str(logit_threshold))
 
     validation.show_validation_plots(model, test_loader, logit_threshold)
-
-    return model
 
 
 # note: this does not include learning the AF spectra, which is part of the posterior model
@@ -65,7 +61,7 @@ def save_mutect3_model(model, m3_params, path):
 def load_saved_model(path):
     saved = torch.load(path)
     m3_params = saved['m3_params']
-    #this should not be hard-coded.  See above above introducing na_params
+    #TODO: this should not be hard-coded.  See above above introducing na_params
     na_model = normal_artifact.NormalArtifactModel([10, 10, 10])
     model = networks.ReadSetClassifier(m3_params, na_model)
     model.load_state_dict(saved['model_state_dict'])
