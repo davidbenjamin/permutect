@@ -147,15 +147,18 @@ class Datum:
         alt = downsample(self._alt_tensor, alt_length)
         return Datum(ref, alt, self.info_tensor(), self.site_info(), self.mutect_info(), self.artifact_label(), self.normal_depth(), self.normal_alt_count())
 
+
 # pickle and unpickle a Python list of Datum objects.  Convenient to have here because unpickling needs to have all
 # the constituent classes of Datum explicitly imported.
 def make_pickle(file, datum_list):
     with open(file, 'wb') as f:
         pickle.dump(datum_list, f)
 
+
 def load_pickle(file):
     with open(file, 'rb') as f:
         return pickle.load(f)
+
 
 def downsample(tensor: torch.Tensor, downsample) -> torch.Tensor:
     if downsample is None or downsample >= len(tensor):
@@ -313,6 +316,7 @@ def make_tensors(raw_file, is_training, sample_name, normal_sample_name=None, sh
         if shuffle:
             random.shuffle(data)
         return data
+
 
 def generate_pickles(tumor_table, normal_table, tumor_sample, normal_sample, pickle_dir, pickle_prefix):
 
