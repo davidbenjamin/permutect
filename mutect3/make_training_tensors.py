@@ -2,12 +2,7 @@ import argparse
 from mutect3 import tensors
 
 
-def main(table_file, tumor_sample, normal_sample, pickle_file):
-    data = tensors.make_tensors(table_file, is_training=True, sample_name=tumor_sample, normal_sample_name=normal_sample)
-    tensors.make_pickle(pickle_file, data)
-
-
-if __name__ == '__main__':
+def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--table', help='table of GATK output', required=True)
     parser.add_argument('--tumor', help='tumor sample name', required=True)
@@ -16,4 +11,14 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     # if --normal not specified, args.normal is None, which works all the way through
-    main(args.table, args.tumor, args.normal, args.output)
+    data = tensors.make_tensors(args.table, is_training=True, sample_name=args.tumor, normal_sample_name=args.normal)
+
+    print(args.tumor)
+    print(args.normal)
+    print(len(data))
+    print(data[0])
+    tensors.make_pickle(args.output, data)
+
+
+if __name__ == '__main__':
+    main()
