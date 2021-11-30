@@ -10,6 +10,8 @@ setup(
     packages=['mutect3'],
     entry_points={
         'console_scripts': ['make_training_tensors=mutect3.make_training_tensors:main',
-                            'train_and_save_model=mutect3.train_and_save_model:main']
+                            'train_and_save_model=mutect3.train_and_save_model:main',
+                            'make_normal_artifact_tensors=mutect3.make_normal_artifact_tensors:main'
+                            ]
     }
 )

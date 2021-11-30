@@ -1,7 +1,6 @@
 from collections import defaultdict
 import math
 import matplotlib.pyplot as plt
-from mutect3.networks import f_score
 
 # one or more simple plots of y data vs x data on shared axes
 def simple_plot(x_y_lab_tuples, xlabel, ylabel, title):

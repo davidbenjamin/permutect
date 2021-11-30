@@ -12,11 +12,6 @@ def main():
 
     # if --normal not specified, args.normal is None, which works all the way through
     data = tensors.make_tensors(args.table, is_training=True, sample_name=args.tumor, normal_sample_name=args.normal)
-
-    print(args.tumor)
-    print(args.normal)
-    print(len(data))
-    print(data[0])
     tensors.make_pickle(args.output, data)
 
 
