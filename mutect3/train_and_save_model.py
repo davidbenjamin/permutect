@@ -3,23 +3,20 @@ import argparse
 import torch
 from torch.distributions.beta import Beta
 
-import mutect3.data
-import mutect3.networks
-import mutect3.utils
-from mutect3 import data, networks, train
+from mutect3 import data, networks, train, utils
 
 
 def make_trained_mutect3_model(m3_params: networks.Mutect3Parameters, training_pickles, normal_artifact_pickles, params):
-    na_dataset = mutect3.data.NormalArtifactDataset(normal_artifact_pickles)
-    na_train, na_valid = mutect3.utils.split_dataset_into_train_and_valid(na_dataset, 0.9)
+    na_dataset = data.NormalArtifactDataset(normal_artifact_pickles)
+    na_train, na_valid = utils.split_dataset_into_train_and_valid(na_dataset, 0.9)
 
     print("Training normal artifact model")
     na_batch_size = 64
-    na_train_loader = mutect3.data.make_normal_artifact_data_loader(na_train, na_batch_size)
-    na_valid_loader = mutect3.data.make_normal_artifact_data_loader(na_valid, na_batch_size)
+    na_train_loader = data.make_normal_artifact_data_loader(na_train, na_batch_size)
+    na_valid_loader = data.make_normal_artifact_data_loader(na_valid, na_batch_size)
 
     #TODO: should have NA params class
-    na_model = mutect3.networks.NormalArtifactModel([10, 10, 10])
+    na_model = networks.NormalArtifactModel([10, 10, 10])
     na_training_metrics = na_model.train_model(na_train_loader, na_valid_loader, num_epochs=10)
     na_training_metrics.plot_all_metrics()
 

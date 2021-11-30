@@ -1,7 +1,6 @@
 import torch
 from torch.distributions.beta import Beta
 
-import mutect3.networks
 from mutect3 import validation, networks, data
 
 
@@ -35,7 +34,7 @@ def load_saved_model(path):
     saved = torch.load(path)
     m3_params = saved['m3_params']
     #TODO: this should not be hard-coded.  See above above introducing na_params
-    na_model = mutect3.networks.NormalArtifactModel([10, 10, 10])
+    na_model = networks.NormalArtifactModel([10, 10, 10])
     model = networks.ReadSetClassifier(m3_params, na_model)
     model.load_state_dict(saved['model_state_dict'])
     return model
