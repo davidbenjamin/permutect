@@ -2,7 +2,7 @@ import torch
 from torch.distributions.beta import Beta
 
 import mutect3.networks
-from mutect3 import validation, networks, data, normal_artifact
+from mutect3 import validation, networks, data
 
 
 class TrainingParameters:

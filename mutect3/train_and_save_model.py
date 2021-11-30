@@ -6,7 +6,7 @@ from torch.distributions.beta import Beta
 import mutect3.data
 import mutect3.networks
 import mutect3.utils
-from mutect3 import tensors, normal_artifact, data, networks, train
+from mutect3 import data, networks, train
 
 
 def make_trained_mutect3_model(m3_params: networks.Mutect3Parameters, training_pickles, normal_artifact_pickles, params):

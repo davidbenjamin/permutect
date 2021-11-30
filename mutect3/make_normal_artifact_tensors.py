@@ -1,8 +1,6 @@
 import argparse
 
 import mutect3.tensors
-from mutect3 import normal_artifact
-
 
 def main():
     parser = argparse.ArgumentParser()
