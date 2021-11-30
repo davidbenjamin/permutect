@@ -2,17 +2,19 @@ from collections import defaultdict
 import math
 import matplotlib.pyplot as plt
 
+
 # one or more simple plots of y data vs x data on shared axes
 def simple_plot(x_y_lab_tuples, xlabel, ylabel, title):
     fig = plt.figure()
     curve = fig.gca()
-    for (x,y,lab) in x_y_lab_tuples:
+    for (x, y, lab) in x_y_lab_tuples:
         curve.plot(x, y, label=lab)
     curve.set_title(title)
     curve.set_xlabel(xlabel)
     curve.set_ylabel(ylabel)
     curve.legend()
     return fig, curve
+
 
 class TrainingMetrics:
     def __init__(self):
@@ -30,9 +32,6 @@ class TrainingMetrics:
         fig, curve = simple_plot(x_y_lab, xlabel="epoch", ylabel=metric_type, title="Learning curves: " + metric_type)
         return fig, curve
 
-    def plot_all_metrics(self):
-        for metric_type in self.metrics.keys():
-            self.plot_metrics(metric_type)
 
 class ValidationStats:
     def __init__(self):
@@ -54,7 +53,8 @@ class ValidationStats:
         (self.artifact_scores if truth == 1 else self.non_artifact_scores)[alt_count_bin].append(score)
 
         if truth != prediction:
-            (self.missed_variants if truth == 1 else self.missed_variants)[alt_count_bin].append((score, position, filters))
+            (self.missed_variants if truth == 1 else self.missed_variants)[alt_count_bin].append(
+                (score, position, filters))
 
     def confusion_matrices(self):
         return self.confusion_by_count
@@ -101,8 +101,10 @@ class ValidationStats:
             variant_sensitivities.append(matrix[0][0] / (matrix[0][0] + matrix[0][1]))
             artifact_sensitivities.append(matrix[1][1] / (matrix[1][0] + matrix[1][1]))
 
-        x_y_lab = [(counts, variant_sensitivities, "variant sensitivity"), (counts, artifact_sensitivities, "artifact sensitivity")]
-        fig, curve = simple_plot(x_y_lab, xlabel="alt count", ylabel="sensitivity", title="Variant and artifact sensitivity by alt count for " + name)
+        x_y_lab = [(counts, variant_sensitivities, "variant sensitivity"),
+                   (counts, artifact_sensitivities, "artifact sensitivity")]
+        fig, curve = simple_plot(x_y_lab, xlabel="alt count", ylabel="sensitivity",
+                                 title="Variant and artifact sensitivity by alt count for " + name)
         return fig, curve
 
     def _round_alt_count_for_binning(alt_count):
@@ -126,12 +128,12 @@ def get_validation_stats(model, loader, thresholds=[0.0]):
         labels = batch.labels()
         filters = [m2.filters() for m2 in batch.mutect_info()]
         alt_counts = batch.alt_counts()
-        predictions = model(batch, posterior = True)
+        predictions = model(batch, posterior=True)
         positions = [meta.locus() for meta in batch.site_info()]
         for n in range(batch.size()):
             truth = 1 if labels[n].item() > 0.5 else 0
             for stats, threshold in zip(all_stats, thresholds):
-                pred = 1 if predictions[n] > threshold  else 0
+                pred = 1 if predictions[n] > threshold else 0
                 stats.add(alt_counts[n].item(), truth, pred, predictions[n].item(), filters[n], positions[n])
 
     return all_stats
@@ -165,7 +167,8 @@ def plot_roc_curve(model, loader, normal_artifact=False):
         precision.append(tp / (tp + fp + 0.00001))
 
     x_y_lab = [(sensitivity, precision, "ROC")]
-    fig, curve = simple_plot(x_y_lab, xlabel="sensitivity", ylabel="precision", title="ROC curve according to M3's own probabilities.")
+    fig, curve = simple_plot(x_y_lab, xlabel="sensitivity", ylabel="precision",
+                             title="ROC curve according to M3's own probabilities.")
 
 
 # get the same stats for Mutect2 using the M2 filters and truth labels
@@ -205,7 +208,7 @@ def show_validation_plots(model, loader, logit_threshold):
 
     x_y_lab = [(sens, prec, "ROC")]
     roc_fig, roc_curve = simple_plot(x_y_lab, xlabel="sensitivity", ylabel="precision",
-                             title="ROC curve. Distance to corner: " + str(distance_to_corner))
+                                     title="ROC curve. Distance to corner: " + str(distance_to_corner))
     roc_curve.scatter([m2_stats.sensitivity()], [m2_stats.precision()])
     roc_curve.annotate("Mutect2", (m2_stats.sensitivity(), m2_stats.precision()))
     roc_curve.scatter([m3_stats.sensitivity()], [m3_stats.precision()])

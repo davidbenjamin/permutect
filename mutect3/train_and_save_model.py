@@ -2,11 +2,13 @@ import argparse
 
 import torch
 from torch.distributions.beta import Beta
+from matplotlib.backends.backend_pdf import PdfPages
 
 from mutect3 import data, networks, train, utils
 
 
-def make_trained_mutect3_model(m3_params: networks.Mutect3Parameters, training_pickles, normal_artifact_pickles, params):
+def make_trained_mutect3_model(m3_params: networks.Mutect3Parameters, training_pickles, normal_artifact_pickles, params,
+                               report_pdf=None):
     na_dataset = data.NormalArtifactDataset(normal_artifact_pickles)
     na_train, na_valid = utils.split_dataset_into_train_and_valid(na_dataset, 0.9)
 
@@ -15,22 +17,27 @@ def make_trained_mutect3_model(m3_params: networks.Mutect3Parameters, training_p
     na_train_loader = data.make_normal_artifact_data_loader(na_train, na_batch_size)
     na_valid_loader = data.make_normal_artifact_data_loader(na_valid, na_batch_size)
 
-    #TODO: should have NA params class
+    # TODO: should have NA params class
     na_model = networks.NormalArtifactModel([10, 10, 10])
     na_training_metrics = na_model.train_model(na_train_loader, na_valid_loader, num_epochs=10)
-    na_training_metrics.plot_all_metrics()
 
-    train, valid = data.make_training_and_validation_datasets(training_pickles)
-    train_loader = data.make_semisupervised_data_loader(train, params.batch_size)
+    training, valid = data.make_training_and_validation_datasets(training_pickles)
+    train_loader = data.make_semisupervised_data_loader(training, params.batch_size)
     valid_loader = data.make_semisupervised_data_loader(valid, params.batch_size)
     model = networks.ReadSetClassifier(m3_params, na_model).float()
     training_metrics = model.train_model(train_loader, valid_loader, params.num_epochs, params.beta1, params.beta2)
-    training_metrics.plot_all_metrics()
+    if report_pdf is not None:
+        with PdfPages(report_pdf) as pdf:
+            for metrics in (training_metrics, na_training_metrics):
+                for metric_type in metrics.metrics.keys():
+                    fig, curve = metrics.plot_metrics(metric_type)
+                    pdf.savefig(fig)
+
     return model
 
 
 def save_mutect3_model(model, m3_params, path):
-    #TODO: introduce constants
+    # TODO: introduce constants
     torch.save({
         'model_state_dict': model.state_dict(),
         'm3_params': m3_params
@@ -61,6 +68,7 @@ def main():
 
     # path to saved model
     parser.add_argument('--output', required=True)
+    parser.add_argument('--training_report_pdf', required=False)
 
     args = parser.parse_args()
 
@@ -71,12 +79,11 @@ def main():
     beta2 = Beta(args.alpha2, args.beta2)
     params = train.TrainingParameters(args.batch_size, args.num_epochs, beta1, beta2)
 
-    model = make_trained_mutect3_model(m3_params, args.training_pickles, args.normal_artifact_pickles, params)
+    model = make_trained_mutect3_model(m3_params, args.training_pickles, args.normal_artifact_pickles, params,
+                                       args.training_report_pdf)
 
     save_mutect3_model(model, m3_params, args.output)
 
 
 if __name__ == '__main__':
     main()
-
-

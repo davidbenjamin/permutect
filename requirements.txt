@@ -2,3 +2,4 @@ torch~=1.10.0
 numpy~=1.21.4
 tqdm~=4.62.3
 setuptools~=57.0.0
+matplotlib~=3.5.0
