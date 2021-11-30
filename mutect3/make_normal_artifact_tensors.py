@@ -1,4 +1,6 @@
 import argparse
+
+import mutect3.tensors
 from mutect3 import normal_artifact
 
 
@@ -8,7 +10,7 @@ def main():
     parser.add_argument('--output', help='output path for pickled list of tensors', required=True)
     args = parser.parse_args()
 
-    normal_artifact.generate_normal_artifact_pickle(args.table, args.output)
+    mutect3.tensors.generate_normal_artifact_pickle(args.table, args.output)
 
 
 if __name__ == '__main__':

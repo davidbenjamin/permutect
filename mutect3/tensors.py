@@ -6,7 +6,11 @@ from torch.distributions.beta import Beta
 from typing import Set, List
 from tqdm.autonotebook import tqdm, trange
 from collections import defaultdict
+
+from tqdm.notebook import tqdm
+
 from mutect3 import utils
+
 
 class SiteInfo:
     def __init__(self, chromosome, position, ref, alt, popaf):
@@ -29,7 +33,9 @@ class SiteInfo:
 
     def variant_type(self) -> utils.VariantType:
         diff = len(self.alt()) - len(self.ref())
-        return utils.VariantType.SNV if diff == 0 else (utils.VariantType.INSERTION if diff > 0 else utils.VariantType.DELETION)
+        return utils.VariantType.SNV if diff == 0 else (
+            utils.VariantType.INSERTION if diff > 0 else utils.VariantType.DELETION)
+
 
 class MutectInfo:
     def __init__(self, tlod: float, tumor_dp: int, filters: Set[str]):
@@ -99,7 +105,8 @@ class VariantInfo:
 
 
 class Datum:
-    def __init__(self, ref_tensor: torch.Tensor, alt_tensor: torch.Tensor, info_tensor: torch.Tensor, site_info: SiteInfo,
+    def __init__(self, ref_tensor: torch.Tensor, alt_tensor: torch.Tensor, info_tensor: torch.Tensor,
+                 site_info: SiteInfo,
                  mutect2_data: MutectInfo, artifact_label, normal_depth: int, normal_alt_count: int):
         self._site_info = site_info
         self._ref_tensor = ref_tensor
@@ -134,8 +141,6 @@ class Datum:
     def normal_alt_count(self) -> int:
         return self._normal_alt_count
 
-
-
     # beta is distribution of downsampling fractions
     def downsampled_copy(self, beta: Beta):
         ref_frac = beta.sample().item()
@@ -145,7 +150,8 @@ class Datum:
         alt_length = max(1, round(alt_frac * len(self._alt_tensor)))
         ref = downsample(self._ref_tensor, ref_length)
         alt = downsample(self._alt_tensor, alt_length)
-        return Datum(ref, alt, self.info_tensor(), self.site_info(), self.mutect_info(), self.artifact_label(), self.normal_depth(), self.normal_alt_count())
+        return Datum(ref, alt, self.info_tensor(), self.site_info(), self.mutect_info(), self.artifact_label(),
+                     self.normal_depth(), self.normal_alt_count())
 
 
 # pickle and unpickle a Python list of Datum objects.  Convenient to have here because unpickling needs to have all
@@ -160,16 +166,109 @@ def load_pickle(file):
         return pickle.load(f)
 
 
-def downsample(tensor: torch.Tensor, downsample) -> torch.Tensor:
-    if downsample is None or downsample >= len(tensor):
+class NormalArtifactDatum:
+    def __init__(self, normal_alt_count: int, normal_depth: int, tumor_alt_count: int, tumor_depth: int,
+                 downsampling: float, variant_type: str):
+        self._normal_alt_count = normal_alt_count
+        self._normal_depth = normal_depth
+        self._tumor_alt_count = tumor_alt_count
+        self._tumor_depth = tumor_depth
+        self._downsampling = downsampling
+        self._variant_type = variant_type
+
+    def normal_alt_count(self) -> int:
+        return self._normal_alt_count
+
+    def normal_depth(self) -> int:
+        return self._normal_depth
+
+    def tumor_alt_count(self) -> int:
+        return self._tumor_alt_count
+
+    def tumor_depth(self) -> int:
+        return self._tumor_depth
+
+    def downsampling(self) -> float:
+        return self._downsampling
+
+    def variant_type(self) -> str:
+        return self._variant_type
+
+
+def load_normal_artifact_pickle(file):
+    with open(file, 'rb') as f:
+        return pickle.load(f)
+
+
+class NormalArtifactTableReader:
+    def __init__(self, header_tokens):
+        self.normal_alt_idx = header_tokens.index("normal_alt")
+        self.normal_dp_idx = header_tokens.index("normal_dp")
+        self.tumor_alt_idx = header_tokens.index("tumor_alt")
+        self.tumor_dp_idx = header_tokens.index("tumor_dp")
+        self.downsampling_idx = header_tokens.index("downsampling")
+        self.type_idx = header_tokens.index("type")
+
+    def normal_alt_count(self, tokens):
+        return int(tokens[self.normal_alt_idx])
+
+    def normal_depth(self, tokens):
+        return int(tokens[self.normal_dp_idx])
+
+    def tumor_alt_count(self, tokens):
+        return int(tokens[self.tumor_alt_idx])
+
+    def tumor_depth(self, tokens):
+        return int(tokens[self.tumor_dp_idx])
+
+    def downsampling(self, tokens):
+        return float(tokens[self.downsampling_idx])
+
+    def variant_type(self, tokens):
+        return tokens[self.type_idx]
+
+
+def read_data(table_file, shuffle=True) -> List[NormalArtifactDatum]:
+    data = []
+
+    with open(table_file) as fp:
+        reader = NormalArtifactTableReader(fp.readline().split())
+
+        pbar = tqdm(enumerate(fp))
+        for n, line in pbar:
+            tokens = line.split()
+
+            normal_alt_count = reader.normal_alt_count(tokens)
+            normal_depth = reader.normal_depth(tokens)
+            tumor_alt_count = reader.tumor_alt_count(tokens)
+            tumor_depth = reader.tumor_depth(tokens)
+            downsampling = reader.downsampling(tokens)
+            variant_type = reader.variant_type(tokens)
+
+            data.append(NormalArtifactDatum(normal_alt_count, normal_depth, tumor_alt_count, tumor_depth, downsampling,
+                                            variant_type))
+
+    if shuffle:
+        random.shuffle(data)
+    print("Done")
+    return data
+
+
+def generate_normal_artifact_pickle(table_file, pickle_file):
+    data = read_data(table_file)
+    make_pickle(pickle_file, data)
+
+
+def downsample(tensor: torch.Tensor, downsample_fraction) -> torch.Tensor:
+    if downsample_fraction is None or downsample_fraction >= len(tensor):
         return tensor
     else:
-        return tensor[torch.randperm(len(tensor))[:downsample]]
+        return tensor[torch.randperm(len(tensor))[:downsample_fraction]]
 
 
-NUM_READ_FEATURES = 11  #size of each read's feature vector from M2 annotation
-NUM_INFO_FEATURES = 9   # size of each variant's info field tensor (3 components for HEC, one each for HAPDOM, HAPCOMP)
-                        # and 5 for ref bases STR info
+NUM_READ_FEATURES = 11  # size of each read's feature vector from M2 annotation
+NUM_INFO_FEATURES = 9  # size of each variant's info field tensor (3 components for HEC, one each for HAPDOM, HAPCOMP)
+# and 5 for ref bases STR info
 
 RARE_POPAF = 5.9  # only let things absent from gnomAD be artifacts out of caution
 COMMON_POPAF = 1  # also very cautious.  There are so many germline variants we can be wasteful!
@@ -194,7 +293,8 @@ class TableReader:
 
         # optional normal data
         if normal_sample is not None:
-            self.normal_idx, self.normal_dp_idx = self._get_indices(header_tokens,[normal_sample + ".FRS", normal_sample + ".DP"])
+            self.normal_idx, self.normal_dp_idx = self._get_indices(header_tokens,
+                                                                    [normal_sample + ".FRS", normal_sample + ".DP"])
 
     def variant_info(self, tokens) -> VariantInfo:
         hec, hapcomp, hapdom, ref_bases = (tokens[idx] for idx in self.variant_info_indices)
@@ -282,10 +382,12 @@ def make_tensors(raw_file, is_training, sample_name, normal_sample_name=None, sh
             likely_germline = has_normal and normal_af > 0.2
 
             # extremely strict criteria because there are so many germline variants we can afford to waste a lot
-            definite_germline = not likely_seq_error and popaf < COMMON_POPAF and (tumor_af > 0.35 and popaf < COMMON_POPAF) and (normal_af > 0.35 if has_normal else True)
+            definite_germline = not likely_seq_error and popaf < COMMON_POPAF and (
+                    tumor_af > 0.35 and popaf < COMMON_POPAF) and (normal_af > 0.35 if has_normal else True)
 
             if is_training:
-                unmatched_artifact_counts = unmatched_counts_by_type[utils.get_variant_type(site_info.alt(), site_info.ref())]
+                unmatched_artifact_counts = unmatched_counts_by_type[
+                    utils.get_variant_type(site_info.alt(), site_info.ref())]
 
                 # low AF in tumor and normal, rare in population implies artifact
                 if not (likely_seq_error or likely_germline) and tumor_af < 0.2 and popaf > RARE_POPAF:
@@ -312,17 +414,18 @@ def make_tensors(raw_file, is_training, sample_name, normal_sample_name=None, sh
             # assembly complexity site-level annotations
             info_tensor = reader.variant_info(tokens).info_tensor()
 
-            data.append(Datum(ref_tensor, alt_tensor, info_tensor, site_info, m2_data, is_artifact, normal_dp, normal_alt_count))
+            data.append(Datum(ref_tensor, alt_tensor, info_tensor, site_info, m2_data, is_artifact, normal_dp,
+                              normal_alt_count))
         if shuffle:
             random.shuffle(data)
         return data
 
 
 def generate_pickles(tumor_table, normal_table, tumor_sample, normal_sample, pickle_dir, pickle_prefix):
-
     pair_train_pickle, small_pair_train_pickle, tumor_train_pickle, normal_train_pickle, test_pickle, small_test_pickle = \
-        (pickle_dir + pickle_prefix + suffix for suffix in ('-pair-train.pickle', '-small-pair-train.pickle', '-tumor-train.pickle', \
-                                                            '-normal-train.pickle', '-test.pickle', '-small-test.pickle'))
+        (pickle_dir + pickle_prefix + suffix for suffix in
+         ('-pair-train.pickle', '-small-pair-train.pickle', '-tumor-train.pickle', \
+          '-normal-train.pickle', '-test.pickle', '-small-test.pickle'))
 
     # we form a few kinds of training data: tumor data using the normal
     # (the normal doesn't change the format but helps make better truth guesses)
@@ -331,7 +434,7 @@ def generate_pickles(tumor_table, normal_table, tumor_sample, normal_sample, pic
     make_pickle(pair_train_pickle, pair_train_data)
 
     print("Generating and pickling small (by 10x) tumor tensors for training using tumor and normal")
-    make_pickle(small_pair_train_pickle, pair_train_data[:int(len(pair_train_data)/10)])
+    make_pickle(small_pair_train_pickle, pair_train_data[:int(len(pair_train_data) / 10)])
 
     print("Generating and pickling tumor tensors for training using only tumor")
     tumor_train_data = make_tensors(tumor_table, True, tumor_sample)
@@ -346,4 +449,4 @@ def generate_pickles(tumor_table, normal_table, tumor_sample, normal_sample, pic
     make_pickle(test_pickle, test_data)
 
     print("Generating and pickling small (by 10x) tumor tensors for for testing using STATUS labels")
-    make_pickle(small_test_pickle, test_data[:int(len(test_data)/10)])
+    make_pickle(small_test_pickle, test_data[:int(len(test_data) / 10)])
