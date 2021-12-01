@@ -3,3 +3,4 @@ numpy~=1.21.4
 tqdm~=4.62.3
 setuptools~=57.0.0
 matplotlib~=3.5.0
+pysam~=0.18.0
