@@ -2,6 +2,7 @@ import torch
 import random
 import numpy as np
 import pickle
+import pysam
 from torch.distributions.beta import Beta
 from typing import Set, List
 from tqdm.autonotebook import tqdm, trange
@@ -152,6 +153,28 @@ class Datum:
         alt = downsample(self._alt_tensor, alt_length)
         return Datum(ref, alt, self.info_tensor(), self.site_info(), self.mutect_info(), self.artifact_label(),
                      self.normal_depth(), self.normal_alt_count())
+
+
+def unlabeled_datum_from_vcf(rec: pysam.VariantRecord, tumor, normal, ref_downsample):
+    has_normal = normal is not None
+
+    tumor_dp = rec.samples[tumor]["DP"]
+    normal_dp = rec.samples[normal]["DP"] if has_normal else 0
+
+    tumor_frs = rec.samples[tumor]["FRS"]
+    tumor_frs_cnt = rec.samples[tumor]["FRSCNT"]
+    normal_alt_count = rec.samples[normal]["FRSCNT"][1] if has_normal else 0
+    ref_tensor = torch.tensor(tumor_frs[:tumor_frs_cnt[0] * NUM_READ_FEATURES]).float().reshape((-1, NUM_READ_FEATURES))
+    alt_tensor = torch.tensor(tumor_frs[tumor_frs_cnt[0] * NUM_READ_FEATURES:]).float().reshape((-1, NUM_READ_FEATURES))
+    ref_tensor = downsample(ref_tensor, ref_downsample)
+
+    info = rec.info
+    site_info = SiteInfo(rec.contig, rec.pos, rec.alleles[0], rec.alleles[1], info['POPAF'][0])
+    variant_info = VariantInfo(info["HEC"], info["HAPCOMP"][0], info["HAPDOM"][0], info["REF_BASES"])
+    mutect_info = MutectInfo(info["TLOD"][0], tumor_dp, set(rec.filter))
+
+    return Datum(ref_tensor, alt_tensor, variant_info.info_tensor(), site_info, mutect_info, None, normal_dp,
+                 normal_alt_count)
 
 
 # pickle and unpickle a Python list of Datum objects.  Convenient to have here because unpickling needs to have all
@@ -419,6 +442,58 @@ def make_tensors(raw_file, is_training, sample_name, normal_sample_name=None, sh
         if shuffle:
             random.shuffle(data)
         return data
+
+
+def make_training_tensors_from_vcf(vcf: pysam.VariantFile, tumor, normal=None, shuffle=True) -> List[Datum]:
+    data = []
+
+    # simple method to balance data: for each k-alt-read artifact there are
+    # NON_ARTIFACT_PER_ARTIFACT (downsampled) k-alt-read non-artifacts.
+    unmatched_counts_by_type = defaultdict(list)
+    for rec in vcf:
+        datum = unlabeled_datum_from_vcf(rec, tumor, normal, REF_DOWNSAMPLE)
+        alt_count = len(datum.alt_tensor())
+        if alt_count == 0 or len(datum.ref_tensor()) < MIN_REF:
+            continue
+
+        tumor_af = alt_count / datum.mutect_info().tumor_depth()
+        has_normal = normal is not None
+        normal_dp = datum.normal_depth()
+        normal_alt_count = datum.normal_alt_count()
+        normal_af = 0 if normal_dp == 0 else normal_alt_count / normal_dp
+
+        likely_seq_error = "weak_evidence" in datum.mutect_info().filters() or datum.mutect_info().tlod() < TLOD_THRESHOLD
+        likely_germline = has_normal and normal_af > 0.2
+
+        popaf = datum.site_info().popaf()
+        # extremely strict criteria because there are so many germline variants we can afford to waste a lot
+        definite_germline = not likely_seq_error and popaf < COMMON_POPAF and (
+                tumor_af > 0.35 and popaf < COMMON_POPAF) and (normal_af > 0.35 if has_normal else True)
+
+        unmatched_artifact_counts = unmatched_counts_by_type[
+            utils.get_variant_type(datum.site_info.alt(), datum.site_info.ref())]
+
+        # low AF in tumor and normal, rare in population implies artifact
+        if not (likely_seq_error or likely_germline) and tumor_af < 0.2 and popaf > RARE_POPAF:
+            unmatched_artifact_counts.extend([alt_count] * NON_ARTIFACT_PER_ARTIFACT)
+            datum.is_artifact = 1
+        # high AF in tumor and normal, common in population implies germline, which we downsample
+        elif definite_germline and unmatched_artifact_counts:
+            downsample_count = min(alt_count, unmatched_artifact_counts.pop())
+
+            # TODO: make this a set method or something!!!!!
+            datum._alt_tensor = datum.alt_tensor()[torch.randperm(alt_count)[:downsample_count]]
+            datum.is_artifact = 0
+        # inconclusive -- unlabeled datum
+        # to avoid too large a dataset, we try to bias toward possible artifacts and keep out obvious sequencing errors
+        elif datum.mutect_info().tlod() > 4.0 and tumor_af < 0.3:
+            downsample_count = min(alt_count, 10)
+            datum._alt_tensor = datum.alt_tensor()[torch.randperm(alt_count)[:downsample_count]]
+        else:
+            continue
+
+        data.append(datum)
+    return data
 
 
 def generate_pickles(tumor_table, normal_table, tumor_sample, normal_sample, pickle_dir, pickle_prefix):
