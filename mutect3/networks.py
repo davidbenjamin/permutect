@@ -467,6 +467,8 @@ class ReadSetClassifier(nn.Module):
             for logits, batch in logits_and_batches:
                 posterior_logits = self.prior_model(logits, batch)
 
+                # TODO: WAIT A MINUTE! THIS DOESN'T SEEM TO BE WHAT I INTENDED.  IT REQUIRES LABELS, FOR ONE THING.
+                # TODO: I think I should really be maximizing over the model evidence -- marginalized over the label?
                 loss = criterion(posterior_logits, batch.labels())
                 optimizer.zero_grad()
                 loss.backward()
