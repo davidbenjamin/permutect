@@ -150,10 +150,13 @@ class PriorModel(nn.Module):
 
         return result
 
+    # returns list of fig, curve tuples
     def plot_spectra(self):
+        result = []
         for variant_type in utils.VariantType:
-            self.artifact_spectra[variant_type.value].plot_spectrum(variant_type.name + " artifact AF spectrum")
-        self.variant_spectrum.plot_spectrum("Variant AF spectrum")
+            result.append(self.artifact_spectra[variant_type.value].plot_spectrum(variant_type.name + " artifact AF spectrum"))
+        result.append(self.variant_spectrum.plot_spectrum("Variant AF spectrum"))
+        return result
 
 
 class Mutect3Parameters:

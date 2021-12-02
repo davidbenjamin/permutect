@@ -218,11 +218,6 @@ class NormalArtifactDatum:
         return self._variant_type
 
 
-def load_normal_artifact_pickle(file):
-    with open(file, 'rb') as f:
-        return pickle.load(f)
-
-
 class NormalArtifactTableReader:
     def __init__(self, header_tokens):
         self.normal_alt_idx = header_tokens.index("normal_alt")

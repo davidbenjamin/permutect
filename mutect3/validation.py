@@ -167,8 +167,7 @@ def plot_roc_curve(model, loader, normal_artifact=False):
         precision.append(tp / (tp + fp + 0.00001))
 
     x_y_lab = [(sensitivity, precision, "ROC")]
-    fig, curve = simple_plot(x_y_lab, xlabel="sensitivity", ylabel="precision",
-                             title="ROC curve according to M3's own probabilities.")
+    return simple_plot(x_y_lab, xlabel="sensitivity", ylabel="precision", title="ROC curve according to M3's own probabilities.")
 
 
 # get the same stats for Mutect2 using the M2 filters and truth labels

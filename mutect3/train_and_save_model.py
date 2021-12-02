@@ -1,13 +1,21 @@
 import argparse
 
 import torch
-from torch.distributions.beta import Beta
 from matplotlib.backends.backend_pdf import PdfPages
+from torch.distributions.beta import Beta
 
-from mutect3 import data, networks, train, utils
+from mutect3 import data, networks, utils
 
 
-def make_trained_mutect3_model(m3_params: networks.Mutect3Parameters, training_pickles, normal_artifact_pickles, params,
+class TrainingParameters:
+    def __init__(self, batch_size, num_epochs, beta1: Beta, beta2: Beta):
+        self.batch_size = batch_size
+        self.num_epochs = num_epochs
+        self.beta1 = beta1
+        self.beta2 = beta2
+
+
+def make_trained_mutect3_model(m3_params: networks.Mutect3Parameters, training_pickles, normal_artifact_pickles, params: TrainingParameters,
                                report_pdf=None):
     na_dataset = data.NormalArtifactDataset(normal_artifact_pickles)
     na_train, na_valid = utils.split_dataset_into_train_and_valid(na_dataset, 0.9)
@@ -68,7 +76,7 @@ def main():
 
     # path to saved model
     parser.add_argument('--output', required=True)
-    parser.add_argument('--training_report_pdf', required=False)
+    parser.add_argument('--report_pdf', required=False)
 
     args = parser.parse_args()
 
@@ -77,10 +85,10 @@ def main():
 
     beta1 = Beta(args.alpha1, args.beta1)
     beta2 = Beta(args.alpha2, args.beta2)
-    params = train.TrainingParameters(args.batch_size, args.num_epochs, beta1, beta2)
+    params = TrainingParameters(args.batch_size, args.num_epochs, beta1, beta2)
 
     model = make_trained_mutect3_model(m3_params, args.training_pickles, args.normal_artifact_pickles, params,
-                                       args.training_report_pdf)
+                                       args.report_pdf)
 
     save_mutect3_model(model, m3_params, args.output)
 

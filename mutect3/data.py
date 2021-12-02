@@ -6,6 +6,7 @@ from torch.utils.data import Dataset, DataLoader
 from torch.utils.data.sampler import Sampler
 
 from mutect3 import tensors, utils
+
 # TODO: this should change eventually by having normal artifact table w/ ALT and REF, just like
 # the other table.  For now, we just hack a SNV, DELETION, INDEL
 
@@ -129,11 +130,10 @@ def medians_and_iqrs(tensor_2d):
 
 
 class Mutect3Dataset(Dataset):
-    def __init__(self, pickled_files):
-        self.data = []
-        for pickled_file in pickled_files:
-            self.data.extend(tensors.load_pickle(pickled_file))
-        random.shuffle(self.data)
+    def __init__(self, data: List[tensors.Datum], shuffle=False):
+        self.data = data
+        if shuffle:
+            random.shuffle(self.data)
 
         # concatenate a bunch of ref tensors and take element-by-element quantiles
         ref = torch.cat([datum.ref_tensor() for datum in self.data[:DATA_COUNT_FOR_QUANTILES]], dim=0)
@@ -154,9 +154,16 @@ class Mutect3Dataset(Dataset):
                              raw.normal_depth(), raw.normal_alt_count())
 
 
+def mutect3_dataset_from_pickles(pickles, shuffle=False):
+    data = []
+    for pickled_file in pickles:
+        data.extend(tensors.load_pickle(pickled_file))
+    return Mutect3Dataset(data, shuffle)
+
+
 def make_training_and_validation_datasets(training_pickles):
     # make our training, validation, and testing data
-    train_and_valid = Mutect3Dataset(training_pickles)
+    train_and_valid = mutect3_dataset_from_pickles(training_pickles, shuffle=True)
     train, valid = utils.split_dataset_into_train_and_valid(train_and_valid, 0.9)
 
     unlabeled_count = sum([1 for datum in train_and_valid if datum.artifact_label() is None])
@@ -216,7 +223,7 @@ class NormalArtifactDataset(Dataset):
     def __init__(self, pickled_files):
         self.data = []
         for pickled_file in pickled_files:
-            self.data.extend(tensors.load_normal_artifact_pickle(pickled_file))
+            self.data.extend(tensors.load_pickle(pickled_file))
         random.shuffle(self.data)
 
     def __len__(self):
