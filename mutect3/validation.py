@@ -1,6 +1,7 @@
 from collections import defaultdict
 import math
 import matplotlib.pyplot as plt
+from tqdm.autonotebook import tqdm
 
 
 # one or more simple plots of y data vs x data on shared axes
@@ -145,7 +146,10 @@ def plot_roc_curve(model, loader, normal_artifact=False):
     predictions_and_labels = []
 
     model.freeze_all()
-    for batch in loader:
+    print("Running model over all data to generate ROC curve")
+
+    pbar = tqdm(enumerate(loader))
+    for n, batch in pbar:
         labels = batch.labels()
         logits = model(batch, posterior=True, normal_artifact=normal_artifact)
         for n in range(batch.size()):

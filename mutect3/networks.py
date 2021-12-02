@@ -2,7 +2,7 @@ from typing import List
 
 import torch
 from torch import nn
-from tqdm.autonotebook import trange
+from tqdm.autonotebook import tqdm, trange
 from tqdm.notebook import trange
 
 from mutect3 import validation, tensors, data, utils
@@ -514,7 +514,9 @@ class ReadSetClassifier(nn.Module):
         self.train(False)
         artifact_probs = []
 
-        for batch in loader:
+        print("running model over all data in loader to optimize F score")
+        pbar = tqdm(enumerate(loader))
+        for n, batch in pbar:
             artifact_probs.extend(torch.sigmoid(self(batch, posterior=True, normal_artifact=normal_artifact)).tolist())
 
         artifact_probs.sort()

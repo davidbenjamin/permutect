@@ -1,8 +1,9 @@
 import argparse
 import pysam
 from matplotlib.backends.backend_pdf import PdfPages
+from tqdm.autonotebook import tqdm
 import torch
-from mutect3 import tensors, networks, validation
+from mutect3 import tensors, networks, validation, data
 
 REF_DOWNSAMPLE = 20
 TRUSTED_M2_FILTERS = {'contamination', 'germline', 'weak_evidence'}
@@ -30,17 +31,20 @@ def main():
     parser.add_argument('--batch_size', type=int, default=64, required=False)
     args = parser.parse_args()
 
-    # if --normal not specified, args.normal is None, which works all the way through
-    data = tensors.make_training_tensors_from_vcf(args.input, args.tumor, args.normal)
-    tensors.make_pickle(args.output, data)
-
+    print("Reading tensors from VCF")
     dataset = get_test_dataset(args.input, args.tumor, args.normal, REF_DOWNSAMPLE)
+
+    print("Creating data loader")
     data_loader = data.make_test_data_loader(dataset, args.batch_size)
+
+    print("Loading saved model")
     model = load_saved_model(args.trained_m3_model)
 
     # The AF spectrum was, of course, not pre-trained with the rest of the model
+    print("Learning AF spectra")
     model.learn_spectra(data_loader, num_epochs=200)
 
+    print("generating plots")
     if args.report_pdf is not None:
         spectra_plots = model.get_prior_model().plot_spectra()
         roc_fig, roc_curve = validation.plot_roc_curve(model, data_loader, normal_artifact=True)
@@ -49,15 +53,19 @@ def main():
                 pdf.savefig(fig)
             pdf.savefig(roc_fig)
 
+    print("Calculating optimal logit threshold")
     logit_threshold = model.calculate_logit_threshold(data_loader)
     # print("Optimal logit threshold: " + str(logit_threshold))
 
     encoding_to_logit_dict = {}
-    for batch in data_loader:
+
+    print("Running final calls")
+    pbar = tqdm(enumerate(data_loader))
+    for n, batch in pbar:
         logits = model(batch, posterior=True, normal_artifact=True)
 
         # encoding has form contig:position:alt
-        #TODO write method
+        # TODO write method
         encodings = [site.locus() + ':' + site.alt() for site in batch.site_info()]
         for encoding, logit in zip(encodings, logits):
             encoding_to_logit_dict[encoding] = logit
@@ -66,12 +74,13 @@ def main():
     vcf_out = pysam.VariantFile(args.output, 'w', header=vcf_in.header)
 
     vcf_out.header.add_meta(key="INFO", items=[('ID', 'LOGIT'),
-                                                  ('Number', '1'),
-                                                  ('Type', 'Float'),
-                                                  ('Description', 'logit for M3 posterior probability of technical artifact')])
+                                               ('Number', '1'),
+                                               ('Type', 'Float'),
+                                               ('Description',
+                                                'logit for M3 posterior probability of technical artifact')])
 
     vcf_out.header.add_meta(key="FILTER", items=[('ID', 'mutect3'),
-                                               ('Description', 'filtered by Mutect3 as technical artifact')])
+                                                 ('Description', 'filtered by Mutect3 as technical artifact')])
 
     for rec in vcf_in:
         encoding = rec.contig + ':' + rec.pos + ':' + rec.alleles[1]
@@ -90,20 +99,20 @@ def main():
     vcf_out.close()
 
 
-
-
 # tensorize all the possible somatic variants and technical artifacts, skipping germline,
 # contamination, and weak evidence variants, for whose filters we trust Mutect2.
 def get_test_dataset(vcf, tumor, normal, ref_downsample):
-    data = []
+    data_list = []
     vcf_input = pysam.VariantFile(vcf)
-    for rec in vcf_input:
+    for n, rec in enumerate(vcf_input):
+        if n % 10000 == 0:
+            print(rec.contig + ':' + str(rec.pos))
         datum = tensors.unlabeled_datum_from_vcf(rec, tumor, normal, ref_downsample)
         filters = datum.mutect_info().filters()
         if filters.isdisjoint(TRUSTED_M2_FILTERS):
-            data.append(datum)
+            data_list.append(datum)
 
-    return data.Mutect3Dataset(data, shuffle=True)
+    return data.Mutect3Dataset(data_list, shuffle=True)
 
 
 if __name__ == '__main__':

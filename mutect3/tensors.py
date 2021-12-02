@@ -156,17 +156,23 @@ class Datum:
 
 
 def unlabeled_datum_from_vcf(rec: pysam.VariantRecord, tumor, normal, ref_downsample):
+    #print(rec.contig + ':' + str(rec.pos))
     has_normal = normal is not None
 
     tumor_dp = rec.samples[tumor]["DP"]
     normal_dp = rec.samples[normal]["DP"] if has_normal else 0
 
-    tumor_frs = rec.samples[tumor]["FRS"]
     tumor_frs_cnt = rec.samples[tumor]["FRSCNT"]
     normal_alt_count = rec.samples[normal]["FRSCNT"][1] if has_normal else 0
-    ref_tensor = torch.tensor(tumor_frs[:tumor_frs_cnt[0] * NUM_READ_FEATURES]).float().reshape((-1, NUM_READ_FEATURES))
-    alt_tensor = torch.tensor(tumor_frs[tumor_frs_cnt[0] * NUM_READ_FEATURES:]).float().reshape((-1, NUM_READ_FEATURES))
-    ref_tensor = downsample(ref_tensor, ref_downsample)
+
+    if sum(tumor_frs_cnt) > 0:
+        tumor_frs = rec.samples[tumor]["FRS"]
+        ref_tensor = torch.tensor(tumor_frs[:tumor_frs_cnt[0] * NUM_READ_FEATURES]).float().reshape((-1, NUM_READ_FEATURES))
+        alt_tensor = torch.tensor(tumor_frs[tumor_frs_cnt[0] * NUM_READ_FEATURES:]).float().reshape((-1, NUM_READ_FEATURES))
+        ref_tensor = downsample(ref_tensor, ref_downsample)
+    else:
+        ref_tensor = torch.tensor([]).float().reshape((-1, NUM_READ_FEATURES))
+        alt_tensor = torch.tensor([]).float().reshape((-1, NUM_READ_FEATURES))
 
     info = rec.info
     site_info = SiteInfo(rec.contig, rec.pos, rec.alleles[0], rec.alleles[1], info['POPAF'][0])
