@@ -136,19 +136,25 @@ class PriorModel(nn.Module):
             self.artifact_spectra.append(AFSpectrum())
             self.prior_log_odds.append(nn.Parameter(torch.tensor(initial_log_ratio)))
 
-    # forward pass returns posterior logits of being artifact given likelihood logits
-    def forward(self, logits, batch):
-        variant_ll = self.variant_spectrum(batch)
-
-        result = torch.zeros_like(logits)
+    # calculate log likelihoods for all variant types and then apply a mask to select the correct
+    # type for each datum in a batch
+    def artifact_log_likelihoods(self, batch):
+        result = torch.zeros_like(batch)
         for variant_type in utils.VariantType:
-            output = logits + self.prior_log_odds[variant_type.value] + self.artifact_spectra[variant_type.value](
-                batch) - variant_ll
-            mask = torch.tensor(
-                [1 if variant_type == site_info.variant_type() else 0 for site_info in batch.site_info()])
+            output = self.prior_log_odds[variant_type.value] + self.artifact_spectra[variant_type.value](batch)
+            mask = torch.tensor([1 if variant_type == site.variant_type() else 0 for site in batch.site_info()])
             result += mask * output
 
         return result
+
+    # forward pass returns posterior logits of being artifact given likelihood logits
+    def forward(self, logits, batch):
+        return logits + self.artifact_log_likelihoods(batch) - self.variant_spectrum(batch)
+
+    # with fixed logits from the ReadSetClassifier, the log probability of seeing the observed tensors and counts
+    # This is our objective to maximize when learning the prior model
+    def log_evidence(self, logits, batch):
+        return torch.logsumexp(torch.column_stack((logits + self.artifact_log_likelihoods(batch), self.variant_spectrum(batch))), dim=1)
 
     # returns list of fig, curve tuples
     def plot_spectra(self):
@@ -436,7 +442,7 @@ class ReadSetClassifier(nn.Module):
                 # so, with n_ll = normal artifact log likelhood and som_ll = somatic log likelihood and pi = log P(somatic)
                 # posterior logit = na_ll - pi - som_ll
 
-                # WARNING: HARD-CODED MAGIC CONSTANT!!!!!
+                # TODO: WARNING: HARD-CODED MAGIC CONSTANT!!!!!
                 log_somatic_prior = -11.0
                 na_logits = na_log_lk - log_somatic_prior - somatic_log_lk
                 ### NORMAL ARTIFACT CALCULATION ENDS
@@ -456,7 +462,6 @@ class ReadSetClassifier(nn.Module):
         self.learn_spectrum_mode()
         logits_and_batches = [(self(batch).detach(), batch) for batch in loader]
         optimizer = torch.optim.Adam(self.spectra_parameters())
-        criterion = nn.BCEWithLogitsLoss()
 
         spectra_losses = []
         epochs = []
@@ -465,11 +470,7 @@ class ReadSetClassifier(nn.Module):
             epochs.append(epoch + 1)
             epoch_loss = 0
             for logits, batch in logits_and_batches:
-                posterior_logits = self.prior_model(logits, batch)
-
-                # TODO: WAIT A MINUTE! THIS DOESN'T SEEM TO BE WHAT I INTENDED.  IT REQUIRES LABELS, FOR ONE THING.
-                # TODO: I think I should really be maximizing over the model evidence -- marginalized over the label?
-                loss = criterion(posterior_logits, batch.labels())
+                loss = -self.prior_model.log_evidence(logits, batch)
                 optimizer.zero_grad()
                 loss.backward()
                 optimizer.step()
