@@ -66,17 +66,17 @@ def main():
         # TODO write method
         encodings = [site.locus() + ':' + site.alt() for site in batch.site_info()]
         for encoding, logit in zip(encodings, logits):
-            encoding_to_logit_dict[encoding] = logit
+            encoding_to_logit_dict[encoding] = logit.item()
 
     with open(args.input) as unfiltered_vcf, open(args.output, "w") as filtered_vcf:
         for line in unfiltered_vcf:
             #header lines
             info_added, filter_added = False, False
             if line.startswith('#'):
-                if not filter_added and line.startswith('##FILTER'):
+                if (not filter_added) and line.startswith('##FILTER'):
                     filtered_vcf.write('##FILTER=<ID=mutect3,Description="Technical artifact according to Mutect3 deep sets model">')
                     filter_added = True
-                if not info_added and line.startswith('##INFO'):
+                if (not info_added) and line.startswith('##INFO'):
                     filtered_vcf.write('##INFO=<ID=LOGIT,Number=1,Type=Float,Description="logit for M3 posterior probability of technical artifact">')
                     info_added = True
                 filtered_vcf.write(line)
