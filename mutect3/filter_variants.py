@@ -71,11 +71,14 @@ def main():
     with open(args.input) as unfiltered_vcf, open(args.output, "w") as filtered_vcf:
         for line in unfiltered_vcf:
             #header lines
+            info_added, filter_added = False, False
             if line.startswith('#'):
-                if line.startswith('##FILTER'):
+                if not filter_added and line.startswith('##FILTER'):
                     filtered_vcf.write('##FILTER=<ID=mutect3,Description="Technical artifact according to Mutect3 deep sets model">')
-                if line.startswith('##INFO'):
+                    filter_added = True
+                if not info_added and line.startswith('##INFO'):
                     filtered_vcf.write('##INFO=<ID=LOGIT,Number=1,Type=Float,Description="logit for M3 posterior probability of technical artifact">')
+                    info_added = True
                 filtered_vcf.write(line)
             #non-header lines
             else:
@@ -92,7 +95,7 @@ def main():
                     filters.add('PASS')
                 tokens[6] = ';'.join(filters)
 
-                filtered_vcf.write('\t'.join(tokens))
+                filtered_vcf.write('\t'.join(tokens) + '\n')
 
 
 # tensorize all the possible somatic variants and technical artifacts, skipping germline,
