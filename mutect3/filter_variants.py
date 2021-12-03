@@ -47,11 +47,9 @@ def main():
     print("generating plots")
     if args.report_pdf is not None:
         spectra_plots = model.get_prior_model().plot_spectra()
-        roc_fig, roc_curve = validation.plot_roc_curve(model, data_loader, normal_artifact=True)
         with PdfPages(args.report_pdf) as pdf:
             for fig, curve in spectra_plots:
                 pdf.savefig(fig)
-            pdf.savefig(roc_fig)
 
     print("Calculating optimal logit threshold")
     logit_threshold = model.calculate_logit_threshold(data_loader)
@@ -70,33 +68,31 @@ def main():
         for encoding, logit in zip(encodings, logits):
             encoding_to_logit_dict[encoding] = logit
 
-    vcf_in = pysam.VariantFile(args.input)
-    vcf_out = pysam.VariantFile(args.output, 'w', header=vcf_in.header)
+    with open(args.input) as unfiltered_vcf, open(args.output, "w") as filtered_vcf:
+        for line in unfiltered_vcf:
+            #header lines
+            if line.startswith('#'):
+                if line.startswith('##FILTER'):
+                    filtered_vcf.write('##FILTER=<ID=mutect3,Description="Technical artifact according to Mutect3 deep sets model">')
+                if line.startswith('##INFO'):
+                    filtered_vcf.write('##INFO=<ID=LOGIT,Number=1,Type=Float,Description="logit for M3 posterior probability of technical artifact">')
+                filtered_vcf.write(line)
+            #non-header lines
+            else:
+                tokens = line.strip().split('\t')
+                contig, position, alts = tokens[0], tokens[1], tokens[4]
+                filters = set(tokens[6].split(';')).intersection(TRUSTED_M2_FILTERS)
+                encoding = contig + ':' + position + ':' + alts.split(',')[0]
+                if encoding in encoding_to_logit_dict:
+                    logit = encoding_to_logit_dict[encoding]
+                    tokens[7] = tokens[7] + ';LOGIT=' + str(logit)    # add LOGIT INFO
+                    if logit > logit_threshold: # fails Mutect3
+                        filters.add('mutect3')
+                if not filters:
+                    filters.add('PASS')
+                tokens[6] = ';'.join(filters)
 
-    vcf_out.header.add_meta(key="INFO", items=[('ID', 'LOGIT'),
-                                               ('Number', '1'),
-                                               ('Type', 'Float'),
-                                               ('Description',
-                                                'logit for M3 posterior probability of technical artifact')])
-
-    vcf_out.header.add_meta(key="FILTER", items=[('ID', 'mutect3'),
-                                                 ('Description', 'filtered by Mutect3 as technical artifact')])
-
-    for rec in vcf_in:
-        encoding = rec.contig + ':' + rec.pos + ':' + rec.alleles[1]
-
-        # throw out all of M2's technical artifact filters
-        rec.filter = set(rec.filter).intersection(TRUSTED_M2_FILTERS)
-
-        if encoding in encoding_to_logit_dict:
-            logit = encoding_to_logit_dict[encoding]
-            rec.info["LOGIT"] = logit
-            if logit > logit_threshold:
-                rec.filter.add('mutect3')
-
-        vcf_out.write(rec)
-
-    vcf_out.close()
+                filtered_vcf.write('\t'.join(tokens))
 
 
 # tensorize all the possible somatic variants and technical artifacts, skipping germline,

@@ -139,7 +139,7 @@ class PriorModel(nn.Module):
     # calculate log likelihoods for all variant types and then apply a mask to select the correct
     # type for each datum in a batch
     def artifact_log_likelihoods(self, batch):
-        result = torch.zeros_like(batch)
+        result = torch.zeros(batch.size())
         for variant_type in utils.VariantType:
             output = self.prior_log_odds[variant_type.value] + self.artifact_spectra[variant_type.value](batch)
             mask = torch.tensor([1 if variant_type == site.variant_type() else 0 for site in batch.site_info()])
@@ -470,7 +470,7 @@ class ReadSetClassifier(nn.Module):
             epochs.append(epoch + 1)
             epoch_loss = 0
             for logits, batch in logits_and_batches:
-                loss = -self.prior_model.log_evidence(logits, batch)
+                loss = -torch.mean(self.prior_model.log_evidence(logits, batch))
                 optimizer.zero_grad()
                 loss.backward()
                 optimizer.step()
