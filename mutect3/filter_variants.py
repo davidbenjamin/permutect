@@ -108,7 +108,9 @@ def get_test_dataset(vcf, tumor, normal, ref_downsample):
             print(rec.contig + ':' + str(rec.pos))
         datum = tensors.unlabeled_datum_from_vcf(rec, tumor, normal, ref_downsample)
         filters = datum.mutect_info().filters()
-        if filters.isdisjoint(TRUSTED_M2_FILTERS):
+        #TODO: this is saying we can't filter at all if no ref reads!
+        #TODO: this avoids the bug of taking ref emnbedding mean but it's clumsy
+        if filters.isdisjoint(TRUSTED_M2_FILTERS) and len(datum.ref_tensor()) > 0:
             data_list.append(datum)
 
     return data.Mutect3Dataset(data_list, shuffle=True)

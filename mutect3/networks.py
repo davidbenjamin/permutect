@@ -407,6 +407,7 @@ class ReadSetClassifier(nn.Module):
         # stack side-by-side to get 2D tensor, where each variant row is (ref mean, alt mean, info)
         omega_info = torch.sigmoid(self.omega(batch.info()))
         concatenated = torch.cat((ref_means, alt_means, omega_info), dim=1)
+
         aggregated = self.rho(concatenated)
 
         logits = torch.zeros(batch.size())
@@ -460,6 +461,7 @@ class ReadSetClassifier(nn.Module):
 
     def learn_spectra(self, loader, num_epochs):
         self.learn_spectrum_mode()
+
         logits_and_batches = [(self(batch).detach(), batch) for batch in loader]
         optimizer = torch.optim.Adam(self.spectra_parameters())
 
