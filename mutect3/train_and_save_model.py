@@ -29,10 +29,13 @@ def make_trained_mutect3_model(m3_params: networks.Mutect3Parameters, training_p
     na_model = networks.NormalArtifactModel([10, 10, 10])
     na_training_metrics = na_model.train_model(na_train_loader, na_valid_loader, num_epochs=10)
 
+    print("Loading datasets from pickle files")
     training, valid = data.make_training_and_validation_datasets(training_pickles)
     train_loader = data.make_semisupervised_data_loader(training, params.batch_size)
     valid_loader = data.make_semisupervised_data_loader(valid, params.batch_size)
     model = networks.ReadSetClassifier(m3_params, na_model).float()
+
+    print("Training model")
     training_metrics = model.train_model(train_loader, valid_loader, params.num_epochs, params.beta1, params.beta2)
     if report_pdf is not None:
         with PdfPages(report_pdf) as pdf:

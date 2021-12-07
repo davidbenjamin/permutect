@@ -3,7 +3,6 @@ from typing import List
 import torch
 from torch import nn
 from tqdm.autonotebook import tqdm, trange
-from tqdm.notebook import trange
 
 from mutect3 import validation, tensors, data, utils
 
@@ -285,12 +284,14 @@ class NormalArtifactModel(nn.Module):
         training_metrics = validation.TrainingMetrics()
 
         for epoch in trange(1, num_epochs + 1, desc="Epoch"):
+            print("Normal artifact epoch " + str(epoch))
             for epoch_type in [utils.EpochType.TRAIN, utils.EpochType.VALID]:
                 loader = train_loader if epoch_type == utils.EpochType.TRAIN else valid_loader
 
                 epoch_loss = 0
                 epoch_count = 0
-                for batch in loader:
+                pbar = tqdm(loader)
+                for batch in pbar:
                     log_likelihoods = self(batch)
                     weights = 1 / batch.downsampling()
                     loss = -torch.mean(weights * log_likelihoods)
@@ -558,7 +559,9 @@ class ReadSetClassifier(nn.Module):
 
                 epoch_labeled_loss, epoch_unlabeled_loss = 0, 0
                 epoch_labeled_count, epoch_unlabeled_count = 0, 0
-                for batch in loader:
+
+                pbar = tqdm(enumerate(loader))
+                for n, batch in pbar:
                     orig_pred = self(batch)
                     aug1_pred = self(batch.augmented_copy(beta1))
                     aug2_pred = self(batch.augmented_copy(beta2))

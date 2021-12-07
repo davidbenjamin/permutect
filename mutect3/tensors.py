@@ -8,7 +8,6 @@ from typing import Set, List
 from tqdm.autonotebook import tqdm, trange
 from collections import defaultdict
 
-from tqdm.notebook import tqdm
 
 from mutect3 import utils
 
@@ -142,6 +141,9 @@ class Datum:
     def normal_alt_count(self) -> int:
         return self._normal_alt_count
 
+    def set_label(self, label):
+        self._artifact_label = label
+
     # beta is distribution of downsampling fractions
     def downsampled_copy(self, beta: Beta):
         ref_frac = beta.sample().item()
@@ -252,7 +254,7 @@ class NormalArtifactTableReader:
         return tokens[self.type_idx]
 
 
-def read_data(table_file, shuffle=True) -> List[NormalArtifactDatum]:
+def read_normal_artifact_data(table_file, shuffle=True) -> List[NormalArtifactDatum]:
     data = []
 
     with open(table_file) as fp:
@@ -279,7 +281,7 @@ def read_data(table_file, shuffle=True) -> List[NormalArtifactDatum]:
 
 
 def generate_normal_artifact_pickle(table_file, pickle_file):
-    data = read_data(table_file)
+    data = read_normal_artifact_data(table_file)
     make_pickle(pickle_file, data)
 
 
@@ -310,7 +312,10 @@ def make_training_tensors_from_vcf(vcf, tumor, normal=None, shuffle=True) -> Lis
     # simple method to balance data: for each k-alt-read artifact there are
     # NON_ARTIFACT_PER_ARTIFACT (downsampled) k-alt-read non-artifacts.
     unmatched_counts_by_type = defaultdict(list)
-    for rec in pysam.VariantFile(vcf):
+    pbar = tqdm()
+    for n, rec in enumerate(pysam.VariantFile(vcf)):
+        if n % 10000 == 0:
+            print(rec.contig + ':' + str(rec.pos))
         datum = unlabeled_datum_from_vcf(rec, tumor, normal, REF_DOWNSAMPLE)
         alt_count = len(datum.alt_tensor())
         if alt_count == 0 or len(datum.ref_tensor()) < MIN_REF:
@@ -336,18 +341,19 @@ def make_training_tensors_from_vcf(vcf, tumor, normal=None, shuffle=True) -> Lis
         # low AF in tumor and normal, rare in population implies artifact
         if not (likely_seq_error or likely_germline) and tumor_af < 0.2 and popaf > RARE_POPAF:
             unmatched_artifact_counts.extend([alt_count] * NON_ARTIFACT_PER_ARTIFACT)
-            datum.is_artifact = 1
+            datum.set_label(1)
         # high AF in tumor and normal, common in population implies germline, which we downsample
         elif definite_germline and unmatched_artifact_counts:
             downsample_count = min(alt_count, unmatched_artifact_counts.pop())
 
             # TODO: make this a set method or something!!!!!
             datum._alt_tensor = datum.alt_tensor()[torch.randperm(alt_count)[:downsample_count]]
-            datum.is_artifact = 0
+            datum.set_label(0)
         # inconclusive -- unlabeled datum
         # to avoid too large a dataset, we try to bias toward possible artifacts and keep out obvious sequencing errors
         elif datum.mutect_info().tlod() > 4.0 and tumor_af < 0.3:
             downsample_count = min(alt_count, 10)
+            # TODO: a setter would be better!!
             datum._alt_tensor = datum.alt_tensor()[torch.randperm(alt_count)[:downsample_count]]
         else:
             continue
