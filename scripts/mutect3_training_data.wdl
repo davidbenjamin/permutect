@@ -10,10 +10,10 @@ workflow Mutect3TrainingData {
         File ref_fai
         File ref_dict
         Int scatter_count
-        File tumor_bam
-        File tumor_bai
-        File? normal_bam
-        File? normal_bai
+        File primary_bam
+        File primary_bai
+        File? control_bam
+        File? control_bai
         File? pon
         File? gnomad
         File? variants_for_contamination
@@ -26,6 +26,7 @@ workflow Mutect3TrainingData {
         String? normal_artifact_extra_args
         String? split_intervals_extra_args
         Boolean? make_bamout
+        Boolean? compress_vcfs
 
         # runtime
         String gatk_docker
@@ -37,21 +38,21 @@ workflow Mutect3TrainingData {
     String m2_extra_args_with_training_mode = select_first([m2_extra_args, ""]) + " --training-data-mode --training-data-mode-ref-downsample " + ref_downsample
 
     Runtime small_runtime = {"gatk_docker": gatk_docker, "gatk_override": gatk_override,
-                                   "max_retries": 2, "preemptible": 0, "cpu": 2,
-                                   "machine_mem": 4000, "command_mem": 3500,
-                                   "disk": 100, "boot_disk_size": 12}
+                                "max_retries": 2, "preemptible": 0, "cpu": 2,
+                                "machine_mem": 4000, "command_mem": 3500,
+                                "disk": 100, "boot_disk_size": 12}
 
     # call on the tumor (with normal if present) to get tumor read data and M2 filtering
-    call m2.Mutect2 as Tumor {
+    call m2.Mutect2 as mutect2 {
         input:
             ref_fasta = ref_fasta,
             ref_fai = ref_fai,
             ref_dict = ref_dict,
             scatter_count = scatter_count,
-            tumor_reads = tumor_bam,
-            tumor_reads_index = tumor_bai,
-            normal_reads = normal_bam,
-            normal_reads_index = normal_bai,
+            tumor_reads = primary_bam,
+            tumor_reads_index = primary_bai,
+            normal_reads = control_bam,
+            normal_reads_index = control_bai,
             intervals = intervals,
             pon = pon,
             gnomad = gnomad,
@@ -64,55 +65,12 @@ workflow Mutect3TrainingData {
             m2_extra_args = m2_extra_args_with_training_mode,
             m2_extra_filtering_args = m2_extra_filtering_args,
             make_bamout = make_bamout,
+            compress_vcfs = compress_vcfs,
             gatk_override = gatk_override,
             gatk_docker = gatk_docker
     }
-    
-    call MakeTableFromMutect2 as TumorTable {
-        input:
-            filtered_vcf = Tumor.filtered_vcf,
-            filtered_vcf_idx = Tumor.filtered_vcf_idx,
-            gatk_override = gatk_override,
-            gatk_docker = gatk_docker,
-            preemptible = preemptible
-    }
 
-    # call on the normal, with tumor as "matched normal", to get normal read data and M2 filtering
-    if(defined(normal_bam)) {
-        call m2.Mutect2 as Normal {
-            input:
-                ref_fasta = ref_fasta,
-                ref_fai = ref_fai,
-                ref_dict = ref_dict,
-                scatter_count = scatter_count,
-                tumor_reads = select_first([normal_bam]),
-                tumor_reads_index = select_first([normal_bai]),
-                normal_reads = tumor_bam,
-                normal_reads_index = tumor_bai,
-                intervals = intervals,
-                pon = pon,
-                gnomad = gnomad,
-                variants_for_contamination = variants_for_contamination,
-                run_orientation_bias_mixture_model_filter = run_orientation_bias_mixture_model_filter,
-                realignment_index_bundle = realignment_index_bundle,
-                realignment_extra_args = realignment_extra_args,
-                preemptible = preemptible,
-                max_retries = max_retries,
-                m2_extra_args = m2_extra_args_with_training_mode,
-                m2_extra_filtering_args = m2_extra_filtering_args,
-                make_bamout = make_bamout,
-                gatk_override = gatk_override,
-                gatk_docker = gatk_docker
-        }
-
-        call MakeTableFromMutect2 as NormalTable {
-            input:
-                filtered_vcf = Normal.filtered_vcf,
-                filtered_vcf_idx = Normal.filtered_vcf_idx,
-                gatk_override = gatk_override,
-                gatk_docker = gatk_docker,
-                preemptible = preemptible
-        }
+    if (defined(control_bam)) {
 
         call m2.SplitIntervals as Split {
             input:
@@ -131,10 +89,10 @@ workflow Mutect3TrainingData {
                     ref_fasta = ref_fasta,
                     ref_fai = ref_fai,
                     ref_dict = ref_dict,
-                    tumor_reads = select_first([normal_bam]),
-                    tumor_reads_index = select_first([normal_bai]),
-                    normal_reads = tumor_bam,
-                    normal_reads_index = tumor_bai,
+                    tumor_reads = primary_bam,
+                    tumor_reads_index = primary_bai,
+                    normal_reads = select_first([control_bam]),
+                    normal_reads_index = select_first([control_bai]),
                     intervals = subintervals,
                     preemptible = preemptible,
                     max_retries = max_retries,
@@ -152,44 +110,12 @@ workflow Mutect3TrainingData {
     }
 
     output {
-        File tumor_table = TumorTable.table
-        File? normal_table = NormalTable.table
+        File mutect2_vcf = mutect2.filtered_vcf
+        File? mutect2_vcf_idx = mutect2.filtered_vcf_idx
         File? normal_artifact_table = MergeNormalArtifactData.merged_table
     }
 }
 
-task MakeTableFromMutect2 {
-    input {
-        File filtered_vcf
-        File filtered_vcf_idx
-
-        File? gatk_override
-        String gatk_docker
-        Int? preemptible
-    }
-
-    command {
-        export GATK_LOCAL_JAR=${default="/root/gatk.jar" gatk_override}
-
-        gatk --java-options "-Xmx2g" SelectVariants -V ~{filtered_vcf} --restrict-alleles-to BIALLELIC -O biallelic.vcf
-        gatk --java-options "-Xmx2g" VariantsToTable -V biallelic.vcf \
-          -F CHROM -F POS -F REF -F ALT -F POPAF -F TLOD -F STATUS -F REF_BASES -F HEC -F HAPDOM -F HAPCOMP -GF DP -F FILTER -GF FRS \
-          --show-filtered \
-          -O output.table
-    }
-
-    runtime {
-        memory: "5 GB"
-        bootDiskSizeGb: 12
-        docker: "${gatk_docker}"
-        disks: "local-disk " + 100 + " HDD"
-        preemptible: select_first([preemptible, 2])
-    }
-
-    output {
-        File table = "output.table"
-    }
-}
 
 task GetNormalArtifactData {
     input {
@@ -237,15 +163,15 @@ task GetNormalArtifactData {
         export GATK_LOCAL_JAR=~{default="/root/gatk.jar" gatk_override}
 
         if [[ ! -z "~{normal_reads}" ]]; then
-            gatk --java-options "-Xmx~{command_mem}m" GetSampleName -R ~{ref_fasta} -I ~{normal_reads} -O normal_name.txt -encode \
-            ~{"--gcs-project-for-requester-pays " + gcs_project_for_requester_pays}
-            normal_sample="`cat normal_name.txt`"
+        gatk --java-options "-Xmx~{command_mem}m" GetSampleName -R ~{ref_fasta} -I ~{normal_reads} -O normal_name.txt -encode \
+        ~{"--gcs-project-for-requester-pays " + gcs_project_for_requester_pays}
+        normal_sample="`cat normal_name.txt`"
         fi
 
         gatk --java-options "-Xmx~{command_mem}m" GetNormalArtifactData \
-            -R ~{ref_fasta} ~{"-L " + intervals} -I ~{tumor_reads} -I ~{normal_reads} -O normal_artifact.table \
-            -normal $normal_sample \
-            ~{extra_args} ~{"--gcs-project-for-requester-pays " + gcs_project_for_requester_pays}
+        -R ~{ref_fasta} ~{"-L " + intervals} -I ~{tumor_reads} -I ~{normal_reads} -O normal_artifact.table \
+        -normal $normal_sample \
+        ~{extra_args} ~{"--gcs-project-for-requester-pays " + gcs_project_for_requester_pays}
     >>>
 
     runtime {
@@ -274,8 +200,8 @@ task MergeNormalArtifactData {
         export GATK_LOCAL_JAR=~{default="/root/gatk.jar" runtime_params.gatk_override}
 
         gatk --java-options "-Xmx~{runtime_params.command_mem}m" GatherNormalArtifactData \
-            -I ~{sep=' -I ' input_tables} \
-            -O normal_artifact.table
+        -I ~{sep=' -I ' input_tables} \
+        -O normal_artifact.table
     }
 
     runtime {

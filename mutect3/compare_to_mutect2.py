@@ -20,6 +20,7 @@ def main():
         encoded_truth_variants.add(encoding)
 
     print("Reading in Mutect3 VCF")
+    #TODO: record LOGIT annotation, sort by LOGIT, in order to generate M3 ROC curve
     m3_tp, m3_fn, m3_fp = count_true_and_false(args.mutect3_vcf, encoded_truth_variants)
     m3_sensitivity, m3_precision = m3_tp / (m3_tp + m3_fn), m3_tp / (m3_tp + m3_fp)
 
