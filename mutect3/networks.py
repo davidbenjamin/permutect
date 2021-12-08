@@ -3,6 +3,7 @@ from typing import List
 import torch
 from torch import nn
 from tqdm.autonotebook import tqdm, trange
+from matplotlib.backends.backend_pdf import PdfPages
 
 from mutect3 import validation, tensors, data, utils
 
@@ -153,7 +154,15 @@ class PriorModel(nn.Module):
     # with fixed logits from the ReadSetClassifier, the log probability of seeing the observed tensors and counts
     # This is our objective to maximize when learning the prior model
     def log_evidence(self, logits, batch):
-        return torch.logsumexp(torch.column_stack((logits + self.artifact_log_likelihoods(batch), self.variant_spectrum(batch))), dim=1)
+        term1 = torch.logsumexp(torch.column_stack((logits + self.artifact_log_likelihoods(batch), self.variant_spectrum(batch))), dim=1)
+
+        prior_log_odds = torch.zeros_like(logits)
+        for variant_type in utils.VariantType:
+            mask = torch.tensor([1 if variant_type == site.variant_type() else 0 for site in batch.site_info()])
+            prior_log_odds += mask * self.prior_log_odds[variant_type.value]
+
+        term2 = torch.logsumexp(torch.column_stack((torch.zeros_like(logits), prior_log_odds)), dim=1)
+        return term1 - term2
 
     # returns list of fig, curve tuples
     def plot_spectra(self):
@@ -516,7 +525,7 @@ class ReadSetClassifier(nn.Module):
         validation.simple_plot([(epochs, calibration_losses, "curve")], "epoch", "loss",
                                "Learning curve for calibration")
 
-    def calculate_logit_threshold(self, loader, normal_artifact=False):
+    def calculate_logit_threshold(self, loader, normal_artifact=False, roc_plot=None):
         self.train(False)
         artifact_probs = []
 
@@ -531,15 +540,24 @@ class ReadSetClassifier(nn.Module):
         # start by rejecting everything, then raise threshold one datum at a time
         threshold, tp, fp, best_f = 0.0, 0, 0, 0
 
+        sens, prec = [], []
         for prob in artifact_probs:
             tp += (1 - prob)
             fp += prob
+            sens.append(tp/(total_variants+0.0001))
+            prec.append(tp/(tp+fp+0.0001))
             current_f = f_score(tp, fp, total_variants)
 
             if current_f > best_f:
                 best_f = current_f
                 threshold = prob
 
+        if roc_plot is not None:
+            x_y_lab = [(sens, prec, "theoretical ROC curve according to M3's posterior probabilities")]
+            fig, curve = validation.simple_plot(x_y_lab, xlabel="sensitivity", ylabel="precision",
+                                     title="theoretical ROC curve according to M3's posterior probabilities")
+            with PdfPages(roc_plot) as pdf:
+                pdf.savefig(fig)
         return torch.logit(torch.tensor(threshold)).item()
 
     def train_model(self, train_loader, valid_loader, num_epochs, beta1, beta2):

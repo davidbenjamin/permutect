@@ -7,4 +7,5 @@ filter_variants \
     --normal "synthetic.challenge.set1.normal" \
     --batch_size 64 \
     --output "dream1-filtered-by-m3.vcf" \
-    --report_pdf dream1-testing-report.pdf
+    --report_pdf dream1-testing-report.pdf \
+    --roc_pdf dream1-theoretical-roc.pdf

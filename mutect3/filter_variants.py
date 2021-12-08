@@ -28,6 +28,7 @@ def main():
     parser.add_argument('--normal', help='normal sample name')
     parser.add_argument('--output', help='output filtered vcf', required=True)
     parser.add_argument('--report_pdf', required=False)
+    parser.add_argument('--roc_pdf', required=False)
     parser.add_argument('--batch_size', type=int, default=64, required=False)
     args = parser.parse_args()
 
@@ -52,8 +53,8 @@ def main():
                 pdf.savefig(fig)
 
     print("Calculating optimal logit threshold")
-    logit_threshold = model.calculate_logit_threshold(data_loader)
-    # print("Optimal logit threshold: " + str(logit_threshold))
+    logit_threshold = model.calculate_logit_threshold(data_loader, args.roc_pdf)
+    print("Optimal logit threshold: " + str(logit_threshold))
 
     encoding_to_logit_dict = {}
 
