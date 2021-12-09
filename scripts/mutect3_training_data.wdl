@@ -27,6 +27,7 @@ workflow Mutect3TrainingData {
         String? split_intervals_extra_args
         Boolean? make_bamout
         Boolean? compress_vcfs
+        Int? max_na_records
 
         # runtime
         String gatk_docker
@@ -135,7 +136,8 @@ workflow Mutect3TrainingData {
     call MakeNormalArtifactTensors {
         input:
             input_table = MergeNormalArtifactData.merged_table,
-            mutect3_docker = mutect3_docker
+            mutect3_docker = mutect3_docker,
+            max_records = max_na_records
     }
 
     output {
@@ -366,6 +368,7 @@ task MakeNormalArtifactTensors {
         Int? max_retries
         Int? disk_space
         Int? cpu
+        Int? max_records
         Boolean use_ssd = false
     }
 
@@ -376,7 +379,12 @@ task MakeNormalArtifactTensors {
     command <<<
         set -e
 
-        make_normal_artifact_tensors --table ~{input_table} --output "normal_artifact.pickle"
+        if [[ ! -z "~{max_records}" ]]; then
+            head -n ~{max_records} ~{input_table} > truncated.txt
+            input="truncated.txt
+        else
+            input=~{input_table}
+        make_normal_artifact_tensors --table $input --output "normal_artifact.pickle"
     >>>
 
     runtime {
