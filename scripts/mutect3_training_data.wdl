@@ -384,6 +384,7 @@ task MakeNormalArtifactTensors {
             input=truncated.txt
         else
             input=~{input_table}
+        fi
         make_normal_artifact_tensors --table $input --output "normal_artifact.pickle"
     >>>
 
