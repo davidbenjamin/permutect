@@ -6,7 +6,8 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--truth_vcf', help='truth VCF', required=True)
     parser.add_argument('--mutect3_vcf', help='Mutect3 VCF', required=True)
-    parser.add_argument('--mutect2_vcf', help='Mutect2 VCF')
+    parser.add_argument('--mutect2_vcf', help='Mutect2 VCF', required=True)
+    parser.add_argument('--roc_pdf', help='ROC pdf', required=False)
     args = parser.parse_args()
 
     encoded_truth_variants = set()
@@ -21,7 +22,7 @@ def main():
 
     print("Reading in Mutect3 VCF")
     #TODO: record LOGIT annotation, sort by LOGIT, in order to generate M3 ROC curve
-    m3_tp, m3_fn, m3_fp = count_true_and_false(args.mutect3_vcf, encoded_truth_variants)
+    m3_tp, m3_fn, m3_fp = count_true_and_false(args.mutect3_vcf, encoded_truth_variants, args.roc_pdf)
     m3_sensitivity, m3_precision = m3_tp / (m3_tp + m3_fn), m3_tp / (m3_tp + m3_fp)
 
     print("Reading in Mutect2 VCF")
@@ -32,7 +33,7 @@ def main():
     print("Mutect2 sensitivity: " + str(m2_sensitivity) + ", precision: " + str(m2_precision))
 
 
-def count_true_and_false(vcf, encoded_truth_variants):
+def count_true_and_false(vcf, encoded_truth_variants, roc_pdf=None):
     tp, fn, fp = 0, 0, 0
     for n, rec in enumerate(pysam.VariantFile(vcf)):
         if n % 10000 == 0:
