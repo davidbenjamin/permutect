@@ -381,7 +381,7 @@ task MakeNormalArtifactTensors {
 
         if [[ ! -z "~{max_records}" ]]; then
             head -n ~{max_records} ~{input_table} > truncated.txt
-            input="truncated.txt
+            input=truncated.txt
         else
             input=~{input_table}
         make_normal_artifact_tensors --table $input --output "normal_artifact.pickle"
