@@ -307,15 +307,12 @@ NON_ARTIFACT_PER_ARTIFACT = 20  # ratio of non-artifact to artifact in unsupervi
 
 
 def make_training_tensors_from_vcf(vcf, tumor, normal=None, shuffle=True) -> List[Datum]:
-    data = []
-
     # simple method to balance data: for each k-alt-read artifact there are
     # NON_ARTIFACT_PER_ARTIFACT (downsampled) k-alt-read non-artifacts.
     unmatched_counts_by_type = defaultdict(list)
-    pbar = tqdm()
+
     for n, rec in enumerate(pysam.VariantFile(vcf)):
-        if n % 10000 == 0:
-            print(rec.contig + ':' + str(rec.pos))
+
         datum = unlabeled_datum_from_vcf(rec, tumor, normal, REF_DOWNSAMPLE)
         alt_count = len(datum.alt_tensor())
         if alt_count == 0 or len(datum.ref_tensor()) < MIN_REF:
@@ -359,4 +356,3 @@ def make_training_tensors_from_vcf(vcf, tumor, normal=None, shuffle=True) -> Lis
             continue
 
         data.append(datum)
-    return data
