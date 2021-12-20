@@ -14,13 +14,6 @@ EPSILON = 0.00001
 DATA_COUNT_FOR_QUANTILES = 10000
 
 
-def normal_artifact_type(item: tensors.Datum):
-    ref = item.site_info().ref()
-    alt = item.site_info().alt()
-    diff = len(alt) - len(ref)
-    return "SNV" if diff == 0 else ("INSERTION" if diff > 0 else "DELETION")
-
-
 # Read sets have different sizes so we can't form a batch by naively stacking tensors.  We need a custom way
 # to collate a list of Datum into a Batch
 
@@ -44,9 +37,9 @@ class Batch:
 
     def __init__(self, data: List[tensors.Datum]):
         self._original_list = data  # keep this for downsampling augmentation
-        self.labeled = data[0].artifact_label() is not None
+        self.labeled = data[0].label() is not None
         for datum in data:
-            if (datum.artifact_label() is not None) != self.labeled:
+            if (datum.label() is not None) != self.labeled:
                 raise Exception("Batch may not mix labeled and unlabeled")
 
         self._ref_counts = torch.IntTensor([len(item.ref_tensor()) for item in data])
@@ -55,16 +48,18 @@ class Batch:
         self._alt_slices = Batch.make_slices(self._alt_counts, torch.sum(self._ref_counts))
         self._reads = torch.cat([item.ref_tensor() for item in data] + [item.alt_tensor() for item in data], dim=0)
         self._info = torch.stack([item.info_tensor() for item in data], dim=0)
-        self._labels = torch.FloatTensor([item.artifact_label() for item in data]) if self.labeled else None
-        self._site_info = [item.site_info() for item in data]
-        self._mutect2_data = [item.mutect_info() for item in data]
+        self._labels = torch.FloatTensor([item.label() for item in data]) if self.labeled else None
+        self._loci = [item.locus() for item in data]
+        self._ref = [item.ref() for item in data]
+        self._alt = [item.locus() for item in data]
         self._size = len(data)
 
         # TODO: variant type needs to go in constructor -- and maybe it should be utils.VariantType, not str
+        #TODO: we might need to change the counts in this constructor
         normal_artifact_data = [tensors.NormalArtifactDatum(item.normal_alt_count(), item.normal_depth(),
                                                             len(item.alt_tensor()),
                                                             len(item.alt_tensor()) + len(item.ref_tensor()),
-                                                            1.0, normal_artifact_type(item)) for item in data]
+                                                            1.0, item.variant_type()) for item in data]
         self._normal_artifact_batch = NormalArtifactBatch(normal_artifact_data)
 
     def augmented_copy(self, beta):
@@ -150,20 +145,14 @@ class Mutect3Dataset(Dataset):
         ref = (raw.ref_tensor() - self.read_medians) / self.read_iqrs
         alt = (raw.alt_tensor() - self.read_medians) / self.read_iqrs
         info = (raw.info_tensor() - self.info_medians) / self.info_iqrs
-        return tensors.Datum(ref, alt, info, raw.site_info(), raw.mutect_info(), raw.artifact_label(),
+
+        #TODO: change this
+        return tensors.Datum(ref, alt, info, raw.label(),
                              raw.normal_depth(), raw.normal_alt_count())
-
-
-def mutect3_dataset_from_pickles(pickles, shuffle=False):
-    data = []
-    for pickled_file in pickles:
-        data.extend(tensors.load_pickle(pickled_file))
-    return Mutect3Dataset(data, shuffle)
-
 
 def make_training_and_validation_datasets(training_pickles):
     # make our training, validation, and testing data
-    train_and_valid = mutect3_dataset_from_pickles(training_pickles, shuffle=True)
+    train_and_valid = # TODO: write method to get dataset from files
     train, valid = utils.split_dataset_into_train_and_valid(train_and_valid, 0.9)
 
     unlabeled_count = sum([1 for datum in train_and_valid if datum.artifact_label() is None])

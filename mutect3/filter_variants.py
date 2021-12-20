@@ -1,9 +1,10 @@
 import argparse
-import pysam
+
+import torch
 from matplotlib.backends.backend_pdf import PdfPages
 from tqdm.autonotebook import tqdm
-import torch
-from mutect3 import tensors, networks, validation, data
+
+from mutect3 import networks, data
 
 REF_DOWNSAMPLE = 20
 TRUSTED_M2_FILTERS = {'contamination', 'germline', 'weak_evidence'}
@@ -33,7 +34,8 @@ def main():
     args = parser.parse_args()
 
     print("Reading tensors from VCF")
-    dataset = get_test_dataset(args.input, args.tumor, args.normal, REF_DOWNSAMPLE)
+    dataset = #TODO: need to write a method that gets dataset from M2 text file output.
+    # TODO: it probably doesn't have to be specific to test data
 
     print("Creating data loader")
     data_loader = data.make_test_data_loader(dataset, args.batch_size)
@@ -65,7 +67,7 @@ def main():
 
         # encoding has form contig:position:alt
         # TODO write method
-        encodings = [site.locus() + ':' + site.alt() for site in batch.site_info()]
+        encodings = [datum.locus() + ':' + datum.alt() for datum in batch]
         for encoding, logit in zip(encodings, logits):
             encoding_to_logit_dict[encoding] = logit.item()
 
@@ -97,25 +99,6 @@ def main():
                 tokens[6] = ';'.join(filters)
 
                 filtered_vcf.write('\t'.join(tokens) + '\n')
-
-
-# tensorize all the possible somatic variants and technical artifacts, skipping germline,
-# contamination, and weak evidence variants, for whose filters we trust Mutect2.
-def get_test_dataset(vcf, tumor, normal, ref_downsample):
-    data_list = []
-    vcf_input = pysam.VariantFile(vcf)
-    for n, rec in enumerate(vcf_input):
-        if n % 10000 == 0:
-            print(rec.contig + ':' + str(rec.pos))
-        datum = tensors.unlabeled_datum_from_vcf(rec, tumor, normal, ref_downsample)
-        filters = datum.mutect_info().filters()
-        #TODO: this is saying we can't filter at all if no ref reads!
-        #TODO: this avoids the bug of taking ref emnbedding mean but it's clumsy
-        if filters.isdisjoint(TRUSTED_M2_FILTERS) and len(datum.ref_tensor()) > 0:
-            data_list.append(datum)
-
-    return data.Mutect3Dataset(data_list, shuffle=True)
-
 
 if __name__ == '__main__':
     main()

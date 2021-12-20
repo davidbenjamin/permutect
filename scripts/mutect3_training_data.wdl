@@ -87,16 +87,6 @@ workflow Mutect3TrainingData {
             gatk_docker = gatk_docker
     }
 
-    call MakeTrainingTensors {
-        input:
-            mutect2_vcf = mutect2.filtered_vcf,
-            mutect2_vcf_idx = mutect2.filtered_vcf_idx,
-            tumor_sample = GetSampleNames.tumor_sample,
-            normal_sample = GetSampleNames.normal_sample,
-            mutect3_docker = mutect3_docker
-    }
-
-
     call m2.SplitIntervals as Split {
         input:
             intervals = intervals,
@@ -141,7 +131,9 @@ workflow Mutect3TrainingData {
     }
 
     output {
-        File train_pickle = MakeTrainingTensors.train_pickle
+    # TODO: need to generate dataset in Mutect2 params, then concatenate them
+    # TODO: and instead of whole M2 workflow, just use a custom M2 task w/ datset, since we don't need filtering
+        File mutect3Dataset
         File normal_artifact_pickle = MakeNormalArtifactTensors.normal_artifact_pickle
     }
 }
@@ -314,48 +306,6 @@ task GetSampleNames {
     output {
         String tumor_sample = read_string("tumor_name.txt")
         String normal_sample = read_string("normal_name.txt")
-    }
-}
-
-task MakeTrainingTensors {
-    input {
-        File mutect2_vcf
-        File mutect2_vcf_idx
-        String tumor_sample
-        String normal_sample
-
-        # runtime
-        String mutect3_docker
-        Int? mem
-        Int? preemptible
-        Int? max_retries
-        Int? disk_space
-        Int? cpu
-        Boolean use_ssd = false
-    }
-
-    # Mem is in units of GB but our command and memory runtime values are in MB
-    Int machine_mem = if defined(mem) then mem * 1000 else 8000
-    Int command_mem = machine_mem - 500
-
-    command <<<
-        set -e
-
-        make_training_tensors --input ~{mutect2_vcf} --tumor ~{tumor_sample} --normal ~{normal_sample} --output "train.pickle"
-    >>>
-
-    runtime {
-        docker: mutect3_docker
-        bootDiskSizeGb: 12
-        memory: machine_mem + " MB"
-        disks: "local-disk " + select_first([disk_space, 100]) + if use_ssd then " SSD" else " HDD"
-        preemptible: select_first([preemptible, 10])
-        maxRetries: select_first([max_retries, 0])
-        cpu: select_first([cpu, 1])
-    }
-
-    output {
-        File train_pickle = "train.pickle"
     }
 }
 

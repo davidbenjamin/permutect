@@ -142,7 +142,7 @@ class PriorModel(nn.Module):
         result = torch.zeros(batch.size())
         for variant_type in utils.VariantType:
             output = self.prior_log_odds[variant_type.value] + self.artifact_spectra[variant_type.value](batch)
-            mask = torch.tensor([1 if variant_type == site.variant_type() else 0 for site in batch.site_info()])
+            mask = torch.tensor([1 if variant_type == datum.variant_type() else 0 for datum in batch])
             result += mask * output
 
         return result
@@ -158,7 +158,7 @@ class PriorModel(nn.Module):
 
         prior_log_odds = torch.zeros_like(logits)
         for variant_type in utils.VariantType:
-            mask = torch.tensor([1 if variant_type == site.variant_type() else 0 for site in batch.site_info()])
+            mask = torch.tensor([1 if variant_type == datum.variant_type() else 0 for datum in batch])
             prior_log_odds += mask * self.prior_log_odds[variant_type.value]
 
         term2 = torch.logsumexp(torch.column_stack((torch.zeros_like(logits), prior_log_odds)), dim=1)
