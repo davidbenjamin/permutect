@@ -6,7 +6,6 @@ from tqdm.autonotebook import tqdm
 
 from mutect3 import networks, data
 
-REF_DOWNSAMPLE = 20
 TRUSTED_M2_FILTERS = {'contamination', 'germline', 'weak_evidence'}
 
 

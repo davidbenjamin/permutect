@@ -209,10 +209,10 @@ def make_test_data_loader(test_dataset, batch_size):
 
 
 class NormalArtifactDataset(Dataset):
-    def __init__(self, pickled_files):
+    def __init__(self, table_files):
         self.data = []
-        for pickled_file in pickled_files:
-            self.data.extend(tensors.load_pickle(pickled_file))
+        for table_file in table_files:
+            self.data.extend(tensors.read_normal_artifact_data(table_file))
         random.shuffle(self.data)
 
     def __len__(self):
