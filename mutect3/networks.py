@@ -5,7 +5,7 @@ from torch import nn
 from tqdm.autonotebook import tqdm, trange
 from matplotlib.backends.backend_pdf import PdfPages
 
-from mutect3 import validation, tensors, data, utils
+from mutect3 import validation, data, utils
 
 # bug before PyTorch 1.7.1 that warns when constructing ParameterList
 import warnings
@@ -142,7 +142,7 @@ class PriorModel(nn.Module):
         result = torch.zeros(batch.size())
         for variant_type in utils.VariantType:
             output = self.prior_log_odds[variant_type.value] + self.artifact_spectra[variant_type.value](batch)
-            mask = torch.tensor([1 if variant_type == datum.variant_type() else 0 for datum in batch])
+            mask = torch.tensor([1 if variant_type == datum.variant_type else 0 for datum in batch])
             result += mask * output
 
         return result
@@ -158,7 +158,7 @@ class PriorModel(nn.Module):
 
         prior_log_odds = torch.zeros_like(logits)
         for variant_type in utils.VariantType:
-            mask = torch.tensor([1 if variant_type == datum.variant_type() else 0 for datum in batch])
+            mask = torch.tensor([1 if variant_type == datum.variant_type else 0 for datum in batch])
             prior_log_odds += mask * self.prior_log_odds[variant_type.value]
 
         term2 = torch.logsumexp(torch.column_stack((torch.zeros_like(logits), prior_log_odds)), dim=1)
@@ -264,7 +264,7 @@ class NormalArtifactModel(nn.Module):
         return torch.logsumexp(log_pi + component_log_likelihoods, dim=1)
 
     # plot the beta mixture density of tumor AF given normal data
-    def plot_spectrum(self, datum: tensors.NormalArtifactDatum, title):
+    def plot_spectrum(self, datum: data.NormalArtifactDatum, title):
         f = torch.arange(0.01, 0.99, 0.01)
 
         # make a singleton batch
@@ -343,11 +343,11 @@ class ReadSetClassifier(nn.Module):
         super(ReadSetClassifier, self).__init__()
 
         # phi is the read embedding
-        read_layers = [tensors.NUM_READ_FEATURES] + m3_params.hidden_read_layers
+        read_layers = [data.NUM_READ_FEATURES] + m3_params.hidden_read_layers
         self.phi = MLP(read_layers, batch_normalize=False, dropout_p=m3_params.dropout_p)
 
         # omega is the universal embedding of info field variant-level data
-        info_layers = [tensors.NUM_INFO_FEATURES] + m3_params.hidden_info_layers
+        info_layers = [data.NUM_INFO_FEATURES] + m3_params.hidden_info_layers
         self.omega = MLP(info_layers, batch_normalize=False, dropout_p=m3_params.dropout_p)
 
         # rho is the universal aggregation function
@@ -426,7 +426,7 @@ class ReadSetClassifier(nn.Module):
             # use one, but this is such a small part of the model and it lets us use batches of mixed variant types
             output = torch.squeeze(self.outputs[variant_type.value](aggregated))
             mask = torch.tensor(
-                [1 if variant_type == site_info.variant_type() else 0 for site_info in batch.site_info()])
+                [1 if variant_type == site_info.variant_type else 0 for site_info in batch.site_info()])
             logits += mask * output
 
         if calibrated:
