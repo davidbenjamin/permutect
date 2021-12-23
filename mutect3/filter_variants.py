@@ -23,6 +23,7 @@ def load_saved_model(path):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--input', help='VCF from GATK', required=True)
+    parser.add_argument('--test_dataset', help='test dataset file from GATK', required=True)
     parser.add_argument('--trained_m3_model', help='trained Mutect3 model', required=True)
     parser.add_argument('--tumor', help='tumor sample name', required=True)
     parser.add_argument('--normal', help='normal sample name')
@@ -33,13 +34,9 @@ def main():
     args = parser.parse_args()
 
     print("Reading tensors from VCF")
-    dataset = #TODO: need to write a method that gets dataset from M2 text file output.
-    # TODO: it probably doesn't have to be specific to test data
-
-    print("Creating data loader")
+    dataset = data.Mutect3Dataset([args.test_dataset])
     data_loader = data.make_test_data_loader(dataset, args.batch_size)
 
-    print("Loading saved model")
     model = load_saved_model(args.trained_m3_model)
 
     # The AF spectrum was, of course, not pre-trained with the rest of the model
@@ -66,13 +63,13 @@ def main():
 
         # encoding has form contig:position:alt
         # TODO write method
-        encodings = [datum.locus() + ':' + datum.alt() for datum in batch]
+        encodings = [datum.contig() + ':' + str(datum.position()) + ':' + datum.alt() for datum in batch]
         for encoding, logit in zip(encodings, logits):
             encoding_to_logit_dict[encoding] = logit.item()
 
     with open(args.input) as unfiltered_vcf, open(args.output, "w") as filtered_vcf:
         for line in unfiltered_vcf:
-            #header lines
+            # header lines
             info_added, filter_added = False, False
             if line.startswith('#'):
                 if (not filter_added) and line.startswith('##FILTER'):
