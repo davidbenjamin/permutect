@@ -268,10 +268,11 @@ def medians_and_iqrs(tensor_2d: torch.Tensor):
 
 
 class Mutect3Dataset(Dataset):
-    def __init__(self, data: List[Datum], shuffle=False):
-        self.data = data
-        if shuffle:
-            random.shuffle(self.data)
+    def __init__(self, table_files):
+        self.data = []
+        for table_file in table_files:
+            self.data.extend(read_data(table_file))
+        random.shuffle(self.data)
 
         # concatenate a bunch of ref tensors and take element-by-element quantiles
         ref = torch.cat([datum.ref_tensor() for datum in self.data[:DATA_COUNT_FOR_QUANTILES]], dim=0)
@@ -293,6 +294,7 @@ class Mutect3Dataset(Dataset):
         Datum(raw.contig(), raw.position(), raw.ref(), raw.alt(), normalized_ref, normalized_alt, normalized_info,
               raw.label(), raw.normal_depth(), raw.normal_alt_count())
 
+
 def line_to_tensor(line: str) -> torch.Tensor:
     tokens = line.strip().split()
     floats = map(float, tokens)
@@ -311,7 +313,7 @@ def read_integers(line: str):
     return map(int, line.strip().split())
 
 
-def make_training_and_validation_datasets(dataset_file):
+def read_data(dataset_file):
     data = []
     with open(dataset_file) as file:
         while True:
@@ -345,14 +347,7 @@ def make_training_and_validation_datasets(dataset_file):
             datum = Datum(contig, position, ref, alt, ref_tensor, alt_tensor, info_tensor, label, pd_normal_depth, pd_normal_alt)
             data.append(data)
 
-    # make our training, validation, and testing data
-    train_and_valid = Mutect3Dataset(data)
-    train, valid = utils.split_dataset_into_train_and_valid(train_and_valid, 0.9)
-
-    unlabeled_count = sum([1 for datum in train_and_valid if datum.label() == "UNLABELED"])
-    print("Unlabeled data: " + str(unlabeled_count) + ", labeled data: " + str(len(train_and_valid) - unlabeled_count))
-    print("Dataset sizes -- training: " + str(len(train)) + ", validation: " + str(len(valid)))
-    return train, valid
+    return data
 
 
 def chunk(indices, chunk_size):
