@@ -3,8 +3,8 @@ version 1.0
 
 workflow TrainMutect3 {
     input {
-        File train_pickle
-        File normal_artifact_pickle
+        Array[File] training_datasets
+        Array[File] normal_artifact_datasets
         Int num_epochs
         Int batch_size
         Float dropout_p
@@ -20,8 +20,8 @@ workflow TrainMutect3 {
 
     call TrainMutect3 {
         input:
-            train_pickle = train_pickle,
-            normal_artifact_pickle = normal_artifact_pickle,
+            training_datasets = training_datasets,
+            normal_artifact_datasets = normal_artifact_datasets,
             mutect3_docker = mutect3_docker,
             preemptible = preemptible,
             max_retries = max_retries,
@@ -43,8 +43,8 @@ workflow TrainMutect3 {
 
 task TrainMutect3 {
     input {
-        File train_pickle
-        File normal_artifact_pickle
+        Array[File] training_datasets
+        Array[File] normal_artifact_datasets
 
         Int num_epochs
         Int batch_size
@@ -71,8 +71,8 @@ task TrainMutect3 {
         set -e
 
         train_and_save_model \
-            --training-pickles ~{train_pickle} \
-            --normal-artifact-pickles ~{normal_artifact_pickle} \
+            --training-datasets ~{sep=' ' training_datasets} \
+            --normal-artifact-tables ~{sep=' ' normal_artifact_datasets} \
             --hidden-read-layers ~{sep=' ' hidden_read_layers} \
             --hidden-info-layers ~{sep=' ' hidden_info_layers} \
             --aggregation-layers ~{sep=' ' aggregation_layers} \

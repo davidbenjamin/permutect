@@ -2,7 +2,19 @@ version 1.0
 
 import "https://raw.githubusercontent.com/gatk-workflows/gatk4-somatic-snvs-indels/2.6.0/mutect2.wdl" as m2
 
-workflow Mutect3TrainingData {
+struct Runtime {
+        String gatk_docker
+        File? gatk_override
+        Int max_retries
+        Int preemptible
+        Int cpu
+        Int machine_mem
+        Int command_mem
+        Int disk
+        Int boot_disk_size
+}
+
+workflow Mutect3Dataset {
     input {
         File? intervals
         File? masks
@@ -329,8 +341,6 @@ task MakeDataset {
       tumor_reads_index: {localization_optional: true}
       normal_reads: {localization_optional: true}
       normal_reads_index: {localization_optional: true}
-      pon: {localization_optional: true}
-      pon_idx: {localization_optional: true}
       gnomad: {localization_optional: true}
       gnomad_idx: {localization_optional: true}
     }
