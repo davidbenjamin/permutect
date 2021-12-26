@@ -12,6 +12,8 @@ NUM_READ_FEATURES = 11  # size of each read's feature vector from M2 annotation
 NUM_INFO_FEATURES = 9  # size of each variant's info field tensor (3 components for HEC, one each for HAPDOM, HAPCOMP)
 # and 5 for ref bases STR info
 
+MIN_REF = 5
+
 EPSILON = 0.00001
 DATA_COUNT_FOR_QUANTILES = 10000
 
@@ -201,7 +203,8 @@ class Batch:
         self._info = torch.stack([item.info_tensor() for item in data], dim=0)
         self._labels = torch.FloatTensor([1.0 if item.label() == "ARTIFACT" else 0.0 for item in data]) if self.labeled else None
         self._ref = [item.ref() for item in data]
-        self._alt = [item.locus() for item in data]
+        self._alt = [item.alt() for item in data]
+        self._variant_type = [item.variant_type() for item in data]
         self._size = len(data)
 
         # TODO: variant type needs to go in constructor -- and maybe it should be utils.VariantType, not str
@@ -241,6 +244,9 @@ class Batch:
 
     def labels(self) -> torch.Tensor:
         return self._labels
+
+    def variant_type(self) -> List[utils.VariantType]:
+        return self._variant_type
 
     def normal_artifact_batch(self) -> NormalArtifactBatch:
         return self._normal_artifact_batch
@@ -291,13 +297,13 @@ class Mutect3Dataset(Dataset):
         normalized_alt = (raw.alt_tensor() - self.read_medians) / self.read_iqrs
         normalized_info = (raw.info_tensor() - self.info_medians) / self.info_iqrs
 
-        Datum(raw.contig(), raw.position(), raw.ref(), raw.alt(), normalized_ref, normalized_alt, normalized_info,
+        return Datum(raw.contig(), raw.position(), raw.ref(), raw.alt(), normalized_ref, normalized_alt, normalized_info,
               raw.label(), raw.normal_depth(), raw.normal_alt_count())
 
 
 def line_to_tensor(line: str) -> torch.Tensor:
     tokens = line.strip().split()
-    floats = map(float, tokens)
+    floats = [float(token) for token in tokens]
     return torch.FloatTensor(floats)
 
 
@@ -305,7 +311,7 @@ def read_2d_tensor(file, num_lines: int) -> torch.Tensor:
     if num_lines == 0:
         return None
     lines = [file.readline() for _ in range(num_lines)]
-    tensors_1d = map(line_to_tensor, lines)
+    tensors_1d = [line_to_tensor(line) for line in lines]
     return torch.vstack(tensors_1d)
 
 
@@ -338,14 +344,17 @@ def read_data(dataset_file):
 
             ref_tensor = read_2d_tensor(file, tumor_ref_count)
             alt_tensor = read_2d_tensor(file, tumor_alt_count)
-            normal_tensor = read_2d_tensor(file, normal_ref_count)  # not currently used
-            normal_tensor = read_2d_tensor(file, normal_alt_count)  # not currently used
+            #normal_tensor = read_2d_tensor(file, normal_ref_count)  # not currently used
+            #normal_tensor = read_2d_tensor(file, normal_alt_count)  # not currently used
+
 
             # pre-downsampling (pd) counts
             pd_tumor_depth, pd_tumor_alt, pd_normal_depth, pd_normal_alt = read_integers(file.readline())
 
             datum = Datum(contig, position, ref, alt, ref_tensor, alt_tensor, info_tensor, label, pd_normal_depth, pd_normal_alt)
-            data.append(data)
+
+            if tumor_ref_count >= MIN_REF and tumor_alt_count > 0:
+                data.append(datum)
 
     return data
 

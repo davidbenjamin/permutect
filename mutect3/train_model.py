@@ -27,7 +27,7 @@ def make_trained_mutect3_model(m3_params: networks.Mutect3Parameters, training_d
 
     # TODO: should have NA params class
     na_model = networks.NormalArtifactModel([10, 10, 10])
-    na_training_metrics = na_model.train_model(na_train_loader, na_valid_loader, num_epochs=10)
+    na_training_metrics = na_model.train_model(na_train_loader, na_valid_loader, num_epochs=1)
 
     print("Loading datasets")
 

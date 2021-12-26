@@ -426,7 +426,7 @@ class ReadSetClassifier(nn.Module):
             # use one, but this is such a small part of the model and it lets us use batches of mixed variant types
             output = torch.squeeze(self.outputs[variant_type.value](aggregated))
             mask = torch.tensor(
-                [1 if variant_type == site_info.variant_type else 0 for site_info in batch.site_info()])
+                [1 if variant_type == v_type else 0 for v_type in batch.variant_type()])
             logits += mask * output
 
         if calibrated:
