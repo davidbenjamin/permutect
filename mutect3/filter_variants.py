@@ -5,6 +5,7 @@ from matplotlib.backends.backend_pdf import PdfPages
 from tqdm.autonotebook import tqdm
 
 from mutect3 import networks, data
+from cyvcf2 import VCF, Writer
 
 TRUSTED_M2_FILTERS = {'contamination', 'germline', 'weak_evidence'}
 
@@ -67,6 +68,36 @@ def main():
         for encoding, logit in zip(encodings, logits):
             encoding_to_logit_dict[encoding] = logit.item()
 
+    unfiltered_vcf = VCF(args.input)
+    unfiltered_vcf.add_info_to_header({'ID': 'LOGIT', 'Description': 'Mutect3 posterior logit',
+                            'Type': 'Float', 'Number': 'A'})
+    unfiltered_vcf.add_filter_to_header({'ID': 'mutect3', 'Description': 'fails Mutect3 deep learning filter'})
+
+
+    # create a new vcf Writer using the input vcf as a template.
+    writer = Writer(args.output, unfiltered_vcf)
+
+    for v in unfiltered_vcf:
+        alt = v.ALT[0]  # TODO: we're assuming biallelic
+        encoding = v.CHROM + ':' + str(v.start) + ':' + alt
+
+        filters = set([]) if v.FILTER is None else set(v.FILTER.split(";")).intersection(TRUSTED_M2_FILTERS)
+
+        if encoding in encoding_to_logit_dict:
+            logit = encoding_to_logit_dict[encoding]
+            v.INFO["LOGIT"] = logit
+
+            if logit > logit_threshold:
+                filters.add("mutect3")
+
+        v.FILTER = ';'.join(filters) if filters else None
+        writer.write_record(v)
+
+    writer.close();
+    unfiltered_vcf.close()
+
+
+    '''
     with open(args.input) as unfiltered_vcf, open(args.output, "w") as filtered_vcf:
         for line in unfiltered_vcf:
             # header lines
@@ -95,6 +126,8 @@ def main():
                 tokens[6] = ';'.join(filters)
 
                 filtered_vcf.write('\t'.join(tokens) + '\n')
+    '''
+
 
 if __name__ == '__main__':
     main()
