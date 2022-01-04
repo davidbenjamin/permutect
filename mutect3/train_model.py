@@ -15,9 +15,9 @@ class TrainingParameters:
         self.beta2 = beta2
 
 
-def make_trained_mutect3_model(m3_params: networks.Mutect3Parameters, training_datasets, normal_artifact_tables,
+def make_trained_mutect3_model(m3_params: networks.Mutect3Parameters, training_datasets, normal_artifact_datasets,
                                params: TrainingParameters, report_pdf=None):
-    na_dataset = data.NormalArtifactDataset(normal_artifact_tables)
+    na_dataset = data.NormalArtifactDataset(normal_artifact_datasets)
     na_train, na_valid = utils.split_dataset_into_train_and_valid(na_dataset, 0.9)
 
     print("Training normal artifact model")
@@ -75,7 +75,7 @@ def main():
 
     # Training data inputs
     parser.add_argument('--training-datasets', nargs='+', type=str, required=True)
-    parser.add_argument('--normal-artifact-tables', nargs='+', type=str, required=True)
+    parser.add_argument('--normal-artifact-datasets', nargs='+', type=str, required=True)
 
     # training hyperparameters
     parser.add_argument('--alpha1', type=float, default=5.0, required=False)
@@ -98,7 +98,7 @@ def main():
     beta2 = Beta(args.alpha2, args.beta2)
     params = TrainingParameters(args.batch_size, args.num_epochs, beta1, beta2)
 
-    model = make_trained_mutect3_model(m3_params, args.training_datasets, args.normal_artifact_tables, params,
+    model = make_trained_mutect3_model(m3_params, args.training_datasets, args.normal_artifact_datasets, params,
                                        args.report_pdf)
 
     save_mutect3_model(model, m3_params, args.output)

@@ -1,7 +1,9 @@
 version 1.0
 
+import "https://raw.githubusercontent.com/gatk-workflows/gatk4-somatic-snvs-indels/2.6.0/mutect2.wdl" as m2
 
-workflow TrainMutect3 {
+
+workflow Mutect3Filtering {
     input {
         File mutect3_model
         Int num_epochs

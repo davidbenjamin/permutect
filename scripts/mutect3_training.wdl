@@ -72,7 +72,7 @@ task TrainMutect3 {
 
         train_and_save_model \
             --training-datasets ~{sep=' ' training_datasets} \
-            --normal-artifact-tables ~{sep=' ' normal_artifact_datasets} \
+            --normal-artifact-datasets ~{sep=' ' normal_artifact_datasets} \
             --hidden-read-layers ~{sep=' ' hidden_read_layers} \
             --hidden-info-layers ~{sep=' ' hidden_info_layers} \
             --aggregation-layers ~{sep=' ' aggregation_layers} \
