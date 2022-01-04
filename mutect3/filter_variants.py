@@ -43,8 +43,6 @@ def main():
     parser.add_argument('--input', help='VCF from GATK', required=True)
     parser.add_argument('--test_dataset', help='test dataset file from GATK', required=True)
     parser.add_argument('--trained_m3_model', help='trained Mutect3 model', required=True)
-    parser.add_argument('--tumor', help='tumor sample name', required=True)
-    parser.add_argument('--normal', help='normal sample name')
     parser.add_argument('--output', help='output filtered vcf', required=True)
     parser.add_argument('--report_pdf', required=False)
     parser.add_argument('--roc_pdf', required=False)

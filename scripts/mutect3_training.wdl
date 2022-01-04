@@ -70,7 +70,7 @@ task TrainMutect3 {
     command <<<
         set -e
 
-        train_and_save_model \
+        train_save_model \
             --training-datasets ~{sep=' ' training_datasets} \
             --normal-artifact-datasets ~{sep=' ' normal_artifact_datasets} \
             --hidden-read-layers ~{sep=' ' hidden_read_layers} \
