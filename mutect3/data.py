@@ -1,5 +1,5 @@
 import random
-from typing import List
+from typing import List, Iterable
 import pandas as pd
 from mutect3 import utils
 
@@ -218,6 +218,9 @@ class Batch:
     def augmented_copy(self, beta):
         return Batch([datum.downsampled_copy(beta) for datum in self._original_list])
 
+    def original_list(self) -> List[Datum]:
+        return self._original_list
+
     def is_labeled(self) -> bool:
         return self.labeled
 
@@ -274,10 +277,15 @@ def medians_and_iqrs(tensor_2d: torch.Tensor):
 
 
 class Mutect3Dataset(Dataset):
-    def __init__(self, table_files):
+    def __init__(self, data: Iterable[Datum]):
+        self.data = data
+        random.shuffle(self.data)
+
+    def __init__(self, files=[], data: List[Datum] = []):
         self.data = []
-        for table_file in table_files:
+        for table_file in files:
             self.data.extend(read_data(table_file))
+        self.data.extend(data)
         random.shuffle(self.data)
 
         # concatenate a bunch of ref tensors and take element-by-element quantiles

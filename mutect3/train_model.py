@@ -32,7 +32,7 @@ def make_trained_mutect3_model(m3_params: networks.Mutect3Parameters, training_d
     print("Loading datasets")
 
     # make our training, validation, and testing data
-    train_and_valid = data.Mutect3Dataset(training_datasets)
+    train_and_valid = data.Mutect3Dataset(files=training_datasets)
     training, valid = utils.split_dataset_into_train_and_valid(train_and_valid, 0.9)
 
     unlabeled_count = sum([1 for datum in train_and_valid if datum.label() == "UNLABELED"])

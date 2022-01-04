@@ -1,11 +1,11 @@
 import argparse
-
+from typing import Set
 import torch
 from matplotlib.backends.backend_pdf import PdfPages
 from tqdm.autonotebook import tqdm
 
 from mutect3 import networks, data
-from cyvcf2 import VCF, Writer
+from cyvcf2 import VCF, Writer, Variant
 
 TRUSTED_M2_FILTERS = {'contamination', 'germline', 'weak_evidence'}
 
@@ -21,6 +21,23 @@ def load_saved_model(path):
     return model
 
 
+def encode(contig: str, position: int, alt: str):
+    return contig + ':' + str(position) + ':' + alt
+
+
+def encode_datum(datum: data.Datum):
+    return encode(datum.contig(), datum.position(), datum.alt())
+
+
+def encode_variant(v: Variant):
+    alt = v.ALT[0]  # TODO: we're assuming biallelic
+    return encode(v.CHROM, v.start, alt)
+
+
+def filters_to_keep_from_m2(v: Variant) -> Set[str]:
+    return set([]) if v.FILTER is None else set(v.FILTER.split(";")).intersection(TRUSTED_M2_FILTERS)
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--input', help='VCF from GATK', required=True)
@@ -34,8 +51,13 @@ def main():
     parser.add_argument('--batch_size', type=int, default=64, required=False)
     args = parser.parse_args()
 
-    print("Reading tensors from VCF")
-    dataset = data.Mutect3Dataset([args.test_dataset])
+    # record encodings of variants that M2 filtered as germline, contamination, or weak evidence
+    # Mutect3 ignores these
+    m2_filtering_to_keep = set([encode_variant(v) for v in VCF(args.input) if filters_to_keep_from_m2(v)])
+
+    print("Reading test dataset")
+    m3_variants = filter(lambda d: encode_datum(d) not in m2_filtering_to_keep, data.read_data(args.test_dataset))
+    dataset = data.Mutect3Dataset(m3_variants)
     data_loader = data.make_test_data_loader(dataset, args.batch_size)
 
     model = load_saved_model(args.trained_m3_model)
@@ -62,9 +84,7 @@ def main():
     for n, batch in pbar:
         logits = model(batch, posterior=True, normal_artifact=True)
 
-        # encoding has form contig:position:alt
-        # TODO write method
-        encodings = [datum.contig() + ':' + str(datum.position()) + ':' + datum.alt() for datum in batch]
+        encodings = [encode_datum(datum) for datum in batch.original_list()]
         for encoding, logit in zip(encodings, logits):
             encoding_to_logit_dict[encoding] = logit.item()
 
@@ -73,17 +93,12 @@ def main():
                             'Type': 'Float', 'Number': 'A'})
     unfiltered_vcf.add_filter_to_header({'ID': 'mutect3', 'Description': 'fails Mutect3 deep learning filter'})
 
-
-    # create a new vcf Writer using the input vcf as a template.
-    writer = Writer(args.output, unfiltered_vcf)
+    writer = Writer(args.output, unfiltered_vcf) # input vcf is a template for the header
 
     for v in unfiltered_vcf:
-        alt = v.ALT[0]  # TODO: we're assuming biallelic
-        encoding = v.CHROM + ':' + str(v.start) + ':' + alt
+        filters = filters_to_keep_from_m2(v)
 
-        filters = set([]) if v.FILTER is None else set(v.FILTER.split(";")).intersection(TRUSTED_M2_FILTERS)
-
-        if encoding in encoding_to_logit_dict:
+        if encode_variant(v) in encoding_to_logit_dict:
             logit = encoding_to_logit_dict[encoding]
             v.INFO["LOGIT"] = logit
 
@@ -93,7 +108,7 @@ def main():
         v.FILTER = ';'.join(filters) if filters else None
         writer.write_record(v)
 
-    writer.close();
+    writer.close()
     unfiltered_vcf.close()
 
 
