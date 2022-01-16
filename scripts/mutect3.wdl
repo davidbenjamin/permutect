@@ -1,7 +1,7 @@
 version 1.0
 
 import "https://raw.githubusercontent.com/gatk-workflows/gatk4-somatic-snvs-indels/2.6.0/mutect2.wdl" as m2
-import "https://api.firecloud.org/ga4gh/v1/tools/davidben:mutect3-dataset/versions/1/plain-WDL/descriptor" as dataset
+import "https://api.firecloud.org/ga4gh/v1/tools/davidben:mutect3-dataset/versions/2/plain-WDL/descriptor" as dataset
 
 
 workflow Mutect3 {

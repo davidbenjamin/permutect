@@ -277,7 +277,6 @@ task MakeDataset {
             -O output.vcf \
             --mutect3-dataset dataset.txt \
             ~{true='--mutect3-training-mode' false='' training_data_mode} \
-            --mutect3-training-mode \
             ~{m2_extra_args} \
             ~{"--gcs-project-for-requester-pays " + gcs_project_for_requester_pays}
 

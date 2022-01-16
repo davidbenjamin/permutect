@@ -103,7 +103,8 @@ class AFSpectrum(nn.Module):
 
     # compute 1D tensor of log-likelihoods P(alt count|n, AF mixture model) over all data in batch
     def forward(self, batch: data.Batch):
-        depths = torch.LongTensor([datum.tumor_depth() for datum in batch.mutect_info()])
+        # TODO: what's the right way to extract depth here?
+        depths = batch.alt_counts() + batch.ref_counts()
         return self.log_likelihood(batch.alt_counts(), depths)
 
     # plot the mixture of beta densities
