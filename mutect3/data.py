@@ -277,11 +277,7 @@ def medians_and_iqrs(tensor_2d: torch.Tensor):
 
 
 class Mutect3Dataset(Dataset):
-    def __init__(self, data: Iterable[Datum]):
-        self.data = data
-        random.shuffle(self.data)
-
-    def __init__(self, files=[], data: List[Datum] = []):
+    def __init__(self, files=[], data: Iterable[Datum] = []):
         self.data = []
         for table_file in files:
             self.data.extend(read_data(table_file))
