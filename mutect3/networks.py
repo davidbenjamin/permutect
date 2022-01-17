@@ -159,7 +159,7 @@ class PriorModel(nn.Module):
 
         prior_log_odds = torch.zeros_like(logits)
         for variant_type in utils.VariantType:
-            mask = torch.tensor([1 if variant_type == datum.variant_type else 0 for datum in batch])
+            mask = torch.tensor([1 if variant_type == datum.variant_type() else 0 for datum in batch.original_list()])
             prior_log_odds += mask * self.prior_log_odds[variant_type.value]
 
         term2 = torch.logsumexp(torch.column_stack((torch.zeros_like(logits), prior_log_odds)), dim=1)
