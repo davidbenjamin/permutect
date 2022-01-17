@@ -139,11 +139,11 @@ class PriorModel(nn.Module):
 
     # calculate log likelihoods for all variant types and then apply a mask to select the correct
     # type for each datum in a batch
-    def artifact_log_likelihoods(self, batch):
+    def artifact_log_likelihoods(self, batch: data.Batch):
         result = torch.zeros(batch.size())
         for variant_type in utils.VariantType:
             output = self.prior_log_odds[variant_type.value] + self.artifact_spectra[variant_type.value](batch)
-            mask = torch.tensor([1 if variant_type == datum.variant_type else 0 for datum in batch])
+            mask = torch.tensor([1 if variant_type == datum.variant_type() else 0 for datum in batch.original_list()])
             result += mask * output
 
         return result
