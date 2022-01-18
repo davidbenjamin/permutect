@@ -103,7 +103,7 @@ def main():
             if logit > logit_threshold:
                 filters.add("mutect3")
 
-        v.FILTER = ';'.join(filters) if filters else None
+        v.FILTER = ';'.join(filters) if filters else '.'
         writer.write_record(v)
 
     writer.close()
