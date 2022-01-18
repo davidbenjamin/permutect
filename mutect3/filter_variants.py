@@ -86,6 +86,8 @@ def main():
         for encoding, logit in zip(encodings, logits):
             encoding_to_logit_dict[encoding] = logit.item()
 
+    print("Applying computed logits")
+
     unfiltered_vcf = VCF(args.input)
     unfiltered_vcf.add_info_to_header({'ID': 'LOGIT', 'Description': 'Mutect3 posterior logit',
                             'Type': 'Float', 'Number': 'A'})
@@ -93,19 +95,29 @@ def main():
 
     writer = Writer(args.output, unfiltered_vcf) # input vcf is a template for the header
 
-    for v in unfiltered_vcf:
+    pbar = tqdm(enumerate(unfiltered_vcf))
+    for n, v in pbar:
+        print("1")
         filters = filters_to_keep_from_m2(v)
 
+        print("2")
         if encode_variant(v) in encoding_to_logit_dict:
+            print("3")
             logit = encoding_to_logit_dict[encoding]
+            print("4")
             v.INFO["LOGIT"] = logit
 
+            print("5")
             if logit > logit_threshold:
                 filters.add("mutect3")
 
+        print("6")
         v.FILTER = ';'.join(filters) if filters else '.'
+        print("7")
         writer.write_record(v)
+        print("8")
 
+    print("closing resources")
     writer.close()
     unfiltered_vcf.close()
 
