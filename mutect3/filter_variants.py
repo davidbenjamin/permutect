@@ -84,6 +84,7 @@ def main():
 
         encodings = [encode_datum(datum) for datum in batch.original_list()]
         for encoding, logit in zip(encodings, logits):
+            print(encoding)
             encoding_to_logit_dict[encoding] = logit.item()
 
     print("Applying computed logits")
@@ -97,25 +98,19 @@ def main():
 
     pbar = tqdm(enumerate(unfiltered_vcf))
     for n, v in pbar:
-        print("1")
         filters = filters_to_keep_from_m2(v)
 
-        print("2")
-        if encode_variant(v) in encoding_to_logit_dict:
-            print("3")
+        encoding = encode_variant(v)
+        print(encoding)
+        if encoding in encoding_to_logit_dict:
             logit = encoding_to_logit_dict[encoding]
-            print("4")
             v.INFO["LOGIT"] = logit
 
-            print("5")
             if logit > logit_threshold:
                 filters.add("mutect3")
 
-        print("6")
         v.FILTER = ';'.join(filters) if filters else '.'
-        print("7")
         writer.write_record(v)
-        print("8")
 
     print("closing resources")
     writer.close()
