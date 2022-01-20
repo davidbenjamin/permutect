@@ -29,9 +29,10 @@ def encode_datum(datum: data.Datum):
     return encode(datum.contig(), datum.position(), datum.alt())
 
 
-def encode_variant(v: Variant):
+def encode_variant(v: Variant, zero_based=False):
     alt = v.ALT[0]  # TODO: we're assuming biallelic
-    return encode(v.CHROM, v.start, alt)
+    start = (v.start + 1) if zero_based else v.start
+    return encode(v.CHROM, start, alt)
 
 
 def filters_to_keep_from_m2(v: Variant) -> Set[str]:
@@ -100,7 +101,7 @@ def main():
     for n, v in pbar:
         filters = filters_to_keep_from_m2(v)
 
-        encoding = encode_variant(v)
+        encoding = encode_variant(v, zero_based=True)   # cyvcf2 is zero-based
         print(encoding)
         if encoding in encoding_to_logit_dict:
             logit = encoding_to_logit_dict[encoding]
