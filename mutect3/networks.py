@@ -533,7 +533,7 @@ class ReadSetClassifier(nn.Module):
         print("running model over all data in loader to optimize F score")
         pbar = tqdm(enumerate(loader))
         for n, batch in pbar:
-            artifact_probs.extend(torch.sigmoid(self(batch, posterior=True, normal_artifact=normal_artifact)).tolist())
+            artifact_probs.extend(torch.sigmoid(self.forward(batch, posterior=True, normal_artifact=normal_artifact)).tolist())
 
         artifact_probs.sort()
         total_variants = len(artifact_probs) - sum(artifact_probs)

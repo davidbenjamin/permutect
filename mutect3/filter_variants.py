@@ -72,7 +72,7 @@ def main():
                 pdf.savefig(fig)
 
     print("Calculating optimal logit threshold")
-    logit_threshold = model.calculate_logit_threshold(data_loader, args.roc_pdf)
+    logit_threshold = model.calculate_logit_threshold(loader=data_loader, normal_artifact=True, roc_plot=args.roc_pdf)
     print("Optimal logit threshold: " + str(logit_threshold))
 
     encoding_to_logit_dict = {}
