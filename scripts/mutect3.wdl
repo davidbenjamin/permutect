@@ -106,8 +106,15 @@ workflow Mutect3 {
             mutect3_docker = mutect3_docker,
     }
 
+    call IndexVCF {
+        input:
+            unindexed_vcf = Mutect3Filtering.output_vcf,
+            gatk_docker = gatk_docker
+    }
+
     output {
         File output_vcf = Mutect3Filtering.output_vcf
+        File output_vcf_idx = IndexVCF.vcf_index
         File report_pdf = Mutect3Filtering.report_pdf
         File roc_pdf = Mutect3Filtering.roc_pdf
     }
@@ -162,5 +169,46 @@ task Mutect3Filtering {
         File output_vcf = "mutect3-filtered.vcf"
         File report_pdf = "report.pdf"
         File roc_pdf = "roc.pdf"
+    }
+}
+
+task IndexVCF {
+    input {
+        File unindexed_vcf
+        String gatk_docker
+        Int? preemptible
+        Int? max_retries
+        Int? disk_space
+        Int? cpu
+        Int? mem
+        Boolean use_ssd = false
+    }
+
+    # Mem is in units of GB but our command and memory runtime values are in MB
+    Int machine_mem = if defined(mem) then mem * 1000 else 4000
+    Int command_mem = machine_mem - 500
+
+    String index_name = unindexed_vcf + ".idx"
+
+    command <<<
+
+
+        gatk --java-options "-Xmx~{command_mem}m" IndexFeatureFile -I ~{unindexed_vcf}
+
+        set -e
+    >>>
+
+    runtime {
+        docker: gatk_docker
+        bootDiskSizeGb: 12
+        memory: machine_mem + " MB"
+        disks: "local-disk " + select_first([disk_space, 100]) + if use_ssd then " SSD" else " HDD"
+        preemptible: select_first([preemptible, 3])
+        maxRetries: select_first([max_retries, 1])
+        cpu: select_first([cpu, 2])
+    }
+
+    output {
+        File vcf_index = "~{index_name}"
     }
 }
