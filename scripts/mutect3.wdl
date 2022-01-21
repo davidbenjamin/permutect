@@ -113,7 +113,7 @@ workflow Mutect3 {
     }
 
     output {
-        File output_vcf = Mutect3Filtering.output_vcf
+        File output_vcf = IndexVCF.vcf
         File output_vcf_idx = IndexVCF.vcf_index
         File report_pdf = Mutect3Filtering.report_pdf
         File roc_pdf = Mutect3Filtering.roc_pdf
@@ -188,12 +188,11 @@ task IndexVCF {
     Int machine_mem = if defined(mem) then mem * 1000 else 4000
     Int command_mem = machine_mem - 500
 
-    String index_name = unindexed_vcf + ".idx"
-
     command <<<
 
+        cp ~{unindexed_vcf} output.vcf
 
-        gatk --java-options "-Xmx~{command_mem}m" IndexFeatureFile -I ~{unindexed_vcf}
+        gatk --java-options "-Xmx~{command_mem}m" IndexFeatureFile -I output.vcf
 
         set -e
     >>>
@@ -209,6 +208,7 @@ task IndexVCF {
     }
 
     output {
-        File vcf_index = "~{index_name}"
+        File vcf = "output.vcf"
+        File vcf_index = "output.vcf.idx"
     }
 }
