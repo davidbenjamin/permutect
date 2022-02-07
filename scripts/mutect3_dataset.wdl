@@ -2,7 +2,7 @@ version 1.0
 
 import "https://raw.githubusercontent.com/gatk-workflows/gatk4-somatic-snvs-indels/2.6.0/mutect2.wdl" as m2
 
-workflow Mutect3TrainingData {
+workflow Mutect3Dataset {
     input {
         File? intervals
         File? masks
@@ -14,20 +14,13 @@ workflow Mutect3TrainingData {
         File primary_bai
         File control_bam
         File control_bai
-        File? pon
         File? gnomad
-        File? variants_for_contamination
-        String ref_downsample
-        Boolean? run_orientation_bias_mixture_model_filter
-        File? realignment_index_bundle
-        String? realignment_extra_args
+        File? gnomad_idx
         String? m2_extra_args
-        String? m2_extra_filtering_args
         String? normal_artifact_extra_args
         String? split_intervals_extra_args
-        Boolean? make_bamout
-        Boolean? compress_vcfs
         Int? max_na_records
+        Boolean training_data_mode
 
         # runtime
         String gatk_docker
@@ -37,65 +30,10 @@ workflow Mutect3TrainingData {
         Int? max_retries
     }
 
-    String m2_extra_args_with_training_mode = select_first([m2_extra_args, ""]) + " --training-data-mode --training-data-mode-ref-downsample " + ref_downsample
-
     Runtime small_runtime = {"gatk_docker": gatk_docker, "gatk_override": gatk_override,
                                 "max_retries": 2, "preemptible": 0, "cpu": 2,
                                 "machine_mem": 4000, "command_mem": 3500,
                                 "disk": 100, "boot_disk_size": 12}
-
-    # call on the tumor (with normal if present) to get tumor read data and M2 filtering
-    call m2.Mutect2 as mutect2 {
-        input:
-            ref_fasta = ref_fasta,
-            ref_fai = ref_fai,
-            ref_dict = ref_dict,
-            scatter_count = scatter_count,
-            tumor_reads = primary_bam,
-            tumor_reads_index = primary_bai,
-            normal_reads = control_bam,
-            normal_reads_index = control_bai,
-            intervals = intervals,
-            pon = pon,
-            gnomad = gnomad,
-            variants_for_contamination = variants_for_contamination,
-            run_orientation_bias_mixture_model_filter = run_orientation_bias_mixture_model_filter,
-            realignment_index_bundle = realignment_index_bundle,
-            realignment_extra_args = realignment_extra_args,
-            preemptible = preemptible,
-            max_retries = max_retries,
-            m2_extra_args = m2_extra_args_with_training_mode,
-            m2_extra_filtering_args = m2_extra_filtering_args,
-            make_bamout = make_bamout,
-            compress_vcfs = compress_vcfs,
-            gatk_override = gatk_override,
-            gatk_docker = gatk_docker
-    }
-
-    call GetSampleNames {
-        input:
-            ref_fasta = ref_fasta,
-            ref_fai = ref_fai,
-            ref_dict = ref_dict,
-            tumor_reads = primary_bam,
-            tumor_reads_index = primary_bai,
-            normal_reads = control_bam,
-            normal_reads_index = control_bai,
-            preemptible = preemptible,
-            max_retries = max_retries,
-            gatk_override = gatk_override,
-            gatk_docker = gatk_docker
-    }
-
-    call MakeTrainingTensors {
-        input:
-            mutect2_vcf = mutect2.filtered_vcf,
-            mutect2_vcf_idx = mutect2.filtered_vcf_idx,
-            tumor_sample = GetSampleNames.tumor_sample,
-            normal_sample = GetSampleNames.normal_sample,
-            mutect3_docker = mutect3_docker
-    }
-
 
     call m2.SplitIntervals as Split {
         input:
@@ -109,43 +47,67 @@ workflow Mutect3TrainingData {
     }
 
     scatter (subintervals in Split.interval_files ) {
-        call GetNormalArtifactData {
+        call MakeDataset {
             input:
+                intervals = subintervals,
                 ref_fasta = ref_fasta,
                 ref_fai = ref_fai,
                 ref_dict = ref_dict,
                 tumor_reads = primary_bam,
                 tumor_reads_index = primary_bai,
-                normal_reads = select_first([control_bam]),
-                normal_reads_index = select_first([control_bai]),
-                intervals = subintervals,
+                normal_reads = control_bam,
+                normal_reads_index = control_bai,
+                gnomad = gnomad,
+                gnomad_idx = gnomad_idx,
+                m2_extra_args = m2_extra_args,
+                training_data_mode = training_data_mode,
+
                 preemptible = preemptible,
                 max_retries = max_retries,
-                extra_args = normal_artifact_extra_args,
                 gatk_override = gatk_override,
                 gatk_docker = gatk_docker
         }
     }
 
-    call MergeNormalArtifactData {
+    call Concatenate {
         input:
-            input_tables = GetNormalArtifactData.table,
-            runtime_params = small_runtime
+            input_files = MakeDataset.dataset,
+            gatk_docker = gatk_docker
     }
 
-    call MakeNormalArtifactTensors {
-        input:
-            input_table = MergeNormalArtifactData.merged_table,
-            mutect3_docker = mutect3_docker,
-            max_records = max_na_records
+    # normal artifact dataset is only needed in training data mode
+    if (training_data_mode) {
+        scatter (subintervals in Split.interval_files ) {
+            call GetNormalArtifactData {
+                input:
+                    ref_fasta = ref_fasta,
+                    ref_fai = ref_fai,
+                    ref_dict = ref_dict,
+                    tumor_reads = primary_bam,
+                    tumor_reads_index = primary_bai,
+                    normal_reads = select_first([control_bam]),
+                    normal_reads_index = select_first([control_bai]),
+                    intervals = subintervals,
+                    preemptible = preemptible,
+                    max_retries = max_retries,
+                    extra_args = normal_artifact_extra_args,
+                    gatk_override = gatk_override,
+                    gatk_docker = gatk_docker
+            }
+        }
+
+        call MergeNormalArtifactData {
+            input:
+                input_tables = GetNormalArtifactData.table,
+                runtime_params = small_runtime
+        }
     }
 
     output {
-        File train_pickle = MakeTrainingTensors.train_pickle
-        File normal_artifact_pickle = MakeNormalArtifactTensors.normal_artifact_pickle
+        File mutect3Dataset = Concatenate.concatenated
+        File? normal_artifact_table = MergeNormalArtifactData.merged_table
     }
 }
-
 
 task GetNormalArtifactData {
     input {
@@ -249,18 +211,23 @@ task MergeNormalArtifactData {
     }
 }
 
-task GetSampleNames {
+task MakeDataset {
     input {
-      File ref_fasta
-      File ref_fai
-      File ref_dict
-      File tumor_reads
-      File tumor_reads_index
-      File? normal_reads
-      File? normal_reads_index
+        File? intervals
+        File ref_fasta
+        File ref_fai
+        File ref_dict
+        File tumor_reads
+        File tumor_reads_index
+        File? normal_reads
+        File? normal_reads_index
+        File? gnomad
+        File? gnomad_idx
+        String? m2_extra_args
+        Boolean training_data_mode
+
 
       File? gatk_override
-
       String? gcs_project_for_requester_pays
 
       # runtime
@@ -278,6 +245,7 @@ task GetSampleNames {
     Int command_mem = machine_mem - 500
 
     parameter_meta{
+      intervals: {localization_optional: true}
       ref_fasta: {localization_optional: true}
       ref_fai: {localization_optional: true}
       ref_dict: {localization_optional: true}
@@ -285,6 +253,8 @@ task GetSampleNames {
       tumor_reads_index: {localization_optional: true}
       normal_reads: {localization_optional: true}
       normal_reads_index: {localization_optional: true}
+      gnomad: {localization_optional: true}
+      gnomad_idx: {localization_optional: true}
     }
 
     command <<<
@@ -292,13 +262,24 @@ task GetSampleNames {
 
         export GATK_LOCAL_JAR=~{default="/root/gatk.jar" gatk_override}
 
-        gatk --java-options "-Xmx~{command_mem}m" GetSampleName -R ~{ref_fasta} -I ~{tumor_reads} -O tumor_name.txt -encode \
+        if [[ ! -z "~{normal_reads}" ]]; then
+            gatk --java-options "-Xmx~{command_mem}m" GetSampleName -R ~{ref_fasta} -I ~{normal_reads} -O normal_name.txt -encode \
             ~{"--gcs-project-for-requester-pays " + gcs_project_for_requester_pays}
-        tumor_command_line="-I ~{tumor_reads} -tumor `cat tumor_name.txt`"
+            normal_command_line="-I ~{normal_reads} -normal `cat normal_name.txt`"
+        fi
 
-        gatk --java-options "-Xmx~{command_mem}m" GetSampleName -R ~{ref_fasta} -I ~{normal_reads} -O normal_name.txt -encode \
+        gatk --java-options "-Xmx~{command_mem}m" Mutect2 \
+            -R ~{ref_fasta} \
+            -I ~{tumor_reads} \
+            $normal_command_line \
+            ~{"--germline-resource " + gnomad} \
+            ~{"-L " + intervals} \
+            -O output.vcf \
+            --mutect3-dataset dataset.txt \
+            ~{true='--mutect3-training-mode' false='' training_data_mode} \
+            ~{m2_extra_args} \
             ~{"--gcs-project-for-requester-pays " + gcs_project_for_requester_pays}
-        normal_command_line="-I ~{normal_reads} -normal `cat normal_name.txt`"
+
     >>>
 
     runtime {
@@ -312,93 +293,35 @@ task GetSampleNames {
     }
 
     output {
-        String tumor_sample = read_string("tumor_name.txt")
-        String normal_sample = read_string("normal_name.txt")
+        File dataset = "dataset.txt"
     }
 }
 
-task MakeTrainingTensors {
-    input {
-        File mutect2_vcf
-        File mutect2_vcf_idx
-        String tumor_sample
-        String normal_sample
 
-        # runtime
-        String mutect3_docker
+task Concatenate {
+    input {
+        Array[File] input_files
         Int? mem
-        Int? preemptible
-        Int? max_retries
-        Int? disk_space
-        Int? cpu
-        Boolean use_ssd = false
+        String gatk_docker
     }
 
-    # Mem is in units of GB but our command and memory runtime values are in MB
-    Int machine_mem = if defined(mem) then mem * 1000 else 8000
-    Int command_mem = machine_mem - 500
+    Int machine_mem = if defined(mem) then mem * 1000 else 7000
 
-    command <<<
-        set -e
-
-        make_training_tensors --input ~{mutect2_vcf} --tumor ~{tumor_sample} --normal ~{normal_sample} --output "train.pickle"
-    >>>
+    command {
+        cat ~{sep=' ' input_files} > output.txt
+    }
 
     runtime {
-        docker: mutect3_docker
+        docker: gatk_docker
         bootDiskSizeGb: 12
         memory: machine_mem + " MB"
-        disks: "local-disk " + select_first([disk_space, 100]) + if use_ssd then " SSD" else " HDD"
-        preemptible: select_first([preemptible, 10])
-        maxRetries: select_first([max_retries, 0])
-        cpu: select_first([cpu, 1])
+        disks: "local-disk 100 HDD"
+        preemptible: 1
+        maxRetries: 1
+        cpu: 2
     }
 
     output {
-        File train_pickle = "train.pickle"
-    }
-}
-
-task MakeNormalArtifactTensors {
-    input {
-        File input_table
-        String mutect3_docker
-        Int? mem
-        Int? preemptible
-        Int? max_retries
-        Int? disk_space
-        Int? cpu
-        Int? max_records
-        Boolean use_ssd = false
-    }
-
-    # Mem is in units of GB but our command and memory runtime values are in MB
-    Int machine_mem = if defined(mem) then mem * 1000 else 8000
-    Int command_mem = machine_mem - 500
-
-    command <<<
-        set -e
-
-        if [[ ! -z "~{max_records}" ]]; then
-            head -n ~{max_records} ~{input_table} > truncated.txt
-            input=truncated.txt
-        else
-            input=~{input_table}
-        fi
-        make_normal_artifact_tensors --table $input --output "normal_artifact.pickle"
-    >>>
-
-    runtime {
-        docker: mutect3_docker
-        bootDiskSizeGb: 12
-        memory: machine_mem + " MB"
-        disks: "local-disk " + select_first([disk_space, 100]) + if use_ssd then " SSD" else " HDD"
-        preemptible: select_first([preemptible, 10])
-        maxRetries: select_first([max_retries, 0])
-        cpu: select_first([cpu, 1])
-    }
-
-    output {
-        File normal_artifact_pickle = "normal_artifact.pickle"
+        File concatenated = "output.txt"
     }
 }

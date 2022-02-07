@@ -3,7 +3,8 @@ version 1.0
 
 workflow TrainMutect3 {
     input {
-        File mutect3_model
+        Array[File] training_datasets
+        Array[File] normal_artifact_datasets
         Int num_epochs
         Int batch_size
         Float dropout_p
@@ -19,8 +20,8 @@ workflow TrainMutect3 {
 
     call TrainMutect3 {
         input:
-            train_pickle = train_pickle,
-            normal_artifact_pickle = normal_artifact_pickle,
+            training_datasets = training_datasets,
+            normal_artifact_datasets = normal_artifact_datasets,
             mutect3_docker = mutect3_docker,
             preemptible = preemptible,
             max_retries = max_retries,
@@ -40,13 +41,18 @@ workflow TrainMutect3 {
     }
 }
 
-task Mutect3Filtering {
+task TrainMutect3 {
     input {
-        File mutect3_model
-        File mutect2_vcf
-        File mutect2_vcf_idx
-        Int batch_size
+        Array[File] training_datasets
+        Array[File] normal_artifact_datasets
 
+        Int num_epochs
+        Int batch_size
+        Float dropout_p
+        Array[Int] hidden_read_layers
+        Array[Int] hidden_info_layers
+        Array[Int] aggregation_layers
+        Array[Int] output_layers
 
         String mutect3_docker
         Int? preemptible
@@ -64,12 +70,18 @@ task Mutect3Filtering {
     command <<<
         set -e
 
-        train_and_save_model \
-            --input ~{mutect2_vcf} \
+        train_save_model \
+            --training-datasets ~{sep=' ' training_datasets} \
+            --normal-artifact-datasets ~{sep=' ' normal_artifact_datasets} \
+            --hidden-read-layers ~{sep=' ' hidden_read_layers} \
+            --hidden-info-layers ~{sep=' ' hidden_info_layers} \
+            --aggregation-layers ~{sep=' ' aggregation_layers} \
+            --output-layers ~{sep=' ' output_layers} \
+            --dropout-p ~{dropout_p} \
             --batch_size ~{batch_size} \
-            --output mutect3-filtered.vcf \
-            --report_pdf report.pdf \
-            --roc_pdf roc.pdf
+            --num_epochs ~{num_epochs} \
+            --output mutect3.pt \
+            --report_pdf training-report.pdf
     >>>
 
     runtime {
@@ -83,17 +95,7 @@ task Mutect3Filtering {
     }
 
     output {
-        File output_vcf = "mutect3-filtered.vcf"
+        File mutect3_model = "mutect3.pt"
         File training_report = "training-report.pdf"
-        File report_pdf = "report.pdf"
-        File roc_pdf = "roc.pdf"
     }
 }
-
-
-
-
-filter_variants \
-    --trained_m3_model saved/dream1-saved.pt \
-    --tumor "synthetic.challenge.set1.tumor" \
-    --normal "synthetic.challenge.set1.normal" \

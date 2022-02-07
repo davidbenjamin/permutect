@@ -1,24 +1,170 @@
 import random
-from typing import List
+from typing import List, Iterable
+import pandas as pd
+from mutect3 import utils
 
 import torch
+from torch.distributions.beta import Beta
 from torch.utils.data import Dataset, DataLoader
 from torch.utils.data.sampler import Sampler
 
-from mutect3 import tensors, utils
+NUM_READ_FEATURES = 11  # size of each read's feature vector from M2 annotation
+NUM_INFO_FEATURES = 9  # size of each variant's info field tensor (3 components for HEC, one each for HAPDOM, HAPCOMP)
+# and 5 for ref bases STR info
 
-# TODO: this should change eventually by having normal artifact table w/ ALT and REF, just like
-# the other table.  For now, we just hack a SNV, DELETION, INDEL
+MIN_REF = 5
 
 EPSILON = 0.00001
 DATA_COUNT_FOR_QUANTILES = 10000
 
 
-def normal_artifact_type(item: tensors.Datum):
-    ref = item.site_info().ref()
-    alt = item.site_info().alt()
-    diff = len(alt) - len(ref)
-    return "SNV" if diff == 0 else ("INSERTION" if diff > 0 else "DELETION")
+class Datum:
+    def __init__(self, contig: str, position: int, ref: str, alt: str, ref_tensor: torch.Tensor, alt_tensor: torch.Tensor,
+                 info_tensor: torch.Tensor, label: str, normal_depth: int, normal_alt_count: int):
+        self._contig = contig
+        self._position = position
+        self._ref = ref
+        self._alt = alt
+        self._ref_tensor = ref_tensor
+        self._alt_tensor = alt_tensor
+        self._info_tensor = info_tensor
+        self._label = label
+        self._normal_depth = normal_depth
+        self._normal_alt_count = normal_alt_count
+
+        diff = len(self.alt()) - len(self.ref())
+        self._variant_type = utils.VariantType.SNV if diff == 0 else (
+            utils.VariantType.INSERTION if diff > 0 else utils.VariantType.DELETION)
+
+    def contig(self) -> str:
+        return self._contig
+
+    def position(self) -> int:
+        return self._position
+
+    def ref(self) -> str:
+        return self._ref
+
+    def alt(self) -> str:
+        return self._alt
+
+    def variant_type(self) -> utils.VariantType:
+        return self._variant_type
+
+    def ref_tensor(self) -> torch.Tensor:
+        return self._ref_tensor
+
+    def alt_tensor(self) -> torch.Tensor:
+        return self._alt_tensor
+
+    def info_tensor(self) -> torch.Tensor:
+        return self._info_tensor
+
+    def label(self) -> str:
+        return self._label
+
+    def normal_depth(self) -> int:
+        return self._normal_depth
+
+    def normal_alt_count(self) -> int:
+        return self._normal_alt_count
+
+    def set_label(self, label):
+        self._label = label
+
+    # beta is distribution of downsampling fractions
+    def downsampled_copy(self, beta: Beta):
+        ref_frac = beta.sample().item()
+        alt_frac = beta.sample().item()
+
+        ref_length = max(1, round(ref_frac * len(self._ref_tensor)))
+        alt_length = max(1, round(alt_frac * len(self._alt_tensor)))
+        return Datum(self._contig, self._position, self._ref, self._alt, downsample(self._ref_tensor, ref_length),
+                     downsample(self._alt_tensor, alt_length), self._info_tensor, self._label, self._normal_depth,
+                     self._normal_alt_count)
+
+
+class NormalArtifactDatum:
+    def __init__(self, normal_alt_count: int, normal_depth: int, tumor_alt_count: int, tumor_depth: int,
+                 downsampling: float, variant_type: str):
+        self._normal_alt_count = normal_alt_count
+        self._normal_depth = normal_depth
+        self._tumor_alt_count = tumor_alt_count
+        self._tumor_depth = tumor_depth
+        self._downsampling = downsampling
+        # TODO: use the variant type class
+        self._variant_type = variant_type
+
+    def normal_alt_count(self) -> int:
+        return self._normal_alt_count
+
+    def normal_depth(self) -> int:
+        return self._normal_depth
+
+    def tumor_alt_count(self) -> int:
+        return self._tumor_alt_count
+
+    def tumor_depth(self) -> int:
+        return self._tumor_depth
+
+    def downsampling(self) -> float:
+        return self._downsampling
+
+    def variant_type(self) -> str:
+        return self._variant_type
+
+
+def read_normal_artifact_data(table_file, shuffle=True) -> List[NormalArtifactDatum]:
+    df = pd.read_table(table_file, header=0)
+    df = df.astype({"normal_alt": int, "normal_dp": int, "tumor_alt": int, "tumor_dp": int, "downsampling": float,
+                    "type": str})
+
+    data = []
+    for _, row in df.iterrows():
+        data.append(NormalArtifactDatum(row['normal_alt'], row['normal_dp'], row['tumor_alt'], row['tumor_dp'],
+                                        row['downsampling'], row['type']))
+
+    if shuffle:
+        random.shuffle(data)
+    return data
+
+
+def downsample(tensor: torch.Tensor, downsample_fraction) -> torch.Tensor:
+    return tensor if (downsample_fraction is None or downsample_fraction >= len(tensor)) \
+        else tensor[torch.randperm(len(tensor))[:downsample_fraction]]
+
+
+class NormalArtifactBatch:
+
+    def __init__(self, data: List[NormalArtifactDatum]):
+        self._normal_alt = torch.IntTensor([datum.normal_alt_count() for datum in data])
+        self._normal_depth = torch.IntTensor([datum.normal_depth() for datum in data])
+        self._tumor_alt = torch.IntTensor([datum.tumor_alt_count() for datum in data])
+        self._tumor_depth = torch.IntTensor([datum.tumor_depth() for datum in data])
+        self._downsampling = torch.FloatTensor([datum.downsampling() for datum in data])
+        self._variant_type = [datum.variant_type() for datum in data]
+        self._size = len(data)
+
+    def size(self) -> int:
+        return self._size
+
+    def normal_alt(self) -> torch.IntTensor:
+        return self._normal_alt
+
+    def normal_depth(self) -> torch.IntTensor:
+        return self._normal_depth
+
+    def tumor_alt(self) -> torch.IntTensor:
+        return self._tumor_alt
+
+    def tumor_depth(self) -> torch.IntTensor:
+        return self._tumor_depth
+
+    def downsampling(self) -> torch.FloatTensor:
+        return self._downsampling
+
+    def variant_type(self) -> List[str]:
+        return self._variant_type
 
 
 # Read sets have different sizes so we can't form a batch by naively stacking tensors.  We need a custom way
@@ -42,11 +188,11 @@ class Batch:
         slice_ends = offset + torch.cumsum(sizes, dim=0)
         return [slice(offset if n == 0 else slice_ends[n - 1], slice_ends[n]) for n in range(len(sizes))]
 
-    def __init__(self, data: List[tensors.Datum]):
+    def __init__(self, data: List[Datum]):
         self._original_list = data  # keep this for downsampling augmentation
-        self.labeled = data[0].artifact_label() is not None
+        self.labeled = data[0].label() != "UNLABELED"
         for datum in data:
-            if (datum.artifact_label() is not None) != self.labeled:
+            if (datum.label() != "UNLABELED") != self.labeled:
                 raise Exception("Batch may not mix labeled and unlabeled")
 
         self._ref_counts = torch.IntTensor([len(item.ref_tensor()) for item in data])
@@ -55,60 +201,61 @@ class Batch:
         self._alt_slices = Batch.make_slices(self._alt_counts, torch.sum(self._ref_counts))
         self._reads = torch.cat([item.ref_tensor() for item in data] + [item.alt_tensor() for item in data], dim=0)
         self._info = torch.stack([item.info_tensor() for item in data], dim=0)
-        self._labels = torch.FloatTensor([item.artifact_label() for item in data]) if self.labeled else None
-        self._site_info = [item.site_info() for item in data]
-        self._mutect2_data = [item.mutect_info() for item in data]
+        self._labels = torch.FloatTensor([1.0 if item.label() == "ARTIFACT" else 0.0 for item in data]) if self.labeled else None
+        self._ref = [item.ref() for item in data]
+        self._alt = [item.alt() for item in data]
+        self._variant_type = [item.variant_type() for item in data]
         self._size = len(data)
 
         # TODO: variant type needs to go in constructor -- and maybe it should be utils.VariantType, not str
-        normal_artifact_data = [tensors.NormalArtifactDatum(item.normal_alt_count(), item.normal_depth(),
+        # TODO: we might need to change the counts in this constructor
+        normal_artifact_data = [NormalArtifactDatum(item.normal_alt_count(), item.normal_depth(),
                                                             len(item.alt_tensor()),
                                                             len(item.alt_tensor()) + len(item.ref_tensor()),
-                                                            1.0, normal_artifact_type(item)) for item in data]
+                                                            1.0, item.variant_type) for item in data]
         self._normal_artifact_batch = NormalArtifactBatch(normal_artifact_data)
 
     def augmented_copy(self, beta):
         return Batch([datum.downsampled_copy(beta) for datum in self._original_list])
 
-    def is_labeled(self):
+    def original_list(self) -> List[Datum]:
+        return self._original_list
+
+    def is_labeled(self) -> bool:
         return self.labeled
 
-    def size(self):
+    def size(self) -> int:
         return self._size
 
-    def reads(self):
+    def reads(self) -> torch.Tensor:
         return self._reads
 
-    def ref_slices(self):
+    def ref_slices(self) -> List[slice]:
         return self._ref_slices
 
-    def alt_slices(self):
+    def alt_slices(self) -> List[slice]:
         return self._alt_slices
 
-    def ref_counts(self):
+    def ref_counts(self) -> torch.IntTensor:
         return self._ref_counts
 
-    def alt_counts(self):
+    def alt_counts(self) -> torch.IntTensor:
         return self._alt_counts
 
-    def info(self):
+    def info(self) -> torch.Tensor:
         return self._info
 
-    def site_info(self):
-        return self._site_info
-
-    def mutect_info(self):
-        return self._mutect2_data
-
-    def labels(self):
+    def labels(self) -> torch.Tensor:
         return self._labels
 
-    def normal_artifact_batch(self):
+    def variant_type(self) -> List[utils.VariantType]:
+        return self._variant_type
+
+    def normal_artifact_batch(self) -> NormalArtifactBatch:
         return self._normal_artifact_batch
 
 
-# TODO bring this into the class
-def medians_and_iqrs(tensor_2d):
+def medians_and_iqrs(tensor_2d: torch.Tensor):
     # column medians etc
     medians = torch.quantile(tensor_2d, 0.5, dim=0, keepdim=False)
     vals = [0.05, 0.01, 0.0]
@@ -130,10 +277,12 @@ def medians_and_iqrs(tensor_2d):
 
 
 class Mutect3Dataset(Dataset):
-    def __init__(self, data: List[tensors.Datum], shuffle=False):
-        self.data = data
-        if shuffle:
-            random.shuffle(self.data)
+    def __init__(self, files=[], data: Iterable[Datum] = []):
+        self.data = []
+        for table_file in files:
+            self.data.extend(read_data(table_file))
+        self.data.extend(data)
+        random.shuffle(self.data)
 
         # concatenate a bunch of ref tensors and take element-by-element quantiles
         ref = torch.cat([datum.ref_tensor() for datum in self.data[:DATA_COUNT_FOR_QUANTILES]], dim=0)
@@ -145,31 +294,73 @@ class Mutect3Dataset(Dataset):
     def __len__(self):
         return len(self.data)
 
+    # TODO: try normalization in constructor instead of on the fly which has to be repeated every epoch of training
     def __getitem__(self, index):
         raw = self.data[index]
-        ref = (raw.ref_tensor() - self.read_medians) / self.read_iqrs
-        alt = (raw.alt_tensor() - self.read_medians) / self.read_iqrs
-        info = (raw.info_tensor() - self.info_medians) / self.info_iqrs
-        return tensors.Datum(ref, alt, info, raw.site_info(), raw.mutect_info(), raw.artifact_label(),
-                             raw.normal_depth(), raw.normal_alt_count())
+        normalized_ref = (raw.ref_tensor() - self.read_medians) / self.read_iqrs
+        normalized_alt = (raw.alt_tensor() - self.read_medians) / self.read_iqrs
+        normalized_info = (raw.info_tensor() - self.info_medians) / self.info_iqrs
+
+        return Datum(raw.contig(), raw.position(), raw.ref(), raw.alt(), normalized_ref, normalized_alt, normalized_info,
+              raw.label(), raw.normal_depth(), raw.normal_alt_count())
 
 
-def mutect3_dataset_from_pickles(pickles, shuffle=False):
+def line_to_tensor(line: str) -> torch.Tensor:
+    tokens = line.strip().split()
+    floats = [float(token) for token in tokens]
+    return torch.FloatTensor(floats)
+
+
+def read_2d_tensor(file, num_lines: int) -> torch.Tensor:
+    if num_lines == 0:
+        return None
+    lines = [file.readline() for _ in range(num_lines)]
+    tensors_1d = [line_to_tensor(line) for line in lines]
+    return torch.vstack(tensors_1d)
+
+
+def read_integers(line: str):
+    return map(int, line.strip().split())
+
+
+def read_data(dataset_file):
     data = []
-    for pickled_file in pickles:
-        data.extend(tensors.load_pickle(pickled_file))
-    return Mutect3Dataset(data, shuffle)
+    with open(dataset_file) as file:
+        while True:
+            # get label
+            first_line = file.readline()
+            if not first_line:
+                break
+            label = first_line.strip()
+
+            #contig:position,ref->alt
+            locus, mutation = file.readline().strip().split(",")
+            contig, position = locus.split(":")
+            position = int(position)
+            ref, alt = mutation.split("->")
+
+            ref_bases = file.readline().strip() # not currently used
+
+            info_tensor = line_to_tensor(file.readline())
+
+            # tumor ref count, tumor alt count, normal ref count, normal alt count -- single-spaced
+            tumor_ref_count, tumor_alt_count, normal_ref_count, normal_alt_count = map(int, file.readline().strip().split())
+
+            ref_tensor = read_2d_tensor(file, tumor_ref_count)
+            alt_tensor = read_2d_tensor(file, tumor_alt_count)
+            #normal_tensor = read_2d_tensor(file, normal_ref_count)  # not currently used
+            #normal_tensor = read_2d_tensor(file, normal_alt_count)  # not currently used
 
 
-def make_training_and_validation_datasets(training_pickles):
-    # make our training, validation, and testing data
-    train_and_valid = mutect3_dataset_from_pickles(training_pickles, shuffle=True)
-    train, valid = utils.split_dataset_into_train_and_valid(train_and_valid, 0.9)
+            # pre-downsampling (pd) counts
+            pd_tumor_depth, pd_tumor_alt, pd_normal_depth, pd_normal_alt = read_integers(file.readline())
 
-    unlabeled_count = sum([1 for datum in train_and_valid if datum.artifact_label() is None])
-    print("Unlabeled data: " + str(unlabeled_count) + ", labeled data: " + str(len(train_and_valid) - unlabeled_count))
-    print("Dataset sizes -- training: " + str(len(train)) + ", validation: " + str(len(valid)))
-    return train, valid
+            datum = Datum(contig, position, ref, alt, ref_tensor, alt_tensor, info_tensor, label, pd_normal_depth, pd_normal_alt)
+
+            if tumor_ref_count >= MIN_REF and tumor_alt_count > 0:
+                data.append(datum)
+
+    return data
 
 
 def chunk(indices, chunk_size):
@@ -181,9 +372,9 @@ def chunk(indices, chunk_size):
 # it's convenient to have equal numbers of labeled and unlabeled batches, so we adjust the unlabeled batch size
 class SemiSupervisedBatchSampler(Sampler):
     def __init__(self, dataset: Mutect3Dataset, batch_size):
-        self.artifact_indices = [n for n in range(len(dataset)) if dataset[n].artifact_label() == 1]
-        self.non_artifact_indices = [n for n in range(len(dataset)) if dataset[n].artifact_label() == 0]
-        self.unlabeled_indices = [n for n in range(len(dataset)) if dataset[n].artifact_label() is None]
+        self.artifact_indices = [n for n in range(len(dataset)) if dataset[n].label() == "ARTIFACT"]
+        self.non_artifact_indices = [n for n in range(len(dataset)) if dataset[n].label() == "VARIANT"]
+        self.unlabeled_indices = [n for n in range(len(dataset)) if dataset[n].label() == "UNLABELED"]
         self.batch_size = batch_size
 
     # randomly sample non-artifact indices to get a balanced training set
@@ -220,10 +411,10 @@ def make_test_data_loader(test_dataset, batch_size):
 
 
 class NormalArtifactDataset(Dataset):
-    def __init__(self, pickled_files):
+    def __init__(self, table_files):
         self.data = []
-        for pickled_file in pickled_files:
-            self.data.extend(tensors.load_pickle(pickled_file))
+        for table_file in table_files:
+            self.data.extend(read_normal_artifact_data(table_file))
         random.shuffle(self.data)
 
     def __len__(self):
@@ -231,39 +422,6 @@ class NormalArtifactDataset(Dataset):
 
     def __getitem__(self, index):
         return self.data[index]
-
-
-class NormalArtifactBatch:
-
-    def __init__(self, data: List[tensors.NormalArtifactDatum]):
-        self._normal_alt = torch.IntTensor([datum.normal_alt_count() for datum in data])
-        self._normal_depth = torch.IntTensor([datum.normal_depth() for datum in data])
-        self._tumor_alt = torch.IntTensor([datum.tumor_alt_count() for datum in data])
-        self._tumor_depth = torch.IntTensor([datum.tumor_depth() for datum in data])
-        self._downsampling = torch.FloatTensor([datum.downsampling() for datum in data])
-        self._variant_type = [datum.variant_type() for datum in data]
-        self._size = len(data)
-
-    def size(self):
-        return self._size
-
-    def normal_alt(self):
-        return self._normal_alt
-
-    def normal_depth(self):
-        return self._normal_depth
-
-    def tumor_alt(self):
-        return self._tumor_alt
-
-    def tumor_depth(self):
-        return self._tumor_depth
-
-    def downsampling(self):
-        return self._downsampling
-
-    def variant_type(self):
-        return self._variant_type
 
 
 def make_normal_artifact_data_loader(dataset: NormalArtifactDataset, batch_size):

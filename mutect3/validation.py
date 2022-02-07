@@ -130,7 +130,7 @@ def get_validation_stats(model, loader, thresholds=[0.0]):
         filters = [m2.filters() for m2 in batch.mutect_info()]
         alt_counts = batch.alt_counts()
         predictions = model(batch, posterior=True)
-        positions = [meta.locus() for meta in batch.site_info()]
+        positions = [datum.locus() for datum in batch]
         for n in range(batch.size()):
             truth = 1 if labels[n].item() > 0.5 else 0
             for stats, threshold in zip(all_stats, thresholds):
@@ -180,9 +180,8 @@ def get_m2_validation_stats(loader):
 
     for batch in loader:
         labels = batch.labels()
-        filters = [m2.filters() for m2 in batch.mutect_info()]
         alt_counts = batch.alt_counts()
-        positions = [meta.locus() for meta in batch.site_info()]
+        positions = [datum.locus() for datum in batch]
         for n in range(batch.size()):
             truth = 1 if labels[n].item() > 0.5 else 0
             pred = 0 if 'PASS' in filters[n] else 1

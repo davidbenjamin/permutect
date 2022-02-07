@@ -15,9 +15,9 @@ class TrainingParameters:
         self.beta2 = beta2
 
 
-def make_trained_mutect3_model(m3_params: networks.Mutect3Parameters, training_pickles, normal_artifact_pickles, params: TrainingParameters,
-                               report_pdf=None):
-    na_dataset = data.NormalArtifactDataset(normal_artifact_pickles)
+def make_trained_mutect3_model(m3_params: networks.Mutect3Parameters, training_datasets, normal_artifact_datasets,
+                               params: TrainingParameters, report_pdf=None):
+    na_dataset = data.NormalArtifactDataset(normal_artifact_datasets)
     na_train, na_valid = utils.split_dataset_into_train_and_valid(na_dataset, 0.9)
 
     print("Training normal artifact model")
@@ -27,10 +27,18 @@ def make_trained_mutect3_model(m3_params: networks.Mutect3Parameters, training_p
 
     # TODO: should have NA params class
     na_model = networks.NormalArtifactModel([10, 10, 10])
-    na_training_metrics = na_model.train_model(na_train_loader, na_valid_loader, num_epochs=10)
+    na_training_metrics = na_model.train_model(na_train_loader, na_valid_loader, num_epochs=1)
 
-    print("Loading datasets from pickle files")
-    training, valid = data.make_training_and_validation_datasets(training_pickles)
+    print("Loading datasets")
+
+    # make our training, validation, and testing data
+    train_and_valid = data.Mutect3Dataset(files=training_datasets)
+    training, valid = utils.split_dataset_into_train_and_valid(train_and_valid, 0.9)
+
+    unlabeled_count = sum([1 for datum in train_and_valid if datum.label() == "UNLABELED"])
+    print("Unlabeled data: " + str(unlabeled_count) + ", labeled data: " + str(len(train_and_valid) - unlabeled_count))
+    print("Dataset sizes -- training: " + str(len(training)) + ", validation: " + str(len(valid)))
+
     train_loader = data.make_semisupervised_data_loader(training, params.batch_size)
     valid_loader = data.make_semisupervised_data_loader(valid, params.batch_size)
     model = networks.ReadSetClassifier(m3_params, na_model).float()
@@ -66,8 +74,8 @@ def main():
     parser.add_argument('--dropout-p', type=float, default=0.0, required=False)
 
     # Training data inputs
-    parser.add_argument('--training-pickles', nargs='+', type=str, required=True)
-    parser.add_argument('--normal-artifact-pickles', nargs='+', type=str, required=True)
+    parser.add_argument('--training-datasets', nargs='+', type=str, required=True)
+    parser.add_argument('--normal-artifact-datasets', nargs='+', type=str, required=True)
 
     # training hyperparameters
     parser.add_argument('--alpha1', type=float, default=5.0, required=False)
@@ -90,7 +98,7 @@ def main():
     beta2 = Beta(args.alpha2, args.beta2)
     params = TrainingParameters(args.batch_size, args.num_epochs, beta1, beta2)
 
-    model = make_trained_mutect3_model(m3_params, args.training_pickles, args.normal_artifact_pickles, params,
+    model = make_trained_mutect3_model(m3_params, args.training_datasets, args.normal_artifact_datasets, params,
                                        args.report_pdf)
 
     save_mutect3_model(model, m3_params, args.output)
