@@ -219,8 +219,8 @@ class Batch:
         self._size = len(data)
 
         # pre-downsampled allele counts
-        self._pd_tumor_depths = torch.IntTensor([len(item.tumor_depth()) for item in data])
-        self._pd_tumor_alt_counts = torch.IntTensor([len(item.tumor_alt_count()) for item in data])
+        self._pd_tumor_depths = torch.IntTensor([item.tumor_depth() for item in data])
+        self._pd_tumor_alt_counts = torch.IntTensor([item.tumor_alt_count() for item in data])
 
         # TODO: variant type needs to go in constructor -- and maybe it should be utils.VariantType, not str
         # TODO: we might need to change the counts in this constructor
