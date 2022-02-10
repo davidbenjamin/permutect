@@ -20,7 +20,7 @@ DATA_COUNT_FOR_QUANTILES = 10000
 
 class Datum:
     def __init__(self, contig: str, position: int, ref: str, alt: str, ref_tensor: torch.Tensor, alt_tensor: torch.Tensor,
-                 info_tensor: torch.Tensor, label: str, normal_depth: int, normal_alt_count: int):
+                 info_tensor: torch.Tensor, label: str, tumor_depth: int, tumor_alt_count: int, normal_depth: int, normal_alt_count: int):
         self._contig = contig
         self._position = position
         self._ref = ref
@@ -29,6 +29,11 @@ class Datum:
         self._alt_tensor = alt_tensor
         self._info_tensor = info_tensor
         self._label = label
+
+        # the following counts pertain to the data prior to any downsampling by the GATK Mutect3DatasetEngine or by
+        # the unlabelled data downsampling consistency loss function
+        self._tumor_depth = tumor_depth
+        self._tumor_alt_count = tumor_alt_count
         self._normal_depth = normal_depth
         self._normal_alt_count = normal_alt_count
 
@@ -63,6 +68,12 @@ class Datum:
     def label(self) -> str:
         return self._label
 
+    def tumor_depth(self) -> int:
+        return self._tumor_depth
+
+    def tumor_alt_count(self) -> int:
+        return self._tumor_alt_count
+
     def normal_depth(self) -> int:
         return self._normal_depth
 
@@ -80,8 +91,8 @@ class Datum:
         ref_length = max(1, round(ref_frac * len(self._ref_tensor)))
         alt_length = max(1, round(alt_frac * len(self._alt_tensor)))
         return Datum(self._contig, self._position, self._ref, self._alt, downsample(self._ref_tensor, ref_length),
-                     downsample(self._alt_tensor, alt_length), self._info_tensor, self._label, self._normal_depth,
-                     self._normal_alt_count)
+                     downsample(self._alt_tensor, alt_length), self._info_tensor, self._label, self._tumor_depth,
+                     self._tumor_alt_count, self._normal_depth, self._normal_alt_count)
 
 
 class NormalArtifactDatum:
@@ -207,6 +218,10 @@ class Batch:
         self._variant_type = [item.variant_type() for item in data]
         self._size = len(data)
 
+        # pre-downsampled allele counts
+        self._pd_tumor_depths = torch.IntTensor([len(item.tumor_depth()) for item in data])
+        self._pd_tumor_alt_counts = torch.IntTensor([len(item.tumor_alt_count()) for item in data])
+
         # TODO: variant type needs to go in constructor -- and maybe it should be utils.VariantType, not str
         # TODO: we might need to change the counts in this constructor
         normal_artifact_data = [NormalArtifactDatum(item.normal_alt_count(), item.normal_depth(),
@@ -241,6 +256,12 @@ class Batch:
 
     def alt_counts(self) -> torch.IntTensor:
         return self._alt_counts
+
+    def pd_tumor_depths(self) -> torch.IntTensor:
+        return self._pd_tumor_depths
+
+    def pd_tumor_alt_counts(self) -> torch.IntTensor:
+        return self._pd_tumor_alt_counts
 
     def info(self) -> torch.Tensor:
         return self._info
@@ -302,7 +323,7 @@ class Mutect3Dataset(Dataset):
         normalized_info = (raw.info_tensor() - self.info_medians) / self.info_iqrs
 
         return Datum(raw.contig(), raw.position(), raw.ref(), raw.alt(), normalized_ref, normalized_alt, normalized_info,
-              raw.label(), raw.normal_depth(), raw.normal_alt_count())
+              raw.label(), raw.tumor_depth(), raw.tumor_alt_count(), raw.normal_depth(), raw.normal_alt_count())
 
 
 def line_to_tensor(line: str) -> torch.Tensor:
@@ -355,7 +376,7 @@ def read_data(dataset_file):
             # pre-downsampling (pd) counts
             pd_tumor_depth, pd_tumor_alt, pd_normal_depth, pd_normal_alt = read_integers(file.readline())
 
-            datum = Datum(contig, position, ref, alt, ref_tensor, alt_tensor, info_tensor, label, pd_normal_depth, pd_normal_alt)
+            datum = Datum(contig, position, ref, alt, ref_tensor, alt_tensor, info_tensor, label, pd_tumor_depth, pd_tumor_alt, pd_normal_depth, pd_normal_alt)
 
             if tumor_ref_count >= MIN_REF and tumor_alt_count > 0:
                 data.append(datum)
