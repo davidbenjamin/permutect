@@ -50,7 +50,7 @@ class MLP(nn.Module):
                 self.bn.append(nn.BatchNorm1d(num_features=size))
 
         if dropout_p is not None:
-            for n in layer_sizes[1:]:
+            for _ in layer_sizes[1:]:
                 self.dropout.append(nn.Dropout(p=dropout_p))
 
     def forward(self, x):
@@ -129,9 +129,10 @@ class PriorModel(nn.Module):
         super(PriorModel, self).__init__()
         self.variant_spectrum = AFSpectrum()
 
+        # TODO: is there such thing as a ModuleMap?
         self.artifact_spectra = nn.ModuleList()
         self.prior_log_odds = nn.ParameterList()  # log prior ratio log[P(artifact)/P(variant)] for each type
-        for artifact_type in utils.VariantType:
+        for _ in utils.VariantType:
             self.artifact_spectra.append(AFSpectrum())
             self.prior_log_odds.append(nn.Parameter(torch.tensor(initial_log_ratio)))
 
@@ -262,6 +263,7 @@ class NormalArtifactModel(nn.Module):
         # 0th dimension is batch, 1st dimension is component.  Sum over the latter
         return torch.logsumexp(log_pi + component_log_likelihoods, dim=1)
 
+    # TODO: this is not used
     # plot the beta mixture density of tumor AF given normal data
     def plot_spectrum(self, datum: data.NormalArtifactDatum, title):
         f = torch.arange(0.01, 0.99, 0.01)
@@ -435,7 +437,7 @@ class ReadSetClassifier(nn.Module):
             logits = self.prior_model(logits, batch)
 
             if normal_artifact:
-                ### NORMAL ARTIFACT CALCULATION BEGINS
+                # NORMAL ARTIFACT CALCULATION BEGINS
 
                 # posterior probability of normal artifact given observed read counts
                 # log likelihood of tumor read counts given tumor variant spectrum P(tumor counts | somatic variant)
@@ -448,13 +450,13 @@ class ReadSetClassifier(nn.Module):
                 # note that prior of normal artifact is essentially 1
                 # posterior is P(artifact) = P(tumor counts | normal counts) /[P(tumor counts | normal) + P(somatic)*P(tumor counts | somatic)]
                 # and posterior logits are log(post prob artifact / post prob somatic)
-                # so, with n_ll = normal artifact log likelhood and som_ll = somatic log likelihood and pi = log P(somatic)
+                # so, with n_ll = normal artifact log likelihood and som_ll = somatic log likelihood and pi = log P(somatic)
                 # posterior logit = na_ll - pi - som_ll
 
                 # TODO: WARNING: HARD-CODED MAGIC CONSTANT!!!!!
                 log_somatic_prior = -11.0
                 na_logits = na_log_lk - log_somatic_prior - somatic_log_lk
-                ### NORMAL ARTIFACT CALCULATION ENDS
+                # NORMAL ARTIFACT CALCULATION ENDS
 
                 # normal artifact model is only trained and only applies when normal alt counts are non-zero
                 na_mask = torch.tensor([1 if count > 0 else 0 for count in batch.normal_artifact_batch().normal_alt()])
@@ -493,6 +495,7 @@ class ReadSetClassifier(nn.Module):
             if epoch > 5 and delta < 0.001 * total_delta:
                 break
 
+        # TODO: this needs to go in the report output
         validation.simple_plot([(epochs, spectra_losses, "loss")], "epoch", "loss", "AF Learning curve")
 
     # calculate and detach the likelihoods layers, then learn the calibration layer with SGD
@@ -520,6 +523,7 @@ class ReadSetClassifier(nn.Module):
 
         epochs = range(1, num_epochs + 1)
 
+        # TODO: this needs to go in the report output
         validation.simple_plot([(epochs, calibration_losses, "curve")], "epoch", "loss",
                                "Learning curve for calibration")
 
@@ -553,7 +557,7 @@ class ReadSetClassifier(nn.Module):
         if roc_plot is not None:
             x_y_lab = [(sens, prec, "theoretical ROC curve according to M3's posterior probabilities")]
             fig, curve = validation.simple_plot(x_y_lab, xlabel="sensitivity", ylabel="precision",
-                                     title="theoretical ROC curve according to M3's posterior probabilities")
+                                                title="theoretical ROC curve according to M3's posterior probabilities")
             with PdfPages(roc_plot) as pdf:
                 pdf.savefig(fig)
         return torch.logit(torch.tensor(threshold)).item()
@@ -568,7 +572,7 @@ class ReadSetClassifier(nn.Module):
         total_unlabeled = sum(batch.size() for batch in train_loader if not batch.is_labeled())
         labeled_to_unlabeled_ratio = total_labeled / total_unlabeled
 
-        for epoch in trange(1, num_epochs + 1, desc="Epoch"):
+        for _ in trange(1, num_epochs + 1, desc="Epoch"):
             for epoch_type in [utils.EpochType.TRAIN, utils.EpochType.VALID]:
                 self.set_epoch_type(epoch_type)
                 loader = train_loader if epoch_type == utils.EpochType.TRAIN else valid_loader

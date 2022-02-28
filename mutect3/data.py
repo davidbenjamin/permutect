@@ -225,9 +225,9 @@ class Batch:
         # TODO: variant type needs to go in constructor -- and maybe it should be utils.VariantType, not str
         # TODO: we might need to change the counts in this constructor
         normal_artifact_data = [NormalArtifactDatum(item.normal_alt_count(), item.normal_depth(),
-                                                            len(item.alt_tensor()),
-                                                            len(item.alt_tensor()) + len(item.ref_tensor()),
-                                                            1.0, item.variant_type) for item in data]
+                                                    len(item.alt_tensor()),
+                                                    len(item.alt_tensor()) + len(item.ref_tensor()),
+                                                    1.0, item.variant_type) for item in data]
         self._normal_artifact_batch = NormalArtifactBatch(normal_artifact_data)
 
     def augmented_copy(self, beta):
@@ -354,13 +354,13 @@ def read_data(dataset_file):
                 break
             label = first_line.strip()
 
-            #contig:position,ref->alt
+            # contig:position,ref->alt
             locus, mutation = file.readline().strip().split(",")
             contig, position = locus.split(":")
             position = int(position)
             ref, alt = mutation.split("->")
 
-            ref_bases = file.readline().strip() # not currently used
+            ref_bases = file.readline().strip()  # not currently used
 
             info_tensor = line_to_tensor(file.readline())
 
@@ -369,9 +369,8 @@ def read_data(dataset_file):
 
             ref_tensor = read_2d_tensor(file, tumor_ref_count)
             alt_tensor = read_2d_tensor(file, tumor_alt_count)
-            #normal_tensor = read_2d_tensor(file, normal_ref_count)  # not currently used
-            #normal_tensor = read_2d_tensor(file, normal_alt_count)  # not currently used
-
+            # normal_ref_tensor = read_2d_tensor(file, normal_ref_count)  # not currently used
+            # normal_alt_tensor = read_2d_tensor(file, normal_alt_count)  # not currently used
 
             # pre-downsampling (pd) counts
             pd_tumor_depth, pd_tumor_alt, pd_normal_depth, pd_normal_alt = read_integers(file.readline())

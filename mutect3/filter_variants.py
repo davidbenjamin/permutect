@@ -94,7 +94,7 @@ def main():
                             'Type': 'Float', 'Number': 'A'})
     unfiltered_vcf.add_filter_to_header({'ID': 'mutect3', 'Description': 'fails Mutect3 deep learning filter'})
 
-    writer = Writer(args.output, unfiltered_vcf) # input vcf is a template for the header
+    writer = Writer(args.output, unfiltered_vcf)  # input vcf is a template for the header
 
     pbar = tqdm(enumerate(unfiltered_vcf))
     for n, v in pbar:
@@ -114,38 +114,6 @@ def main():
     print("closing resources")
     writer.close()
     unfiltered_vcf.close()
-
-
-    '''
-    with open(args.input) as unfiltered_vcf, open(args.output, "w") as filtered_vcf:
-        for line in unfiltered_vcf:
-            # header lines
-            info_added, filter_added = False, False
-            if line.startswith('#'):
-                if (not filter_added) and line.startswith('##FILTER'):
-                    filtered_vcf.write('##FILTER=<ID=mutect3,Description="Technical artifact according to Mutect3 deep sets model">')
-                    filter_added = True
-                if (not info_added) and line.startswith('##INFO'):
-                    filtered_vcf.write('##INFO=<ID=LOGIT,Number=1,Type=Float,Description="logit for M3 posterior probability of technical artifact">')
-                    info_added = True
-                filtered_vcf.write(line)
-            #non-header lines
-            else:
-                tokens = line.strip().split('\t')
-                contig, position, alts = tokens[0], tokens[1], tokens[4]
-                filters = set(tokens[6].split(';')).intersection(TRUSTED_M2_FILTERS)
-                encoding = contig + ':' + position + ':' + alts.split(',')[0]
-                if encoding in encoding_to_logit_dict:
-                    logit = encoding_to_logit_dict[encoding]
-                    tokens[7] = tokens[7] + ';LOGIT=' + str(logit)    # add LOGIT INFO
-                    if logit > logit_threshold: # fails Mutect3
-                        filters.add('mutect3')
-                if not filters:
-                    filters.add('PASS')
-                tokens[6] = ';'.join(filters)
-
-                filtered_vcf.write('\t'.join(tokens) + '\n')
-    '''
 
 
 if __name__ == '__main__':

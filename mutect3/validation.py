@@ -34,6 +34,13 @@ class TrainingMetrics:
         return fig, curve
 
 
+def round_alt_count_for_binning(alt_count):
+    if alt_count < 15:
+        return alt_count
+    else:
+        return alt_count - alt_count % 5
+
+
 class ValidationStats:
     def __init__(self):
         self.confusion_by_count = defaultdict(lambda: [[0, 0], [0, 0]])
@@ -48,7 +55,7 @@ class ValidationStats:
 
     # prediction and truth are 0 if not artifact, 1 if artifact
     def add(self, alt_count, truth, prediction, score, filters, position):
-        alt_count_bin = ValidationStats._round_alt_count_for_binning(alt_count)
+        alt_count_bin = round_alt_count_for_binning(alt_count)
         self.confusion_by_count[alt_count_bin][truth][prediction] += 1
         self.confusion[truth][prediction] += 1
         (self.artifact_scores if truth == 1 else self.non_artifact_scores)[alt_count_bin].append(score)
@@ -64,12 +71,12 @@ class ValidationStats:
         return self.confusion
 
     def sensitivity(self):
-        denom = self.confusion[0][0] + self.confusion[0][1]
-        return 1.0 if denom == 0 else self.confusion[0][0] / denom
+        denominator = self.confusion[0][0] + self.confusion[0][1]
+        return 1.0 if denominator == 0 else self.confusion[0][0] / denominator
 
     def precision(self):
-        denom = self.confusion[0][0] + self.confusion[1][0]
-        return 1.0 if denom == 0 else self.confusion[0][0] / denom
+        denominator = self.confusion[0][0] + self.confusion[1][0]
+        return 1.0 if denominator == 0 else self.confusion[0][0] / denominator
 
     def artifact_scores(self):
         return self.artifact_scores
@@ -78,13 +85,13 @@ class ValidationStats:
         return self.non_artifact_scores
 
     def worst_missed_variants(self, alt_count):
-        alt_count_bin = ValidationStats._round_alt_count_for_binning(alt_count)
-        # sort from highest score to lowest
+        alt_count_bin = round_alt_count_for_binning(alt_count)
+        # sort from the highest score to lowest
         return sorted(self.missed_variants[alt_count_bin], key=lambda x: -x[0])
 
     def worst_missed_artifacts(self, alt_count):
-        alt_count_bin = ValidationStats._round_alt_count_for_binning(alt_count)
-        # sort from highest score to lowest
+        alt_count_bin = round_alt_count_for_binning(alt_count)
+        # sort from the highest score to lowest
         return sorted(self.missed_artifacts[alt_count_bin], key=lambda x: x[0])
 
     # confusion_matrices is dict of alt count to 2x2 [[,],[,]] confusion matrices where 0/1 is non-artifact/artifact
@@ -107,12 +114,6 @@ class ValidationStats:
         fig, curve = simple_plot(x_y_lab, xlabel="alt count", ylabel="sensitivity",
                                  title="Variant and artifact sensitivity by alt count for " + name)
         return fig, curve
-
-    def _round_alt_count_for_binning(alt_count):
-        if alt_count < 15:
-            return alt_count
-        else:
-            return alt_count - alt_count % 5
 
 
 # note the m2 filters to keep here are different from those used to generate the training data
@@ -149,14 +150,14 @@ def plot_roc_curve(model, loader, normal_artifact=False):
     print("Running model over all data to generate ROC curve")
 
     pbar = tqdm(enumerate(loader))
-    for n, batch in pbar:
+    for _, batch in pbar:
         labels = batch.labels()
         logits = model(batch, posterior=True, normal_artifact=normal_artifact)
         for n in range(batch.size()):
             predictions_and_labels.append((logits[n].item(), labels[n].item()))
 
     # sort tuples in ascending order of the model prediction
-    predictions_and_labels.sort(key=lambda tuple: tuple[0])
+    predictions_and_labels.sort(key=lambda prediction_and_label: prediction_and_label[0])
 
     sensitivity = []
     precision = []
@@ -164,7 +165,7 @@ def plot_roc_curve(model, loader, normal_artifact=False):
     # start at threshold = -infinity; that is, everything is called an artifact, and pick up one variant at a time
     total_true = sum([(1 - label) for _, label in predictions_and_labels])
     tp, fp = 0, 0
-    for pred, label in predictions_and_labels:
+    for _, label in predictions_and_labels:
         fp = fp + label
         tp = tp + (1 - label)
         sensitivity.append(tp / total_true)
@@ -174,29 +175,10 @@ def plot_roc_curve(model, loader, normal_artifact=False):
     return simple_plot(x_y_lab, xlabel="sensitivity", ylabel="precision", title="ROC curve according to M3's own probabilities.")
 
 
-# get the same stats for Mutect2 using the M2 filters and truth labels
-def get_m2_validation_stats(loader):
-    stats = ValidationStats()
-
-    for batch in loader:
-        labels = batch.labels()
-        alt_counts = batch.alt_counts()
-        positions = [datum.locus() for datum in batch]
-        for n in range(batch.size()):
-            truth = 1 if labels[n].item() > 0.5 else 0
-            pred = 0 if 'PASS' in filters[n] else 1
-            score = 1 if pred == 1 else -1
-            stats.add(alt_counts[n].item(), truth, pred, score, filters[n], positions[n])
-
-    return stats
-
-
+# TODO: this is unused and needs to go into the report output
 def show_validation_plots(model, loader, logit_threshold):
     m3_stats = get_validation_stats(model, loader, [logit_threshold])[0]
     m3_stats.plot_sensitivities("Mutect3 on test set")
-
-    m2_stats = get_m2_validation_stats(loader)
-    m2_stats.plot_sensitivities("Mutect2 on test set")
 
     roc_thresholds = [-16 + 0.5 * n for n in range(64)]
     roc_stats = get_validation_stats(model, loader, roc_thresholds)
@@ -211,8 +193,6 @@ def show_validation_plots(model, loader, logit_threshold):
     x_y_lab = [(sens, prec, "ROC")]
     roc_fig, roc_curve = simple_plot(x_y_lab, xlabel="sensitivity", ylabel="precision",
                                      title="ROC curve. Distance to corner: " + str(distance_to_corner))
-    roc_curve.scatter([m2_stats.sensitivity()], [m2_stats.precision()])
-    roc_curve.annotate("Mutect2", (m2_stats.sensitivity(), m2_stats.precision()))
     roc_curve.scatter([m3_stats.sensitivity()], [m3_stats.precision()])
     roc_curve.annotate("Mutect3", (m3_stats.sensitivity(), m3_stats.precision()))
 
