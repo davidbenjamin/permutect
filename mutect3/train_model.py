@@ -22,8 +22,8 @@ def make_trained_mutect3_model(m3_params: networks.Mutect3Parameters, training_d
 
     print("Training normal artifact model")
     na_batch_size = 64
-    na_train_loader = data.make_normal_artifact_data_loader(na_train, na_batch_size)
-    na_valid_loader = data.make_normal_artifact_data_loader(na_valid, na_batch_size)
+    na_train_loader = na_train.make_data_loader(na_batch_size)
+    na_valid_loader = na_valid.make_data_loader(na_batch_size)
 
     # TODO: should have NA params class
     na_model = networks.NormalArtifactModel([10, 10, 10])

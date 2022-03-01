@@ -1,14 +1,16 @@
+# bug before PyTorch 1.7.1 that warns when constructing ParameterList
+import warnings
 from typing import List
 
 import torch
+from matplotlib.backends.backend_pdf import PdfPages
 from torch import nn
 from tqdm.autonotebook import tqdm, trange
-from matplotlib.backends.backend_pdf import PdfPages
 
-from mutect3 import validation, data, utils
-
-# bug before PyTorch 1.7.1 that warns when constructing ParameterList
-import warnings
+from mutect3 import validation, utils
+from mutect3.data.normal_artifact_batch import NormalArtifactBatch
+from mutect3.data.read_set_batch import ReadSetBatch
+from mutect3.data.read_set_datum import NUM_READ_FEATURES, NUM_INFO_FEATURES
 
 warnings.filterwarnings("ignore", message="Setting attributes on ParameterList is not supported.")
 
@@ -102,7 +104,7 @@ class AFSpectrum(nn.Module):
         return torch.logsumexp(log_pi + log_likelihoods, dim=1)
 
     # compute 1D tensor of log-likelihoods P(alt count|n, AF mixture model) over all data in batch
-    def forward(self, batch: data.Batch):
+    def forward(self, batch: ReadSetBatch):
         return self.log_likelihood(batch.pd_tumor_alt_counts(), batch.pd_tumor_depths())
 
     # plot the mixture of beta densities
@@ -138,7 +140,7 @@ class PriorModel(nn.Module):
 
     # calculate log likelihoods for all variant types and then apply a mask to select the correct
     # type for each datum in a batch
-    def artifact_log_likelihoods(self, batch: data.Batch):
+    def artifact_log_likelihoods(self, batch: ReadSetBatch):
         result = torch.zeros(batch.size())
         for variant_type in utils.VariantType:
             output = self.prior_log_odds[variant_type.value] + self.artifact_spectra[variant_type.value](batch)
@@ -224,10 +226,10 @@ class NormalArtifactModel(nn.Module):
         self.mlp_beta = MLP(input_to_output_layer_sizes, batch_normalize=False, dropout_p=dropout_p)
         self.mlp_z = MLP(input_to_output_layer_sizes, batch_normalize=False, dropout_p=dropout_p)
 
-    def forward(self, batch: data.NormalArtifactBatch):
+    def forward(self, batch: NormalArtifactBatch):
         return self.log_likelihood(batch)
 
-    def get_beta_parameters(self, batch: data.NormalArtifactBatch):
+    def get_beta_parameters(self, batch: NormalArtifactBatch):
         # beta posterior of normal counts with flat 1,1 prior
         # alpha, bet, mu, sigma are all 1D tensors
         alpha = batch.normal_alt() + 1
@@ -253,7 +255,7 @@ class NormalArtifactModel(nn.Module):
 
     # given normal alts, normal depths, tumor depths, what is the log likelihood of given tumor alt counts
     # that is, this returns the 1D tensor of log likelihoods
-    def log_likelihood(self, batch: data.NormalArtifactBatch):
+    def log_likelihood(self, batch: NormalArtifactBatch):
         output_alpha, output_beta, log_pi = self.get_beta_parameters(batch)
 
         n = batch.tumor_depth().unsqueeze(1)
@@ -265,11 +267,11 @@ class NormalArtifactModel(nn.Module):
 
     # TODO: this is not used
     # plot the beta mixture density of tumor AF given normal data
-    def plot_spectrum(self, datum: data.NormalArtifactDatum, title):
+    def plot_spectrum(self, datum: NormalArtifactDatum, title):
         f = torch.arange(0.01, 0.99, 0.01)
 
         # make a singleton batch
-        batch = data.NormalArtifactBatch([datum])
+        batch = NormalArtifactBatch([datum])
         output_alpha, output_beta, log_pi = self.get_beta_parameters(batch)
 
         # remove dummy batch dimension
@@ -344,11 +346,11 @@ class ReadSetClassifier(nn.Module):
         super(ReadSetClassifier, self).__init__()
 
         # phi is the read embedding
-        read_layers = [data.NUM_READ_FEATURES] + m3_params.hidden_read_layers
+        read_layers = [NUM_READ_FEATURES] + m3_params.hidden_read_layers
         self.phi = MLP(read_layers, batch_normalize=False, dropout_p=m3_params.dropout_p)
 
         # omega is the universal embedding of info field variant-level data
-        info_layers = [data.NUM_INFO_FEATURES] + m3_params.hidden_info_layers
+        info_layers = [NUM_INFO_FEATURES] + m3_params.hidden_info_layers
         self.omega = MLP(info_layers, batch_normalize=False, dropout_p=m3_params.dropout_p)
 
         # rho is the universal aggregation function
@@ -409,7 +411,7 @@ class ReadSetClassifier(nn.Module):
         freeze(self.parameters())
         unfreeze(self.spectra_parameters())
 
-    def forward(self, batch: data.Batch, calibrated=True, posterior=False, normal_artifact=False):
+    def forward(self, batch: ReadSetBatch, calibrated=True, posterior=False, normal_artifact=False):
         # embed reads and take mean within each datum to get tensors of shape (batch size x embedding dimension)
         phi_reads = torch.sigmoid(self.phi(batch.reads()))
         ref_means = torch.cat([torch.mean(phi_reads[s], dim=0, keepdim=True) for s in batch.ref_slices()], dim=0)
