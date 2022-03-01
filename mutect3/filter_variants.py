@@ -4,6 +4,7 @@ import torch
 from matplotlib.backends.backend_pdf import PdfPages
 from tqdm.autonotebook import tqdm
 
+from mutect3.data import read_set_datum, read_set_dataset
 from mutect3 import networks, data
 from cyvcf2 import VCF, Writer, Variant
 
@@ -25,7 +26,7 @@ def encode(contig: str, position: int, alt: str):
     return contig + ':' + str(position) + ':' + alt
 
 
-def encode_datum(datum: data.Datum):
+def encode_datum(datum: read_set_datum.ReadSetDatum):
     return encode(datum.contig(), datum.position(), datum.alt())
 
 
@@ -55,7 +56,7 @@ def main():
     m2_filtering_to_keep = set([encode_variant(v) for v in VCF(args.input) if filters_to_keep_from_m2(v)])
 
     print("Reading test dataset")
-    m3_variants = filter(lambda d: encode_datum(d) not in m2_filtering_to_keep, data.read_data(args.test_dataset))
+    m3_variants = filter(lambda d: encode_datum(d) not in m2_filtering_to_keep, read_set_dataset.read_data(args.test_dataset))
     dataset = data.Mutect3Dataset(data=m3_variants)
     data_loader = dataset.make_test_data_loader(args.batch_size)
 
