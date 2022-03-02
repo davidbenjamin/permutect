@@ -1,7 +1,7 @@
 import torch
 from torch import nn
 
-from mutect3 import validation
+import mutect3.metrics.plotting
 from mutect3.data.read_set_batch import ReadSetBatch
 from mutect3.utils import beta_binomial
 
@@ -52,4 +52,4 @@ class AFSpectrum(nn.Module):
         weighted_log_densities = torch.unsqueeze(log_pi, 1) + unweighted_log_densities
         densities = torch.exp(torch.logsumexp(weighted_log_densities, dim=0))
 
-        return validation.simple_plot([(f.detach().numpy(), densities.detach().numpy(), " ")], "AF", "density", title)
+        return mutect3.metrics.plotting.simple_plot([(f.detach().numpy(), densities.detach().numpy(), " ")], "AF", "density", title)

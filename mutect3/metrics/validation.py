@@ -1,38 +1,11 @@
-from collections import defaultdict
 import math
-import matplotlib.pyplot as plt
-from tqdm.autonotebook import tqdm
+from collections import defaultdict
 
+from mutect3.metrics.plotting import simple_plot
 
-# one or more simple plots of y data vs x data on shared axes
-def simple_plot(x_y_lab_tuples, xlabel, ylabel, title):
-    fig = plt.figure()
-    curve = fig.gca()
-    for (x, y, lab) in x_y_lab_tuples:
-        curve.plot(x, y, label=lab)
-    curve.set_title(title)
-    curve.set_xlabel(xlabel)
-    curve.set_ylabel(ylabel)
-    curve.legend()
-    return fig, curve
-
-
-class TrainingMetrics:
-    def __init__(self):
-        # metrics[metric type][training type] is a list by epoch
-        self.metrics = defaultdict(lambda: defaultdict(list))
-
-    def add(self, metric_type, train_type, value):
-        self.metrics[metric_type][train_type].append(value)
-
-    def plot_metrics(self, metric_type):
-        metric_dict = self.metrics[metric_type]
-        train_types = list(metric_dict.keys())
-        epochs = range(1, len(metric_dict[train_types[0]]) + 1)
-        x_y_lab = [(epochs, metric_dict[typ], typ) for typ in train_types]
-        fig, curve = simple_plot(x_y_lab, xlabel="epoch", ylabel=metric_type, title="Learning curves: " + metric_type)
-        return fig, curve
-
+# note the m2 filters to keep here are different from those used to generate the training data
+# above, they were filters that are not artifacts, such as germline, contamination, and weak evidence
+# here, they are artifact filters that we intend to use in M3, such as the normal artifact filter
 
 def round_alt_count_for_binning(alt_count):
     if alt_count < 15:
@@ -111,17 +84,11 @@ class ValidationStats:
 
         x_y_lab = [(counts, variant_sensitivities, "variant sensitivity"),
                    (counts, artifact_sensitivities, "artifact sensitivity")]
-        fig, curve = simple_plot(x_y_lab, xlabel="alt count", ylabel="sensitivity",
+        fig, curve = simple_plot(x_y_lab, x_label="alt count", y_label="sensitivity",
                                  title="Variant and artifact sensitivity by alt count for " + name)
         return fig, curve
 
 
-# note the m2 filters to keep here are different from those used to generate the training data
-# above, they were filters that are not artifacts, such as germline, contamination, and weak evidence
-# here, they are artifact filters that we intend to use in M3, such as the normal artifact filter
-
-# threshold is threshold of logit prediction for considering variant an artifact -- this is a quick way to
-# explore translating likelihoods from balanced training to posteriors, which we will alter do in a principled way
 def get_validation_stats(model, loader, thresholds=[0.0]):
     all_stats = [ValidationStats() for _ in thresholds]
 
@@ -141,41 +108,6 @@ def get_validation_stats(model, loader, thresholds=[0.0]):
     return all_stats
 
 
-# compute optimal F score over a single epoch pass over the test loader, optionally doing SGD on the AF spectrum
-def plot_roc_curve(model, loader, normal_artifact=False):
-    # tuples of (artifact prob, artifact label 0/1)
-    predictions_and_labels = []
-
-    model.freeze_all()
-    print("Running model over all data to generate ROC curve")
-
-    pbar = tqdm(enumerate(loader))
-    for _, batch in pbar:
-        labels = batch.labels()
-        logits = model(batch, posterior=True, normal_artifact=normal_artifact)
-        for n in range(batch.size()):
-            predictions_and_labels.append((logits[n].item(), labels[n].item()))
-
-    # sort tuples in ascending order of the model prediction
-    predictions_and_labels.sort(key=lambda prediction_and_label: prediction_and_label[0])
-
-    sensitivity = []
-    precision = []
-
-    # start at threshold = -infinity; that is, everything is called an artifact, and pick up one variant at a time
-    total_true = sum([(1 - label) for _, label in predictions_and_labels])
-    tp, fp = 0, 0
-    for _, label in predictions_and_labels:
-        fp = fp + label
-        tp = tp + (1 - label)
-        sensitivity.append(tp / total_true)
-        precision.append(tp / (tp + fp + 0.00001))
-
-    x_y_lab = [(sensitivity, precision, "ROC")]
-    return simple_plot(x_y_lab, xlabel="sensitivity", ylabel="precision", title="ROC curve according to M3's own probabilities.")
-
-
-# TODO: this is unused and needs to go into the report output
 def show_validation_plots(model, loader, logit_threshold):
     m3_stats = get_validation_stats(model, loader, [logit_threshold])[0]
     m3_stats.plot_sensitivities("Mutect3 on test set")
@@ -191,7 +123,7 @@ def show_validation_plots(model, loader, logit_threshold):
     distance_to_corner = min(math.sqrt((1 - x) ** 2 + (1 - y) ** 2) for x, y in zip(sens, prec))
 
     x_y_lab = [(sens, prec, "ROC")]
-    roc_fig, roc_curve = simple_plot(x_y_lab, xlabel="sensitivity", ylabel="precision",
+    roc_fig, roc_curve = simple_plot(x_y_lab, x_label="sensitivity", y_label="precision",
                                      title="ROC curve. Distance to corner: " + str(distance_to_corner))
     roc_curve.scatter([m3_stats.sensitivity()], [m3_stats.precision()])
     roc_curve.annotate("Mutect3", (m3_stats.sensitivity(), m3_stats.precision()))

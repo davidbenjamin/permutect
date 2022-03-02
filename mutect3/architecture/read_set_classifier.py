@@ -1,11 +1,14 @@
+# bug before PyTorch 1.7.1 that warns when constructing ParameterList
+import warnings
+
 import torch
 from matplotlib.backends.backend_pdf import PdfPages
 from torch import nn
 from tqdm.notebook import trange, tqdm
-# bug before PyTorch 1.7.1 that warns when constructing ParameterList
-import warnings
 
-from mutect3 import utils, validation
+import mutect3.metrics.plotting
+import mutect3.metrics.training_metrics
+from mutect3 import utils
 from mutect3.architecture.mlp import MLP
 from mutect3.architecture.normal_artifact_model import NormalArtifactModel
 from mutect3.architecture.prior_model import PriorModel
@@ -14,6 +17,7 @@ from mutect3.data.read_set_datum import NUM_READ_FEATURES, NUM_INFO_FEATURES
 from mutect3.utils import freeze, unfreeze, f_score
 
 warnings.filterwarnings("ignore", message="Setting attributes on ParameterList is not supported.")
+
 
 class Mutect3Parameters:
     def __init__(self, hidden_read_layers, hidden_info_layers, aggregation_layers, output_layers, dropout_p):
@@ -221,7 +225,7 @@ class ReadSetClassifier(nn.Module):
                 break
 
         # TODO: this needs to go in the report output
-        validation.simple_plot([(epochs, spectra_losses, "loss")], "epoch", "loss", "AF Learning curve")
+        mutect3.metrics.plotting.simple_plot([(epochs, spectra_losses, "loss")], "epoch", "loss", "AF Learning curve")
 
     # calculate and detach the likelihoods layers, then learn the calibration layer with SGD
     def learn_calibration(self, loader, num_epochs):
@@ -249,7 +253,7 @@ class ReadSetClassifier(nn.Module):
         epochs = range(1, num_epochs + 1)
 
         # TODO: this needs to go in the report output
-        validation.simple_plot([(epochs, calibration_losses, "curve")], "epoch", "loss",
+        mutect3.metrics.plotting.simple_plot([(epochs, calibration_losses, "curve")], "epoch", "loss",
                                "Learning curve for calibration")
 
     def calculate_logit_threshold(self, loader, normal_artifact=False, roc_plot=None):
@@ -281,8 +285,8 @@ class ReadSetClassifier(nn.Module):
 
         if roc_plot is not None:
             x_y_lab = [(sens, prec, "theoretical ROC curve according to M3's posterior probabilities")]
-            fig, curve = validation.simple_plot(x_y_lab, xlabel="sensitivity", ylabel="precision",
-                                                title="theoretical ROC curve according to M3's posterior probabilities")
+            fig, curve = mutect3.metrics.plotting.simple_plot(x_y_lab, x_label="sensitivity", y_label="precision",
+                                                              title="theoretical ROC curve according to M3's posterior probabilities")
             with PdfPages(roc_plot) as pdf:
                 pdf.savefig(fig)
         return torch.logit(torch.tensor(threshold)).item()
@@ -290,7 +294,7 @@ class ReadSetClassifier(nn.Module):
     def train_model(self, train_loader, valid_loader, num_epochs, beta1, beta2):
         bce = torch.nn.BCEWithLogitsLoss(reduction='sum')
         train_optimizer = torch.optim.Adam(self.training_parameters())
-        training_metrics = validation.TrainingMetrics()
+        training_metrics = mutect3.metrics.training_metrics.TrainingMetrics()
 
         # balance training by weighting the loss function
         total_labeled = sum(batch.size() for batch in train_loader if batch.is_labeled())

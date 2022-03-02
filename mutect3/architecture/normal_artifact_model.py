@@ -4,7 +4,9 @@ import torch
 from torch import nn
 from tqdm.notebook import trange, tqdm
 
-from mutect3 import validation, utils
+import mutect3.metrics.plotting
+import mutect3.metrics.training_metrics
+from mutect3 import utils
 from mutect3.architecture.mlp import MLP
 from mutect3.data.normal_artifact_batch import NormalArtifactBatch
 from mutect3.utils import beta_binomial
@@ -93,11 +95,11 @@ class NormalArtifactModel(nn.Module):
         weighted_log_densities = torch.unsqueeze(log_pi, 1) + unweighted_log_densities
         densities = torch.exp(torch.logsumexp(weighted_log_densities, dim=0))
 
-        return validation.simple_plot([(f.detach().numpy(), densities.detach().numpy(), " ")], "AF", "density", title)
+        return mutect3.metrics.plotting.simple_plot([(f.detach().numpy(), densities.detach().numpy(), " ")], "AF", "density", title)
 
     def train_model(self, train_loader, valid_loader, num_epochs):
         optimizer = torch.optim.Adam(self.parameters())
-        training_metrics = validation.TrainingMetrics()
+        training_metrics = mutect3.metrics.training_metrics.TrainingMetrics()
 
         for epoch in trange(1, num_epochs + 1, desc="Epoch"):
             print("Normal artifact epoch " + str(epoch))
