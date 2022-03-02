@@ -1,12 +1,15 @@
 import argparse
 from typing import Set
+
 import torch
+from cyvcf2 import VCF, Writer, Variant
 from matplotlib.backends.backend_pdf import PdfPages
 from tqdm.autonotebook import tqdm
 
+import mutect3.architecture.normal_artifact_model
+import mutect3.architecture.read_set_classifier
+from mutect3 import data
 from mutect3.data import read_set_datum, read_set_dataset
-from mutect3 import networks, data
-from cyvcf2 import VCF, Writer, Variant
 
 TRUSTED_M2_FILTERS = {'contamination', 'germline', 'weak_evidence'}
 
@@ -16,8 +19,8 @@ def load_saved_model(path):
     saved = torch.load(path)
     m3_params = saved['m3_params']
     # TODO: this should not be hard-coded.  See above above introducing na_params
-    na_model = networks.NormalArtifactModel([10, 10, 10])
-    model = networks.ReadSetClassifier(m3_params, na_model)
+    na_model = mutect3.architecture.normal_artifact_model.NormalArtifactModel([10, 10, 10])
+    model = mutect3.architecture.read_set_classifier.ReadSetClassifier(m3_params, na_model)
     model.load_state_dict(saved['model_state_dict'])
     return model
 

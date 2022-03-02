@@ -4,7 +4,9 @@ import torch
 from matplotlib.backends.backend_pdf import PdfPages
 from torch.distributions.beta import Beta
 
-from mutect3 import data, networks, utils
+import mutect3.architecture.normal_artifact_model
+import mutect3.architecture.read_set_classifier
+from mutect3 import data, utils
 
 
 class TrainingParameters:
@@ -15,7 +17,7 @@ class TrainingParameters:
         self.beta2 = beta2
 
 
-def make_trained_mutect3_model(m3_params: networks.Mutect3Parameters, training_datasets, normal_artifact_datasets,
+def make_trained_mutect3_model(m3_params: mutect3.architecture.read_set_classifier.Mutect3Parameters, training_datasets, normal_artifact_datasets,
                                params: TrainingParameters, report_pdf=None):
     na_dataset = data.NormalArtifactDataset(normal_artifact_datasets)
     na_train, na_valid = utils.split_dataset_into_train_and_valid(na_dataset, 0.9)
@@ -26,7 +28,7 @@ def make_trained_mutect3_model(m3_params: networks.Mutect3Parameters, training_d
     na_valid_loader = na_valid.make_data_loader(na_batch_size)
 
     # TODO: should have NA params class
-    na_model = networks.NormalArtifactModel([10, 10, 10])
+    na_model = mutect3.architecture.normal_artifact_model.NormalArtifactModel([10, 10, 10])
     na_training_metrics = na_model.train_model(na_train_loader, na_valid_loader, num_epochs=1)
 
     print("Loading datasets")
@@ -41,7 +43,7 @@ def make_trained_mutect3_model(m3_params: networks.Mutect3Parameters, training_d
 
     train_loader = data.make_semisupervised_data_loader(training, params.batch_size)
     valid_loader = data.make_semisupervised_data_loader(valid, params.batch_size)
-    model = networks.ReadSetClassifier(m3_params, na_model).float()
+    model = mutect3.architecture.read_set_classifier.ReadSetClassifier(m3_params, na_model).float()
 
     print("Training model")
     training_metrics = model.train_model(train_loader, valid_loader, params.num_epochs, params.beta1, params.beta2)
@@ -91,8 +93,8 @@ def main():
 
     args = parser.parse_args()
 
-    m3_params = networks.Mutect3Parameters(args.hidden_read_layers, args.hidden_info_layers,
-                                           args.aggregation_layers, args.output_layers, args.dropout_p)
+    m3_params = mutect3.architecture.read_set_classifier.Mutect3Parameters(args.hidden_read_layers, args.hidden_info_layers,
+                                                                           args.aggregation_layers, args.output_layers, args.dropout_p)
 
     beta1 = Beta(args.alpha1, args.beta1)
     beta2 = Beta(args.alpha2, args.beta2)
