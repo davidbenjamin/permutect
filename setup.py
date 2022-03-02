@@ -9,9 +9,9 @@ setup(
     license="Apache license version 2.0",
     packages=['mutect3'],
     entry_points={
-        'console_scripts': ['train_model=mutect3.train_model:main',
-                            'filter_variants=mutect3.filter_variants:main',
-                            'compare_to_mutect2=mutect3.compare_to_mutect2:main'
+        'console_scripts': ['train_model=mutect3.tools.train_model:main',
+                            'filter_variants=mutect3.tools.filter_variants:main',
+                            'compare_to_mutect2=mutect3.tools.compare_to_mutect2:main'
                             ]
     }
 )
