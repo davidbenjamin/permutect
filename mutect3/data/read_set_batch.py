@@ -8,6 +8,13 @@ from mutect3.data.normal_artifact_datum import NormalArtifactDatum
 from mutect3.data.read_set_datum import ReadSetDatum
 
 
+# given list of slice sizes, produce a list of index slice objects
+# eg input = [2,3,1] --> [slice(0,2), slice(2,5), slice(5,6)]
+def make_slices(sizes, offset=0):
+    slice_ends = offset + torch.cumsum(sizes, dim=0)
+    return [slice(offset if n == 0 else slice_ends[n - 1], slice_ends[n]) for n in range(len(sizes))]
+
+
 # Read sets have different sizes so we can't form a batch by naively stacking tensors.  We need a custom way
 # to collate a list of Datum into a Batch
 
@@ -23,12 +30,6 @@ from mutect3.data.read_set_datum import ReadSetDatum
 # inside the model, the counts will be used to separate the reads into sets
 class ReadSetBatch:
 
-    # given list of slice sizes, produce a list of index slice objects
-    # eg input = [2,3,1] --> [slice(0,2), slice(2,5), slice(5,6)]
-    def make_slices(sizes, offset=0):
-        slice_ends = offset + torch.cumsum(sizes, dim=0)
-        return [slice(offset if n == 0 else slice_ends[n - 1], slice_ends[n]) for n in range(len(sizes))]
-
     def __init__(self, data: List[ReadSetDatum]):
         self._original_list = data  # keep this for downsampling augmentation
         self.labeled = data[0].label() != "UNLABELED"
@@ -38,8 +39,8 @@ class ReadSetBatch:
 
         self._ref_counts = torch.IntTensor([len(item.ref_tensor()) for item in data])
         self._alt_counts = torch.IntTensor([len(item.alt_tensor()) for item in data])
-        self._ref_slices = ReadSetBatch.make_slices(self._ref_counts)
-        self._alt_slices = ReadSetBatch.make_slices(self._alt_counts, torch.sum(self._ref_counts))
+        self._ref_slices = make_slices(self._ref_counts)
+        self._alt_slices = make_slices(self._alt_counts, torch.sum(self._ref_counts))
         self._reads = torch.cat([item.ref_tensor() for item in data] + [item.alt_tensor() for item in data], dim=0)
         self._info = torch.stack([item.info_tensor() for item in data], dim=0)
         self._labels = torch.FloatTensor([1.0 if item.label() == "ARTIFACT" else 0.0 for item in data]) if self.labeled else None
@@ -55,8 +56,7 @@ class ReadSetBatch:
         # TODO: variant type needs to go in constructor -- and maybe it should be utils.VariantType, not str
         # TODO: we might need to change the counts in this constructor
         normal_artifact_data = [NormalArtifactDatum(item.normal_alt_count(), item.normal_depth(),
-                                                    len(item.alt_tensor()),
-                                                    len(item.alt_tensor()) + len(item.ref_tensor()),
+                                                    item.tumor_alt_count(),item.tumor_depth(),
                                                     1.0, item.variant_type) for item in data]
         self._normal_artifact_batch = NormalArtifactBatch(normal_artifact_data)
 

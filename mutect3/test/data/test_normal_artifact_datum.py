@@ -1,6 +1,4 @@
 from mutect3.data import normal_artifact_datum
-from mutect3 import utils
-import torch
 
 
 def test_normal_artifact_datum():
