@@ -1,7 +1,7 @@
 from matplotlib import pyplot as plt
 
 # one or more simple plots of y data vs x data on shared axes
-from tqdm.notebook import tqdm
+from tqdm.autonotebook import tqdm
 
 
 def simple_plot(x_y_lab_tuples, x_label, y_label, title):

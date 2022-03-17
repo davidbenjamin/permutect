@@ -2,7 +2,7 @@ from typing import List
 
 import torch
 from torch import nn
-from tqdm.notebook import trange, tqdm
+from tqdm.autonotebook import trange, tqdm
 
 import mutect3.metrics.plotting
 import mutect3.metrics.training_metrics
