@@ -41,13 +41,15 @@ class ReadSetDataset(Dataset):
         return ReadSetDatum(raw.contig(), raw.position(), raw.ref(), raw.alt(), normalized_ref, normalized_alt, normalized_info,
                             raw.label(), raw.tumor_depth(), raw.tumor_alt_count(), raw.normal_depth(), raw.normal_alt_count())
 
-    # this is used for training and validation but not deployment / testing
-    def make_semisupervised_data_loader(self, batch_size):
-        sampler = SemiSupervisedBatchSampler(self, batch_size)
-        return DataLoader(dataset=self, batch_sampler=sampler, collate_fn=ReadSetBatch)
 
-    def make_test_data_loader(self, batch_size):
-        return DataLoader(dataset=self, batch_size=batch_size, collate_fn=ReadSetBatch)
+# this is used for training and validation but not deployment / testing
+def make_semisupervised_data_loader(dataset, batch_size):
+    sampler = SemiSupervisedBatchSampler(dataset, batch_size)
+    return DataLoader(dataset=dataset, batch_sampler=sampler, collate_fn=ReadSetBatch)
+
+
+def make_test_data_loader(dataset, batch_size):
+    return DataLoader(dataset=dataset, batch_size=batch_size, collate_fn=ReadSetBatch)
 
 
 def read_data(dataset_file):

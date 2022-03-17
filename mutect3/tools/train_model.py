@@ -42,8 +42,8 @@ def make_trained_mutect3_model(m3_params: mutect3.architecture.read_set_classifi
     print("Unlabeled data: " + str(unlabeled_count) + ", labeled data: " + str(len(train_and_valid) - unlabeled_count))
     print("Dataset sizes -- training: " + str(len(training)) + ", validation: " + str(len(valid)))
 
-    train_loader = training.make_semisupervised_data_loader(params.batch_size)
-    valid_loader = valid.make_semisupervised_data_loader(params.batch_size)
+    train_loader = read_set_dataset.make_semisupervised_data_loader(training, params.batch_size)
+    valid_loader = read_set_dataset.make_semisupervised_data_loader(valid, params.batch_size)
     model = mutect3.architecture.read_set_classifier.ReadSetClassifier(m3_params, na_model).float()
 
     print("Training model")
