@@ -25,8 +25,8 @@ def make_trained_mutect3_model(m3_params: mutect3.architecture.read_set_classifi
 
     print("Training normal artifact model")
     na_batch_size = 64
-    na_train_loader = na_train.make_data_loader(na_batch_size)
-    na_valid_loader = na_valid.make_data_loader(na_batch_size)
+    na_train_loader = normal_artifact_dataset.make_normal_artifact_data_loader(na_train, na_batch_size)
+    na_valid_loader = normal_artifact_dataset.make_normal_artifact_data_loader(na_valid, na_batch_size)
 
     # TODO: should have NA params class
     na_model = mutect3.architecture.normal_artifact_model.NormalArtifactModel([10, 10, 10])

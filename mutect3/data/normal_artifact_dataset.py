@@ -36,5 +36,6 @@ class NormalArtifactDataset(Dataset):
     def __getitem__(self, index):
         return self.data[index]
 
-    def make_data_loader(self, batch_size):
-        return DataLoader(dataset=self, batch_size=batch_size, collate_fn=NormalArtifactBatch)
+
+def make_normal_artifact_data_loader(na_dataset, batch_size):
+    return DataLoader(dataset=na_dataset, batch_size=batch_size, collate_fn=NormalArtifactBatch)
