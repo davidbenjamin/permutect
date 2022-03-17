@@ -8,6 +8,7 @@ import mutect3.metrics.plotting
 import mutect3.metrics.training_metrics
 from mutect3 import utils
 from mutect3.architecture.mlp import MLP
+from mutect3.data.normal_artifact_datum import NormalArtifactDatum
 from mutect3.data.normal_artifact_batch import NormalArtifactBatch
 from mutect3.utils import beta_binomial
 

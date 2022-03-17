@@ -64,7 +64,7 @@ def read_data(dataset_file):
             locus, mutation = file.readline().strip().split(",")
             contig, position = locus.split(":")
             position = int(position)
-            ref, alt = mutation.split("->")
+            ref, alt = mutation.strip().split("->")
 
             ref_bases = file.readline().strip()  # not currently used
 
