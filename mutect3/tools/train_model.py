@@ -6,7 +6,8 @@ from torch.distributions.beta import Beta
 
 import mutect3.architecture.normal_artifact_model
 import mutect3.architecture.read_set_classifier
-from mutect3 import data, utils
+from mutect3 import utils
+from mutect3.data import normal_artifact_dataset, read_set_dataset
 
 
 class TrainingParameters:
@@ -19,7 +20,7 @@ class TrainingParameters:
 
 def make_trained_mutect3_model(m3_params: mutect3.architecture.read_set_classifier.Mutect3Parameters, training_datasets, normal_artifact_datasets,
                                params: TrainingParameters, report_pdf=None):
-    na_dataset = data.NormalArtifactDataset(normal_artifact_datasets)
+    na_dataset = normal_artifact_dataset.NormalArtifactDataset(normal_artifact_datasets)
     na_train, na_valid = utils.split_dataset_into_train_and_valid(na_dataset, 0.9)
 
     print("Training normal artifact model")
@@ -34,15 +35,15 @@ def make_trained_mutect3_model(m3_params: mutect3.architecture.read_set_classifi
     print("Loading datasets")
 
     # make our training, validation, and testing data
-    train_and_valid = data.Mutect3Dataset(files=training_datasets)
+    train_and_valid = read_set_dataset.ReadSetDataset(files=training_datasets)
     training, valid = utils.split_dataset_into_train_and_valid(train_and_valid, 0.9)
 
     unlabeled_count = sum([1 for datum in train_and_valid if datum.label() == "UNLABELED"])
     print("Unlabeled data: " + str(unlabeled_count) + ", labeled data: " + str(len(train_and_valid) - unlabeled_count))
     print("Dataset sizes -- training: " + str(len(training)) + ", validation: " + str(len(valid)))
 
-    train_loader = data.make_semisupervised_data_loader(training, params.batch_size)
-    valid_loader = data.make_semisupervised_data_loader(valid, params.batch_size)
+    train_loader = training.make_semisupervised_data_loader(params.batch_size)
+    valid_loader = valid.make_semisupervised_data_loader(params.batch_size)
     model = mutect3.architecture.read_set_classifier.ReadSetClassifier(m3_params, na_model).float()
 
     print("Training model")
