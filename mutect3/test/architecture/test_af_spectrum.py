@@ -14,7 +14,6 @@ def test_single_af():
 
     model = AFSpectrum()
     optimizer = torch.optim.Adam(model.parameters())
-    metrics = TrainingMetrics()
 
     num_epochs = 10000
     for epoch in range(num_epochs):
@@ -22,18 +21,11 @@ def test_single_af():
         optimizer.zero_grad()
         loss.backward()
         optimizer.step()
-        metrics.add("NLL", "TRAINING", loss.item())
 
-    loss_list = metrics.metrics.get("NLL").get("TRAINING")
-    assert loss_list[-1] < 0.01
-    assert loss_list[1000] < loss_list[0]
-    assert loss_list[2000] < loss_list[1000]
-    assert loss_list[3000] < loss_list[2000]
+    depth = 1000
+    depths = [depth for _ in range(100)]
+    counts = model.sample(depths)
 
-    #pred = torch.sign(torch.sigmoid(model.forward(x))-0.5)
-    #lab = torch.sign(y-0.5)
-
-    #errors = torch.sum(torch.abs((pred - lab)/2)).item()
-
-    # we should have perfect accuracy
-    #assert errors < 1
+    assert torch.abs(torch.mean(counts.float()) - af*depth).item() < depth/50
+    assert torch.sum(counts > depth*(af+0.1)) < 5
+    torch.sum(counts < depth * (af - 0.1)) < 5

@@ -1,5 +1,6 @@
 import torch
 from torch import nn
+from torch.distributions.binomial import Binomial
 
 import mutect3.metrics.plotting
 from mutect3.data.read_set_batch import ReadSetBatch
@@ -36,6 +37,23 @@ class AFSpectrum(nn.Module):
     # compute 1D tensor of log-likelihoods P(alt count|n, AF mixture model) over all data in batch
     def forward(self, batch: ReadSetBatch):
         return self.log_likelihood(batch.pd_tumor_alt_counts(), batch.pd_tumor_depths())
+
+    def sample(self, depths):
+        pi = torch.exp(nn.functional.log_softmax(self.z, dim=0)).detach()
+        shapes = [(alpha, beta) for (alpha, beta) in zip(self.a.numpy(), self.b.numpy())]
+        betas = [torch.distributions.beta.Beta(torch.FloatTensor([alpha]), torch.FloatTensor([beta])) for (alpha, beta)
+                 in shapes]
+
+        # for each depth, choose a weighted random mixture component to use
+        betas_to_use = torch.multinomial(pi, len(depths), replacement=True)
+
+        counts = []
+        for depth, mixture_component in zip(depths, betas_to_use):
+            af = betas[mixture_component].sample()
+            count = Binomial(depth, af).sample()
+            counts.append(count.item())
+
+        return torch.IntTensor(counts)
 
     # plot the mixture of beta densities
     def plot_spectrum(self, title):
