@@ -60,7 +60,7 @@ def main():
 
     print("Reading test dataset")
     m3_variants = filter(lambda d: encode_datum(d) not in m2_filtering_to_keep, read_set_dataset.read_data(args.test_dataset))
-    dataset = data.Mutect3Dataset(data=m3_variants)
+    dataset = read_set_dataset.ReadSetDataset(data=m3_variants)
     data_loader = read_set_dataset.make_test_data_loader(dataset, args.batch_size)
 
     model = load_saved_model(args.trained_m3_model)

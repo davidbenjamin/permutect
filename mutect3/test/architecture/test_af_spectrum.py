@@ -1,7 +1,6 @@
 import torch
 from torch.distributions.binomial import Binomial
 from mutect3.architecture.af_spectrum import AFSpectrum
-from mutect3.metrics.training_metrics import TrainingMetrics
 
 
 # test with artificial data where there is a single AF, hence count data is binomial
