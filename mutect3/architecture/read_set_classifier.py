@@ -5,6 +5,7 @@ import torch
 from matplotlib.backends.backend_pdf import PdfPages
 from torch import nn
 from tqdm.autonotebook import trange, tqdm
+from itertools import chain
 
 import mutect3.metrics.plotting
 import mutect3.metrics.training_metrics
@@ -100,15 +101,10 @@ class ReadSetClassifier(nn.Module):
         return self.prior_model
 
     def training_parameters(self):
-        result = []
-        result.extend(self.phi.parameters())
-        result.extend(self.omega.parameters())
-        result.extend(self.rho.parameters())
-        result.extend(self.outputs.parameters())
-        return result
+        return chain(self.phi.parameters(), self.omega.parameters(), self.rho.parameters(), self.outputs.parameters(), [self.calibration.max_logit])
 
     def calibration_parameters(self):
-        return [self.calibration.max_logit]
+        return [self.calibration.parameters()]
 
     def spectra_parameters(self):
         return self.prior_model.parameters()
@@ -118,27 +114,18 @@ class ReadSetClassifier(nn.Module):
 
     def set_epoch_type(self, epoch_type: utils.EpochType):
         if epoch_type == utils.EpochType.TRAIN:
-            self.training_mode()
+            self.train(True)
+            freeze(self.parameters())
+            unfreeze(self.training_parameters())
         else:
             self.freeze_all()
-
-    def training_mode(self):
-        self.train(True)
-        freeze(self.parameters())
-        unfreeze(self.training_parameters())
-        unfreeze(self.calibration_parameters())
-
-    def learn_calibration_mode(self):
-        self.train(False)
-        freeze(self.parameters())
-        unfreeze(self.calibration_parameters())
 
     def learn_spectrum_mode(self):
         self.train(False)
         freeze(self.parameters())
         unfreeze(self.spectra_parameters())
 
-    def forward(self, batch: ReadSetBatch, calibrated=True, posterior=False, normal_artifact=False):
+    def forward(self, batch: ReadSetBatch, posterior=False, normal_artifact=False):
         # embed reads and take mean within each datum to get tensors of shape (batch size x embedding dimension)
         phi_reads = torch.sigmoid(self.phi(batch.reads()))
         ref_means = torch.cat([torch.mean(phi_reads[s], dim=0, keepdim=True) for s in batch.ref_slices()], dim=0)
@@ -147,7 +134,6 @@ class ReadSetClassifier(nn.Module):
         # stack side-by-side to get 2D tensor, where each variant row is (ref mean, alt mean, info)
         omega_info = torch.sigmoid(self.omega(batch.info()))
         concatenated = torch.cat((ref_means, alt_means, omega_info), dim=1)
-
         aggregated = self.rho(concatenated)
 
         logits = torch.zeros(batch.size())
@@ -159,8 +145,7 @@ class ReadSetClassifier(nn.Module):
                 [1 if variant_type == v_type else 0 for v_type in batch.variant_type()])
             logits += mask * output
 
-        if calibrated:
-            logits = self.calibration(logits, batch.alt_counts())
+        logits = self.calibration(logits, batch.alt_counts())
 
         if posterior:
             logits = self.prior_model(logits, batch)
@@ -201,7 +186,7 @@ class ReadSetClassifier(nn.Module):
     def learn_spectra(self, loader, num_epochs):
         self.learn_spectrum_mode()
 
-        logits_and_batches = [(self(batch).detach(), batch) for batch in loader]
+        logits_and_batches = [(self.forward(batch).detach(), batch) for batch in loader]
         optimizer = torch.optim.Adam(self.spectra_parameters())
 
         spectra_losses = []
@@ -227,34 +212,32 @@ class ReadSetClassifier(nn.Module):
         # TODO: this needs to go in the report output
         mutect3.metrics.plotting.simple_plot([(epochs, spectra_losses, "loss")], "epoch", "loss", "AF Learning curve")
 
-    # calculate and detach the likelihoods layers, then learn the calibration layer with SGD
     def learn_calibration(self, loader, num_epochs):
-        uncalibrated_logits_labels_counts = [
-            (self(batch, calibrated=False).detach(), batch.labels(),
-             batch.alt_counts()) for batch in loader if batch.is_labeled()]
+        self.train(False)
+        freeze(self.parameters())
+        unfreeze(self.calibration_parameters())
+
         optimizer = torch.optim.Adam(self.calibration_parameters())
-        criterion = nn.BCEWithLogitsLoss()
+        bce = nn.BCEWithLogitsLoss()
+        metrics = mutect3.metrics.training_metrics.TrainingMetrics()
 
-        self.learn_calibration_mode()
-        calibration_losses = []
-
-        for epoch in range(num_epochs):
+        for _ in trange(1, num_epochs + 1, desc="Epoch"):
             epoch_loss = 0
-            for logits, labels, counts in uncalibrated_logits_labels_counts:
-                calibrated_logits = self.calibration(logits, counts)
-                loss = criterion(calibrated_logits, labels)
+            epoch_count = 0
+            pbar = tqdm(enumerate(loader))
+            for n, batch in pbar:
+                if not batch.is_labeled():
+                    continue
+                epoch_count += batch.size()
+                loss = bce(self.forward(batch), batch.labels())
+                epoch_loss += loss.item()
                 optimizer.zero_grad()
                 loss.backward()
                 optimizer.step()
-                epoch_loss += loss.item()
 
-            calibration_losses.append(epoch_loss)
+                metrics.add("calibration NLL", "CALIBRATION", epoch_loss / epoch_count)
 
-        epochs = range(1, num_epochs + 1)
-
-        # TODO: this needs to go in the report output
-        mutect3.metrics.plotting.simple_plot([(epochs, calibration_losses, "curve")], "epoch", "loss",
-                               "Learning curve for calibration")
+        return metrics
 
     def calculate_logit_threshold(self, loader, normal_artifact=False, roc_plot=None):
         self.train(False)
@@ -311,9 +294,9 @@ class ReadSetClassifier(nn.Module):
 
                 pbar = tqdm(enumerate(loader))
                 for n, batch in pbar:
-                    orig_pred = self(batch)
-                    aug1_pred = self(batch.augmented_copy(beta1))
-                    aug2_pred = self(batch.augmented_copy(beta2))
+                    orig_pred = self.forward(batch)
+                    aug1_pred = self.forward(batch.augmented_copy(beta1))
+                    aug2_pred = self.forward(batch.augmented_copy(beta2))
 
                     if batch.is_labeled():
                         labels = batch.labels()
@@ -341,5 +324,4 @@ class ReadSetClassifier(nn.Module):
             # done with training and validation for this epoch
             # note that we have not learned the AF spectrum yet
         # done with training
-        self.learn_calibration(valid_loader, num_epochs=200)
         return training_metrics

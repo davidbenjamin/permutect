@@ -122,7 +122,7 @@ class NormalArtifactModel(nn.Module):
                         loss.backward()
                         optimizer.step()
 
-                training_metrics.add("NLL", epoch_type.name, epoch_loss / epoch_count)
+                training_metrics.add("Normal_artifact_NLL", epoch_type.name, epoch_loss / epoch_count)
             # done with epoch
         # done with training
         # model is trained

@@ -30,7 +30,7 @@ def make_trained_mutect3_model(m3_params: mutect3.architecture.read_set_classifi
 
     # TODO: should have NA params class
     na_model = mutect3.architecture.normal_artifact_model.NormalArtifactModel([10, 10, 10])
-    na_training_metrics = na_model.train_model(na_train_loader, na_valid_loader, num_epochs=1)
+    na_training_metrics = na_model.train_model(na_train_loader, na_valid_loader, num_epochs=10)
 
     print("Loading datasets")
 
@@ -48,9 +48,10 @@ def make_trained_mutect3_model(m3_params: mutect3.architecture.read_set_classifi
 
     print("Training model")
     training_metrics = model.train_model(train_loader, valid_loader, params.num_epochs, params.beta1, params.beta2)
+    calibration_metrics = model.learn_calibration(valid_loader, num_epochs=50)
     if report_pdf is not None:
         with PdfPages(report_pdf) as pdf:
-            for metrics in (training_metrics, na_training_metrics):
+            for metrics in (training_metrics, na_training_metrics, calibration_metrics):
                 for metric_type in metrics.metrics.keys():
                     fig, curve = metrics.plot_metrics(metric_type)
                     pdf.savefig(fig)
