@@ -8,7 +8,7 @@ from tqdm.autonotebook import trange, tqdm
 from itertools import chain
 
 import mutect3.metrics.plotting
-import mutect3.metrics.training_metrics
+from mutect3.metrics.metrics import LearningCurves
 from mutect3 import utils
 from mutect3.architecture.mlp import MLP
 from mutect3.architecture.normal_artifact_model import NormalArtifactModel
@@ -219,7 +219,7 @@ class ReadSetClassifier(nn.Module):
 
         optimizer = torch.optim.Adam(self.calibration_parameters())
         bce = nn.BCEWithLogitsLoss()
-        metrics = mutect3.metrics.training_metrics.TrainingMetrics()
+        calibration_learning_curve = LearningCurves()
 
         for _ in trange(1, num_epochs + 1, desc="Epoch"):
             epoch_loss = 0
@@ -235,9 +235,9 @@ class ReadSetClassifier(nn.Module):
                 loss.backward()
                 optimizer.step()
 
-                metrics.add("calibration NLL", "CALIBRATION", epoch_loss / epoch_count)
+                calibration_learning_curve.add("calibration NLL", epoch_loss / epoch_count)
 
-        return metrics
+        return calibration_learning_curve
 
     def calculate_logit_threshold(self, loader, normal_artifact=False, roc_plot=None):
         self.train(False)
@@ -277,7 +277,7 @@ class ReadSetClassifier(nn.Module):
     def train_model(self, train_loader, valid_loader, num_epochs, beta1, beta2):
         bce = torch.nn.BCEWithLogitsLoss(reduction='sum')
         train_optimizer = torch.optim.Adam(self.training_parameters())
-        training_metrics = mutect3.metrics.training_metrics.TrainingMetrics()
+        learning_curves = LearningCurves()
 
         # balance training by weighting the loss function
         total_labeled = sum(batch.size() for batch in train_loader if batch.is_labeled())
@@ -318,10 +318,10 @@ class ReadSetClassifier(nn.Module):
                         loss.backward()
                         train_optimizer.step()
 
-                training_metrics.add("labeled NLL", epoch_type.name, epoch_labeled_loss / epoch_labeled_count)
-                training_metrics.add("unlabeled NLL", epoch_type.name, epoch_unlabeled_loss / epoch_unlabeled_count)
+                learning_curves.add(epoch_type.name + " labeled NLL", epoch_labeled_loss / epoch_labeled_count)
+                learning_curves.add(epoch_type.name + " unlabeled NLL", epoch_unlabeled_loss / epoch_unlabeled_count)
 
             # done with training and validation for this epoch
             # note that we have not learned the AF spectrum yet
         # done with training
-        return training_metrics
+        return learning_curves

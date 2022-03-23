@@ -4,8 +4,8 @@ import torch
 from torch import nn
 from tqdm.autonotebook import trange, tqdm
 
-import mutect3.metrics.plotting
-import mutect3.metrics.training_metrics
+from mutect3.metrics.plotting import simple_plot
+from mutect3.metrics.metrics import LearningCurves
 from mutect3 import utils
 from mutect3.architecture.mlp import MLP
 from mutect3.data.normal_artifact_datum import NormalArtifactDatum
@@ -96,11 +96,11 @@ class NormalArtifactModel(nn.Module):
         weighted_log_densities = torch.unsqueeze(log_pi, 1) + unweighted_log_densities
         densities = torch.exp(torch.logsumexp(weighted_log_densities, dim=0))
 
-        return mutect3.metrics.plotting.simple_plot([(f.detach().numpy(), densities.detach().numpy(), " ")], "AF", "density", title)
+        return simple_plot([(f.detach().numpy(), densities.detach().numpy(), " ")], "AF", "density", title)
 
     def train_model(self, train_loader, valid_loader, num_epochs):
         optimizer = torch.optim.Adam(self.parameters())
-        training_metrics = mutect3.metrics.training_metrics.TrainingMetrics()
+        training_metrics = LearningCurves()
 
         for epoch in trange(1, num_epochs + 1, desc="Epoch"):
             print("Normal artifact epoch " + str(epoch))
@@ -122,7 +122,7 @@ class NormalArtifactModel(nn.Module):
                         loss.backward()
                         optimizer.step()
 
-                training_metrics.add("Normal_artifact_NLL", epoch_type.name, epoch_loss / epoch_count)
+                training_metrics.add(epoch_type.name + " Normal artifact NLL", epoch_loss / epoch_count)
             # done with epoch
         # done with training
         # model is trained

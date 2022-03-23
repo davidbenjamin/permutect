@@ -53,7 +53,7 @@ def make_trained_mutect3_model(m3_params: mutect3.architecture.read_set_classifi
         with PdfPages(report_pdf) as pdf:
             for metrics in (training_metrics, na_training_metrics, calibration_metrics):
                 for metric_type in metrics.metrics.keys():
-                    fig, curve = metrics.plot_metrics(metric_type)
+                    fig, curve = metrics.plot_curves(metric_type)
                     pdf.savefig(fig)
 
     return model
