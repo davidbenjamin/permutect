@@ -104,7 +104,7 @@ class ReadSetClassifier(nn.Module):
         return chain(self.phi.parameters(), self.omega.parameters(), self.rho.parameters(), self.outputs.parameters(), [self.calibration.max_logit])
 
     def calibration_parameters(self):
-        return [self.calibration.parameters()]
+        return self.calibration.parameters()
 
     def spectra_parameters(self):
         return self.prior_model.parameters()
@@ -292,6 +292,11 @@ class ReadSetClassifier(nn.Module):
                 epoch_labeled_loss, epoch_unlabeled_loss = 0, 0
                 epoch_labeled_count, epoch_unlabeled_count = 0, 0
 
+                # row/index 0 = label/index 1, column = prediction
+                # 0 = variant, 1 = artifact
+                # thus confusion[1][0] = count of variants classified as artifact
+                epoch_confusion_matrix = [[0, 0], [0, 0]]
+
                 pbar = tqdm(enumerate(loader))
                 for n, batch in pbar:
                     orig_pred = self.forward(batch)
@@ -304,6 +309,11 @@ class ReadSetClassifier(nn.Module):
                         loss = bce(orig_pred, labels) + bce(aug1_pred, labels) + bce(aug2_pred, labels)
                         epoch_labeled_count += batch.size()
                         epoch_labeled_loss += loss.item()
+
+                        # convert predictions to 0/1 variant/artifact
+                        binary_pred = (orig_pred > 0).int().tolist()
+                        for label, pred in zip((labels > 0.5).int().tolist(), binary_pred):
+                            epoch_confusion_matrix[label][pred] += 1
                     else:
                         # unlabeled loss: consistency cross entropy between original and both augmented copies
                         loss1 = bce(aug1_pred, torch.sigmoid(orig_pred.detach()))
@@ -320,6 +330,8 @@ class ReadSetClassifier(nn.Module):
 
                 learning_curves.add(epoch_type.name + " labeled NLL", epoch_labeled_loss / epoch_labeled_count)
                 learning_curves.add(epoch_type.name + " unlabeled NLL", epoch_unlabeled_loss / epoch_unlabeled_count)
+                learning_curves.add(epoch_type.name + " variant accuracy", epoch_confusion_matrix[0][0] / (epoch_confusion_matrix[0][0]+epoch_confusion_matrix[0][1]))
+                learning_curves.add(epoch_type.name + " artifact accuracy", epoch_confusion_matrix[1][1] / (epoch_confusion_matrix[1][0] + epoch_confusion_matrix[1][1]))
 
             # done with training and validation for this epoch
             # note that we have not learned the AF spectrum yet
