@@ -9,13 +9,13 @@ from mutect3 import utils
 from mutect3.tools.train_model import TrainingParameters
 
 BATCH_SIZE=64
-NUM_EPOCHS = 10
+NUM_EPOCHS = 100
 
 
 def test_separate_gaussian_data():
 
-    m3_params = Mutect3Parameters(hidden_read_layers=[5], hidden_info_layers=[5], aggregation_layers=[5],
-                                  output_layers=[5], dropout_p=0.2)
+    m3_params = Mutect3Parameters(hidden_read_layers=[5,5], hidden_info_layers=[5,5], aggregation_layers=[5,5],
+                                  output_layers=[5,5], dropout_p=0.2)
 
     beta1 = Beta(5, 1)
     beta2 = Beta(5, 1)
