@@ -305,6 +305,7 @@ class ReadSetClassifier(nn.Module):
 
     def train_model(self, train_loader, valid_loader, num_epochs, beta1, beta2):
         bce = torch.nn.BCEWithLogitsLoss(reduction='sum')
+        individual_bce = bce = torch.nn.BCEWithLogitsLoss(reduction='none')
         train_optimizer = torch.optim.Adam(self.training_parameters())
         learning_curves = LearningCurves()
 
@@ -320,6 +321,10 @@ class ReadSetClassifier(nn.Module):
 
                 epoch_labeled_loss, epoch_unlabeled_loss = 0, 0
                 epoch_labeled_count, epoch_unlabeled_count = 0, 0
+
+                # simple stratification on alt count
+                epoch_less_than_five_loss, epoch_more_than_ten_loss = 0, 0
+                epoch_less_than_five_count, epoch_more_than_ten_count = 0, 0
 
                 # row/index 0 = label/index 1, column = prediction
                 # 0 = variant, 1 = artifact
@@ -343,6 +348,15 @@ class ReadSetClassifier(nn.Module):
                         binary_pred = (orig_pred > 0).int().tolist()
                         for label, pred in zip((labels > 0.5).int().tolist(), binary_pred):
                             epoch_confusion_matrix[label][pred] += 1
+
+                        individual_loss = individual_bce(orig_pred, labels)
+                        less_than_five = batch.alt_counts() < 5
+                        more_than_ten = batch.alt_counts() > 10
+                        epoch_less_than_five_count += torch.sum(less_than_five).item()
+                        epoch_more_than_ten_count += torch.sum(more_than_ten).item()
+                        epoch_less_than_five_loss += torch.sum(less_than_five * individual_loss).item()
+                        epoch_more_than_ten_loss += torch.sum(more_than_ten * individual_loss).item()
+
                     else:
                         # unlabeled loss: consistency cross entropy between original and both augmented copies
                         loss1 = bce(aug1_pred, torch.sigmoid(orig_pred.detach()))
@@ -358,6 +372,8 @@ class ReadSetClassifier(nn.Module):
                         train_optimizer.step()
 
                 learning_curves.add(epoch_type.name + " labeled NLL", epoch_labeled_loss / epoch_labeled_count)
+                learning_curves.add(epoch_type.name + " less than 5 alt labeled NLL", epoch_less_than_five_loss / epoch_less_than_five_count)
+                learning_curves.add(epoch_type.name + " more than 10 alt labeled NLL", epoch_more_than_ten_loss / epoch_more_than_ten_count)
                 learning_curves.add(epoch_type.name + " unlabeled NLL", epoch_unlabeled_loss / epoch_unlabeled_count)
                 learning_curves.add(epoch_type.name + " variant accuracy", epoch_confusion_matrix[0][0] / (epoch_confusion_matrix[0][0]+epoch_confusion_matrix[0][1]))
                 learning_curves.add(epoch_type.name + " artifact accuracy", epoch_confusion_matrix[1][1] / (epoch_confusion_matrix[1][0] + epoch_confusion_matrix[1][1]))
