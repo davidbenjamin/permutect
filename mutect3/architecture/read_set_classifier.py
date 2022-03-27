@@ -305,7 +305,7 @@ class ReadSetClassifier(nn.Module):
 
     def train_model(self, train_loader, valid_loader, num_epochs, beta1, beta2):
         bce = torch.nn.BCEWithLogitsLoss(reduction='sum')
-        individual_bce = bce = torch.nn.BCEWithLogitsLoss(reduction='none')
+        individual_bce = torch.nn.BCEWithLogitsLoss(reduction='none')
         train_optimizer = torch.optim.Adam(self.training_parameters())
         learning_curves = LearningCurves()
 
