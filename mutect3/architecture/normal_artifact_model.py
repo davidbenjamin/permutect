@@ -36,12 +36,12 @@ class NormalArtifactModel(nn.Module):
     def forward(self, batch: NormalArtifactBatch):
         return self.log_likelihood(batch)
 
-    def get_beta_parameters(self, batch: NormalArtifactBatch):
+    def get_beta_parameters(self, normal_alt: torch.IntTensor, normal_depth: torch.IntTensor):
         # beta posterior of normal counts with flat 1,1 prior
         # alpha, bet, mu, sigma are all 1D tensors
-        alpha = batch.normal_alt() + 1
+        alpha = normal_alt + 1
         alpha = alpha.float()
-        beta = batch.normal_depth() - batch.normal_alt() + 1
+        beta = normal_depth - normal_alt + 1
         beta = beta.float()
         mu = alpha / (alpha + beta)
         sigma = torch.sqrt(alpha * beta / ((alpha + beta) * (alpha + beta) * (alpha + beta + 1)))
@@ -63,7 +63,7 @@ class NormalArtifactModel(nn.Module):
     # given normal alts, normal depths, tumor depths, what is the log likelihood of given tumor alt counts
     # that is, this returns the 1D tensor of log likelihoods
     def log_likelihood(self, batch: NormalArtifactBatch):
-        output_alpha, output_beta, log_pi = self.get_beta_parameters(batch)
+        output_alpha, output_beta, log_pi = self.get_beta_parameters(batch.normal_alt(), batch.normal_depth())
 
         n = batch.tumor_depth().unsqueeze(1)
         k = batch.tumor_alt().unsqueeze(1)
@@ -72,16 +72,13 @@ class NormalArtifactModel(nn.Module):
         # 0th dimension is batch, 1st dimension is component.  Sum over the latter
         return torch.logsumexp(log_pi + component_log_likelihoods, dim=1)
 
-    # TODO: this is not used
     # plot the beta mixture density of tumor AF given normal data
-    def plot_spectrum(self, datum: NormalArtifactDatum, title):
+    def plot_spectrum(self, normal_alt: int, normal_depth: int, title):
         f = torch.arange(0.01, 0.99, 0.01)
 
-        # make a singleton batch
-        batch = NormalArtifactBatch([datum])
-        output_alpha, output_beta, log_pi = self.get_beta_parameters(batch)
+        output_alpha, output_beta, log_pi = self.get_beta_parameters(torch.IntTensor([normal_alt]), torch.IntTensor([normal_depth]))
 
-        # remove dummy batch dimension
+        # remove dummy dimension from the method above, which returns 2D tensors
         output_alpha = output_alpha.squeeze()
         output_beta = output_beta.squeeze()
         log_pi = log_pi.squeeze()

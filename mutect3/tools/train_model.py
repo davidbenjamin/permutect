@@ -56,6 +56,12 @@ def make_trained_mutect3_model(m3_params: mutect3.architecture.read_set_classifi
                     fig, curve = metrics.plot_curves(metric_type)
                     pdf.savefig(fig)
 
+            for normal_alt, normal_depth in [(0, 30), (1, 30), (2, 30), (3, 30), (4, 30), (5, 30), (10, 30), (15, 30)]:
+                fig, curve = na_model.plot_spectrum(
+                    normal_alt, normal_depth, "NA modeled tumor AF given normal alt count, normal depth = " +
+                                              str(normal_alt) + ", " + str(normal_depth))
+                pdf.savefig(fig)
+
     return model
 
 
