@@ -67,12 +67,17 @@ def main():
 
     # The AF spectrum was, of course, not pre-trained with the rest of the model
     print("Learning AF spectra")
-    model.learn_spectra(data_loader, num_epochs=200)
+    spectrum_metrics = model.learn_spectra(data_loader, num_epochs=200)
 
     print("generating plots")
     if args.report_pdf is not None:
-        spectra_plots = model.get_prior_model().plot_spectra()
         with PdfPages(args.report_pdf) as pdf:
+            pdf.savefig()
+            for metric_type in spectrum_metrics.metrics.keys():
+                fig, curve = spectrum_metrics.plot_curves(metric_type)
+                pdf.savefig(fig)
+
+            spectra_plots = model.get_prior_model().plot_spectra()
             for fig, curve in spectra_plots:
                 pdf.savefig(fig)
 

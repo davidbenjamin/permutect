@@ -201,6 +201,7 @@ class ReadSetClassifier(nn.Module):
                 optimizer.step()
                 epoch_loss += loss.item()
                 epoch_count += batch.size()
+            #TODO: learning curves for different alt counts
             spectra_learning_curve.add("spectrum NLL", epoch_loss / epoch_count)
 
         return spectra_learning_curve
