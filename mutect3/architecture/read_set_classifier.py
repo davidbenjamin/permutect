@@ -201,7 +201,8 @@ class ReadSetClassifier(nn.Module):
                 optimizer.step()
                 epoch_loss += loss.item()
                 epoch_count += batch.size()
-            #TODO: learning curves for different alt counts
+
+            # TODO: learning curves for different alt counts
             spectra_learning_curve.add("spectrum NLL", epoch_loss / epoch_count)
 
         return spectra_learning_curve
@@ -218,19 +219,53 @@ class ReadSetClassifier(nn.Module):
         for _ in trange(1, num_epochs + 1, desc="Epoch"):
             epoch_loss = 0
             epoch_count = 0
+
+            # how many artifacts were predicted w/ high confidence, and how many of those predictions were correct
+            # similarly for variants
+            high_conf_artifact_pred, high_conf_artifact_correct = 0, 0
+            high_conf_variant_pred, high_conf_variant_correct = 0, 0
+            med_conf_artifact_pred, med_conf_artifact_correct = 0, 0
+            med_conf_variant_pred, med_conf_variant_correct = 0, 0
+            unsure_pred, unsure_correct = 0, 0
             pbar = tqdm(enumerate(loader))
             for n, batch in pbar:
                 if not batch.is_labeled():
                     continue
                 epoch_count += batch.size()
-                loss = bce(self.forward(batch), batch.labels())
+                pred = self.forward(batch)
+                loss = bce(pred, batch.labels())
                 epoch_loss += loss.item()
                 optimizer.zero_grad()
                 loss.backward()
                 optimizer.step()
 
-                calibration_learning_curve.add("calibration NLL", epoch_loss / epoch_count)
+                high_conf_artifact = pred > 4
+                high_conf_variant = pred < -4
+                med_conf_artifact = (pred > 1) & (pred < 4)
+                med_conf_variant = (pred < -1) & (pred > -4)
+                unsure = (pred > -1) & (pred < 1)
+                correct = (pred > 0) == (batch.labels() > 0.5)
 
+                high_conf_artifact_pred += torch.sum(high_conf_artifact).item()
+                high_conf_artifact_correct += torch.sum(high_conf_artifact & correct).item()
+                high_conf_variant_pred += torch.sum(high_conf_variant).item()
+                high_conf_variant_correct += torch.sum(high_conf_variant & correct).item()
+
+                med_conf_artifact_pred += torch.sum(med_conf_artifact).item()
+                med_conf_artifact_correct += torch.sum(med_conf_artifact & correct).item()
+                med_conf_variant_pred += torch.sum(med_conf_variant).item()
+                med_conf_variant_correct += torch.sum(med_conf_variant & correct).item()
+
+                unsure_pred += torch.sum(unsure).item()
+                unsure_correct += torch.sum(unsure & correct).item()
+
+            calibration_learning_curve.add("calibration NLL", epoch_loss / epoch_count)
+            calibration_learning_curve.add("high-confidence artifact accuracy", high_conf_artifact_correct / high_conf_artifact_pred)
+            calibration_learning_curve.add("high-confidence variant accuracy", high_conf_variant_correct / high_conf_variant_pred)
+            calibration_learning_curve.add("med-confidence artifact accuracy", med_conf_artifact_correct / med_conf_artifact_pred)
+            calibration_learning_curve.add("med-confidence variant accuracy", med_conf_variant_correct / med_conf_variant_pred)
+            calibration_learning_curve.add("unsure accuracy", unsure_correct / unsure_pred)
+            
         return calibration_learning_curve
 
     def calculate_logit_threshold(self, loader, normal_artifact=False, roc_plot=None):
