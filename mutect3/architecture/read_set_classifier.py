@@ -189,28 +189,21 @@ class ReadSetClassifier(nn.Module):
         logits_and_batches = [(self.forward(batch).detach(), batch) for batch in loader]
         optimizer = torch.optim.Adam(self.spectra_parameters())
 
-        spectra_losses = []
-        epochs = []
+        spectra_learning_curve = LearningCurves()
         pbar = trange(num_epochs, desc="AF spectra epoch")
         for epoch in pbar:
-            epochs.append(epoch + 1)
             epoch_loss = 0
+            epoch_count = 0
             for logits, batch in logits_and_batches:
                 loss = -torch.mean(self.prior_model.log_evidence(logits, batch))
                 optimizer.zero_grad()
                 loss.backward()
                 optimizer.step()
                 epoch_loss += loss.item()
+                epoch_count += batch.size()
+            spectra_learning_curve.add("spectrum NLL", epoch_loss / epoch_count)
 
-            spectra_losses.append(epoch_loss)
-            # check for convergence
-            delta = 0 if epoch < 2 else abs(epoch_loss - spectra_losses[-2])
-            total_delta = abs(epoch_loss - spectra_losses[0])
-            if epoch > 5 and delta < 0.001 * total_delta:
-                break
-
-        # TODO: this needs to go in the report output
-        mutect3.metrics.plotting.simple_plot([(epochs, spectra_losses, "loss")], "epoch", "loss", "AF Learning curve")
+        return spectra_learning_curve
 
     def learn_calibration(self, loader, num_epochs):
         self.train(False)
