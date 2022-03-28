@@ -183,10 +183,10 @@ class ReadSetClassifier(nn.Module):
 
         return logits
 
-    def learn_spectra(self, loader, num_epochs):
+    def learn_spectra(self, loader, num_epochs, use_normal_artifact=False):
         self.learn_spectrum_mode()
 
-        logits_and_batches = [(self.forward(batch).detach(), batch) for batch in loader]
+        logits_and_batches = [(self.forward(batch=batch, normal_artifact=use_normal_artifact).detach(), batch) for batch in loader]
         optimizer = torch.optim.Adam(self.spectra_parameters())
 
         spectra_learning_curve = LearningCurves()

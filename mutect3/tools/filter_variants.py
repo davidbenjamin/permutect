@@ -52,6 +52,7 @@ def main():
     parser.add_argument('--report_pdf', required=False)
     parser.add_argument('--roc_pdf', required=False)
     parser.add_argument('--batch_size', type=int, default=64, required=False)
+    parser.add_argument('--turn_off_normal_artifact', action='store_true')
     args = parser.parse_args()
 
     # record encodings of variants that M2 filtered as germline, contamination, or weak evidence
@@ -64,10 +65,11 @@ def main():
     data_loader = read_set_dataset.make_test_data_loader(dataset, args.batch_size)
 
     model = load_saved_model(args.trained_m3_model)
+    use_normal_artifact = (not args.turn_off_normal_artifact)
 
     # The AF spectrum was, of course, not pre-trained with the rest of the model
     print("Learning AF spectra")
-    spectrum_metrics = model.learn_spectra(data_loader, num_epochs=200)
+    spectrum_metrics = model.learn_spectra(data_loader, num_epochs=200, use_normal_artifact=use_normal_artifact)
 
     print("generating plots")
     if args.report_pdf is not None:
@@ -81,7 +83,7 @@ def main():
                 pdf.savefig(fig)
 
     print("Calculating optimal logit threshold")
-    logit_threshold = model.calculate_logit_threshold(loader=data_loader, normal_artifact=True, roc_plot=args.roc_pdf)
+    logit_threshold = model.calculate_logit_threshold(loader=data_loader, normal_artifact=use_normal_artifact, roc_plot=args.roc_pdf)
     print("Optimal logit threshold: " + str(logit_threshold))
 
     encoding_to_logit_dict = {}
@@ -89,7 +91,7 @@ def main():
     print("Running final calls")
     pbar = tqdm(enumerate(data_loader))
     for n, batch in pbar:
-        logits = model(batch, posterior=True, normal_artifact=True)
+        logits = model.forward(batch, posterior=True, normal_artifact=use_normal_artifact)
 
         encodings = [encode_datum(datum) for datum in batch.original_list()]
         for encoding, logit in zip(encodings, logits):
