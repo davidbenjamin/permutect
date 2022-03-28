@@ -371,14 +371,14 @@ class ReadSetClassifier(nn.Module):
                         loss.backward()
                         train_optimizer.step()
 
-                learning_curves.add(epoch_type.name + " labeled NLL", epoch_labeled_loss / epoch_labeled_count)
-                learning_curves.add(epoch_type.name + " less than 5 alt labeled NLL", epoch_less_than_five_loss / epoch_less_than_five_count)
-                learning_curves.add(epoch_type.name + " more than 10 alt labeled NLL", epoch_more_than_ten_loss / epoch_more_than_ten_count)
-                learning_curves.add(epoch_type.name + " unlabeled NLL", epoch_unlabeled_loss / epoch_unlabeled_count)
-                learning_curves.add(epoch_type.name + " variant accuracy", epoch_confusion_matrix[0][0] / (epoch_confusion_matrix[0][0]+epoch_confusion_matrix[0][1]))
-                learning_curves.add(epoch_type.name + " artifact accuracy", epoch_confusion_matrix[1][1] / (epoch_confusion_matrix[1][0] + epoch_confusion_matrix[1][1]))
-
             # done with training and validation for this epoch
+            learning_curves.add(epoch_type.name + " labeled NLL", epoch_labeled_loss / epoch_labeled_count)
+            learning_curves.add(epoch_type.name + " less than 5 alt labeled NLL", epoch_less_than_five_loss / epoch_less_than_five_count)
+            learning_curves.add(epoch_type.name + " more than 10 alt labeled NLL", epoch_more_than_ten_loss / epoch_more_than_ten_count)
+            learning_curves.add(epoch_type.name + " unlabeled NLL", epoch_unlabeled_loss / epoch_unlabeled_count)
+            learning_curves.add(epoch_type.name + " variant accuracy", epoch_confusion_matrix[0][0] / (epoch_confusion_matrix[0][0]+epoch_confusion_matrix[0][1]))
+            learning_curves.add(epoch_type.name + " artifact accuracy", epoch_confusion_matrix[1][1] / (epoch_confusion_matrix[1][0] + epoch_confusion_matrix[1][1]))
+
             # note that we have not learned the AF spectrum yet
         # done with training
         return learning_curves
