@@ -8,7 +8,6 @@ from tqdm.autonotebook import tqdm
 
 import mutect3.architecture.normal_artifact_model
 import mutect3.architecture.read_set_classifier
-from mutect3 import data
 from mutect3.data import read_set_datum, read_set_dataset
 
 TRUSTED_M2_FILTERS = {'contamination', 'germline', 'weak_evidence'}
