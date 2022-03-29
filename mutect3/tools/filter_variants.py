@@ -97,7 +97,7 @@ def main():
     encoding_to_logit_dict = {}
 
     print("Running final calls")
-    pbar = tqdm(enumerate(data_loader))
+    pbar = tqdm(enumerate(data_loader), mininterval=10)
     for n, batch in pbar:
         logits = model.forward(batch, posterior=True, normal_artifact=use_normal_artifact)
 
@@ -114,7 +114,7 @@ def main():
 
     writer = Writer(args.output, unfiltered_vcf)  # input vcf is a template for the header
 
-    pbar = tqdm(enumerate(unfiltered_vcf))
+    pbar = tqdm(enumerate(unfiltered_vcf), mininterval=10)
     for n, v in pbar:
         filters = filters_to_keep_from_m2(v)
 

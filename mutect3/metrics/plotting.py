@@ -24,7 +24,7 @@ def plot_roc_curve(model, loader, normal_artifact=False):
     model.freeze_all()
     print("Running model over all data to generate ROC curve")
 
-    pbar = tqdm(enumerate(loader))
+    pbar = tqdm(enumerate(loader), mininterval=10)
     for _, batch in pbar:
         labels = batch.labels()
         logits = model(batch, posterior=True, normal_artifact=normal_artifact)

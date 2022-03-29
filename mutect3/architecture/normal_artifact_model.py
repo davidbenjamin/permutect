@@ -106,7 +106,7 @@ class NormalArtifactModel(nn.Module):
 
                 epoch_loss = 0
                 epoch_count = 0
-                pbar = tqdm(loader)
+                pbar = tqdm(loader, mininterval=10)
                 for batch in pbar:
                     log_likelihoods = self(batch)
                     weights = 1 / batch.downsampling()

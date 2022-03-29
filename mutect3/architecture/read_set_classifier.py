@@ -260,7 +260,7 @@ class ReadSetClassifier(nn.Module):
             med_conf_artifact_pred, med_conf_artifact_correct = 0, 0
             med_conf_variant_pred, med_conf_variant_correct = 0, 0
             unsure_pred, unsure_correct = 0, 0
-            pbar = tqdm(enumerate(loader))
+            pbar = tqdm(enumerate(loader), mininterval=10)
             for n, batch in pbar:
                 if not batch.is_labeled():
                     continue
@@ -306,7 +306,7 @@ class ReadSetClassifier(nn.Module):
         artifact_probs = []
 
         print("running model over all data in loader to optimize F score")
-        pbar = tqdm(enumerate(loader))
+        pbar = tqdm(enumerate(loader), mininterval=10)
         for n, batch in pbar:
             artifact_probs.extend(torch.sigmoid(self.forward(batch, posterior=True, normal_artifact=normal_artifact)).tolist())
 
@@ -364,7 +364,7 @@ class ReadSetClassifier(nn.Module):
                 # thus confusion[1][0] = count of variants classified as artifact
                 epoch_confusion_matrix = [[0, 0], [0, 0]]
 
-                pbar = tqdm(enumerate(loader))
+                pbar = tqdm(enumerate(loader), mininterval=10)
                 for n, batch in pbar:
                     phi_reads = self.apply_phi_to_reads(batch)
 
