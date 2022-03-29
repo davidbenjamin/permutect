@@ -53,7 +53,7 @@ def test_separate_gaussian_data():
 
 
 def test_wide_and_narrow_gaussian_data():
-    data = artificial_data.make_wide_and_narrow_gaussian_data(10000)
+    data = artificial_data.make_wide_and_narrow_gaussian_data(1000)
     params = SMALL_MODEL_PARAMS
     training_params = TRAINING_PARAMS
     model, training_metrics, calibration_metrics = \

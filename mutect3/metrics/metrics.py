@@ -11,11 +11,11 @@ class LearningCurves:
     def add(self, metric_type, value):
         self.metrics[metric_type].append(value)
 
-    def plot_curves(self, metric_type):
-        for metric_type in self.metrics.keys():
-            values = self.metrics[metric_type]
-        metric_dict = self.metrics[metric_type]
-        epochs = range(1, len(values) + 1)
-        x_y_lab = [(epochs, metric_dict, metric_type)]
-        fig, curve = simple_plot(x_y_lab, x_label="epoch", y_label=metric_type, title="Learning curves: " + metric_type)
-        return fig, curve
+    # return a list of (fig, curve) tuples
+    def plot_curves(self):
+        result = []
+        for (metric_type, values) in self.metrics.items():
+            epochs = range(1, len(values) + 1)
+            x_y_lab = [(epochs, values, metric_type)]
+            result.append(simple_plot(x_y_lab, x_label="epoch", y_label=metric_type, title="Learning curves: " + metric_type))
+        return result

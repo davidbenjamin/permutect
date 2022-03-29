@@ -295,7 +295,7 @@ class ReadSetClassifier(nn.Module):
             calibration_learning_curve.add("high-confidence variant accuracy", high_conf_variant_correct / (high_conf_variant_pred+0.001))
             calibration_learning_curve.add("med-confidence artifact accuracy", med_conf_artifact_correct / (med_conf_artifact_pred+0.001))
             calibration_learning_curve.add("med-confidence variant accuracy", med_conf_variant_correct / (med_conf_variant_pred+0.001))
-            calibration_learning_curve.add("unsure accuracy", unsure_correct / unsure_pred)
+            calibration_learning_curve.add("unsure accuracy", unsure_correct / (unsure_pred + 0.001))
             
         return calibration_learning_curve
 

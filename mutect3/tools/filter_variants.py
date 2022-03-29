@@ -83,8 +83,7 @@ def main():
     print("generating plots")
     if args.report_pdf is not None:
         with PdfPages(args.report_pdf) as pdf:
-            for metric_type in spectrum_metrics.metrics.keys():
-                fig, curve = spectrum_metrics.plot_curves(metric_type)
+            for fig, curve in spectrum_metrics.plot_curves():
                 pdf.savefig(fig)
 
             spectra_plots = model.get_prior_model().plot_spectra()
