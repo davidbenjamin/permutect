@@ -264,10 +264,10 @@ class ReadSetClassifier(nn.Module):
                 unsure_correct += torch.sum(unsure & correct).item()
 
             calibration_learning_curve.add("calibration NLL", epoch_loss / epoch_count)
-            calibration_learning_curve.add("high-confidence artifact accuracy", high_conf_artifact_correct / high_conf_artifact_pred)
-            calibration_learning_curve.add("high-confidence variant accuracy", high_conf_variant_correct / high_conf_variant_pred)
-            calibration_learning_curve.add("med-confidence artifact accuracy", med_conf_artifact_correct / med_conf_artifact_pred)
-            calibration_learning_curve.add("med-confidence variant accuracy", med_conf_variant_correct / med_conf_variant_pred)
+            calibration_learning_curve.add("high-confidence artifact accuracy", high_conf_artifact_correct / (high_conf_artifact_pred+0.001))
+            calibration_learning_curve.add("high-confidence variant accuracy", high_conf_variant_correct / (high_conf_variant_pred+0.001))
+            calibration_learning_curve.add("med-confidence artifact accuracy", med_conf_artifact_correct / (med_conf_artifact_pred+0.001))
+            calibration_learning_curve.add("med-confidence variant accuracy", med_conf_variant_correct / (med_conf_variant_pred+0.001))
             calibration_learning_curve.add("unsure accuracy", unsure_correct / unsure_pred)
             
         return calibration_learning_curve
@@ -377,9 +377,9 @@ class ReadSetClassifier(nn.Module):
 
             # done with training and validation for this epoch
             learning_curves.add(epoch_type.name + " labeled NLL", epoch_labeled_loss / epoch_labeled_count)
-            learning_curves.add(epoch_type.name + " less than 5 alt labeled NLL", epoch_less_than_five_loss / epoch_less_than_five_count)
-            learning_curves.add(epoch_type.name + " more than 10 alt labeled NLL", epoch_more_than_ten_loss / epoch_more_than_ten_count)
-            learning_curves.add(epoch_type.name + " unlabeled NLL", epoch_unlabeled_loss / epoch_unlabeled_count)
+            learning_curves.add(epoch_type.name + " less than 5 alt labeled NLL", epoch_less_than_five_loss / (epoch_less_than_five_count+0.001))
+            learning_curves.add(epoch_type.name + " more than 10 alt labeled NLL", epoch_more_than_ten_loss / (epoch_more_than_ten_count+0.001))
+            learning_curves.add(epoch_type.name + " unlabeled NLL", epoch_unlabeled_loss / (epoch_unlabeled_count+0.001))
             learning_curves.add(epoch_type.name + " variant accuracy", epoch_confusion_matrix[0][0] / (epoch_confusion_matrix[0][0]+epoch_confusion_matrix[0][1]))
             learning_curves.add(epoch_type.name + " artifact accuracy", epoch_confusion_matrix[1][1] / (epoch_confusion_matrix[1][0] + epoch_confusion_matrix[1][1]))
 
