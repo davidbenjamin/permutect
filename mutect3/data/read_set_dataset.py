@@ -28,19 +28,21 @@ class ReadSetDataset(Dataset):
         self.read_medians, self.read_iqrs = medians_and_iqrs(ref)
         self.info_medians, self.info_iqrs = medians_and_iqrs(info)
 
+        # normalize data
+        for n in range(len(self.data)):
+            raw = self.data[n]
+            normalized_ref = (raw.ref_tensor() - self.read_medians) / self.read_iqrs
+            normalized_alt = (raw.alt_tensor() - self.read_medians) / self.read_iqrs
+            normalized_info = (raw.info_tensor() - self.info_medians) / self.info_iqrs
+            self.data[n] = ReadSetDatum(raw.contig(), raw.position(), raw.ref(), raw.alt(), normalized_ref, normalized_alt,
+                         normalized_info, raw.label(), raw.tumor_depth(), raw.tumor_alt_count(), raw.normal_depth(),
+                         raw.normal_alt_count())
+
     def __len__(self):
         return len(self.data)
 
-    # TODO: try normalization in constructor instead of on the fly which has to be repeated every epoch of training
     def __getitem__(self, index):
-        raw = self.data[index]
-        normalized_ref = (raw.ref_tensor() - self.read_medians) / self.read_iqrs
-        normalized_alt = (raw.alt_tensor() - self.read_medians) / self.read_iqrs
-        normalized_info = (raw.info_tensor() - self.info_medians) / self.info_iqrs
-
-        return ReadSetDatum(raw.contig(), raw.position(), raw.ref(), raw.alt(), normalized_ref, normalized_alt, normalized_info,
-                            raw.label(), raw.tumor_depth(), raw.tumor_alt_count(), raw.normal_depth(), raw.normal_alt_count())
-
+        return self.data[index]
 
 # this is used for training and validation but not deployment / testing
 def make_semisupervised_data_loader(dataset, batch_size):

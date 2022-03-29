@@ -39,10 +39,10 @@ def test_separate_gaussian_data():
     model, training_metrics, calibration_metrics = \
         train_model_and_return_metrics(m3_params=params, training_params=training_params, data=data)
 
-    assert training_metrics.metrics.get("TRAIN variant accuracy")[training_params.num_epochs - 1] > 0.99
-    assert training_metrics.metrics.get("TRAIN artifact accuracy")[training_params.num_epochs - 1] > 0.99
-    assert training_metrics.metrics.get("VALID variant accuracy")[training_params.num_epochs-1] > 0.99
-    assert training_metrics.metrics.get("VALID artifact accuracy")[training_params.num_epochs - 1] > 0.99
+    assert training_metrics.metrics.get("TRAIN variant accuracy")[training_params.num_epochs - 1] > 0.98
+    assert training_metrics.metrics.get("TRAIN artifact accuracy")[training_params.num_epochs - 1] > 0.98
+    assert training_metrics.metrics.get("VALID variant accuracy")[training_params.num_epochs-1] > 0.98
+    assert training_metrics.metrics.get("VALID artifact accuracy")[training_params.num_epochs - 1] > 0.98
 
     test_data = artificial_data.make_two_gaussian_data(1000, is_training_data=False, vaf=0.5, unlabeled_fraction=0.0)
     test_dataset = ReadSetDataset(data=test_data)
