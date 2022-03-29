@@ -158,8 +158,8 @@ class ReadSetClassifier(nn.Module):
     # beta is for downsampling data augmentation
     def forward_starting_from_phi_reads(self, phi_reads: torch.Tensor, batch: ReadSetBatch, posterior=False, normal_artifact=False, beta: Beta = None):
         # note that to save time on beta sampling we use the same downsampling fraction for the whole batch
-        ref_downsample_frac = 1.0 if beta is None else beta.sample()
-        alt_downsample_frac = 1.0 if beta is None else beta.sample()
+        ref_downsample_frac = 1.0 if beta is None else beta.sample().item()
+        alt_downsample_frac = 1.0 if beta is None else beta.sample().item()
         # embed reads and take mean within each datum to get tensors of shape (batch size x embedding dimension)
         ref_means = torch.cat([torch.mean(phi_reads[downsample_slice(s, ref_downsample_frac)], dim=0, keepdim=True) for s in batch.ref_slices()], dim=0)
         alt_means = torch.cat([torch.mean(phi_reads[downsample_slice(s, alt_downsample_frac)], dim=0, keepdim=True) for s in batch.alt_slices()], dim=0)
@@ -407,14 +407,14 @@ class ReadSetClassifier(nn.Module):
                         loss.backward()
                         train_optimizer.step()
 
+                # done with one epoch type -- training or validation -- for this epoch
+                learning_curves.add(epoch_type.name + " labeled NLL", epoch_labeled_loss / epoch_labeled_count)
+                learning_curves.add(epoch_type.name + " less than 5 alt labeled NLL", epoch_less_than_five_loss / (epoch_less_than_five_count+0.001))
+                learning_curves.add(epoch_type.name + " more than 10 alt labeled NLL", epoch_more_than_ten_loss / (epoch_more_than_ten_count+0.001))
+                learning_curves.add(epoch_type.name + " unlabeled NLL", epoch_unlabeled_loss / (epoch_unlabeled_count+0.001))
+                learning_curves.add(epoch_type.name + " variant accuracy", epoch_confusion_matrix[0][0] / (epoch_confusion_matrix[0][0]+epoch_confusion_matrix[0][1]))
+                learning_curves.add(epoch_type.name + " artifact accuracy", epoch_confusion_matrix[1][1] / (epoch_confusion_matrix[1][0] + epoch_confusion_matrix[1][1]))
             # done with training and validation for this epoch
-            learning_curves.add(epoch_type.name + " labeled NLL", epoch_labeled_loss / epoch_labeled_count)
-            learning_curves.add(epoch_type.name + " less than 5 alt labeled NLL", epoch_less_than_five_loss / (epoch_less_than_five_count+0.001))
-            learning_curves.add(epoch_type.name + " more than 10 alt labeled NLL", epoch_more_than_ten_loss / (epoch_more_than_ten_count+0.001))
-            learning_curves.add(epoch_type.name + " unlabeled NLL", epoch_unlabeled_loss / (epoch_unlabeled_count+0.001))
-            learning_curves.add(epoch_type.name + " variant accuracy", epoch_confusion_matrix[0][0] / (epoch_confusion_matrix[0][0]+epoch_confusion_matrix[0][1]))
-            learning_curves.add(epoch_type.name + " artifact accuracy", epoch_confusion_matrix[1][1] / (epoch_confusion_matrix[1][0] + epoch_confusion_matrix[1][1]))
-
             # note that we have not learned the AF spectrum yet
         # done with training
         return learning_curves
