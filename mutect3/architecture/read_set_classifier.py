@@ -6,6 +6,7 @@ from matplotlib.backends.backend_pdf import PdfPages
 from torch import nn
 from tqdm.autonotebook import trange, tqdm
 from itertools import chain
+from torch.distributions import Beta
 
 import mutect3.metrics.plotting
 from mutect3.metrics.metrics import LearningCurves
@@ -130,8 +131,25 @@ class ReadSetClassifier(nn.Module):
         unfreeze(self.spectra_parameters())
 
     def forward(self, batch: ReadSetBatch, posterior=False, normal_artifact=False):
-        # embed reads and take mean within each datum to get tensors of shape (batch size x embedding dimension)
+        phi_reads = self.apply_phi_to_reads(batch)
+        return self.forward_starting_from_phi_reads(phi_reads=phi_reads, batch=batch, posterior=posterior, normal_artifact=normal_artifact)
+
+    # for the sake of recycling the read embeddings when training with data augmentation, we split the forward pass
+    # into 1) the expensive and recyclable embedding of every single read and 2) everything else
+    # note that apply_phi_to_reads returns a 2D tensor of N x E, where E is the embedding dimensions and N is the total
+    # number of reads in the whole batch.  Thus, we have to be careful to downsample within each datum.
+    def apply_phi_to_reads(self, batch: ReadSetBatch):
         phi_reads = torch.sigmoid(self.phi(batch.reads()))
+        return phi_reads
+
+    def downsample_rows(self, two_d_tensor: torch.Tensor, beta: Beta):
+        frac = beta.sample().item()
+
+        ref_length = max(1, round(ref_frac * len(self._ref_tensor)))
+
+
+    def forward_starting_from_phi_reads(self, phi_reads: torch.Tensor, batch: ReadSetBatch, posterior=False, normal_artifact=False):
+        # embed reads and take mean within each datum to get tensors of shape (batch size x embedding dimension)
         ref_means = torch.cat([torch.mean(phi_reads[s], dim=0, keepdim=True) for s in batch.ref_slices()], dim=0)
         alt_means = torch.cat([torch.mean(phi_reads[s], dim=0, keepdim=True) for s in batch.alt_slices()], dim=0)
 
