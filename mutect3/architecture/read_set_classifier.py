@@ -2,6 +2,7 @@
 import warnings
 
 import torch
+import random
 from matplotlib.backends.backend_pdf import PdfPages
 from torch import nn
 from tqdm.autonotebook import trange, tqdm
@@ -19,6 +20,19 @@ from mutect3.data.read_set_datum import NUM_READ_FEATURES, NUM_INFO_FEATURES
 from mutect3.utils import freeze, unfreeze, f_score
 
 warnings.filterwarnings("ignore", message="Setting attributes on ParameterList is not supported.")
+
+
+# this returns a slice or a list of indices, which is okay for choosing rows of a 2D tensor
+def downsample_slice(orig_slice: slice, beta: Beta):
+    if beta is None:
+        return orig_slice
+    start = orig_slice.start
+    stop = orig_slice.stop
+    length = orig_slice.stop - orig_slice.start + 1
+    frac = beta.sample().item()
+
+    new_length = max(1, round(frac * length))
+    return orig_slice if new_length == length else random.sample(range(start, stop), new_length)
 
 
 class Mutect3Parameters:
@@ -142,16 +156,11 @@ class ReadSetClassifier(nn.Module):
         phi_reads = torch.sigmoid(self.phi(batch.reads()))
         return phi_reads
 
-    def downsample_rows(self, two_d_tensor: torch.Tensor, beta: Beta):
-        frac = beta.sample().item()
-
-        ref_length = max(1, round(ref_frac * len(self._ref_tensor)))
-
-
-    def forward_starting_from_phi_reads(self, phi_reads: torch.Tensor, batch: ReadSetBatch, posterior=False, normal_artifact=False):
+    # beta is for downsampling data augmentation
+    def forward_starting_from_phi_reads(self, phi_reads: torch.Tensor, batch: ReadSetBatch, posterior=False, normal_artifact=False, beta: Beta = None):
         # embed reads and take mean within each datum to get tensors of shape (batch size x embedding dimension)
-        ref_means = torch.cat([torch.mean(phi_reads[s], dim=0, keepdim=True) for s in batch.ref_slices()], dim=0)
-        alt_means = torch.cat([torch.mean(phi_reads[s], dim=0, keepdim=True) for s in batch.alt_slices()], dim=0)
+        ref_means = torch.cat([torch.mean(phi_reads[downsample_slice(s, beta)], dim=0, keepdim=True) for s in batch.ref_slices()], dim=0)
+        alt_means = torch.cat([torch.mean(phi_reads[downsample_slice(s, beta)], dim=0, keepdim=True) for s in batch.alt_slices()], dim=0)
 
         # stack side-by-side to get 2D tensor, where each variant row is (ref mean, alt mean, info)
         omega_info = torch.sigmoid(self.omega(batch.info()))
@@ -355,9 +364,12 @@ class ReadSetClassifier(nn.Module):
 
                 pbar = tqdm(enumerate(loader))
                 for n, batch in pbar:
-                    orig_pred = self.forward(batch)
-                    aug1_pred = self.forward(batch.augmented_copy(beta1))
-                    aug2_pred = self.forward(batch.augmented_copy(beta2))
+                    phi_reads = self.apply_phi_to_reads(batch)
+
+                    # beta is for downsampling data augmentation
+                    orig_pred = self.forward_starting_from_phi_reads(phi_reads, batch, posterior=False, normal_artifact=False, beta=None)
+                    aug1_pred = self.forward_starting_from_phi_reads(phi_reads, batch, posterior=False, normal_artifact=False, beta=beta1)
+                    aug2_pred = self.forward_starting_from_phi_reads(phi_reads, batch, posterior=False, normal_artifact=False, beta=beta2)
 
                     if batch.is_labeled():
                         labels = batch.labels()

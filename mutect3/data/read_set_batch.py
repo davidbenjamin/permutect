@@ -10,8 +10,8 @@ from mutect3.data.read_set_datum import ReadSetDatum
 
 # given list of slice sizes, produce a list of index slice objects
 # eg input = [2,3,1] --> [slice(0,2), slice(2,5), slice(5,6)]
-def make_slices(sizes, offset=0):
-    slice_ends = offset + torch.cumsum(sizes, dim=0)
+def make_slices(sizes: torch.IntTensor, offset: int = 0):
+    slice_ends = (offset + torch.cumsum(sizes, dim=0)).tolist()
     return [slice(offset if n == 0 else slice_ends[n - 1], slice_ends[n]) for n in range(len(sizes))]
 
 
@@ -40,7 +40,7 @@ class ReadSetBatch:
         self._ref_counts = torch.IntTensor([len(item.ref_tensor()) for item in data])
         self._alt_counts = torch.IntTensor([len(item.alt_tensor()) for item in data])
         self._ref_slices = make_slices(self._ref_counts)
-        self._alt_slices = make_slices(self._alt_counts, torch.sum(self._ref_counts))
+        self._alt_slices = make_slices(self._alt_counts, torch.sum(self._ref_counts).item())
         self._reads = torch.cat([item.ref_tensor() for item in data] + [item.alt_tensor() for item in data], dim=0)
         self._info = torch.stack([item.info_tensor() for item in data], dim=0)
         self._labels = torch.FloatTensor([1.0 if item.label() == "ARTIFACT" else 0.0 for item in data]) if self.labeled else None
