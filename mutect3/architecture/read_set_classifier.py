@@ -23,15 +23,14 @@ warnings.filterwarnings("ignore", message="Setting attributes on ParameterList i
 
 
 # this returns a slice or a list of indices, which is okay for choosing rows of a 2D tensor
-def downsample_slice(orig_slice: slice, beta: Beta):
-    if beta is None:
+def downsample_slice(orig_slice: slice, fraction: float):
+    if fraction == 1.0:
         return orig_slice
     start = orig_slice.start
     stop = orig_slice.stop
     length = orig_slice.stop - orig_slice.start + 1
-    frac = beta.sample().item()
 
-    new_length = max(1, round(frac * length))
+    new_length = max(1, round(fraction * length))
     return orig_slice if new_length == length else random.sample(range(start, stop), new_length)
 
 
@@ -158,9 +157,12 @@ class ReadSetClassifier(nn.Module):
 
     # beta is for downsampling data augmentation
     def forward_starting_from_phi_reads(self, phi_reads: torch.Tensor, batch: ReadSetBatch, posterior=False, normal_artifact=False, beta: Beta = None):
+        # note that to save time on beta sampling we use the same downsampling fraction for the whole batch
+        ref_downsample_frac = 1.0 if beta is None else beta.sample()
+        alt_downsample_frac = 1.0 if beta is None else beta.sample()
         # embed reads and take mean within each datum to get tensors of shape (batch size x embedding dimension)
-        ref_means = torch.cat([torch.mean(phi_reads[downsample_slice(s, beta)], dim=0, keepdim=True) for s in batch.ref_slices()], dim=0)
-        alt_means = torch.cat([torch.mean(phi_reads[downsample_slice(s, beta)], dim=0, keepdim=True) for s in batch.alt_slices()], dim=0)
+        ref_means = torch.cat([torch.mean(phi_reads[downsample_slice(s, ref_downsample_frac)], dim=0, keepdim=True) for s in batch.ref_slices()], dim=0)
+        alt_means = torch.cat([torch.mean(phi_reads[downsample_slice(s, alt_downsample_frac)], dim=0, keepdim=True) for s in batch.alt_slices()], dim=0)
 
         # stack side-by-side to get 2D tensor, where each variant row is (ref mean, alt mean, info)
         omega_info = torch.sigmoid(self.omega(batch.info()))
