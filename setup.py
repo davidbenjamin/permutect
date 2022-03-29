@@ -10,6 +10,7 @@ setup(
     packages=find_packages(),
     entry_points={
         'console_scripts': ['train_model=mutect3.tools.train_model:main',
+                            'train_normal_artifact_model=mutect3.tools.train_normal_artifact_model:main',
                             'filter_variants=mutect3.tools.filter_variants:main',
                             'compare_to_mutect2=mutect3.tools.compare_to_mutect2:main'
                             ]

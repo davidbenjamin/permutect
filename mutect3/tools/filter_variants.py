@@ -13,15 +13,22 @@ from mutect3.data import read_set_datum, read_set_dataset
 TRUSTED_M2_FILTERS = {'contamination', 'germline', 'weak_evidence'}
 
 
-# this presumes that we have a ReadSetClassifier model and we have saved it via save_mutect3_model
+# this presumes that we have a ReadSetClassifier model and we have saved it via save_mutect3_model as in train_model.py
 def load_saved_model(path):
     saved = torch.load(path)
     m3_params = saved['m3_params']
-    # TODO: this should not be hard-coded.  See above above introducing na_params
-    na_model = mutect3.architecture.normal_artifact_model.NormalArtifactModel([10, 10, 10])
-    model = mutect3.architecture.read_set_classifier.ReadSetClassifier(m3_params, na_model)
+    model = mutect3.architecture.read_set_classifier.ReadSetClassifier(m3_params, None)
     model.load_state_dict(saved['model_state_dict'])
     return model
+
+
+# this presumes that we have a NormalArtifact model and we have saved it via save_normal_artifact_model as in train_normal_artifact_model.py
+def load_saved_normal_artifact_model(path):
+    saved = torch.load(path)
+    hidden_layers = saved['hidden_layers']
+    na_model = mutect3.architecture.normal_artifact_model.NormalArtifactModel(hidden_layers)
+    na_model.load_state_dict(saved['model_state_dict'])
+    return na_model
 
 
 def encode(contig: str, position: int, alt: str):
@@ -47,6 +54,7 @@ def main():
     parser.add_argument('--input', help='VCF from GATK', required=True)
     parser.add_argument('--test_dataset', help='test dataset file from GATK', required=True)
     parser.add_argument('--trained_m3_model', help='trained Mutect3 model', required=True)
+    parser.add_argument('--trained_normal_artifact_model', help='trained normal artifact model', required=True)
     parser.add_argument('--output', help='output filtered vcf', required=True)
     parser.add_argument('--report_pdf', required=False)
     parser.add_argument('--roc_pdf', required=False)
@@ -63,7 +71,9 @@ def main():
     dataset = read_set_dataset.ReadSetDataset(data=m3_variants)
     data_loader = read_set_dataset.make_test_data_loader(dataset, args.batch_size)
 
+    na_model = load_saved_normal_artifact_model(args.trained_normal_artifact_model)
     model = load_saved_model(args.trained_m3_model)
+    model.set_normal_artifact_model(na_model)
     use_normal_artifact = (not args.turn_off_normal_artifact)
 
     # The AF spectrum was, of course, not pre-trained with the rest of the model

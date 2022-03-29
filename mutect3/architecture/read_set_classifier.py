@@ -98,6 +98,9 @@ class ReadSetClassifier(nn.Module):
         if na_model is not None:
             freeze(self.normal_artifact_model.parameters())
 
+    def set_normal_artifact_model(self, na_model: NormalArtifactModel):
+        self.normal_artifact_model = na_model
+
     def get_prior_model(self):
         return self.prior_model
 

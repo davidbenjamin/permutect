@@ -11,6 +11,7 @@ workflow Mutect3 {
         File? precomputed_mutect2_vcf_idx
 
         File mutect3_model
+        File normal_artifact_model
         File? intervals
         File? masks
         File ref_fasta
@@ -101,6 +102,7 @@ workflow Mutect3 {
             mutect2_vcf = select_first([precomputed_mutect2_vcf, Mutect2.filtered_vcf]),
             mutect2_vcf_idx = select_first([precomputed_mutect2_vcf_idx, Mutect2.filtered_vcf_idx]),
             mutect3_model = mutect3_model,
+            normal_artifact_model = normal_artifact_model,
             test_dataset = TestDataset.mutect3Dataset,
             batch_size = batch_size,
             mutect3_docker = mutect3_docker,
@@ -123,6 +125,7 @@ workflow Mutect3 {
 task Mutect3Filtering {
     input {
         File mutect3_model
+        File normal_artifact_model
         File test_dataset
         File mutect2_vcf
         File mutect2_vcf_idx
@@ -149,6 +152,7 @@ task Mutect3Filtering {
             --test_dataset ~{test_dataset} \
             --batch_size ~{batch_size} \
             --trained_m3_model ~{mutect3_model} \
+            --trained_normal_artifact_model ~{normal_artifact_model} \
             --batch_size ~{batch_size} \
             --output mutect3-filtered.vcf \
             --report_pdf report.pdf \
