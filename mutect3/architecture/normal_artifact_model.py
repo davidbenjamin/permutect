@@ -68,7 +68,7 @@ class NormalArtifactModel(nn.Module):
         z = self.mlp_z(torch.Tensor([[normal_af]]))
 
         # squeeze removes the dummy batch dimension.  Now it's 1D
-        log_weights = nn.functional.log_softmax(self.z, dim=1).squeeze()
+        log_weights = nn.functional.log_softmax(z, dim=1).squeeze()
 
         # list of component beta distributions
         betas = [torch.distributions.beta.Beta(torch.FloatTensor([alpha]), torch.FloatTensor([beta])) for (alpha, beta)

@@ -44,5 +44,6 @@ def test_normal_artifact():
 
     na_model = mutect3.architecture.normal_artifact_model.NormalArtifactModel(hidden_layers=hidden_layers)
     na_training_metrics = na_model.train_model(na_train_loader, na_valid_loader, num_epochs=num_epochs)
+    [na_model.plot_spectrum(af, "0.1 plot") for af in [0.0, 0.05, 0.1, 0.15, 0.2, 0.5]]
 
     j = 90
