@@ -20,7 +20,7 @@ class NormalArtifactModel(nn.Module):
         # the shapes are hard-coded and immutable -- the idea is that we're not really interested in modeling
         # the tumor AF spectrum perfectly, just in figuring out coarsely whether to expect a significant amount
         # of tumor alt reads or not
-        shapes = [(1, 1000), (1, 100), (5, 50), (15, 40), (5, 2)]
+        shapes = [(1, 1000), (1, 100), (5, 50), (10, 45), (15, 40), (5, 2)]
         self.num_components = len(shapes)
         self.a = torch.FloatTensor([shape[0] for shape in shapes])
         self.b = torch.FloatTensor([shape[1] for shape in shapes])
@@ -62,7 +62,7 @@ class NormalArtifactModel(nn.Module):
 
     # plot the beta mixture density of tumor AF given normal data
     def plot_spectrum(self, normal_af: float, title):
-        f = torch.arange(0.01, 0.99, 0.01)
+        f = torch.arange(0.005, 0.999, 0.001)
 
         # z is a 2D tensor: 1 x number of mixture components, where '1' is a dummy singleton batch
         z = self.mlp_z(torch.Tensor([[normal_af]]))

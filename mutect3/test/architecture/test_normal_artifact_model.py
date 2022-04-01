@@ -13,22 +13,26 @@ from mutect3.data import normal_artifact_dataset
 # normal and tumor depth are always 100
 # 1 in 5 chance of normal artifact, in which case
 #   i) normal alt count is binomial(normal_depth, 0.1)
-#   ii) tumor depth is also binomial(tumor depth, 0.1)
+#   ii) tumor depth is binomial(tumor depth, 0.1) with some probability and 0 otherwise
+# (ie normal alts don't always imply tumor artifact)
 # 4 in 5 chance of no artifact, in which case alt counts are 0
 def test_normal_artifact():
     depth = 100
     data = []
-    size = 10000
-    artifact_fraction = 0.2
-    artifact_af = 0.1
+    size = 100000
+    artifact_fraction = 0.3
+    #artifact_af = 0.15
+    normal_imply_tumor_prob = 0.5
     batch_size = 64
-    num_epochs = 10
-    hidden_layers = [5, 5]
+    num_epochs = 100
+    hidden_layers = [5, 5, 5]
     for _ in range(size):
         artifact = random.uniform(0, 1) < artifact_fraction
         if artifact:
+            artifact_af = random.uniform(0.1, 0.5)
             normal_alt_count = binomial(depth, artifact_af)
-            tumor_alt_count = binomial(depth, artifact_af)
+            tumor_artifact = random.uniform(0, 1) < normal_imply_tumor_prob
+            tumor_alt_count = binomial(depth, artifact_af) if tumor_artifact else 0
             datum = NormalArtifactDatum(normal_alt_count=normal_alt_count, normal_depth=depth, tumor_alt_count=tumor_alt_count,
                                         tumor_depth=depth, downsampling=1, variant_type="SNV")
         else:
@@ -44,6 +48,6 @@ def test_normal_artifact():
 
     na_model = mutect3.architecture.normal_artifact_model.NormalArtifactModel(hidden_layers=hidden_layers)
     na_training_metrics = na_model.train_model(na_train_loader, na_valid_loader, num_epochs=num_epochs)
-    [na_model.plot_spectrum(af, "0.1 plot") for af in [0.0, 0.05, 0.1, 0.15, 0.2, 0.5]]
+    [na_model.plot_spectrum(af, "af = " + str(af) + " plot") for af in [0.0, 0.05, 0.1, 0.15, 0.2, 0.5]]
 
     j = 90
