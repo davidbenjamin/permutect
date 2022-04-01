@@ -23,10 +23,9 @@ def make_trained_normal_artifact_model(normal_artifact_datasets, num_epochs, hid
             for fig, curve in na_training_metrics.plot_curves():
                 pdf.savefig(fig)
 
-            for normal_alt, normal_depth in [(0, 30), (1, 30), (2, 30), (3, 30), (4, 30), (5, 30), (10, 30), (15, 30)]:
+            for normal_af in [0.0, 0.03, 0.06, 0.1, 0.15, 0.25, 0.5, 0.75]:
                 fig, curve = na_model.plot_spectrum(
-                    normal_alt, normal_depth, "NA modeled tumor AF given normal alt count, normal depth = " +
-                                              str(normal_alt) + ", " + str(normal_depth))
+                    normal_af, "NA modeled tumor AF given normal AF = " + str(normal_af))
                 pdf.savefig(fig)
 
     return na_model

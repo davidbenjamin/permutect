@@ -1,5 +1,5 @@
 import random
-from typing import List
+from typing import List, Iterable
 
 import pandas as pd
 from torch.utils.data import Dataset, DataLoader
@@ -24,10 +24,11 @@ def read_normal_artifact_data(table_file, shuffle=True) -> List[NormalArtifactDa
 
 
 class NormalArtifactDataset(Dataset):
-    def __init__(self, table_files):
+    def __init__(self, table_files=[], data: Iterable[NormalArtifactDatum] = []):
         self.data = []
         for table_file in table_files:
             self.data.extend(read_normal_artifact_data(table_file))
+        self.data.extend(data)
         random.shuffle(self.data)
 
     def __len__(self):

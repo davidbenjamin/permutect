@@ -8,7 +8,6 @@ from mutect3.metrics.plotting import simple_plot
 from mutect3.metrics.metrics import LearningCurves
 from mutect3 import utils
 from mutect3.architecture.mlp import MLP
-from mutect3.data.normal_artifact_datum import NormalArtifactDatum
 from mutect3.data.normal_artifact_batch import NormalArtifactBatch
 from mutect3.utils import beta_binomial
 
@@ -18,79 +17,67 @@ class NormalArtifactModel(nn.Module):
     def __init__(self, hidden_layers: List[int], dropout_p: float = None):
         super(NormalArtifactModel, self).__init__()
 
-        # number of mixture components
-        self.num_components = 3
+        # the shapes are hard-coded and immutable -- the idea is that we're not really interested in modeling
+        # the tumor AF spectrum perfectly, just in figuring out coarsely whether to expect a significant amount
+        # of tumor alt reads or not
+        shapes = [(1, 1000), (1, 100), (5, 50), (15, 40), (5, 2)]
+        self.num_components = len(shapes)
+        self.a = torch.FloatTensor([shape[0] for shape in shapes])
+        self.b = torch.FloatTensor([shape[1] for shape in shapes])
 
-        # we will convert the normal alt and normal depth into the shape parameters of
-        # the beta distribution they define.
-        input_to_output_layer_sizes = [2] + hidden_layers + [self.num_components]
+        # MLP for computing (pre-softmax) weights for the beta-binomial mixture.
+        # input is the 1-element tensor -- just the normal AF -- though that may change
+        # output are the pre-softmax mixture component weights
+        self.mlp_z = MLP([1] + hidden_layers + [self.num_components], batch_normalize=False, dropout_p=dropout_p)
 
-        # the alpha, beta, and z layers take as input 2D BATCH_SIZE x 2 tensors (the 2 comes from the input dimension
-        # of normal alt count, normal depth, which we transform into normal mu, sigma) and output
-        # 2D BATCH_SIZE x num_components tensors.  Each row has all the component alphas (or betas, or z)
-        # for one datum in the batch
-        self.mlp_alpha = MLP(input_to_output_layer_sizes, batch_normalize=False, dropout_p=dropout_p)
-        self.mlp_beta = MLP(input_to_output_layer_sizes, batch_normalize=False, dropout_p=dropout_p)
-        self.mlp_z = MLP(input_to_output_layer_sizes, batch_normalize=False, dropout_p=dropout_p)
+    # note: copied from af_spectrum.py
+    # k "successes" out of n "trials" -- k and n are 1D tensors of the same size
+    # normal AF is 2D, batch size x 1 (the second dimension is just the normal AF)
+    def log_likelihood_given_normal_af(self, tumor_alt_counts: torch.IntTensor, tumor_depths: torch.IntTensor, normal_af: torch.Tensor):
+        # z is a 2D tensor batch size x number of mixture components
+        z = self.mlp_z(normal_af)
 
-    def forward(self, batch: NormalArtifactBatch):
-        return self.log_likelihood(batch)
+        # log_weights is the same shape as z but after a log softmax
+        # each row is the log mixture weights for one datum in the batch
+        log_weights = nn.functional.log_softmax(z, dim=1)
 
-    def get_beta_parameters(self, normal_alt: torch.IntTensor, normal_depth: torch.IntTensor):
-        # beta posterior of normal counts with flat 1,1 prior
-        # alpha, bet, mu, sigma are all 1D tensors
-        alpha = normal_alt + 1
-        alpha = alpha.float()
-        beta = normal_depth - normal_alt + 1
-        beta = beta.float()
-        mu = alpha / (alpha + beta)
-        sigma = torch.sqrt(alpha * beta / ((alpha + beta) * (alpha + beta) * (alpha + beta + 1)))
+        # tumor depths, tumor alt counts, a, b are all 1D tensors.  If we unsqueeze n,k along dim=1 and unsqueeze a,,b along dim=0
+        # the resulting 2D log_likelihoods will have the structure
+        # likelihoods[i,j] = beta_binomial(n[i],k[i],alpha[j],beta[j])
+        # this means that the first dimension is the batch and the second is the mixture component
+        log_likelihoods = beta_binomial(tumor_depths.unsqueeze(1), tumor_alt_counts.unsqueeze(1), self.a.unsqueeze(0), self.b.unsqueeze(0))
 
-        # parametrize the input as the mean and std of this beta
-        # each row is one datum of the batch
-        mu_sigma = torch.stack((mu, sigma), dim=1)
-
-        # parametrize the generative model in terms of the beta shape parameters
-        # note the exp to make it positive and the squeeze to make it 1D, as required by the beta binomial
-        output_alpha = torch.exp(self.mlp_alpha(mu_sigma))
-        output_beta = torch.exp(self.mlp_beta(mu_sigma))
-        output_z = self.mlp_z(mu_sigma)
-        log_pi = nn.functional.log_softmax(output_z, dim=1)
-
-        # These are all 2D tensors -- BATCH_SIZE x num_components
-        return output_alpha, output_beta, log_pi
+        # by the convention above, the 0th dimension of log_likelihoods is n,k (batch) and the 1st dimension
+        # is alpha, beta.  We sum over the latter, getting a 1D tensor corresponding to the batch
+        return torch.logsumexp(log_weights + log_likelihoods, dim=1)
 
     # given normal alts, normal depths, tumor depths, what is the log likelihood of given tumor alt counts
     # that is, this returns the 1D tensor of log likelihoods
     def log_likelihood(self, batch: NormalArtifactBatch):
-        output_alpha, output_beta, log_pi = self.get_beta_parameters(batch.normal_alt(), batch.normal_depth())
+        normal_af = (batch.normal_alt() / (batch.normal_depth() + 0.1)).unsqueeze(dim=1)
+        return self.log_likelihood_given_normal_af(batch.tumor_alt(), batch.tumor_depth(), normal_af)
 
-        n = batch.tumor_depth().unsqueeze(1)
-        k = batch.tumor_alt().unsqueeze(1)
-
-        component_log_likelihoods = beta_binomial(n, k, output_alpha, output_beta)
-        # 0th dimension is batch, 1st dimension is component.  Sum over the latter
-        return torch.logsumexp(log_pi + component_log_likelihoods, dim=1)
+    def forward(self, batch: NormalArtifactBatch):
+        return self.log_likelihood(batch)
 
     # plot the beta mixture density of tumor AF given normal data
-    def plot_spectrum(self, normal_alt: int, normal_depth: int, title):
+    def plot_spectrum(self, normal_af: float, title):
         f = torch.arange(0.01, 0.99, 0.01)
 
-        output_alpha, output_beta, log_pi = self.get_beta_parameters(torch.IntTensor([normal_alt]), torch.IntTensor([normal_depth]))
+        # z is a 2D tensor: 1 x number of mixture components, where '1' is a dummy singleton batch
+        z = self.mlp_z(torch.Tensor([[normal_af]]))
 
-        # remove dummy dimension from the method above, which returns 2D tensors
-        output_alpha = output_alpha.squeeze()
-        output_beta = output_beta.squeeze()
-        log_pi = log_pi.squeeze()
+        # squeeze removes the dummy batch dimension.  Now it's 1D
+        log_weights = nn.functional.log_softmax(self.z, dim=1).squeeze()
 
         # list of component beta distributions
         betas = [torch.distributions.beta.Beta(torch.FloatTensor([alpha]), torch.FloatTensor([beta])) for (alpha, beta)
-                 in zip(output_alpha.detach().numpy(), output_beta.detach().numpy())]
+                 in zip(self.a.numpy(), self.b.numpy())]
 
         # list of tensors - the list is over the mixture components, the tensors are over AF values f
         unweighted_log_densities = torch.stack([beta.log_prob(f) for beta in betas], dim=0)
         # unsqueeze to make log_pi a column vector (2D tensor) for broadcasting
-        weighted_log_densities = torch.unsqueeze(log_pi, 1) + unweighted_log_densities
+        weighted_log_densities = torch.unsqueeze(log_weights, 1) + unweighted_log_densities
         densities = torch.exp(torch.logsumexp(weighted_log_densities, dim=0))
 
         return simple_plot([(f.detach().numpy(), densities.detach().numpy(), " ")], "AF", "density", title)
