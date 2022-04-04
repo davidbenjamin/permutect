@@ -1,6 +1,7 @@
 import torch
 from torch import nn
 from torch.distributions.binomial import Binomial
+from typing import Callable
 
 import mutect3.metrics.plotting
 from mutect3.data.read_set_batch import ReadSetBatch
@@ -9,7 +10,7 @@ from mutect3.utils import beta_binomial
 
 class AFSpectrum(nn.Module):
 
-    def __init__(self):
+    def __init__(self, lambda_for_initial_z: Callable[[float], float] = None):
         super(AFSpectrum, self).__init__()
         # evenly-spaced beta binomials.  These are constants for now
         # TODO: should these be learned by making them Parameters?
@@ -17,8 +18,12 @@ class AFSpectrum(nn.Module):
         self.a = torch.FloatTensor([shape[0] for shape in shapes])
         self.b = torch.FloatTensor([shape[1] for shape in shapes])
 
-        # (pre-softmax) weights for the beta-binomial mixture.  Initialized as uniform.
-        self.z = nn.Parameter(torch.ones(len(shapes)))
+        if lambda_for_initial_z is None:
+            # (pre-softmax) weights for the beta-binomial mixture.  Initialized as uniform.
+            self.z = nn.Parameter(torch.ones(len(shapes)))
+        else:
+            initial_weights = [lambda_for_initial_z(x) for x in self.a/(self.a + self.b)]
+            self.z = nn.Parameter(torch.Tensor(initial_weights))
 
     # k "successes" out of n "trials" -- k and n are 1D tensors of the same size
     def log_likelihood(self, k, n):
