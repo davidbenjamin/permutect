@@ -1,5 +1,6 @@
 import argparse
 from typing import Set
+import time
 
 import torch
 from cyvcf2 import VCF, Writer, Variant
@@ -10,7 +11,8 @@ import mutect3.architecture.normal_artifact_model
 import mutect3.architecture.read_set_classifier
 from mutect3.data import read_set_datum, read_set_dataset
 
-TRUSTED_M2_FILTERS = {'contamination', 'germline', 'weak_evidence'}
+# TODO: eventually M3 can handle multiallelics
+TRUSTED_M2_FILTERS = {'contamination', 'germline', 'weak_evidence', 'multiallelic'}
 
 
 # this presumes that we have a ReadSetClassifier model and we have saved it via save_mutect3_model as in train_model.py
@@ -32,7 +34,9 @@ def load_saved_normal_artifact_model(path):
 
 
 def encode(contig: str, position: int, alt: str):
-    return contig + ':' + str(position) + ':' + alt
+    # TODO: restore the alt eventually once we handle multiallelics intelligently eg by splitting
+    # return contig + ':' + str(position) + ':' + alt
+    return contig + ':' + str(position)
 
 
 def encode_datum(datum: read_set_datum.ReadSetDatum):
@@ -62,12 +66,32 @@ def main():
     parser.add_argument('--turn_off_normal_artifact', action='store_true')
     args = parser.parse_args()
 
+    # DEBUG
+    position_to_filters = {}
+    for v in VCF(args.input):
+        position_to_filters[(v.CHROM, v.start + 1)] = v.FILTERS
+
+
+    # DEBUG
+
     # record encodings of variants that M2 filtered as germline, contamination, or weak evidence
     # Mutect3 ignores these
     m2_filtering_to_keep = set([encode_variant(v, zero_based=True) for v in VCF(args.input) if filters_to_keep_from_m2(v)])
 
     print("Reading test dataset")
-    m3_variants = filter(lambda d: encode_datum(d) not in m2_filtering_to_keep, read_set_dataset.read_data(args.test_dataset))
+    unfiltered_test_data = read_set_dataset.read_data(args.test_dataset)
+    m3_variants = []
+    for datum in unfiltered_test_data:
+        encoding = encode_datum(datum)
+        if encoding not in m2_filtering_to_keep:
+            m3_variants.append(datum)
+            filters = position_to_filters[(datum.contig(), datum.position())]
+            # print(str(datum.contig()) + ":" + str(datum.position()))
+            # print(filters)
+            # time.sleep(0.1)
+
+
+    print("Size of test dataset: " + str(len(m3_variants)))
 
     dataset = read_set_dataset.ReadSetDataset(data=m3_variants)
     data_loader = read_set_dataset.make_test_data_loader(dataset, args.batch_size)
