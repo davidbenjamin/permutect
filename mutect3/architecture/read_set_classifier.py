@@ -216,17 +216,23 @@ class ReadSetClassifier(nn.Module):
 
         return logits
 
-    def learn_spectra(self, loader, num_epochs, use_normal_artifact=False):
+    # return a LearningCurves, List[(figure, curve)] tuple, the latter being the spectra at each epoch
+    def learn_spectra(self, loader, num_epochs, use_normal_artifact=False, extra_metrics=True):
         self.learn_spectrum_mode()
 
         logits_and_batches = [(self.forward(batch=batch, normal_artifact=use_normal_artifact).detach(), batch) for batch in loader]
         optimizer = torch.optim.Adam(self.spectra_parameters())
 
         spectra_learning_curve = LearningCurves()
+        epoch_spectra = []
         pbar = trange(num_epochs, desc="AF spectra epoch")
         for epoch in pbar:
             epoch_loss = 0
             epoch_count = 0
+            epoch_artifacts = 0.0
+            epoch_variants = 0.0
+            epoch_certain_variants = 0
+            epoch_certain_artifacts = 0
             for logits, batch in logits_and_batches:
                 loss = -torch.mean(self.prior_model.log_evidence(logits, batch))
                 optimizer.zero_grad()
@@ -235,10 +241,25 @@ class ReadSetClassifier(nn.Module):
                 epoch_loss += loss.item()
                 epoch_count += batch.size()
 
+                if extra_metrics:
+                    posterior_logits = self.prior_model.forward(logits, batch)
+                    posterior_probs = torch.sigmoid(posterior_logits)
+                    epoch_artifacts += torch.sum(posterior_probs).item()
+                    epoch_variants += torch.sum(1 - posterior_probs).item()
+                    epoch_certain_artifacts += torch.sum(posterior_probs > 0.99).item()
+                    epoch_certain_variants += torch.sum(posterior_probs < 0.01).item()
+
+            if extra_metrics:
+                spectra_learning_curve.add("artifact count", epoch_artifacts)
+                spectra_learning_curve.add("variant count", epoch_variants)
+                spectra_learning_curve.add("certain artifact count", epoch_certain_artifacts)
+                spectra_learning_curve.add("certain variant count", epoch_certain_variants)
+                epoch_spectra.extend(self.get_prior_model().plot_spectra(title_prefix=("Epoch" + str(epoch) + ": ")))
+
             # TODO: learning curves for different alt counts
             spectra_learning_curve.add("spectrum NLL", epoch_loss / epoch_count)
 
-        return spectra_learning_curve
+        return spectra_learning_curve, epoch_spectra
 
     def learn_calibration(self, loader, num_epochs):
         self.train(False)

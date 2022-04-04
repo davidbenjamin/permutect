@@ -48,9 +48,9 @@ class PriorModel(nn.Module):
         return term1 - term2
 
     # returns list of fig, curve tuples
-    def plot_spectra(self):
+    def plot_spectra(self, title_prefix=""):
         result = []
         for variant_type in utils.VariantType:
-            result.append(self.artifact_spectra[variant_type.value].plot_spectrum(variant_type.name + " artifact AF spectrum"))
-        result.append(self.variant_spectrum.plot_spectrum("Variant AF spectrum"))
+            result.append(self.artifact_spectra[variant_type.value].plot_spectrum(title_prefix + variant_type.name + " artifact AF spectrum"))
+        result.append(self.variant_spectrum.plot_spectrum(title_prefix + "Variant AF spectrum"))
         return result

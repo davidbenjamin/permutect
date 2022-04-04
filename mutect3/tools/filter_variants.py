@@ -78,7 +78,7 @@ def main():
 
     # The AF spectrum was, of course, not pre-trained with the rest of the model
     print("Learning AF spectra")
-    spectrum_metrics = model.learn_spectra(data_loader, num_epochs=200, use_normal_artifact=use_normal_artifact)
+    spectrum_metrics, epoch_spectra = model.learn_spectra(data_loader, num_epochs=25, use_normal_artifact=use_normal_artifact)
 
     print("generating plots")
     if args.report_pdf is not None:
@@ -88,6 +88,9 @@ def main():
 
             spectra_plots = model.get_prior_model().plot_spectra()
             for fig, curve in spectra_plots:
+                pdf.savefig(fig)
+
+            for fig, curve in epoch_spectra:
                 pdf.savefig(fig)
 
     print("Calculating optimal logit threshold")
