@@ -64,10 +64,11 @@ def main():
 
     # record encodings of variants that M2 filtered as germline, contamination, or weak evidence
     # Mutect3 ignores these
-    m2_filtering_to_keep = set([encode_variant(v) for v in VCF(args.input) if filters_to_keep_from_m2(v)])
+    m2_filtering_to_keep = set([encode_variant(v, zero_based=True) for v in VCF(args.input) if filters_to_keep_from_m2(v)])
 
     print("Reading test dataset")
     m3_variants = filter(lambda d: encode_datum(d) not in m2_filtering_to_keep, read_set_dataset.read_data(args.test_dataset))
+
     dataset = read_set_dataset.ReadSetDataset(data=m3_variants)
     data_loader = read_set_dataset.make_test_data_loader(dataset, args.batch_size)
 
