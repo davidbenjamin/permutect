@@ -66,14 +66,6 @@ def main():
     parser.add_argument('--turn_off_normal_artifact', action='store_true')
     args = parser.parse_args()
 
-    # DEBUG
-    position_to_filters = {}
-    for v in VCF(args.input):
-        position_to_filters[(v.CHROM, v.start + 1)] = v.FILTERS
-
-
-    # DEBUG
-
     # record encodings of variants that M2 filtered as germline, contamination, or weak evidence
     # Mutect3 ignores these
     m2_filtering_to_keep = set([encode_variant(v, zero_based=True) for v in VCF(args.input) if filters_to_keep_from_m2(v)])
@@ -85,11 +77,6 @@ def main():
         encoding = encode_datum(datum)
         if encoding not in m2_filtering_to_keep:
             m3_variants.append(datum)
-            filters = position_to_filters[(datum.contig(), datum.position())]
-            # print(str(datum.contig()) + ":" + str(datum.position()))
-            # print(filters)
-            # time.sleep(0.1)
-
 
     print("Size of test dataset: " + str(len(m3_variants)))
 

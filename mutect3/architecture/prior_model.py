@@ -19,6 +19,9 @@ class PriorModel(nn.Module):
             self.artifact_spectra.append(AFSpectrum(lambda_for_initial_z=lambda x: (1 - 10*x)))
             self.prior_log_odds.append(nn.Parameter(torch.tensor(initial_log_ratio)))
 
+    def variant_log_likelihoods(self, batch: ReadSetBatch):
+        return self.variant_spectrum.forward(batch)
+
     # calculate log likelihoods for all variant types and then apply a mask to select the correct
     # type for each datum in a batch
     def artifact_log_likelihoods(self, batch: ReadSetBatch):
