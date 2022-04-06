@@ -238,10 +238,14 @@ class ReadSetClassifier(nn.Module):
                 posterior_logits = self.prior_model.forward(logits, batch).detach()
                 posterior_probs = torch.sigmoid(posterior_logits)
 
+                variant_probs = 1 - posterior_probs
+                variant_probs = variant_probs * (variant_probs > 0.8)
+                artifact_probs = posterior_probs * (posterior_probs > 0.8)
+
                 # weight the AF spectra's log likelihoods by the (detached) posterior probabilities
                 # of the read set classifier
-                weighted_log_lk = (1 - posterior_probs) * self.prior_model.variant_log_likelihoods(batch) + \
-                                  posterior_probs * self.prior_model.artifact_log_likelihoods(batch, include_prior=False)
+                weighted_log_lk = variant_probs * self.prior_model.variant_log_likelihoods(batch) + \
+                                  artifact_probs * self.prior_model.artifact_log_likelihoods(batch, include_prior=False)
 
                 artifact_log_odds = self.prior_model.artifact_log_priors(batch)
                 artifact_log_priors = -torch.log1p(torch.exp(-artifact_log_odds))
