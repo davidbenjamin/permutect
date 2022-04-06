@@ -219,72 +219,74 @@ class ReadSetClassifier(nn.Module):
     # return a LearningCurves, List[(figure, curve)] tuple, the latter being the spectra at each epoch
     def learn_spectra(self, loader, num_epochs, use_normal_artifact=False, extra_metrics=True):
         self.learn_spectrum_mode()
+        spectra_learning_curve = LearningCurves()
+        iteration_spectra = []
 
         logits_and_batches = [(self.forward(batch=batch, normal_artifact=use_normal_artifact).detach(), batch) for batch in loader]
         optimizer = torch.optim.Adam(self.spectra_parameters())
 
-        spectra_learning_curve = LearningCurves()
-        epoch_spectra = []
-        pbar = trange(num_epochs, desc="AF spectra epoch")
-        for epoch in pbar:
-            epoch_loss = 0
-            epoch_count = 0
-            epoch_artifacts = 0.0
-            epoch_variants = 0.0
-            epoch_certain_variants = 0
-            epoch_certain_artifacts = 0
+        # NEW
+        overall_epocb = 0
+        num_iterations = 10
+        num_fit_epochs = 10
+        iteration_pbar = trange(num_iterations, desc="AF spectra iteration")
+        for iteration in iteration_pbar:
+            
+            probs_and_batches = []
             for logits, batch in logits_and_batches:
-                # NEW CODE
                 posterior_logits = self.prior_model.forward(logits, batch).detach()
                 posterior_probs = torch.sigmoid(posterior_logits)
+                probs_and_batches.append((posterior_probs, batch))
+            iteration_artifacts = 0.0
+            iteration_variants = 0.0
+            iteration_certain_variants = 0
+            iteration_certain_artifacts = 0
 
-                variant_probs = 1 - posterior_probs
-                variant_probs = variant_probs * (variant_probs > 0.8)
-                artifact_probs = posterior_probs * (posterior_probs > 0.8)
+            fit_pbar = trange(num_fit_epochs, desc="AF fitting epoch")
+            for epoch in fit_pbar:
+                overall_epocb += 1
+                epoch_loss = 0
+                epoch_count = 0
+                
+                for probs, batch in probs_and_batches:
+                    variant_probs = (1 - probs)*(probs < 0.2)
+                    artifact_probs = probs * (probs > 0.8)
 
-                # weight the AF spectra's log likelihoods by the (detached) posterior probabilities
-                # of the read set classifier
-                weighted_log_lk = variant_probs * self.prior_model.variant_log_likelihoods(batch) + \
-                                  artifact_probs * self.prior_model.artifact_log_likelihoods(batch, include_prior=False)
+                    variant_loss = -variant_probs * self.prior_model.variant_log_likelihoods(batch)
+                    artifact_loss = -artifact_probs * self.prior_model.artifact_log_likelihoods(batch, include_prior=False)
 
-                artifact_log_odds = self.prior_model.artifact_log_priors(batch)
-                artifact_log_priors = -torch.log1p(torch.exp(-artifact_log_odds))
-                variant_log_priors = -torch.log1p(torch.exp(artifact_log_odds))
-                prior_log_lk = posterior_probs*artifact_log_priors + (1-posterior_probs)*variant_log_priors
+                    artifact_log_odds = self.prior_model.artifact_log_priors(batch)
+                    artifact_log_priors = -torch.log1p(torch.exp(-artifact_log_odds))
+                    variant_log_priors = -torch.log1p(torch.exp(artifact_log_odds))
+                    prior_loss = -probs * artifact_log_priors - (1 - probs) * variant_log_priors
 
-                loss = -torch.mean(weighted_log_lk) -torch.mean(prior_log_lk)
-                # END NEW
+                    loss = torch.mean(variant_loss) + torch.mean(artifact_loss) + torch.mean(prior_loss)
+                    optimizer.zero_grad()
+                    loss.backward()
+                    optimizer.step()
 
-                # OLD
-                # loss = -torch.mean(self.prior_model.log_evidence(logits, batch))
-                # OLD
-
-                optimizer.zero_grad()
-                loss.backward()
-                optimizer.step()
-                epoch_loss += loss.item()
-                epoch_count += batch.size()
-
-                if extra_metrics:
-                    epoch_artifacts += torch.sum(posterior_probs).item()
-                    epoch_variants += torch.sum(1 - posterior_probs).item()
-                    epoch_certain_artifacts += torch.sum(posterior_probs > 0.99).item()
-                    epoch_certain_variants += torch.sum(posterior_probs < 0.01).item()
-
+                    epoch_loss += loss.item()
+                    epoch_count += batch.size()
+                    # these depend on the iteration, not the inner epoch loop, and so are only computed in the last epoch
+                    if extra_metrics and epoch == num_fit_epochs - 1:
+                        iteration_artifacts += torch.sum(probs).item()
+                        iteration_variants += torch.sum(1 - probs).item()
+                        iteration_certain_artifacts += torch.sum(probs > 0.99).item()
+                        iteration_certain_variants += torch.sum(probs < 0.01).item()
+                # done with batches in this inner epoch
+                spectra_learning_curve.add("spectrum NLL", epoch_loss / epoch_count)
+            # done with this inner epoch
             if extra_metrics:
                 spectra_learning_curve.add("SNV log prior", self.prior_model.prior_log_odds[0].item())
                 spectra_learning_curve.add("Insertion log prior", self.prior_model.prior_log_odds[1].item())
                 spectra_learning_curve.add("Deletion log prior", self.prior_model.prior_log_odds[2].item())
-                spectra_learning_curve.add("artifact count", epoch_artifacts)
-                spectra_learning_curve.add("variant count", epoch_variants)
-                spectra_learning_curve.add("certain artifact count", epoch_certain_artifacts)
-                spectra_learning_curve.add("certain variant count", epoch_certain_variants)
-                epoch_spectra.extend(self.get_prior_model().plot_spectra(title_prefix=("Epoch" + str(epoch) + ": ")))
+                spectra_learning_curve.add("artifact count", iteration_artifacts)
+                spectra_learning_curve.add("variant count", iteration_variants)
+                spectra_learning_curve.add("certain artifact count", iteration_certain_artifacts)
+                spectra_learning_curve.add("certain variant count", iteration_certain_variants)
+                iteration_spectra.extend(self.get_prior_model().plot_spectra(title_prefix=("Iteration" + str(iteration) + ": ")))
 
-            # TODO: learning curves for different alt counts
-            spectra_learning_curve.add("spectrum NLL", epoch_loss / epoch_count)
-
-        return spectra_learning_curve, epoch_spectra
+        return spectra_learning_curve, iteration_spectra
 
     def learn_calibration(self, loader, num_epochs):
         self.train(False)
