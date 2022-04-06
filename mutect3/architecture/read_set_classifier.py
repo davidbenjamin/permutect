@@ -248,7 +248,7 @@ class ReadSetClassifier(nn.Module):
                 variant_log_priors = -torch.log1p(torch.exp(artifact_log_odds))
                 prior_log_lk = posterior_probs*artifact_log_priors + (1-posterior_probs)*variant_log_priors
 
-                loss = -torch.mean(weighted_log_lk) -prior_log_lk
+                loss = -torch.mean(weighted_log_lk) -torch.mean(prior_log_lk)
                 # END NEW
 
                 # OLD
