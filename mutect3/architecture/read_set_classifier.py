@@ -241,9 +241,14 @@ class ReadSetClassifier(nn.Module):
                 # weight the AF spectra's log likelihoods by the (detached) posterior probabilities
                 # of the read set classifier
                 weighted_log_lk = (1 - posterior_probs) * self.prior_model.variant_log_likelihoods(batch) + \
-                                  posterior_probs * self.prior_model.artifact_log_likelihoods(batch)
+                                  posterior_probs * self.prior_model.artifact_log_likelihoods(batch, include_prior=False)
 
-                loss = -weighted_log_lk
+                artifact_log_odds = self.prior_model.artifact_log_priors(batch)
+                artifact_log_priors = -torch.log1p(torch.exp(-artifact_log_odds))
+                variant_log_priors = -torch.log1p(torch.exp(artifact_log_odds))
+                prior_log_lk = posterior_probs*artifact_log_priors + (1-posterior_probs)*variant_log_priors
+
+                loss = -torch.mean(weighted_log_lk) -prior_log_lk
                 # END NEW
 
                 # OLD
@@ -263,9 +268,9 @@ class ReadSetClassifier(nn.Module):
                     epoch_certain_variants += torch.sum(posterior_probs < 0.01).item()
 
             if extra_metrics:
-                spectra_learning_curve.add("SNV log prior", self.prior_model.prior_log_odds[utils.VariantType.SNV].item())
-                spectra_learning_curve.add("Insertion log prior", self.prior_model.prior_log_odds[utils.VariantType.INSERTION].item())
-                spectra_learning_curve.add("Deletion log prior", self.prior_model.prior_log_odds[utils.VariantType.DELETION].item())
+                spectra_learning_curve.add("SNV log prior", self.prior_model.prior_log_odds[0].item())
+                spectra_learning_curve.add("Insertion log prior", self.prior_model.prior_log_odds[1].item())
+                spectra_learning_curve.add("Deletion log prior", self.prior_model.prior_log_odds[2].item())
                 spectra_learning_curve.add("artifact count", epoch_artifacts)
                 spectra_learning_curve.add("variant count", epoch_variants)
                 spectra_learning_curve.add("certain artifact count", epoch_certain_artifacts)
