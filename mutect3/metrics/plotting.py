@@ -23,6 +23,13 @@ def histogram(data, title):
     return fig, curve
 
 
+def hexbin(x,y):
+    fig = plt.figure()
+    curve = fig.gca()
+    curve.hexbin(x, y)
+    return fig, curve
+
+
 # compute optimal F score over a single epoch pass over the test loader, optionally doing SGD on the AF spectrum
 def plot_roc_curve(model, loader, normal_artifact=False):
     # tuples of (artifact prob, artifact label 0/1)

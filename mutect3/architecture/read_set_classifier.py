@@ -223,6 +223,8 @@ class ReadSetClassifier(nn.Module):
         spectra_learning_curve = LearningCurves()
         variant_histograms = [] # histograms of variant allele fractions by iteration
         artifact_histograms = []
+        heatmaps = []
+        tumor_afs, artifact_probs = [], [] # 2D heatmap of tumor_af vs artifact prob
         iteration_spectra = []
 
         logits_and_batches = [(self.forward(batch=batch, normal_artifact=use_normal_artifact).detach(), batch) for batch in loader]
@@ -236,7 +238,6 @@ class ReadSetClassifier(nn.Module):
         for iteration in iteration_pbar:
             
             probs_and_batches = []
-            data_list = batch.original_list()
             variant_afs = []   # debugging -- record which data are variant
             artifact_afs = []
             for logits, batch in logits_and_batches:
@@ -244,11 +245,16 @@ class ReadSetClassifier(nn.Module):
                 posterior_probs = torch.sigmoid(posterior_logits)
                 probs_and_batches.append((posterior_probs, batch))
 
+                data_list = batch.original_list()
                 for n in range(batch.size()):
                     datum = data_list[n]
+                    artifact_prob = posterior_probs[n].item()
                     tumor_af = datum.tumor_alt_count() / datum.tumor_depth()
+                    tumor_afs.append(tumor_af)
+                    artifact_probs.append(artifact_prob)
+
                     variant_afs.append(tumor_af)
-                    if posterior_probs[n].item() < 0.5:
+                    if  artifact_prob < 0.5:
                         variant_afs.append(tumor_af)
                     else:
                         artifact_afs.append(tumor_af)
@@ -304,7 +310,8 @@ class ReadSetClassifier(nn.Module):
                 iteration_spectra.extend(self.get_prior_model().plot_spectra(title_prefix=("Iteration" + str(iteration) + ": ")))
                 variant_histograms.append(plotting.histogram(variant_afs, "Iteration" + str(iteration) + " variant AFs"))
                 artifact_histograms.append(plotting.histogram(artifact_afs, "Iteration" + str(iteration) + " artifact AFs"))
-        return spectra_learning_curve, iteration_spectra, variant_histograms, artifact_histograms
+                heatmaps.append(plotting.hexbin(tumor_afs, artifact_probs))
+        return spectra_learning_curve, iteration_spectra, variant_histograms, artifact_histograms, heatmaps
 
     def learn_calibration(self, loader, num_epochs):
         self.train(False)

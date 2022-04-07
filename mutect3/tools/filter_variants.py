@@ -90,7 +90,7 @@ def main():
 
     # The AF spectrum was, of course, not pre-trained with the rest of the model
     print("Learning AF spectra")
-    spectrum_metrics, epoch_spectra, variant_histograms, artifact_histograms = \
+    spectrum_metrics, epoch_spectra, variant_histograms, artifact_histograms, heatmaps = \
         model.learn_spectra(data_loader, num_epochs=25, use_normal_artifact=use_normal_artifact)
 
     print("generating plots")
@@ -110,6 +110,9 @@ def main():
                 pdf.savefig(fig)
 
             for fig, curve in artifact_histograms:
+                pdf.savefig(fig)
+
+            for fig, curve in heatmaps:
                 pdf.savefig(fig)
 
     print("Calculating optimal logit threshold")
