@@ -18,6 +18,7 @@ from mutect3.architecture.prior_model import PriorModel
 from mutect3.data.read_set_batch import ReadSetBatch
 from mutect3.data.read_set_datum import NUM_READ_FEATURES, NUM_INFO_FEATURES
 from mutect3.utils import freeze, unfreeze, f_score
+from mutect3.metrics import plotting
 
 warnings.filterwarnings("ignore", message="Setting attributes on ParameterList is not supported.")
 
@@ -220,6 +221,8 @@ class ReadSetClassifier(nn.Module):
     def learn_spectra(self, loader, num_epochs, use_normal_artifact=False, extra_metrics=True):
         self.learn_spectrum_mode()
         spectra_learning_curve = LearningCurves()
+        variant_histograms = [] # histograms of variant allele fractions by iteration
+        artifact_histograms = []
         iteration_spectra = []
 
         logits_and_batches = [(self.forward(batch=batch, normal_artifact=use_normal_artifact).detach(), batch) for batch in loader]
@@ -233,10 +236,24 @@ class ReadSetClassifier(nn.Module):
         for iteration in iteration_pbar:
             
             probs_and_batches = []
+            data_list = batch.original_list()
+            variant_afs = []   # debugging -- record which data are variant
+            artifact_afs = []
             for logits, batch in logits_and_batches:
                 posterior_logits = self.prior_model.forward(logits, batch).detach()
                 posterior_probs = torch.sigmoid(posterior_logits)
                 probs_and_batches.append((posterior_probs, batch))
+
+                for n in range(batch.size()):
+                    datum = data_list[n]
+                    tumor_af = datum.tumor_alt_count() / datum.tumor_depth()
+                    variant_afs.append(tumor_af)
+                    if posterior_probs[n].item() < 0.5:
+                        variant_afs.append(tumor_af)
+                    else:
+                        artifact_afs.append(tumor_af)
+            # done computing posterior probs (the E step) of this iteration
+
             iteration_artifacts = 0.0
             iteration_variants = 0.0
             iteration_certain_variants = 0
@@ -285,8 +302,9 @@ class ReadSetClassifier(nn.Module):
                 spectra_learning_curve.add("certain artifact count", iteration_certain_artifacts)
                 spectra_learning_curve.add("certain variant count", iteration_certain_variants)
                 iteration_spectra.extend(self.get_prior_model().plot_spectra(title_prefix=("Iteration" + str(iteration) + ": ")))
-
-        return spectra_learning_curve, iteration_spectra
+                variant_histograms.append(plotting.histogram(variant_afs, "Iteration" + str(iteration) + " variant AFs"))
+                artifact_histograms.append(plotting.histogram(artifact_afs, "Iteration" + str(iteration) + " artifact AFs"))
+        return spectra_learning_curve, iteration_spectra, variant_histograms, artifact_histograms
 
     def learn_calibration(self, loader, num_epochs):
         self.train(False)
