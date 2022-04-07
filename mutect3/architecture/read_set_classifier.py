@@ -107,7 +107,7 @@ class ReadSetClassifier(nn.Module):
 
         self.calibration = Calibration()
 
-        self.prior_model = PriorModel(4.0)
+        self.prior_model = PriorModel(0.0)
 
         self.normal_artifact_model = na_model
         if na_model is not None:
@@ -224,7 +224,7 @@ class ReadSetClassifier(nn.Module):
         variant_histograms = [] # histograms of variant allele fractions by iteration
         artifact_histograms = []
         heatmaps = []
-        tumor_afs, artifact_probs = [], [] # 2D heatmap of tumor_af vs artifact prob
+        tumor_afs, all_artifact_probs = [], [] # 2D heatmap of tumor_af vs artifact prob
         iteration_spectra = []
 
         logits_and_batches = [(self.forward(batch=batch, normal_artifact=use_normal_artifact).detach(), batch) for batch in loader]
@@ -251,10 +251,9 @@ class ReadSetClassifier(nn.Module):
                     artifact_prob = posterior_probs[n].item()
                     tumor_af = datum.tumor_alt_count() / datum.tumor_depth()
                     tumor_afs.append(tumor_af)
-                    artifact_probs.append(artifact_prob)
+                    all_artifact_probs.append(artifact_prob)
 
-                    variant_afs.append(tumor_af)
-                    if  artifact_prob < 0.5:
+                    if artifact_prob < 0.5:
                         variant_afs.append(tumor_af)
                     else:
                         artifact_afs.append(tumor_af)
@@ -310,7 +309,7 @@ class ReadSetClassifier(nn.Module):
                 iteration_spectra.extend(self.get_prior_model().plot_spectra(title_prefix=("Iteration" + str(iteration) + ": ")))
                 variant_histograms.append(plotting.histogram(variant_afs, "Iteration" + str(iteration) + " variant AFs"))
                 artifact_histograms.append(plotting.histogram(artifact_afs, "Iteration" + str(iteration) + " artifact AFs"))
-                heatmaps.append(plotting.hexbin(tumor_afs, artifact_probs))
+                heatmaps.append(plotting.hexbin(tumor_afs, all_artifact_probs))
         return spectra_learning_curve, iteration_spectra, variant_histograms, artifact_histograms, heatmaps
 
     def learn_calibration(self, loader, num_epochs):

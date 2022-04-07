@@ -19,7 +19,8 @@ def simple_plot(x_y_lab_tuples, x_label, y_label, title):
 def histogram(data, title):
     fig = plt.figure()
     curve = fig.gca()
-    curve.hist(data, bins=20, title=title)
+    curve.hist(data, bins=20)
+    curve.set_title(title)
     return fig, curve
 
 
