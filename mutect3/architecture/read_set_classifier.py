@@ -242,7 +242,10 @@ class ReadSetClassifier(nn.Module):
             artifact_afs = []
             for logits, batch in logits_and_batches:
                 posterior_logits = self.prior_model.forward(logits, batch).detach()
-                posterior_probs = torch.sigmoid(posterior_logits)
+
+                # TODO: DON'T KEEP THIS DEBUG LINE WHERE WE USE THE LIKELIHOODS INSTEAD OF THE POSTERIORS!!!
+                posterior_probs = torch.sigmoid(logits).detach()
+                # TODO: ORIGINAL posterior_probs = torch.sigmoid(posterior_logits)
                 probs_and_batches.append((posterior_probs, batch))
 
                 data_list = batch.original_list()

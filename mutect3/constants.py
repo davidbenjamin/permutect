@@ -1,0 +1,22 @@
+STATE_DICT_NAME = 'model_state_dict'
+M3_PARAMS_NAME = 'm3_params'
+HIDDEN_LAYERS_NAME = 'hidden_layers'
+
+INPUT_NAME = 'input'
+OUTPUT_NAME = 'output'
+HIDDEN_READ_LAYERS_NAME = 'hidden-read-layers'
+HIDDEN_INFO_LAYERS_NAME = 'hidden-info-layers'
+AGGREGATION_LAYERS_NAME = 'aggregation-layers'
+OUTPUT_LAYERS_NAME = 'output-layers'
+DROPOUT_P_NAME = 'dropout-p'
+
+TRAINING_DATASETS_NAME = 'training-datasets'
+NORMAL_ARTIFACT_DATASETS_NAME = 'normal-artifact-datasets'
+ALPHA1_NAME = 'alpha1'
+ALPHA2_NAME = 'alpha2'
+BETA1_NAME = 'beta1'
+BETA2_NAME = 'beta2'
+BATCH_SIZE_NAME = 'batch-size'
+NUM_EPOCHS_NAME = 'num-epochs'
+
+TENSORBOARD_DIR_NAME = 'tensorboard-dir'

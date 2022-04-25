@@ -91,10 +91,10 @@ task TrainMutect3 {
             --aggregation-layers ~{sep=' ' aggregation_layers} \
             --output-layers ~{sep=' ' output_layers} \
             --dropout-p ~{dropout_p} \
-            --batch_size ~{batch_size} \
-            --num_epochs ~{num_epochs} \
+            --batch-size ~{batch_size} \
+            --num-epochs ~{num_epochs} \
             --output mutect3.pt \
-            --report_pdf training-report.pdf
+            --tensorboard-dir tensorboard
     >>>
 
     runtime {
@@ -109,7 +109,7 @@ task TrainMutect3 {
 
     output {
         File mutect3_model = "mutect3.pt"
-        File training_report = "training-report.pdf"
+        File training_report = glob("tensorboard/*tfevents*")[0]
     }
 }
 
@@ -140,10 +140,10 @@ task TrainNormalArtifact {
         train_normal_artifact_model \
             --normal-artifact-datasets ~{sep=' ' normal_artifact_datasets} \
             --hidden-layers ~{sep=' ' hidden_normal_artifact_layers} \
-            --batch_size ~{batch_size} \
-            --num_epochs ~{num_epochs} \
+            --batch-size ~{batch_size} \
+            --num-epochs ~{num_epochs} \
             --output normal_artifact.pt \
-            --report_pdf training-report.pdf
+            tensorboard-dir tensorboard
     >>>
 
     runtime {
@@ -158,6 +158,6 @@ task TrainNormalArtifact {
 
     output {
         File normal_artifact_model = "normal_artifact.pt"
-        File training_report = "training-report.pdf"
+        File training_report = glob("tensorboard/*tfevents*")[0]
     }
 }

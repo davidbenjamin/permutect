@@ -4,9 +4,8 @@ import torch
 from matplotlib.backends.backend_pdf import PdfPages
 from torch.distributions.beta import Beta
 
-import mutect3.architecture.normal_artifact_model
-import mutect3.architecture.read_set_classifier
-from mutect3 import utils
+from mutect3.architecture.read_set_classifier import Mutect3Parameters, ReadSetClassifier
+from mutect3 import utils, constants
 from mutect3.data import read_set_dataset
 
 
@@ -18,8 +17,7 @@ class TrainingParameters:
         self.beta2 = beta2
 
 
-def make_trained_mutect3_model(m3_params: mutect3.architecture.read_set_classifier.Mutect3Parameters, training_datasets,
-                               params: TrainingParameters, report_pdf=None):
+def train_m3_model(m3_params: Mutect3Parameters, training_datasets, params: TrainingParameters, tensorboard_dir):
     print("Loading datasets")
     train_and_valid = read_set_dataset.ReadSetDataset(files=training_datasets)
     training, valid = utils.split_dataset_into_train_and_valid(train_and_valid, 0.9)
@@ -30,66 +28,82 @@ def make_trained_mutect3_model(m3_params: mutect3.architecture.read_set_classifi
 
     train_loader = read_set_dataset.make_semisupervised_data_loader(training, params.batch_size)
     valid_loader = read_set_dataset.make_semisupervised_data_loader(valid, params.batch_size)
-    model = mutect3.architecture.read_set_classifier.ReadSetClassifier(m3_params=m3_params, na_model=None).float()
+    model = ReadSetClassifier(m3_params=m3_params, na_model=None).float()
 
     print("Training model")
     training_metrics = model.train_model(train_loader, valid_loader, params.num_epochs, params.beta1, params.beta2)
     calibration_metrics = model.learn_calibration(valid_loader, num_epochs=50)
-    if report_pdf is not None:
-        with PdfPages(report_pdf) as pdf:
-            for fig, curve in training_metrics.plot_curves():
-                pdf.savefig(fig)
-            for fig, curve in calibration_metrics.plot_curves():
-                pdf.savefig(fig)
+
+    # TODO: tensorboard dir is not pdf!!!!!
+        #with PdfPages(tensorboard_dir) as pdf:
+        #    for fig, curve in training_metrics.plot_curves():
+        #        pdf.savefig(fig)
+        #    for fig, curve in calibration_metrics.plot_curves():
+        #        pdf.savefig(fig)
+    # TODO: done with TODO
 
     return model
 
 
-def save_mutect3_model(model, m3_params, path):
-    # TODO: introduce constants
+def save_m3_model(model, m3_params, path):
     torch.save({
-        'model_state_dict': model.state_dict(),
-        'm3_params': m3_params
+        constants.STATE_DICT_NAME: model.state_dict(),
+        constants.M3_PARAMS_NAME: m3_params
     }, path)
 
 
-def main():
+def parse_training_params(args) -> TrainingParameters:
+    beta1 = Beta(getattr(args, constants.ALPHA1_NAME), getattr(args, constants.BETA1_NAME))
+    beta2 = Beta(getattr(args, constants.ALPHA2_NAME), getattr(args, constants.BETA2_NAME))
+    batch_size = getattr(args, constants.BATCH_SIZE_NAME)
+    num_epochs = getattr(args, constants.NUM_EPOCHS_NAME)
+    return TrainingParameters(batch_size, num_epochs, beta1, beta2)
+
+
+def parse_mutect3_params(args) -> Mutect3Parameters:
+    hidden_read_layers = getattr(args, constants.HIDDEN_READ_LAYERS_NAME)
+    hidden_info_layers = getattr(args, constants.HIDDEN_INFO_LAYERS_NAME)
+    aggregation_layers = getattr(args, constants.AGGREGATION_LAYERS_NAME)
+    output_layers = getattr(args, constants.OUTPUT_LAYERS_NAME)
+    dropout_p = getattr(args, constants.DROPOUT_P_NAME)
+    return Mutect3Parameters(hidden_read_layers, hidden_info_layers, aggregation_layers, output_layers, dropout_p)
+
+
+def parse_arguments():
     parser = argparse.ArgumentParser()
 
     # architecture hyperparameters
-    parser.add_argument('--hidden-read-layers', nargs='+', type=int, required=True)
-    parser.add_argument('--hidden-info-layers', nargs='+', type=int, required=True)
-    parser.add_argument('--aggregation-layers', nargs='+', type=int, required=True)
-    parser.add_argument('--output-layers', nargs='+', type=int, required=True)
-    parser.add_argument('--dropout-p', type=float, default=0.0, required=False)
+    parser.add_argument('--' + constants.HIDDEN_READ_LAYERS_NAME, nargs='+', type=int, required=True)
+    parser.add_argument('--' + constants.HIDDEN_INFO_LAYERS_NAME, nargs='+', type=int, required=True)
+    parser.add_argument('--' + constants.AGGREGATION_LAYERS_NAME, nargs='+', type=int, required=True)
+    parser.add_argument('--' + constants.OUTPUT_LAYERS_NAME, nargs='+', type=int, required=True)
+    parser.add_argument('--' + constants.DROPOUT_P_NAME, type=float, default=0.0, required=False)
 
     # Training data inputs
-    parser.add_argument('--training-datasets', nargs='+', type=str, required=True)
+    parser.add_argument('--' + constants.TRAINING_DATASETS_NAME, nargs='+', type=str, required=True)
 
     # training hyperparameters
-    parser.add_argument('--alpha1', type=float, default=5.0, required=False)
-    parser.add_argument('--beta1', type=float, default=1.0, required=False)
-    parser.add_argument('--alpha2', type=float, default=5.0, required=False)
-    parser.add_argument('--beta2', type=float, default=1.0, required=False)
-    parser.add_argument('--batch_size', type=int, default=64, required=False)
-    parser.add_argument('--num_epochs', type=int, required=True)
+    parser.add_argument('--' + constants.ALPHA1_NAME, type=float, default=5.0, required=False)
+    parser.add_argument('--' + constants.BETA1_NAME, type=float, default=1.0, required=False)
+    parser.add_argument('--' + constants.ALPHA2_NAME, type=float, default=5.0, required=False)
+    parser.add_argument('--' + constants.BETA2_NAME, type=float, default=1.0, required=False)
+    parser.add_argument('--' + constants.BATCH_SIZE_NAME, type=int, default=64, required=False)
+    parser.add_argument('--' + constants.NUM_EPOCHS_NAME, type=int, required=True)
 
     # path to saved model
-    parser.add_argument('--output', required=True)
-    parser.add_argument('--report_pdf', required=False)
+    parser.add_argument('--' + constants.OUTPUT_NAME, type=str, required=True)
+    parser.add_argument('--' + constants.TENSORBOARD_DIR_NAME, type=str, default='tensorboard', required=False)
 
-    args = parser.parse_args()
+    return parser.parse_args()
 
-    m3_params = mutect3.architecture.read_set_classifier.Mutect3Parameters(args.hidden_read_layers, args.hidden_info_layers,
-                                                                           args.aggregation_layers, args.output_layers, args.dropout_p)
 
-    beta1 = Beta(args.alpha1, args.beta1)
-    beta2 = Beta(args.alpha2, args.beta2)
-    params = TrainingParameters(args.batch_size, args.num_epochs, beta1, beta2)
-
-    model = make_trained_mutect3_model(m3_params, args.training_datasets, params, args.report_pdf)
-
-    save_mutect3_model(model, m3_params, args.output)
+def main():
+    args = parse_arguments()
+    m3_params = parse_mutect3_params(args)
+    training_params = parse_training_params(args)
+    model = train_m3_model(m3_params, getattr(args, constants.TRAINING_DATASETS_NAME), training_params,
+                           getattr(args, constants.TENSORBOARD_DIR_NAME))
+    save_m3_model(model, m3_params, getattr(args, constants.OUTPUT_NAME))
 
 
 if __name__ == '__main__':

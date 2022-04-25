@@ -10,6 +10,7 @@ from tqdm.autonotebook import tqdm
 import mutect3.architecture.normal_artifact_model
 import mutect3.architecture.read_set_classifier
 from mutect3.data import read_set_datum, read_set_dataset
+from mutect3 import constants
 
 # TODO: eventually M3 can handle multiallelics
 TRUSTED_M2_FILTERS = {'contamination', 'germline', 'weak_evidence', 'multiallelic'}
@@ -18,18 +19,18 @@ TRUSTED_M2_FILTERS = {'contamination', 'germline', 'weak_evidence', 'multialleli
 # this presumes that we have a ReadSetClassifier model and we have saved it via save_mutect3_model as in train_model.py
 def load_saved_model(path):
     saved = torch.load(path)
-    m3_params = saved['m3_params']
+    m3_params = saved[constants.M3_PARAMS_NAME]
     model = mutect3.architecture.read_set_classifier.ReadSetClassifier(m3_params, None)
-    model.load_state_dict(saved['model_state_dict'])
+    model.load_state_dict(saved[constants.STATE_DICT_NAME])
     return model
 
 
 # this presumes that we have a NormalArtifact model and we have saved it via save_normal_artifact_model as in train_normal_artifact_model.py
 def load_saved_normal_artifact_model(path):
     saved = torch.load(path)
-    hidden_layers = saved['hidden_layers']
+    hidden_layers = saved[constants.HIDDEN_LAYERS_NAME]
     na_model = mutect3.architecture.normal_artifact_model.NormalArtifactModel(hidden_layers)
-    na_model.load_state_dict(saved['model_state_dict'])
+    na_model.load_state_dict(saved[constants.STATE_DICT_NAME])
     return na_model
 
 
