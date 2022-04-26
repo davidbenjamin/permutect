@@ -1,6 +1,5 @@
 import torch
 from mutect3.architecture.mlp import MLP
-from mutect3.metrics.metrics import LearningCurves
 
 
 # test with artificial data where a*x = 0 is a perfect linear separator
@@ -16,7 +15,7 @@ def test_linearly_separable_data():
 
     loss_func = torch.nn.BCEWithLogitsLoss(reduction='mean')
     optimizer = torch.optim.Adam(model.parameters())
-    learning_curves = LearningCurves()
+    loss_list = []
 
     num_epochs = 10000
     for epoch in range(num_epochs):
@@ -25,9 +24,8 @@ def test_linearly_separable_data():
         optimizer.zero_grad()
         loss.backward()
         optimizer.step()
-        learning_curves.add("NLL", loss.item())
+        loss_list.append(loss.item())
 
-    loss_list = learning_curves.metrics.get("NLL")
     assert loss_list[-1] < 0.01
     assert loss_list[1000] < loss_list[0]
     assert loss_list[2000] < loss_list[1000]
@@ -56,7 +54,7 @@ def test_annular_data():
 
     loss_func = torch.nn.BCEWithLogitsLoss(reduction='mean')
     optimizer = torch.optim.Adam(model.parameters())
-    learning_curves = LearningCurves()
+    loss_list = []
 
     num_epochs = 10000
     for epoch in range(num_epochs):
@@ -65,9 +63,8 @@ def test_annular_data():
         optimizer.zero_grad()
         loss.backward()
         optimizer.step()
-        learning_curves.add("NLL", loss.item())
+        loss_list.append(loss.item())
 
-    loss_list = learning_curves.metrics.get("NLL")
     assert loss_list[-1] < 0.2
 
     pred = torch.squeeze(torch.sign(torch.sigmoid(model.forward(x)) - 0.5))

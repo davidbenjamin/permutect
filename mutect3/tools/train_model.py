@@ -1,7 +1,7 @@
 import argparse
 
 import torch
-from matplotlib.backends.backend_pdf import PdfPages
+from torch.utils.tensorboard import SummaryWriter
 from torch.distributions.beta import Beta
 
 from mutect3.architecture.read_set_classifier import Mutect3Parameters, ReadSetClassifier
@@ -31,16 +31,10 @@ def train_m3_model(m3_params: Mutect3Parameters, training_datasets, params: Trai
     model = ReadSetClassifier(m3_params=m3_params, na_model=None).float()
 
     print("Training model")
-    training_metrics = model.train_model(train_loader, valid_loader, params.num_epochs, params.beta1, params.beta2)
-    calibration_metrics = model.learn_calibration(valid_loader, num_epochs=50)
-
-    # TODO: tensorboard dir is not pdf!!!!!
-        #with PdfPages(tensorboard_dir) as pdf:
-        #    for fig, curve in training_metrics.plot_curves():
-        #        pdf.savefig(fig)
-        #    for fig, curve in calibration_metrics.plot_curves():
-        #        pdf.savefig(fig)
-    # TODO: done with TODO
+    summary_writer = SummaryWriter(tensorboard_dir)
+    model.train_model(train_loader, valid_loader, params.num_epochs, params.beta1, params.beta2, summary_writer)
+    model.learn_calibration(valid_loader, num_epochs=50, summary_writer=summary_writer)
+    summary_writer.close()
 
     return model
 

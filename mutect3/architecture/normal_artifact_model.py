@@ -1,15 +1,15 @@
 from typing import List
 
 import torch
+from torch.utils.tensorboard import SummaryWriter
 from torch import nn
 from tqdm.autonotebook import trange, tqdm
 
 from mutect3.metrics.plotting import simple_plot
-from mutect3.metrics.metrics import LearningCurves
 from mutect3 import utils
 from mutect3.architecture.mlp import MLP
 from mutect3.data.normal_artifact_batch import NormalArtifactBatch
-from mutect3.utils import beta_binomial
+from mutect3.utils import beta_binomial, StreamingAverage
 
 
 class NormalArtifactModel(nn.Module):
@@ -82,32 +82,32 @@ class NormalArtifactModel(nn.Module):
 
         return simple_plot([(f.detach().numpy(), densities.detach().numpy(), " ")], "AF", "density", title)
 
-    def train_model(self, train_loader, valid_loader, num_epochs):
+    def train_model(self, train_loader, valid_loader, num_epochs, summary_writer: SummaryWriter):
         optimizer = torch.optim.Adam(self.parameters())
-        training_metrics = LearningCurves()
 
         for epoch in trange(1, num_epochs + 1, desc="Epoch"):
             print("Normal artifact epoch " + str(epoch))
             for epoch_type in [utils.EpochType.TRAIN, utils.EpochType.VALID]:
                 loader = train_loader if epoch_type == utils.EpochType.TRAIN else valid_loader
 
-                epoch_loss = 0
-                epoch_count = 0
+                epoch_loss = StreamingAverage()
                 pbar = tqdm(loader, mininterval=10)
                 for batch in pbar:
                     log_likelihoods = self.forward(batch)
                     weights = 1 / batch.downsampling()
                     loss = -torch.mean(weights * log_likelihoods)
-                    epoch_loss += loss.item()
-                    epoch_count += 1
+                    epoch_loss.record(loss.item())
 
                     if epoch_type == utils.EpochType.TRAIN:
                         optimizer.zero_grad()
                         loss.backward()
                         optimizer.step()
 
-                training_metrics.add(epoch_type.name + " Normal artifact NLL", epoch_loss / epoch_count)
+                summary_writer.add_scalar(epoch_type.name + "/Normal artifact NLL", epoch_loss.get(), epoch)
             # done with epoch
         # done with training
         # model is trained
-        return training_metrics
+
+        for normal_af in [0.0, 0.03, 0.06, 0.1, 0.15, 0.25, 0.5, 0.75]:
+            fig, curve = self.plot_spectrum(normal_af, "NA modeled tumor AF given normal AF = " + str(normal_af))
+            summary_writer.add_figure("NA modeled tumor AF given normal AF = " + str(normal_af), fig)

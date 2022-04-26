@@ -1,6 +1,7 @@
 import argparse
 import torch
-from matplotlib.backends.backend_pdf import PdfPages
+from torch.utils.tensorboard import SummaryWriter
+
 import mutect3.architecture.normal_artifact_model
 import mutect3.architecture.read_set_classifier
 from mutect3 import utils, constants
@@ -16,18 +17,11 @@ def train_na_model(normal_artifact_datasets, num_epochs, hidden_layers, batch_si
     na_valid_loader = normal_artifact_dataset.make_normal_artifact_data_loader(na_valid, batch_size)
 
     na_model = mutect3.architecture.normal_artifact_model.NormalArtifactModel(hidden_layers=hidden_layers)
-    na_training_metrics = na_model.train_model(na_train_loader, na_valid_loader, num_epochs=num_epochs)
 
-    # TODO: FIX
-        # with PdfPages(report_pdf) as pdf:
-        #    for fig, curve in na_training_metrics.plot_curves():
-        #        pdf.savefig(fig)
+    summary_writer = SummaryWriter(tensorboard_dir)
+    na_model.train_model(na_train_loader, na_valid_loader, num_epochs=num_epochs, summary_writer=summary_writer)
+    summary_writer.close()
 
-        #    for normal_af in [0.0, 0.03, 0.06, 0.1, 0.15, 0.25, 0.5, 0.75]:
-        #        fig, curve = na_model.plot_spectrum(
-        #            normal_af, "NA modeled tumor AF given normal AF = " + str(normal_af))
-        #        pdf.savefig(fig)
-    # TODO: end of TODO
     return na_model
 
 

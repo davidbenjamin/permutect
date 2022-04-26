@@ -143,7 +143,7 @@ task TrainNormalArtifact {
             --batch-size ~{batch_size} \
             --num-epochs ~{num_epochs} \
             --output normal_artifact.pt \
-            tensorboard-dir tensorboard
+            --tensorboard-dir tensorboard
     >>>
 
     runtime {

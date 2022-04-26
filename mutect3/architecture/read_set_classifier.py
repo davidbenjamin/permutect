@@ -2,6 +2,8 @@
 import warnings
 
 import torch
+from torch.utils.tensorboard import SummaryWriter
+
 import random
 from matplotlib.backends.backend_pdf import PdfPages
 from torch import nn
@@ -9,7 +11,6 @@ from tqdm.autonotebook import trange, tqdm
 from itertools import chain
 from torch.distributions import Beta
 
-import mutect3.metrics.plotting
 from mutect3.metrics.metrics import LearningCurves
 from mutect3 import utils
 from mutect3.architecture.mlp import MLP
@@ -17,7 +18,7 @@ from mutect3.architecture.normal_artifact_model import NormalArtifactModel
 from mutect3.architecture.prior_model import PriorModel
 from mutect3.data.read_set_batch import ReadSetBatch
 from mutect3.data.read_set_datum import NUM_READ_FEATURES, NUM_INFO_FEATURES
-from mutect3.utils import freeze, unfreeze, f_score
+from mutect3.utils import freeze, unfreeze, f_score, StreamingAverage
 from mutect3.metrics import plotting
 
 warnings.filterwarnings("ignore", message="Setting attributes on ParameterList is not supported.")
@@ -217,7 +218,6 @@ class ReadSetClassifier(nn.Module):
 
         return logits
 
-    # return a LearningCurves, List[(figure, curve)] tuple, the latter being the spectra at each epoch
     def learn_spectra(self, loader, num_epochs, use_normal_artifact=False, extra_metrics=True):
         self.learn_spectrum_mode()
         spectra_learning_curve = LearningCurves()
@@ -315,67 +315,47 @@ class ReadSetClassifier(nn.Module):
                 heatmaps.append(plotting.hexbin(tumor_afs, all_artifact_probs))
         return spectra_learning_curve, iteration_spectra, variant_histograms, artifact_histograms, heatmaps
 
-    def learn_calibration(self, loader, num_epochs):
+    def learn_calibration(self, loader, num_epochs, summary_writer: SummaryWriter):
         self.train(False)
         freeze(self.parameters())
         unfreeze(self.calibration_parameters())
 
         optimizer = torch.optim.Adam(self.calibration_parameters())
         bce = nn.BCEWithLogitsLoss()
-        calibration_learning_curve = LearningCurves()
 
-        for _ in trange(1, num_epochs + 1, desc="Epoch"):
-            epoch_loss = 0
-            epoch_count = 0
+        for epoch in trange(1, num_epochs + 1, desc="Epoch"):
+            nll_loss = StreamingAverage()
+            high_conf_artifact_accuracy = StreamingAverage()
+            high_conf_variant_accuracy = StreamingAverage()
+            med_conf_variant_accuracy = StreamingAverage()
+            med_conf_artifact_accuracy = StreamingAverage()
+            unsure_accuracy = StreamingAverage()
 
-            # how many artifacts were predicted w/ high confidence, and how many of those predictions were correct
-            # similarly for variants
-            high_conf_artifact_pred, high_conf_artifact_correct = 0, 0
-            high_conf_variant_pred, high_conf_variant_correct = 0, 0
-            med_conf_artifact_pred, med_conf_artifact_correct = 0, 0
-            med_conf_variant_pred, med_conf_variant_correct = 0, 0
-            unsure_pred, unsure_correct = 0, 0
             pbar = tqdm(enumerate(loader), mininterval=10)
             for n, batch in pbar:
                 if not batch.is_labeled():
                     continue
-                epoch_count += batch.size()
                 pred = self.forward(batch)
                 loss = bce(pred, batch.labels())
-                epoch_loss += loss.item()
                 optimizer.zero_grad()
                 loss.backward()
                 optimizer.step()
 
-                high_conf_artifact = pred > 4
-                high_conf_variant = pred < -4
-                med_conf_artifact = (pred > 1) & (pred < 4)
-                med_conf_variant = (pred < -1) & (pred > -4)
-                unsure = (pred > -1) & (pred < 1)
-                correct = (pred > 0) == (batch.labels() > 0.5)
+                nll_loss.record_sum(loss.item(), batch.size())
+                correct = ((pred > 0) == (batch.labels() > 0.5)).tolist()
+                high_conf_artifact_accuracy.record_with_mask(correct, pred > 4)
+                high_conf_variant_accuracy.record_with_mask(correct, pred < -4)
+                med_conf_variant_accuracy.record_with_mask(correct, (pred < -1) & (pred > -4))
+                med_conf_artifact_accuracy.record_with_mask(correct, (pred > 1) & (pred < 4))
+                unsure_accuracy.record_with_mask(correct, (pred > -1) & (pred < 1))
 
-                high_conf_artifact_pred += torch.sum(high_conf_artifact).item()
-                high_conf_artifact_correct += torch.sum(high_conf_artifact & correct).item()
-                high_conf_variant_pred += torch.sum(high_conf_variant).item()
-                high_conf_variant_correct += torch.sum(high_conf_variant & correct).item()
-
-                med_conf_artifact_pred += torch.sum(med_conf_artifact).item()
-                med_conf_artifact_correct += torch.sum(med_conf_artifact & correct).item()
-                med_conf_variant_pred += torch.sum(med_conf_variant).item()
-                med_conf_variant_correct += torch.sum(med_conf_variant & correct).item()
-
-                unsure_pred += torch.sum(unsure).item()
-                unsure_correct += torch.sum(unsure & correct).item()
-
-            calibration_learning_curve.add("calibration NLL", epoch_loss / epoch_count)
-            calibration_learning_curve.add("high-confidence artifact accuracy", high_conf_artifact_correct / (high_conf_artifact_pred+0.001))
-            calibration_learning_curve.add("high-confidence variant accuracy", high_conf_variant_correct / (high_conf_variant_pred+0.001))
-            calibration_learning_curve.add("med-confidence artifact accuracy", med_conf_artifact_correct / (med_conf_artifact_pred+0.001))
-            calibration_learning_curve.add("med-confidence variant accuracy", med_conf_variant_correct / (med_conf_variant_pred+0.001))
-            calibration_learning_curve.add("unsure accuracy", unsure_correct / (unsure_pred + 0.001))
+            summary_writer.add_scalar("calibration/Loss", nll_loss.get(), epoch)
+            summary_writer.add_scalar("calibration/high-confidence artifact accuracy", high_conf_artifact_accuracy.get(), epoch)
+            summary_writer.add_scalar("calibration/high-confidence variant accuracy", high_conf_variant_accuracy.get(), epoch)
+            summary_writer.add_scalar("calibration/med-confidence artifact accuracy", med_conf_artifact_accuracy.get(), epoch)
+            summary_writer.add_scalar("calibration/med-confidence variant accuracy", med_conf_variant_accuracy.get(), epoch)
+            summary_writer.add_scalar("calibration/unsure accuracy", unsure_accuracy.get(), epoch)
             
-        return calibration_learning_curve
-
     def calculate_logit_threshold(self, loader, normal_artifact=False, roc_plot=None):
         self.train(False)
         artifact_probs = []
@@ -405,39 +385,33 @@ class ReadSetClassifier(nn.Module):
 
         if roc_plot is not None:
             x_y_lab = [(sens, prec, "theoretical ROC curve according to M3's posterior probabilities")]
-            fig, curve = mutect3.metrics.plotting.simple_plot(x_y_lab, x_label="sensitivity", y_label="precision",
+            fig, curve = plotting.simple_plot(x_y_lab, x_label="sensitivity", y_label="precision",
                                                               title="theoretical ROC curve according to M3's posterior probabilities")
             with PdfPages(roc_plot) as pdf:
                 pdf.savefig(fig)
         return torch.logit(torch.tensor(threshold)).item()
 
-    def train_model(self, train_loader, valid_loader, num_epochs, beta1, beta2):
+    def train_model(self, train_loader, valid_loader, num_epochs, beta1, beta2, summary_writer: SummaryWriter):
         bce = torch.nn.BCEWithLogitsLoss(reduction='sum')
         individual_bce = torch.nn.BCEWithLogitsLoss(reduction='none')
         train_optimizer = torch.optim.Adam(self.training_parameters())
-        learning_curves = LearningCurves()
 
         # balance training by weighting the loss function
         total_labeled = sum(batch.size() for batch in train_loader if batch.is_labeled())
         total_unlabeled = sum(batch.size() for batch in train_loader if not batch.is_labeled())
         labeled_to_unlabeled_ratio = total_labeled / total_unlabeled
 
-        for _ in trange(1, num_epochs + 1, desc="Epoch"):
+        for epoch in trange(1, num_epochs + 1, desc="Epoch"):
             for epoch_type in [utils.EpochType.TRAIN, utils.EpochType.VALID]:
                 self.set_epoch_type(epoch_type)
                 loader = train_loader if epoch_type == utils.EpochType.TRAIN else valid_loader
 
-                epoch_labeled_loss, epoch_unlabeled_loss = 0, 0
-                epoch_labeled_count, epoch_unlabeled_count = 0, 0
-
-                # simple stratification on alt count
-                epoch_less_than_five_loss, epoch_more_than_ten_loss = 0, 0
-                epoch_less_than_five_count, epoch_more_than_ten_count = 0, 0
-
-                # row/index 0 = label/index 1, column = prediction
-                # 0 = variant, 1 = artifact
-                # thus confusion[1][0] = count of variants classified as artifact
-                epoch_confusion_matrix = [[0, 0], [0, 0]]
+                labeled_loss = StreamingAverage()
+                less_than_five_loss = StreamingAverage()
+                more_than_ten_loss = StreamingAverage()
+                variant_sensitivity = StreamingAverage()
+                artifact_sensitivity = StreamingAverage()
+                unlabeled_loss = StreamingAverage()
 
                 pbar = tqdm(enumerate(loader), mininterval=10)
                 for n, batch in pbar:
@@ -452,21 +426,13 @@ class ReadSetClassifier(nn.Module):
                         labels = batch.labels()
                         # labeled loss: cross entropy for original and both augmented copies
                         loss = bce(orig_pred, labels) + bce(aug1_pred, labels) + bce(aug2_pred, labels)
-                        epoch_labeled_count += batch.size()
-                        epoch_labeled_loss += loss.item()
+                        labeled_loss.record_sum(loss.item(), batch.size())
 
-                        # convert predictions to 0/1 variant/artifact
-                        binary_pred = (orig_pred > 0).int().tolist()
-                        for label, pred in zip((labels > 0.5).int().tolist(), binary_pred):
-                            epoch_confusion_matrix[label][pred] += 1
-
-                        individual_loss = individual_bce(orig_pred, labels)
-                        less_than_five = batch.alt_counts() < 5
-                        more_than_ten = batch.alt_counts() > 10
-                        epoch_less_than_five_count += torch.sum(less_than_five).item()
-                        epoch_more_than_ten_count += torch.sum(more_than_ten).item()
-                        epoch_less_than_five_loss += torch.sum(less_than_five * individual_loss).item()
-                        epoch_more_than_ten_loss += torch.sum(more_than_ten * individual_loss).item()
+                        individual_loss = individual_bce(orig_pred, labels).tolist()
+                        artifact_sensitivity.record_with_mask((orig_pred > 0).int().tolist(), (labels > 0.5))
+                        variant_sensitivity.record_with_mask((orig_pred < 0).int().tolist(), (labels < 0.5))
+                        less_than_five_loss.record_with_mask(individual_loss, batch.alt_counts() < 5)
+                        more_than_ten_loss.record_with_mask(individual_loss, batch.alt_counts() > 10)
 
                     else:
                         # unlabeled loss: consistency cross entropy between original and both augmented copies
@@ -474,8 +440,7 @@ class ReadSetClassifier(nn.Module):
                         loss2 = bce(aug2_pred, torch.sigmoid(orig_pred.detach()))
                         loss3 = bce(aug1_pred, torch.sigmoid(aug2_pred.detach()))
                         loss = (loss1 + loss2 + loss3) * labeled_to_unlabeled_ratio
-                        epoch_unlabeled_count += batch.size()
-                        epoch_unlabeled_loss += loss.item()
+                        unlabeled_loss.record_sum(loss.item(), batch.size())
 
                     if epoch_type == utils.EpochType.TRAIN:
                         train_optimizer.zero_grad()
@@ -483,13 +448,12 @@ class ReadSetClassifier(nn.Module):
                         train_optimizer.step()
 
                 # done with one epoch type -- training or validation -- for this epoch
-                learning_curves.add(epoch_type.name + " labeled NLL", epoch_labeled_loss / epoch_labeled_count)
-                learning_curves.add(epoch_type.name + " less than 5 alt labeled NLL", epoch_less_than_five_loss / (epoch_less_than_five_count+0.001))
-                learning_curves.add(epoch_type.name + " more than 10 alt labeled NLL", epoch_more_than_ten_loss / (epoch_more_than_ten_count+0.001))
-                learning_curves.add(epoch_type.name + " unlabeled NLL", epoch_unlabeled_loss / (epoch_unlabeled_count+0.001))
-                learning_curves.add(epoch_type.name + " variant accuracy", epoch_confusion_matrix[0][0] / (epoch_confusion_matrix[0][0]+epoch_confusion_matrix[0][1]))
-                learning_curves.add(epoch_type.name + " artifact accuracy", epoch_confusion_matrix[1][1] / (epoch_confusion_matrix[1][0] + epoch_confusion_matrix[1][1]))
+                summary_writer.add_scalar(epoch_type.name + "/Labeled Loss", labeled_loss.get(), epoch)
+                summary_writer.add_scalar(epoch_type.name + "/More Than Ten Loss", more_than_ten_loss.get(), epoch)
+                summary_writer.add_scalar(epoch_type.name + "/Less Than Five Loss", less_than_five_loss.get(), epoch)
+                summary_writer.add_scalar(epoch_type.name + "/Unlabeled Loss", unlabeled_loss.get(), epoch)
+                summary_writer.add_scalar(epoch_type.name + "/Variant Sensitivity", variant_sensitivity.get(), epoch)
+                summary_writer.add_scalar(epoch_type.name + "/Artifact Sensitivity", artifact_sensitivity.get(), epoch)
             # done with training and validation for this epoch
             # note that we have not learned the AF spectrum yet
         # done with training
-        return learning_curves

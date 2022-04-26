@@ -18,30 +18,31 @@ SMALL_MODEL_PARAMS = Mutect3Parameters(hidden_read_layers=[5, 5], hidden_info_la
 
 
 # Note that the test methods in this class also cover batching, samplers, datasets, and data loaders
-def train_model_and_return_metrics(m3_params: Mutect3Parameters, training_params: TrainingParameters,
-                                   data: Iterable[ReadSetDatum]):
+def train_model_and_write_summary(m3_params: Mutect3Parameters, training_params: TrainingParameters,
+                                  data: Iterable[ReadSetDatum]):
     dataset = ReadSetDataset(data=data)
     training, valid = utils.split_dataset_into_train_and_valid(dataset, 0.9)
     na_model = NormalArtifactModel([10, 10, 10])
 
-    train_loader = make_semisupervised_data_loader(training, TRAINING_PARAMS.batch_size)
-    valid_loader = make_semisupervised_data_loader(valid, TRAINING_PARAMS.batch_size)
+    train_loader = make_semisupervised_data_loader(training, training_params.batch_size)
+    valid_loader = make_semisupervised_data_loader(valid, training_params.batch_size)
     model = ReadSetClassifier(m3_params=m3_params, na_model=na_model).float()
-    training_metrics = model.train_model(train_loader, valid_loader, TRAINING_PARAMS.num_epochs, TRAINING_PARAMS.beta1, TRAINING_PARAMS.beta2)
-    calibration_metrics = model.learn_calibration(valid_loader, num_epochs=50)
-    return model, training_metrics, calibration_metrics
+
+    #TODO: we need to give these methods a summary writer!!!
+    model.train_model(train_loader, valid_loader, training_params.num_epochs, training_params.beta1, training_params.beta2)
+    model.learn_calibration(valid_loader, num_epochs=50)
+    return model
 
 
 def test_separate_gaussian_data():
     data = artificial_data.make_two_gaussian_data(10000)
     params = SMALL_MODEL_PARAMS
     training_params = TRAINING_PARAMS
-    model, training_metrics, calibration_metrics = \
-        train_model_and_return_metrics(m3_params=params, training_params=training_params, data=data)
+    model = train_model_and_write_summary(m3_params=params, training_params=training_params, data=data)
 
     assert training_metrics.metrics.get("TRAIN variant accuracy")[training_params.num_epochs - 1] > 0.98
     assert training_metrics.metrics.get("TRAIN artifact accuracy")[training_params.num_epochs - 1] > 0.98
-    assert training_metrics.metrics.get("VALID variant accuracy")[training_params.num_epochs-1] > 0.98
+    assert training_metrics.metrics.get("VALID variant accuracy")[training_params.num_epochs - 1] > 0.98
     assert training_metrics.metrics.get("VALID artifact accuracy")[training_params.num_epochs - 1] > 0.98
 
     test_data = artificial_data.make_two_gaussian_data(1000, is_training_data=False, vaf=0.5, unlabeled_fraction=0.0)
@@ -56,8 +57,7 @@ def test_wide_and_narrow_gaussian_data():
     data = artificial_data.make_wide_and_narrow_gaussian_data(10000)
     params = SMALL_MODEL_PARAMS
     training_params = TRAINING_PARAMS
-    model, training_metrics, calibration_metrics = \
-        train_model_and_return_metrics(m3_params=params, training_params=training_params, data=data)
+    model = train_model_and_write_summary(m3_params=params, training_params=training_params, data=data)
 
     assert training_metrics.metrics.get("TRAIN variant accuracy")[training_params.num_epochs - 1] > 0.90
     assert training_metrics.metrics.get("TRAIN artifact accuracy")[training_params.num_epochs - 1] > 0.90

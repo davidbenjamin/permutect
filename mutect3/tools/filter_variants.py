@@ -1,6 +1,5 @@
 import argparse
 from typing import Set
-import time
 
 import torch
 from cyvcf2 import VCF, Writer, Variant
@@ -17,7 +16,7 @@ TRUSTED_M2_FILTERS = {'contamination', 'germline', 'weak_evidence', 'multialleli
 
 
 # this presumes that we have a ReadSetClassifier model and we have saved it via save_mutect3_model as in train_model.py
-def load_saved_model(path):
+def load_m3_model(path):
     saved = torch.load(path)
     m3_params = saved[constants.M3_PARAMS_NAME]
     model = mutect3.architecture.read_set_classifier.ReadSetClassifier(m3_params, None)
@@ -26,7 +25,7 @@ def load_saved_model(path):
 
 
 # this presumes that we have a NormalArtifact model and we have saved it via save_normal_artifact_model as in train_normal_artifact_model.py
-def load_saved_normal_artifact_model(path):
+def load_na_model(path):
     saved = torch.load(path)
     hidden_layers = saved[constants.HIDDEN_LAYERS_NAME]
     na_model = mutect3.architecture.normal_artifact_model.NormalArtifactModel(hidden_layers)
@@ -56,23 +55,23 @@ def filters_to_keep_from_m2(v: Variant) -> Set[str]:
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--input', help='VCF from GATK', required=True)
-    parser.add_argument('--test_dataset', help='test dataset file from GATK', required=True)
-    parser.add_argument('--trained_m3_model', help='trained Mutect3 model', required=True)
-    parser.add_argument('--trained_normal_artifact_model', help='trained normal artifact model', required=True)
-    parser.add_argument('--output', help='output filtered vcf', required=True)
+    parser.add_argument('--' + constants.INPUT_NAME, help='VCF from GATK', required=True)
+    parser.add_argument('--' + constants.TEST_DATASET_NAME, help='test dataset file from GATK', required=True)
+    parser.add_argument('--' + constants.M3_MODEL_NAME, help='trained Mutect3 model', required=True)
+    parser.add_argument('--' + constants.NA_MODEL_NAME, help='trained normal artifact model', required=True)
+    parser.add_argument('--' + constants.OUTPUT_NAME, help='output filtered vcf', required=True)
     parser.add_argument('--report_pdf', required=False)
     parser.add_argument('--roc_pdf', required=False)
-    parser.add_argument('--batch_size', type=int, default=64, required=False)
-    parser.add_argument('--turn_off_normal_artifact', action='store_true')
+    parser.add_argument('--' + constants.BATCH_SIZE_NAME, type=int, default=64, required=False)
+    parser.add_argument('--' + constants.TURN_OFF_NORMAL_ARTIFACT_NAME, action='store_true')
     args = parser.parse_args()
 
     # record encodings of variants that M2 filtered as germline, contamination, or weak evidence
     # Mutect3 ignores these
-    m2_filtering_to_keep = set([encode_variant(v, zero_based=True) for v in VCF(args.input) if filters_to_keep_from_m2(v)])
+    m2_filtering_to_keep = set([encode_variant(v, zero_based=True) for v in VCF(getattr(args, constants.INPUT_NAME)) if filters_to_keep_from_m2(v)])
 
     print("Reading test dataset")
-    unfiltered_test_data = read_set_dataset.read_data(args.test_dataset)
+    unfiltered_test_data = read_set_dataset.read_data(getattr(args, constants.TEST_DATASET_NAME))
     m3_variants = []
     for datum in unfiltered_test_data:
         encoding = encode_datum(datum)
@@ -82,12 +81,12 @@ def main():
     print("Size of test dataset: " + str(len(m3_variants)))
 
     dataset = read_set_dataset.ReadSetDataset(data=m3_variants)
-    data_loader = read_set_dataset.make_test_data_loader(dataset, args.batch_size)
+    data_loader = read_set_dataset.make_test_data_loader(dataset, getattr(args, constants.BATCH_SIZE_NAME))
 
-    na_model = load_saved_normal_artifact_model(args.trained_normal_artifact_model)
-    model = load_saved_model(args.trained_m3_model)
+    na_model = load_na_model(getattr(args, constants.NA_MODEL_NAME))
+    model = load_m3_model(getattr(args, constants.M3_MODEL_NAME))
     model.set_normal_artifact_model(na_model)
-    use_normal_artifact = (not args.turn_off_normal_artifact)
+    use_normal_artifact = (not getattr(args, constants.TURN_OFF_NORMAL_ARTIFACT_NAME))
 
     # The AF spectrum was, of course, not pre-trained with the rest of the model
     print("Learning AF spectra")
@@ -133,12 +132,12 @@ def main():
 
     print("Applying computed logits")
 
-    unfiltered_vcf = VCF(args.input)
+    unfiltered_vcf = VCF(getattr(args, constants.INPUT_NAME))
     unfiltered_vcf.add_info_to_header({'ID': 'LOGIT', 'Description': 'Mutect3 posterior logit',
                             'Type': 'Float', 'Number': 'A'})
     unfiltered_vcf.add_filter_to_header({'ID': 'mutect3', 'Description': 'fails Mutect3 deep learning filter'})
 
-    writer = Writer(args.output, unfiltered_vcf)  # input vcf is a template for the header
+    writer = Writer(getattr(args, constants.OUTPUT_NAME), unfiltered_vcf)  # input vcf is a template for the header
 
     pbar = tqdm(enumerate(unfiltered_vcf), mininterval=10)
     for n, v in pbar:

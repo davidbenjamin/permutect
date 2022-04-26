@@ -149,11 +149,11 @@ task Mutect3Filtering {
 
         filter_variants \
             --input ~{mutect2_vcf} \
-            --test_dataset ~{test_dataset} \
-            --batch_size ~{batch_size} \
-            --trained_m3_model ~{mutect3_model} \
-            --trained_normal_artifact_model ~{normal_artifact_model} \
-            --batch_size ~{batch_size} \
+            --test-dataset ~{test_dataset} \
+            --batch-size ~{batch_size} \
+            --m3-model ~{mutect3_model} \
+            --na_model ~{normal_artifact_model} \
+            --batch-size ~{batch_size} \
             --output mutect3-filtered.vcf \
             --report_pdf report.pdf \
             --roc_pdf roc.pdf

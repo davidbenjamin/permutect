@@ -54,3 +54,34 @@ def f_score(tp, fp, total_true):
 def beta_binomial(n, k, alpha, beta):
     return torch.lgamma(k + alpha) + torch.lgamma(n - k + beta) + torch.lgamma(alpha + beta) \
            - torch.lgamma(n + alpha + beta) - torch.lgamma(alpha) - torch.lgamma(beta)
+
+
+class StreamingAverage:
+    def __init__(self):
+        self._count = 0
+        self._sum = 0.0
+
+    def get(self):
+        return self._sum / self._count
+
+    def record(self, value: float):
+        self._count += 1
+        self._sum += value
+
+    def record_sum(self, value_sum, count):
+        self._count += count
+        self._sum += value_sum
+
+    def record_multiple(self, values):
+        self._count += len(values)
+        for value in values:
+            self._sum += value
+
+    # record only values masked as true
+    def record_with_mask(self, values, mask):
+        for value, include in zip(values, mask):
+            if include:
+                self._count += 1
+                self._sum += value
+
+

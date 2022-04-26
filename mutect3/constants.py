@@ -11,6 +11,7 @@ OUTPUT_LAYERS_NAME = 'output-layers'
 DROPOUT_P_NAME = 'dropout-p'
 
 TRAINING_DATASETS_NAME = 'training-datasets'
+TEST_DATASET_NAME = 'test-dataset'
 NORMAL_ARTIFACT_DATASETS_NAME = 'normal-artifact-datasets'
 ALPHA1_NAME = 'alpha1'
 ALPHA2_NAME = 'alpha2'
@@ -18,5 +19,9 @@ BETA1_NAME = 'beta1'
 BETA2_NAME = 'beta2'
 BATCH_SIZE_NAME = 'batch-size'
 NUM_EPOCHS_NAME = 'num-epochs'
+TURN_OFF_NORMAL_ARTIFACT_NAME = 'turn_off_normal_artifact'
 
 TENSORBOARD_DIR_NAME = 'tensorboard-dir'
+
+M3_MODEL_NAME = 'm3-model'
+NA_MODEL_NAME = 'na-model'
