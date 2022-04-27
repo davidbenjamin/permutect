@@ -10,7 +10,7 @@ from mutect3.tools.train_model import TrainingParameters
 
 BATCH_SIZE = 64
 NUM_EPOCHS = 100
-NUM_SPECTRUM_EPOCHS=200
+NUM_SPECTRUM_ITERATIONS=10
 TRAINING_PARAMS = TrainingParameters(batch_size=BATCH_SIZE, num_epochs=NUM_EPOCHS, beta1=Beta(5, 1), beta2=Beta(5, 1))
 
 SMALL_MODEL_PARAMS = Mutect3Parameters(hidden_read_layers=[5, 5], hidden_info_layers=[5, 5], aggregation_layers=[5, 5],
@@ -48,9 +48,7 @@ def test_separate_gaussian_data():
     test_data = artificial_data.make_two_gaussian_data(1000, is_training_data=False, vaf=0.5, unlabeled_fraction=0.0)
     test_dataset = ReadSetDataset(data=test_data)
     test_loader = make_test_data_loader(test_dataset, BATCH_SIZE)
-    model.learn_spectra(test_loader, NUM_SPECTRUM_EPOCHS)
-
-    j = 90
+    model.learn_spectra(test_loader, NUM_SPECTRUM_ITERATIONS, summary_writer=None)
 
 
 def test_wide_and_narrow_gaussian_data():
@@ -67,5 +65,4 @@ def test_wide_and_narrow_gaussian_data():
     test_data = artificial_data.make_two_gaussian_data(1000, is_training_data=False, vaf=0.25, unlabeled_fraction=0.0)
     test_dataset = ReadSetDataset(data=test_data)
     test_loader = make_test_data_loader(test_dataset, BATCH_SIZE)
-    model.learn_spectra(test_loader, NUM_SPECTRUM_EPOCHS)
-    p = 90
+    model.learn_spectra(test_loader, NUM_SPECTRUM_ITERATIONS, summary_writer=None)

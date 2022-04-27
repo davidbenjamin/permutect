@@ -2,8 +2,8 @@ import argparse
 from typing import Set
 
 import torch
+from torch.utils.tensorboard import SummaryWriter
 from cyvcf2 import VCF, Writer, Variant
-from matplotlib.backends.backend_pdf import PdfPages
 from tqdm.autonotebook import tqdm
 
 import mutect3.architecture.normal_artifact_model
@@ -60,9 +60,9 @@ def main():
     parser.add_argument('--' + constants.M3_MODEL_NAME, help='trained Mutect3 model', required=True)
     parser.add_argument('--' + constants.NA_MODEL_NAME, help='trained normal artifact model', required=True)
     parser.add_argument('--' + constants.OUTPUT_NAME, help='output filtered vcf', required=True)
-    parser.add_argument('--report_pdf', required=False)
-    parser.add_argument('--roc_pdf', required=False)
+    parser.add_argument('--' + constants.TENSORBOARD_DIR_NAME, type=str, default='tensorboard', required=False)
     parser.add_argument('--' + constants.BATCH_SIZE_NAME, type=int, default=64, required=False)
+    parser.add_argument('--' + constants.NUM_SPECTRUM_ITERATIONS, type=int, default=10, required=False)
     parser.add_argument('--' + constants.TURN_OFF_NORMAL_ARTIFACT_NAME, action='store_true')
     args = parser.parse_args()
 
@@ -90,33 +90,12 @@ def main():
 
     # The AF spectrum was, of course, not pre-trained with the rest of the model
     print("Learning AF spectra")
-    spectrum_metrics, epoch_spectra, variant_histograms, artifact_histograms, heatmaps = \
-        model.learn_spectra(data_loader, num_epochs=25, use_normal_artifact=use_normal_artifact)
-
-    print("generating plots")
-    if args.report_pdf is not None:
-        with PdfPages(args.report_pdf) as pdf:
-            for fig, curve in spectrum_metrics.plot_curves():
-                pdf.savefig(fig)
-
-            spectra_plots = model.get_prior_model().plot_spectra()
-            for fig, curve in spectra_plots:
-                pdf.savefig(fig)
-
-            for fig, curve in epoch_spectra:
-                pdf.savefig(fig)
-
-            for fig, curve in variant_histograms:
-                pdf.savefig(fig)
-
-            for fig, curve in artifact_histograms:
-                pdf.savefig(fig)
-
-            for fig, curve in heatmaps:
-                pdf.savefig(fig)
+    num_spectrum_iterations = getattr(args, constants.NUM_SPECTRUM_ITERATIONS)
+    summary_writer = SummaryWriter(getattr(args, constants.TENSORBOARD_DIR_NAME))
+    model.learn_spectra(data_loader, num_iterations=num_spectrum_iterations, use_normal_artifact=use_normal_artifact, summary_writer=)
 
     print("Calculating optimal logit threshold")
-    logit_threshold = model.calculate_logit_threshold(loader=data_loader, normal_artifact=use_normal_artifact, roc_plot=args.roc_pdf)
+    logit_threshold = model.calculate_logit_threshold(loader=data_loader, normal_artifact=use_normal_artifact, summary_writer=summary_writer)
     print("Optimal logit threshold: " + str(logit_threshold))
 
     encoding_to_logit_dict = {}

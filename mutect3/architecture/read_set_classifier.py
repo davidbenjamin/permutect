@@ -5,13 +5,11 @@ import torch
 from torch.utils.tensorboard import SummaryWriter
 
 import random
-from matplotlib.backends.backend_pdf import PdfPages
 from torch import nn
 from tqdm.autonotebook import trange, tqdm
 from itertools import chain
 from torch.distributions import Beta
 
-from mutect3.metrics.metrics import LearningCurves
 from mutect3 import utils
 from mutect3.architecture.mlp import MLP
 from mutect3.architecture.normal_artifact_model import NormalArtifactModel
@@ -218,25 +216,15 @@ class ReadSetClassifier(nn.Module):
 
         return logits
 
-    def learn_spectra(self, loader, num_epochs, use_normal_artifact=False, extra_metrics=True):
+    def learn_spectra(self, loader, num_iterations, use_normal_artifact=False, summary_writer: SummaryWriter = None):
         self.learn_spectrum_mode()
-        spectra_learning_curve = LearningCurves()
-        variant_histograms = [] # histograms of variant allele fractions by iteration
-        artifact_histograms = []
-        heatmaps = []
-        tumor_afs, all_artifact_probs = [], [] # 2D heatmap of tumor_af vs artifact prob
-        iteration_spectra = []
-
         logits_and_batches = [(self.forward(batch=batch, normal_artifact=use_normal_artifact).detach(), batch) for batch in loader]
         optimizer = torch.optim.Adam(self.spectra_parameters())
 
-        # NEW
-        overall_epocb = 0
-        num_iterations = 10
+        overall_epoch = 0
         num_fit_epochs = 10
-        iteration_pbar = trange(num_iterations, desc="AF spectra iteration")
-        for iteration in iteration_pbar:
-            
+        for iteration in trange(num_iterations, desc="AF spectra iteration"):
+            tumor_afs, all_artifact_probs = [], []  # for 2D heatmap of tumor_af vs artifact prob
             probs_and_batches = []
             variant_afs = []   # debugging -- record which data are variant
             artifact_afs = []
@@ -262,17 +250,13 @@ class ReadSetClassifier(nn.Module):
                         artifact_afs.append(tumor_af)
             # done computing posterior probs (the E step) of this iteration
 
-            iteration_artifacts = 0.0
-            iteration_variants = 0.0
-            iteration_certain_variants = 0
-            iteration_certain_artifacts = 0
+            iter_artifacts, iter_variants, iter_sure_variants, iter_sure_artifacts = 0.0, 0.0, 0, 0
 
             fit_pbar = trange(num_fit_epochs, desc="AF fitting epoch")
             for epoch in fit_pbar:
-                overall_epocb += 1
-                epoch_loss = 0
-                epoch_count = 0
-                
+                overall_epoch += 1
+                epoch_loss = StreamingAverage()
+
                 for probs, batch in probs_and_batches:
                     variant_probs = (1 - probs)*(probs < 0.2)
                     artifact_probs = probs * (probs > 0.8)
@@ -290,30 +274,35 @@ class ReadSetClassifier(nn.Module):
                     loss.backward()
                     optimizer.step()
 
-                    epoch_loss += loss.item()
-                    epoch_count += batch.size()
+                    epoch_loss.record_sum(loss.item(), batch.size())
                     # these depend on the iteration, not the inner epoch loop, and so are only computed in the last epoch
-                    if extra_metrics and epoch == num_fit_epochs - 1:
-                        iteration_artifacts += torch.sum(probs).item()
-                        iteration_variants += torch.sum(1 - probs).item()
-                        iteration_certain_artifacts += torch.sum(probs > 0.99).item()
-                        iteration_certain_variants += torch.sum(probs < 0.01).item()
+                    if summary_writer is not None and epoch == num_fit_epochs - 1:
+                        iter_artifacts += torch.sum(probs).item()
+                        iter_variants += torch.sum(1 - probs).item()
+                        iter_sure_artifacts += torch.sum(probs > 0.99).item()
+                        iter_sure_variants += torch.sum(probs < 0.01).item()
                 # done with batches in this inner epoch
-                spectra_learning_curve.add("spectrum NLL", epoch_loss / epoch_count)
-            # done with this inner epoch
-            if extra_metrics:
-                spectra_learning_curve.add("SNV log prior", self.prior_model.prior_log_odds[0].item())
-                spectra_learning_curve.add("Insertion log prior", self.prior_model.prior_log_odds[1].item())
-                spectra_learning_curve.add("Deletion log prior", self.prior_model.prior_log_odds[2].item())
-                spectra_learning_curve.add("artifact count", iteration_artifacts)
-                spectra_learning_curve.add("variant count", iteration_variants)
-                spectra_learning_curve.add("certain artifact count", iteration_certain_artifacts)
-                spectra_learning_curve.add("certain variant count", iteration_certain_variants)
-                iteration_spectra.extend(self.get_prior_model().plot_spectra(title_prefix=("Iteration" + str(iteration) + ": ")))
-                variant_histograms.append(plotting.histogram(variant_afs, "Iteration" + str(iteration) + " variant AFs"))
-                artifact_histograms.append(plotting.histogram(artifact_afs, "Iteration" + str(iteration) + " artifact AFs"))
-                heatmaps.append(plotting.hexbin(tumor_afs, all_artifact_probs))
-        return spectra_learning_curve, iteration_spectra, variant_histograms, artifact_histograms, heatmaps
+                summary_writer.add_scalar("spectrum NLL", epoch_loss.get(), overall_epoch)
+            # done with all inner (fit) epochs
+            if summary_writer is not None:
+                summary_writer.add_scalar("SNV log prior", self.prior_model.prior_log_odds[0].item(), iteration)
+                summary_writer.add_scalar("Insertion log prior", self.prior_model.prior_log_odds[1].item(), iteration)
+                summary_writer.add_scalar("Deletion log prior", self.prior_model.prior_log_odds[2].item(), iteration)
+                summary_writer.add_scalar("artifact count", iter_artifacts, iteration)
+                summary_writer.add_scalar("variant count", iter_variants, iteration)
+                summary_writer.add_scalar("certain artifact count", iter_sure_artifacts, iteration)
+                summary_writer.add_scalar("certain variant count", iter_sure_variants, iteration)
+
+                for variant_type in utils.VariantType:
+                    fig, curve = self.get_prior_model().artifact_spectra[variant_type.value].plot_spectrum(
+                        variant_type.name + " artifact AF spectrum")
+                    summary_writer.add_figure(variant_type.name + " artifact AF spectrum", fig, iteration)
+                fig, curve = self.get_prior_model().variant_spectrum.plot_spectrum("Variant AF spectrum")
+                summary_writer.add_figure("Variant AF spectrum", fig, iteration)
+
+                summary_writer.add_figure("Variant AFs", plotting.histogram(variant_afs, "AFs")[0], iteration)
+                summary_writer.add_figure("Artifact AFs", plotting.histogram(artifact_afs, "AFs")[0], iteration)
+                summary_writer.add_figure("AF vs prob", plotting.hexbin(tumor_afs, all_artifact_probs)[0], iteration)
 
     def learn_calibration(self, loader, num_epochs, summary_writer: SummaryWriter):
         self.train(False)
@@ -356,7 +345,7 @@ class ReadSetClassifier(nn.Module):
             summary_writer.add_scalar("calibration/med-confidence variant accuracy", med_conf_variant_accuracy.get(), epoch)
             summary_writer.add_scalar("calibration/unsure accuracy", unsure_accuracy.get(), epoch)
             
-    def calculate_logit_threshold(self, loader, normal_artifact=False, roc_plot=None):
+    def calculate_logit_threshold(self, loader, normal_artifact=False, summary_writer: SummaryWriter = None):
         self.train(False)
         artifact_probs = []
 
@@ -383,12 +372,12 @@ class ReadSetClassifier(nn.Module):
                 best_f = current_f
                 threshold = prob
 
-        if roc_plot is not None:
+        if summary_writer is not None:
             x_y_lab = [(sens, prec, "theoretical ROC curve according to M3's posterior probabilities")]
             fig, curve = plotting.simple_plot(x_y_lab, x_label="sensitivity", y_label="precision",
-                                                              title="theoretical ROC curve according to M3's posterior probabilities")
-            with PdfPages(roc_plot) as pdf:
-                pdf.savefig(fig)
+                                              title="theoretical ROC curve according to M3's posterior probabilities")
+            summary_writer.add_figure("theoretical ROC curve", fig)
+
         return torch.logit(torch.tensor(threshold)).item()
 
     def train_model(self, train_loader, valid_loader, num_epochs, beta1, beta2, summary_writer: SummaryWriter):

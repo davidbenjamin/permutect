@@ -117,8 +117,7 @@ workflow Mutect3 {
     output {
         File output_vcf = IndexVCF.vcf
         File output_vcf_idx = IndexVCF.vcf_index
-        File report_pdf = Mutect3Filtering.report_pdf
-        File roc_pdf = Mutect3Filtering.roc_pdf
+        File tensorboard_report = Mutect3Filtering.tensorboard_report
     }
 }
 
@@ -155,8 +154,7 @@ task Mutect3Filtering {
             --na_model ~{normal_artifact_model} \
             --batch-size ~{batch_size} \
             --output mutect3-filtered.vcf \
-            --report_pdf report.pdf \
-            --roc_pdf roc.pdf
+            --tensorboard-dir tensorboard
     >>>
 
     runtime {
@@ -171,8 +169,7 @@ task Mutect3Filtering {
 
     output {
         File output_vcf = "mutect3-filtered.vcf"
-        File report_pdf = "report.pdf"
-        File roc_pdf = "roc.pdf"
+        File tensorboard_report = glob("tensorboard/*tfevents*")[0]
     }
 }
 

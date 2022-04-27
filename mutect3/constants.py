@@ -19,6 +19,7 @@ BETA1_NAME = 'beta1'
 BETA2_NAME = 'beta2'
 BATCH_SIZE_NAME = 'batch-size'
 NUM_EPOCHS_NAME = 'num-epochs'
+NUM_SPECTRUM_ITERATIONS = 'num-spectrum-iterations'
 TURN_OFF_NORMAL_ARTIFACT_NAME = 'turn_off_normal_artifact'
 
 TENSORBOARD_DIR_NAME = 'tensorboard-dir'

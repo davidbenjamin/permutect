@@ -60,11 +60,3 @@ class PriorModel(nn.Module):
 
         term2 = torch.logsumexp(torch.column_stack((torch.zeros_like(logits), prior_log_odds)), dim=1)
         return term1 - term2
-
-    # returns list of fig, curve tuples
-    def plot_spectra(self, title_prefix=""):
-        result = []
-        for variant_type in utils.VariantType:
-            result.append(self.artifact_spectra[variant_type.value].plot_spectrum(title_prefix + variant_type.name + " artifact AF spectrum"))
-        result.append(self.variant_spectrum.plot_spectrum(title_prefix + "Variant AF spectrum"))
-        return result
