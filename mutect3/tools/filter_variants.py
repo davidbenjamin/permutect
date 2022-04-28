@@ -92,7 +92,7 @@ def main():
     print("Learning AF spectra")
     num_spectrum_iterations = getattr(args, constants.NUM_SPECTRUM_ITERATIONS)
     summary_writer = SummaryWriter(getattr(args, constants.TENSORBOARD_DIR_NAME))
-    model.learn_spectra(data_loader, num_iterations=num_spectrum_iterations, use_normal_artifact=use_normal_artifact, summary_writer=)
+    model.learn_spectra(data_loader, num_iterations=num_spectrum_iterations, use_normal_artifact=use_normal_artifact, summary_writer=summary_writer)
 
     print("Calculating optimal logit threshold")
     logit_threshold = model.calculate_logit_threshold(loader=data_loader, normal_artifact=use_normal_artifact, summary_writer=summary_writer)
