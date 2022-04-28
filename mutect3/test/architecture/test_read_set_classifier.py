@@ -8,6 +8,10 @@ from mutect3.architecture.read_set_classifier import ReadSetClassifier, Mutect3P
 from mutect3 import utils
 from mutect3.tools.train_model import TrainingParameters
 
+from tensorboard.backend.event_processing.event_accumulator import EventAccumulator
+import tempfile
+from torch.utils.tensorboard import SummaryWriter
+
 BATCH_SIZE = 64
 NUM_EPOCHS = 100
 NUM_SPECTRUM_ITERATIONS=10
@@ -19,7 +23,7 @@ SMALL_MODEL_PARAMS = Mutect3Parameters(hidden_read_layers=[5, 5], hidden_info_la
 
 # Note that the test methods in this class also cover batching, samplers, datasets, and data loaders
 def train_model_and_write_summary(m3_params: Mutect3Parameters, training_params: TrainingParameters,
-                                  data: Iterable[ReadSetDatum]):
+                                  data: Iterable[ReadSetDatum], summary_writer: SummaryWriter = None):
     dataset = ReadSetDataset(data=data)
     training, valid = utils.split_dataset_into_train_and_valid(dataset, 0.9)
     na_model = NormalArtifactModel([10, 10, 10])
@@ -28,9 +32,8 @@ def train_model_and_write_summary(m3_params: Mutect3Parameters, training_params:
     valid_loader = make_semisupervised_data_loader(valid, training_params.batch_size)
     model = ReadSetClassifier(m3_params=m3_params, na_model=na_model).float()
 
-    #TODO: we need to give these methods a summary writer!!!
-    model.train_model(train_loader, valid_loader, training_params.num_epochs, training_params.beta1, training_params.beta2)
-    model.learn_calibration(valid_loader, num_epochs=50)
+    model.train_model(train_loader, valid_loader, training_params.num_epochs, training_params.beta1, training_params.beta2, summary_writer=summary_writer)
+    model.learn_calibration(valid_loader, num_epochs=50, summary_writer=summary_writer)
     return model
 
 
@@ -38,31 +41,45 @@ def test_separate_gaussian_data():
     data = artificial_data.make_two_gaussian_data(10000)
     params = SMALL_MODEL_PARAMS
     training_params = TRAINING_PARAMS
-    model = train_model_and_write_summary(m3_params=params, training_params=training_params, data=data)
 
-    assert training_metrics.metrics.get("TRAIN variant accuracy")[training_params.num_epochs - 1] > 0.98
-    assert training_metrics.metrics.get("TRAIN artifact accuracy")[training_params.num_epochs - 1] > 0.98
-    assert training_metrics.metrics.get("VALID variant accuracy")[training_params.num_epochs - 1] > 0.98
-    assert training_metrics.metrics.get("VALID artifact accuracy")[training_params.num_epochs - 1] > 0.98
+    with tempfile.TemporaryDirectory() as tensorboard_dir:
+        summary_writer = SummaryWriter(tensorboard_dir)
+        model = train_model_and_write_summary(m3_params=params, training_params=training_params, data=data, summary_writer=summary_writer)
 
-    test_data = artificial_data.make_two_gaussian_data(1000, is_training_data=False, vaf=0.5, unlabeled_fraction=0.0)
-    test_dataset = ReadSetDataset(data=test_data)
-    test_loader = make_test_data_loader(test_dataset, BATCH_SIZE)
-    model.learn_spectra(test_loader, NUM_SPECTRUM_ITERATIONS, summary_writer=None)
+        test_data = artificial_data.make_two_gaussian_data(1000, is_training_data=False, vaf=0.5, unlabeled_fraction=0.0)
+        test_dataset = ReadSetDataset(data=test_data)
+        test_loader = make_test_data_loader(test_dataset, BATCH_SIZE)
+        model.learn_spectra(test_loader, NUM_SPECTRUM_ITERATIONS, summary_writer=summary_writer)
+
+        events = EventAccumulator(tensorboard_dir)
+        events.Reload()
+
+        last = training_params.num_epochs - 1
+        assert events.Scalars('TRAIN/Variant Sensitivity')[last].value > 0.98
+        assert events.Scalars('TRAIN/Artifact Sensitivity')[last].value > 0.98
+        assert events.Scalars('VALID/Variant Sensitivity')[last].value > 0.98
+        assert events.Scalars('VALID/Artifact Sensitivity')[last].value > 0.98
 
 
 def test_wide_and_narrow_gaussian_data():
     data = artificial_data.make_wide_and_narrow_gaussian_data(10000)
     params = SMALL_MODEL_PARAMS
     training_params = TRAINING_PARAMS
-    model = train_model_and_write_summary(m3_params=params, training_params=training_params, data=data)
 
-    assert training_metrics.metrics.get("TRAIN variant accuracy")[training_params.num_epochs - 1] > 0.90
-    assert training_metrics.metrics.get("TRAIN artifact accuracy")[training_params.num_epochs - 1] > 0.90
-    assert training_metrics.metrics.get("VALID variant accuracy")[training_params.num_epochs-1] > 0.90
-    assert training_metrics.metrics.get("VALID artifact accuracy")[training_params.num_epochs - 1] > 0.90
+    with tempfile.TemporaryDirectory() as tensorboard_dir:
+        summary_writer = SummaryWriter(tensorboard_dir)
+        model = train_model_and_write_summary(m3_params=params, training_params=training_params, data=data, summary_writer=summary_writer)
 
-    test_data = artificial_data.make_two_gaussian_data(1000, is_training_data=False, vaf=0.25, unlabeled_fraction=0.0)
-    test_dataset = ReadSetDataset(data=test_data)
-    test_loader = make_test_data_loader(test_dataset, BATCH_SIZE)
-    model.learn_spectra(test_loader, NUM_SPECTRUM_ITERATIONS, summary_writer=None)
+        test_data = artificial_data.make_two_gaussian_data(1000, is_training_data=False, vaf=0.25, unlabeled_fraction=0.0)
+        test_dataset = ReadSetDataset(data=test_data)
+        test_loader = make_test_data_loader(test_dataset, BATCH_SIZE)
+        model.learn_spectra(test_loader, NUM_SPECTRUM_ITERATIONS, summary_writer=summary_writer)
+
+        events = EventAccumulator(tensorboard_dir)
+        events.Reload()
+
+        last = training_params.num_epochs - 1
+        assert events.Scalars('TRAIN/Variant Sensitivity')[last].value > 0.90
+        assert events.Scalars('TRAIN/Artifact Sensitivity')[last].value > 0.90
+        assert events.Scalars('VALID/Variant Sensitivity')[last].value > 0.90
+        assert events.Scalars('VALID/Artifact Sensitivity')[last].value > 0.90

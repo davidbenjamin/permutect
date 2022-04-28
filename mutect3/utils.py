@@ -62,7 +62,7 @@ class StreamingAverage:
         self._sum = 0.0
 
     def get(self):
-        return self._sum / self._count
+        return self._sum / (self._count + 0.0001)
 
     def record(self, value: float):
         self._count += 1

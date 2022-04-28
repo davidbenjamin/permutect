@@ -1,4 +1,6 @@
-import torch
+from tensorboard.backend.event_processing.event_accumulator import EventAccumulator
+import tempfile
+from torch.utils.tensorboard import SummaryWriter
 from numpy.random import binomial
 from mutect3.data.normal_artifact_datum import NormalArtifactDatum
 import random
@@ -21,7 +23,7 @@ def test_normal_artifact():
     data = []
     size = 100000
     artifact_fraction = 0.3
-    #artifact_af = 0.15
+    # artifact_af = 0.15
     normal_imply_tumor_prob = 0.5
     batch_size = 64
     num_epochs = 100
@@ -48,8 +50,9 @@ def test_normal_artifact():
 
     na_model = mutect3.architecture.normal_artifact_model.NormalArtifactModel(hidden_layers=hidden_layers)
 
-    # TODO: give this a summary writer!!!
-    na_model.train_model(na_train_loader, na_valid_loader, num_epochs=num_epochs)
-    [na_model.plot_spectrum(af, "af = " + str(af) + " plot") for af in [0.0, 0.05, 0.1, 0.15, 0.2, 0.5]]
+    with tempfile.TemporaryDirectory() as tensorboard_dir:
+        summary_writer = SummaryWriter(tensorboard_dir)
+        na_model.train_model(na_train_loader, na_valid_loader, num_epochs=num_epochs, summary_writer=summary_writer)
+        [na_model.plot_spectrum(af, "af = " + str(af) + " plot") for af in [0.0, 0.05, 0.1, 0.15, 0.2, 0.5]]
 
-    j = 90
+        j = 90
