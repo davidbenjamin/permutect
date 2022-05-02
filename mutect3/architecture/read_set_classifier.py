@@ -44,13 +44,12 @@ class Mutect3Parameters:
 
 
 class Calibration(nn.Module):
-    MAX_ALT = 10
 
     def __init__(self):
         super(Calibration, self).__init__()
-        # Taking the mean of read embeddings erases the alt count, by design.  However, it is fine to multiply
-        # the output logits in a count-dependent way to modulate confidence.  We initialize as sqrt(alt count).
-        self.confidence = nn.Parameter(torch.sqrt(torch.arange(0, Calibration.MAX_ALT + 1).float()))
+
+        # take the transformed alt and ref counts (i.e. two input "features") and output
+        self.mlp = MLP([2, 5, 5, 1])
 
         # we apply as asymptotic threshold function logit --> M * tanh(logit/M) where M is the maximum absolute
         # value of the thresholded output.  For logits << M this is the identity, and approaching M the asymptote
@@ -58,10 +57,15 @@ class Calibration(nn.Module):
         # We initialize it to something large.
         self.max_logit = nn.Parameter(torch.tensor(10.0))
 
-    def forward(self, logits, alt_counts):
-        truncated_counts = torch.LongTensor([min(c, Calibration.MAX_ALT) for c in alt_counts])
-        logits = logits * torch.index_select(self.confidence, 0, truncated_counts)
-        return self.max_logit * torch.tanh(logits / self.max_logit)
+    def forward(self, logits, batch: ReadSetBatch):
+        # based on stats 101 it's reasonable to guess that confidence depends on the sqrt of the evidence count
+        # thus we apply a sqrt nonlinearity before the MLP in order to hopefully reduce the number of parameters needed.
+        sqrt_counts = torch.column_stack((torch.sqrt(batch.alt_counts()), torch.sqrt(batch.ref_counts())))
+
+        # temperature scaling means multiplying logits -- in this case the temperature depends on alt and ref counts
+        temperatures = torch.squeeze(self.mlp.forward(sqrt_counts))
+        calibrated_logits = logits * temperatures
+        return self.max_logit * torch.tanh(calibrated_logits / self.max_logit)
 
 
 class ReadSetClassifier(nn.Module):
@@ -178,7 +182,7 @@ class ReadSetClassifier(nn.Module):
                 [1 if variant_type == v_type else 0 for v_type in batch.variant_type()])
             logits += mask * output
 
-        logits = self.calibration(logits, batch.alt_counts())
+        logits = self.calibration.forward(logits, batch)
 
         if posterior:
             logits = self.prior_model(logits, batch)
