@@ -150,11 +150,11 @@ class ReadSetClassifier(nn.Module):
 
     # beta is for downsampling data augmentation
     def forward_starting_from_phi_reads(self, phi_reads: torch.Tensor, batch: ReadSetBatch, posterior=False, normal_artifact=False, reweighting_range: float=0):
-        reweightings = torch.ones(len(phi_reads), 1) if reweighting_range == 0 else (1 + reweighting_range*(1 - 2*torch.rand(len(phi_reads, 1))))
+        reweightings = torch.ones(len(phi_reads), 1) if reweighting_range == 0 else (1 + reweighting_range*(1 - 2*torch.rand(len(phi_reads), 1)))
 
         # embed reads and take reweighted mean within each datum to get tensors of shape (batch size x embedding dimension)
-        ref_means = torch.vstack([torch.sum(phi_reads[s], dim=0) / torch.sum(reweightings[s]) for s in batch.ref_slices()], dim=0)
-        alt_means = torch.vstack([torch.sum(phi_reads[s], dim=0) / torch.sum(reweightings[s]) for s in batch.alt_slices()], dim=0)
+        ref_means = torch.vstack([torch.sum(phi_reads[s], dim=0) / torch.sum(reweightings[s]) for s in batch.ref_slices()])
+        alt_means = torch.vstack([torch.sum(phi_reads[s], dim=0) / torch.sum(reweightings[s]) for s in batch.alt_slices()])
 
         # these are fed to the calibration, since reweighting effectively reduces the read counts
         effective_ref_counts = batch.ref_counts() if reweighting_range == 0 else torch.Tensor([effective_count(reweightings[s]) for s in batch.alt_slices()])
