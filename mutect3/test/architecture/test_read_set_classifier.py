@@ -2,7 +2,6 @@ from mutect3.test.test_utils import artificial_data
 from mutect3.data.read_set_dataset import ReadSetDataset, make_semisupervised_data_loader, make_test_data_loader
 from mutect3.data.read_set_datum import ReadSetDatum
 from typing import Iterable
-from torch.distributions.beta import Beta
 from mutect3.architecture.normal_artifact_model import NormalArtifactModel
 from mutect3.architecture.read_set_classifier import ReadSetClassifier, Mutect3Parameters
 from mutect3 import utils
