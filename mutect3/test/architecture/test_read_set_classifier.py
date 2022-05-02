@@ -15,7 +15,7 @@ from torch.utils.tensorboard import SummaryWriter
 BATCH_SIZE = 64
 NUM_EPOCHS = 100
 NUM_SPECTRUM_ITERATIONS=10
-TRAINING_PARAMS = TrainingParameters(batch_size=BATCH_SIZE, num_epochs=NUM_EPOCHS, beta1=Beta(5, 1), beta2=Beta(5, 1))
+TRAINING_PARAMS = TrainingParameters(batch_size=BATCH_SIZE, num_epochs=NUM_EPOCHS, reweighting_range=0.3)
 
 SMALL_MODEL_PARAMS = Mutect3Parameters(hidden_read_layers=[5, 5], hidden_info_layers=[5, 5], aggregation_layers=[5, 5],
                                        output_layers=[5, 5], dropout_p=0.2)
@@ -32,7 +32,7 @@ def train_model_and_write_summary(m3_params: Mutect3Parameters, training_params:
     valid_loader = make_semisupervised_data_loader(valid, training_params.batch_size)
     model = ReadSetClassifier(m3_params=m3_params, na_model=na_model).float()
 
-    model.train_model(train_loader, valid_loader, training_params.num_epochs, training_params.beta1, training_params.beta2, summary_writer=summary_writer)
+    model.train_model(train_loader, valid_loader, training_params.num_epochs, summary_writer=summary_writer, reweighting_range=training_params.reweighting_range)
     model.learn_calibration(valid_loader, num_epochs=50, summary_writer=summary_writer)
     return model
 

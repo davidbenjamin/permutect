@@ -10,6 +10,7 @@ workflow TrainMutect3 {
         Int batch_size
         Int normal_artifact_batch_size
         Float dropout_p
+        Float reweighting_range
         Array[Int] hidden_read_layers
         Array[Int] hidden_info_layers
         Array[Int] aggregation_layers
@@ -30,6 +31,7 @@ workflow TrainMutect3 {
             num_epochs = num_epochs,
             batch_size = batch_size,
             dropout_p = dropout_p,
+            reweighting_range = reweighting_range,
             hidden_read_layers = hidden_read_layers,
             hidden_info_layers = hidden_info_layers,
             aggregation_layers = aggregation_layers,
@@ -63,6 +65,7 @@ task TrainMutect3 {
         Int num_epochs
         Int batch_size
         Float dropout_p
+        Float reweighting_range
         Array[Int] hidden_read_layers
         Array[Int] hidden_info_layers
         Array[Int] aggregation_layers
@@ -91,6 +94,7 @@ task TrainMutect3 {
             --aggregation-layers ~{sep=' ' aggregation_layers} \
             --output-layers ~{sep=' ' output_layers} \
             --dropout-p ~{dropout_p} \
+            --reweighting_range ~{reweighting_range} \
             --batch-size ~{batch_size} \
             --num-epochs ~{num_epochs} \
             --output mutect3.pt \

@@ -4,11 +4,9 @@ import warnings
 import torch
 from torch.utils.tensorboard import SummaryWriter
 
-import random
 from torch import nn
 from tqdm.autonotebook import trange, tqdm
 from itertools import chain
-from torch.distributions import Beta
 
 from mutect3 import utils
 from mutect3.architecture.mlp import MLP
@@ -22,17 +20,8 @@ from mutect3.metrics import plotting
 warnings.filterwarnings("ignore", message="Setting attributes on ParameterList is not supported.")
 
 
-# this returns a slice or a list of indices, which is okay for choosing rows of a 2D tensor
-def downsample_slice(orig_slice: slice, fraction: float):
-    if fraction == 1.0:
-        return orig_slice
-    start = orig_slice.start
-    stop = orig_slice.stop
-    length = orig_slice.stop - orig_slice.start + 1
-
-    new_length = max(1, round(fraction * length))
-    return orig_slice if new_length == length else random.sample(range(start, stop), new_length)
-
+def effective_count(weights: torch.Tensor):
+    return (torch.square(torch.sum(weights)) / torch.sum(torch.square(weights))).item()
 
 class Mutect3Parameters:
     def __init__(self, hidden_read_layers, hidden_info_layers, aggregation_layers, output_layers, dropout_p):
@@ -57,10 +46,10 @@ class Calibration(nn.Module):
         # We initialize it to something large.
         self.max_logit = nn.Parameter(torch.tensor(10.0))
 
-    def forward(self, logits, batch: ReadSetBatch):
+    def forward(self, logits, ref_counts: torch.Tensor, alt_counts: torch.Tensor):
         # based on stats 101 it's reasonable to guess that confidence depends on the sqrt of the evidence count
         # thus we apply a sqrt nonlinearity before the MLP in order to hopefully reduce the number of parameters needed.
-        sqrt_counts = torch.column_stack((torch.sqrt(batch.alt_counts()), torch.sqrt(batch.ref_counts())))
+        sqrt_counts = torch.column_stack((torch.sqrt(alt_counts), torch.sqrt(ref_counts)))
 
         # temperature scaling means multiplying logits -- in this case the temperature depends on alt and ref counts
         temperatures = torch.squeeze(self.mlp.forward(sqrt_counts))
@@ -160,13 +149,16 @@ class ReadSetClassifier(nn.Module):
         return phi_reads
 
     # beta is for downsampling data augmentation
-    def forward_starting_from_phi_reads(self, phi_reads: torch.Tensor, batch: ReadSetBatch, posterior=False, normal_artifact=False, beta: Beta = None):
-        # note that to save time on beta sampling we use the same downsampling fraction for the whole batch
-        ref_downsample_frac = 1.0 if beta is None else beta.sample().item()
-        alt_downsample_frac = 1.0 if beta is None else beta.sample().item()
-        # embed reads and take mean within each datum to get tensors of shape (batch size x embedding dimension)
-        ref_means = torch.cat([torch.mean(phi_reads[downsample_slice(s, ref_downsample_frac)], dim=0, keepdim=True) for s in batch.ref_slices()], dim=0)
-        alt_means = torch.cat([torch.mean(phi_reads[downsample_slice(s, alt_downsample_frac)], dim=0, keepdim=True) for s in batch.alt_slices()], dim=0)
+    def forward_starting_from_phi_reads(self, phi_reads: torch.Tensor, batch: ReadSetBatch, posterior=False, normal_artifact=False, reweighting_range: float=0):
+        reweightings = torch.ones(len(phi_reads), 1) if reweighting_range == 0 else (1 + reweighting_range*(1 - 2*torch.rand(len(phi_reads, 1))))
+
+        # embed reads and take reweighted mean within each datum to get tensors of shape (batch size x embedding dimension)
+        ref_means = torch.vstack([torch.sum(phi_reads[s], dim=0) / torch.sum(reweightings[s]) for s in batch.ref_slices()], dim=0)
+        alt_means = torch.vstack([torch.sum(phi_reads[s], dim=0) / torch.sum(reweightings[s]) for s in batch.alt_slices()], dim=0)
+
+        # these are fed to the calibration, since reweighting effectively reduces the read counts
+        effective_ref_counts = batch.ref_counts() if reweighting_range == 0 else torch.Tensor([effective_count(reweightings[s]) for s in batch.alt_slices()])
+        effective_alt_counts = batch.alt_counts() if reweighting_range == 0 else torch.Tensor([effective_count(reweightings[s]) for s in batch.alt_slices()])
 
         # stack side-by-side to get 2D tensor, where each variant row is (ref mean, alt mean, info)
         omega_info = torch.sigmoid(self.omega(batch.info()))
@@ -182,7 +174,7 @@ class ReadSetClassifier(nn.Module):
                 [1 if variant_type == v_type else 0 for v_type in batch.variant_type()])
             logits += mask * output
 
-        logits = self.calibration.forward(logits, batch)
+        logits = self.calibration.forward(logits, effective_ref_counts, effective_alt_counts)
 
         if posterior:
             logits = self.prior_model(logits, batch)
@@ -384,7 +376,7 @@ class ReadSetClassifier(nn.Module):
 
         return torch.logit(torch.tensor(threshold)).item()
 
-    def train_model(self, train_loader, valid_loader, num_epochs, beta1, beta2, summary_writer: SummaryWriter):
+    def train_model(self, train_loader, valid_loader, num_epochs, summary_writer: SummaryWriter, reweighting_range: float):
         bce = torch.nn.BCEWithLogitsLoss(reduction='sum')
         individual_bce = torch.nn.BCEWithLogitsLoss(reduction='none')
         train_optimizer = torch.optim.Adam(self.training_parameters())
@@ -411,9 +403,9 @@ class ReadSetClassifier(nn.Module):
                     phi_reads = self.apply_phi_to_reads(batch)
 
                     # beta is for downsampling data augmentation
-                    orig_pred = self.forward_starting_from_phi_reads(phi_reads, batch, posterior=False, normal_artifact=False, beta=None)
-                    aug1_pred = self.forward_starting_from_phi_reads(phi_reads, batch, posterior=False, normal_artifact=False, beta=beta1)
-                    aug2_pred = self.forward_starting_from_phi_reads(phi_reads, batch, posterior=False, normal_artifact=False, beta=beta2)
+                    orig_pred = self.forward_starting_from_phi_reads(phi_reads, batch, posterior=False, normal_artifact=False, reweighting_range=0)
+                    aug1_pred = self.forward_starting_from_phi_reads(phi_reads, batch, posterior=False, normal_artifact=False, reweighting_range=reweighting_range)
+                    aug2_pred = self.forward_starting_from_phi_reads(phi_reads, batch, posterior=False, normal_artifact=False, reweighting_range=reweighting_range)
 
                     if batch.is_labeled():
                         labels = batch.labels()

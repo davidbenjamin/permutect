@@ -10,11 +10,10 @@ from mutect3.data import read_set_dataset
 
 
 class TrainingParameters:
-    def __init__(self, batch_size, num_epochs, beta1: Beta, beta2: Beta):
+    def __init__(self, batch_size, num_epochs, reweighting_range: float):
         self.batch_size = batch_size
         self.num_epochs = num_epochs
-        self.beta1 = beta1
-        self.beta2 = beta2
+        self.reweighting_range = reweighting_range
 
 
 def train_m3_model(m3_params: Mutect3Parameters, training_datasets, params: TrainingParameters, tensorboard_dir):
@@ -32,7 +31,7 @@ def train_m3_model(m3_params: Mutect3Parameters, training_datasets, params: Trai
 
     print("Training model")
     summary_writer = SummaryWriter(tensorboard_dir)
-    model.train_model(train_loader, valid_loader, params.num_epochs, params.beta1, params.beta2, summary_writer)
+    model.train_model(train_loader, valid_loader, params.num_epochs, summary_writer=summary_writer, reweighting_range=params.reweighting_ranger)
     model.learn_calibration(valid_loader, num_epochs=50, summary_writer=summary_writer)
     summary_writer.close()
 
@@ -47,11 +46,10 @@ def save_m3_model(model, m3_params, path):
 
 
 def parse_training_params(args) -> TrainingParameters:
-    beta1 = Beta(getattr(args, constants.ALPHA1_NAME), getattr(args, constants.BETA1_NAME))
-    beta2 = Beta(getattr(args, constants.ALPHA2_NAME), getattr(args, constants.BETA2_NAME))
+    reweighting_range = getattr(args, constants.REWEIGHTING_RANGE_NAME)
     batch_size = getattr(args, constants.BATCH_SIZE_NAME)
     num_epochs = getattr(args, constants.NUM_EPOCHS_NAME)
-    return TrainingParameters(batch_size, num_epochs, beta1, beta2)
+    return TrainingParameters(batch_size, num_epochs, reweighting_range)
 
 
 def parse_mutect3_params(args) -> Mutect3Parameters:
@@ -77,10 +75,7 @@ def parse_arguments():
     parser.add_argument('--' + constants.TRAINING_DATASETS_NAME, nargs='+', type=str, required=True)
 
     # training hyperparameters
-    parser.add_argument('--' + constants.ALPHA1_NAME, type=float, default=5.0, required=False)
-    parser.add_argument('--' + constants.BETA1_NAME, type=float, default=1.0, required=False)
-    parser.add_argument('--' + constants.ALPHA2_NAME, type=float, default=5.0, required=False)
-    parser.add_argument('--' + constants.BETA2_NAME, type=float, default=1.0, required=False)
+    parser.add_argument('--' + constants.REWEIGHTING_RANGE_NAME, type=float, default=0.3, required=False)
     parser.add_argument('--' + constants.BATCH_SIZE_NAME, type=int, default=64, required=False)
     parser.add_argument('--' + constants.NUM_EPOCHS_NAME, type=int, required=True)
 
