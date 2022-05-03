@@ -442,3 +442,50 @@ class ReadSetClassifier(nn.Module):
             # done with training and validation for this epoch
             # note that we have not learned the AF spectrum yet
         # done with training
+
+        self.record_embeddings(summary_writer, train_loader)
+
+    def record_embeddings(self, summary_writer: SummaryWriter, loader, max_data: int = 10000):
+        pbar = tqdm(enumerate(loader), mininterval=10)
+
+        all_ref_means = []
+        all_alt_means = []
+        all_diffs = []
+        all_info_embeddings = []
+        all_complete_embeddings = []
+        all_labels = []
+        all_types = []
+        data_count = 0
+        for n, batch in pbar:
+            if data_count > max_data:
+                break
+            data_count += batch.size()
+            if not batch.is_labeled():
+                continue
+            phi_reads = self.apply_phi_to_reads(batch)
+
+            ref_means = torch.vstack([torch.mean(phi_reads[s], dim=0) for s in batch.ref_slices()])
+            alt_means = torch.vstack([torch.mean(phi_reads[s], dim=0) for s in batch.alt_slices()])
+            diffs = alt_means - ref_means
+            omega_info = torch.sigmoid(self.omega(batch.info()))
+            concatenated = torch.cat((ref_means, alt_means, omega_info), dim=1)
+            aggregated = self.rho(concatenated)
+
+            all_ref_means.append(ref_means)
+            all_alt_means.append(alt_means)
+            all_diffs.append(diffs)
+            all_info_embeddings.append(omega_info)
+            all_complete_embeddings.append(aggregated)
+            all_labels.append(batch.labels())
+            all_types.extend(batch.variant_type())
+
+            metadata = [var_type.name +'/' + ("ARTIFACT" if label > 0.5 else "VARIANT") for label, var_type in zip(torch.cat(all_labels), all_types)]
+
+            summary_writer.add_embedding(mat=torch.vstack(all_ref_means), metadata=metadata, tag='ref means')
+            summary_writer.add_embedding(mat=torch.vstack(all_alt_means), metadata=metadata, tag='alt means')
+            summary_writer.add_embedding(mat=torch.vstack(all_diffs), metadata=metadata, tag='alt - ref means')
+            summary_writer.add_embedding(mat=torch.vstack(all_info_embeddings), metadata=metadata, tag='info embeddings')
+            summary_writer.add_embedding(mat=torch.vstack(all_complete_embeddings), metadata=metadata, tag='top embeddings')
+
+
+
