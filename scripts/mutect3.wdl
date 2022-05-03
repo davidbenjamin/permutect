@@ -148,13 +148,12 @@ task Mutect3Filtering {
 
         filter_variants \
             --input ~{mutect2_vcf} \
-            --test-dataset ~{test_dataset} \
-            --batch-size ~{batch_size} \
-            --m3-model ~{mutect3_model} \
+            --test_dataset ~{test_dataset} \
+            --batch_size ~{batch_size} \
+            --m3_model ~{mutect3_model} \
             --na_model ~{normal_artifact_model} \
-            --batch-size ~{batch_size} \
             --output mutect3-filtered.vcf \
-            --tensorboard-dir tensorboard
+            --tensorboard_dir tensorboard
     >>>
 
     runtime {

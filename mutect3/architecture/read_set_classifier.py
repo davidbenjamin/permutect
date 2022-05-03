@@ -23,6 +23,7 @@ warnings.filterwarnings("ignore", message="Setting attributes on ParameterList i
 def effective_count(weights: torch.Tensor):
     return (torch.square(torch.sum(weights)) / torch.sum(torch.square(weights))).item()
 
+
 class Mutect3Parameters:
     def __init__(self, hidden_read_layers, hidden_info_layers, aggregation_layers, output_layers, dropout_p):
         self.hidden_read_layers = hidden_read_layers
@@ -442,7 +443,6 @@ class ReadSetClassifier(nn.Module):
             # done with training and validation for this epoch
             # note that we have not learned the AF spectrum yet
         # done with training
-
         self.record_embeddings(summary_writer, train_loader)
 
     def record_embeddings(self, summary_writer: SummaryWriter, loader, max_data: int = 10000):

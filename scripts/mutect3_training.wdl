@@ -88,17 +88,17 @@ task TrainMutect3 {
         set -e
 
         train_model \
-            --training-datasets ~{sep=' ' training_datasets} \
-            --hidden-read-layers ~{sep=' ' hidden_read_layers} \
-            --hidden-info-layers ~{sep=' ' hidden_info_layers} \
-            --aggregation-layers ~{sep=' ' aggregation_layers} \
-            --output-layers ~{sep=' ' output_layers} \
-            --dropout-p ~{dropout_p} \
+            --training_datasets ~{sep=' ' training_datasets} \
+            --hidden_read_layers ~{sep=' ' hidden_read_layers} \
+            --hidden_info_layers ~{sep=' ' hidden_info_layers} \
+            --aggregation_layers ~{sep=' ' aggregation_layers} \
+            --output_layers ~{sep=' ' output_layers} \
+            --dropout_p ~{dropout_p} \
             --reweighting_range ~{reweighting_range} \
-            --batch-size ~{batch_size} \
-            --num-epochs ~{num_epochs} \
+            --batch_size ~{batch_size} \
+            --num_epochs ~{num_epochs} \
             --output mutect3.pt \
-            --tensorboard-dir tensorboard
+            --tensorboard_dir tensorboard
     >>>
 
     runtime {
@@ -142,12 +142,12 @@ task TrainNormalArtifact {
         set -e
 
         train_normal_artifact_model \
-            --normal-artifact-datasets ~{sep=' ' normal_artifact_datasets} \
-            --hidden-layers ~{sep=' ' hidden_normal_artifact_layers} \
-            --batch-size ~{batch_size} \
-            --num-epochs ~{num_epochs} \
+            --normal_artifact_datasets ~{sep=' ' normal_artifact_datasets} \
+            --hidden_layers ~{sep=' ' hidden_normal_artifact_layers} \
+            --batch_size ~{batch_size} \
+            --num_epochs ~{num_epochs} \
             --output normal_artifact.pt \
-            --tensorboard-dir tensorboard
+            --tensorboard_dir tensorboard
     >>>
 
     runtime {

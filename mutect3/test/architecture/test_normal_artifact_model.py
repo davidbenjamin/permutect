@@ -55,4 +55,3 @@ def test_normal_artifact():
         na_model.train_model(na_train_loader, na_valid_loader, num_epochs=num_epochs, summary_writer=summary_writer)
         [na_model.plot_spectrum(af, "af = " + str(af) + " plot") for af in [0.0, 0.05, 0.1, 0.15, 0.2, 0.5]]
 
-        j = 90
