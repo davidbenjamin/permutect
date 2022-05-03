@@ -1,6 +1,6 @@
 STATE_DICT_NAME = 'model_state_dict'
 M3_PARAMS_NAME = 'm3_params'
-HIDDEN_LAYERS_NAME = 'hidden_layers'
+HIDDEN_LAYERS_NAME = 'hidden-layers'
 
 INPUT_NAME = 'input'
 OUTPUT_NAME = 'output'
