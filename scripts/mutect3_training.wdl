@@ -53,8 +53,8 @@ workflow TrainMutect3 {
     output {
         File mutect3_model = TrainMutect3.mutect3_model
         File normal_artifact_model = TrainNormalArtifact.normal_artifact_model
-        File training_report = TrainMutect3.training_report
-        File normal_artifact_training_report = TrainNormalArtifact.training_report
+        Array[File] training_tensorboard = TrainMutect3.training_tensorboard
+        Array[File] na_tensorboard = TrainNormalArtifact.na_tensorboard
     }
 }
 
@@ -113,7 +113,7 @@ task TrainMutect3 {
 
     output {
         File mutect3_model = "mutect3.pt"
-        File training_report = glob("tensorboard/*tfevents*")[0]
+        Array[File] training_tensorboard = glob("tensorboard/*")
     }
 }
 
@@ -162,6 +162,6 @@ task TrainNormalArtifact {
 
     output {
         File normal_artifact_model = "normal_artifact.pt"
-        File training_report = glob("tensorboard/*tfevents*")[0]
+        Array[File] na_tensorboard = glob("tensorboard/*")
     }
 }
