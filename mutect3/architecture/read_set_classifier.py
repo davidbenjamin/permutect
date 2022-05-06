@@ -479,13 +479,13 @@ class ReadSetClassifier(nn.Module):
             all_labels.append(batch.labels())
             all_types.extend(batch.variant_type())
 
-            metadata = [var_type.name +'/' + ("ARTIFACT" if label > 0.5 else "VARIANT") for label, var_type in zip(torch.cat(all_labels), all_types)]
+        metadata = [var_type.name +'/' + ("ARTIFACT" if label > 0.5 else "VARIANT") for label, var_type in zip(torch.cat(all_labels), all_types)]
 
-            summary_writer.add_embedding(mat=torch.vstack(all_ref_means), metadata=metadata, tag='ref means')
-            summary_writer.add_embedding(mat=torch.vstack(all_alt_means), metadata=metadata, tag='alt means')
-            summary_writer.add_embedding(mat=torch.vstack(all_diffs), metadata=metadata, tag='alt - ref means')
-            summary_writer.add_embedding(mat=torch.vstack(all_info_embeddings), metadata=metadata, tag='info embeddings')
-            summary_writer.add_embedding(mat=torch.vstack(all_complete_embeddings), metadata=metadata, tag='top embeddings')
+        summary_writer.add_embedding(mat=torch.vstack(all_ref_means), metadata=metadata, tag='ref means')
+        summary_writer.add_embedding(mat=torch.vstack(all_alt_means), metadata=metadata, tag='alt means')
+        summary_writer.add_embedding(mat=torch.vstack(all_diffs), metadata=metadata, tag='alt - ref means')
+        summary_writer.add_embedding(mat=torch.vstack(all_info_embeddings), metadata=metadata, tag='info embeddings')
+        summary_writer.add_embedding(mat=torch.vstack(all_complete_embeddings), metadata=metadata, tag='top embeddings')
 
 
 
