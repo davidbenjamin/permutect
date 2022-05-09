@@ -4,8 +4,10 @@ from torch.distributions import Beta
 from mutect3 import utils
 
 NUM_READ_FEATURES = 11  # size of each read's feature vector from M2 annotation
-NUM_INFO_FEATURES = 9  # size of each variant's info field tensor (3 components for HEC, one each for HAPDOM, HAPCOMP)
+
+NUM_GATK_INFO_FEATURES = 9  # size of each variant's info field tensor (3 components for HEC, one each for HAPDOM, HAPCOMP)
 # and 5 for ref bases STR info
+NUM_INFO_FEATURES = NUM_GATK_INFO_FEATURES + len(utils.VariantType)
 
 
 class ReadSetDatum:
@@ -17,7 +19,14 @@ class ReadSetDatum:
         self._alt = alt
         self._ref_tensor = ref_tensor
         self._alt_tensor = alt_tensor
-        self._info_tensor = info_tensor
+
+        diff = len(self.alt()) - len(self.ref())
+        self._variant_type = utils.VariantType.SNV if diff == 0 else (
+            utils.VariantType.INSERTION if diff > 0 else utils.VariantType.DELETION)
+
+        # self._info_tensor includes both the original variant info and the one-hot encoding of variant type
+        variant_one_hot = torch.Tensor([1 if self._variant_type.value == n else 0 for n in range(len(utils.VariantType))])
+        self._info_tensor = torch.cat((info_tensor, variant_one_hot))
         self._label = label
 
         # the following counts pertain to the data prior to any downsampling by the GATK Mutect3DatasetEngine or by
@@ -26,10 +35,6 @@ class ReadSetDatum:
         self._tumor_alt_count = tumor_alt_count
         self._normal_depth = normal_depth
         self._normal_alt_count = normal_alt_count
-
-        diff = len(self.alt()) - len(self.ref())
-        self._variant_type = utils.VariantType.SNV if diff == 0 else (
-            utils.VariantType.INSERTION if diff > 0 else utils.VariantType.DELETION)
 
     def contig(self) -> str:
         return self._contig

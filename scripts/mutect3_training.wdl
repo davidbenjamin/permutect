@@ -11,10 +11,9 @@ workflow TrainMutect3 {
         Int normal_artifact_batch_size
         Float dropout_p
         Float reweighting_range
-        Array[Int] hidden_read_layers
-        Array[Int] hidden_info_layers
+        Array[Int] read_layers
+        Array[Int] info_layers
         Array[Int] aggregation_layers
-        Array[Int] output_layers
         Array[Int] hidden_normal_artifact_layers
 
         String mutect3_docker
@@ -32,10 +31,9 @@ workflow TrainMutect3 {
             batch_size = batch_size,
             dropout_p = dropout_p,
             reweighting_range = reweighting_range,
-            hidden_read_layers = hidden_read_layers,
-            hidden_info_layers = hidden_info_layers,
-            aggregation_layers = aggregation_layers,
-            output_layers = output_layers
+            read_layers = read_layers,
+            info_layers = info_layers,
+            aggregation_layers = aggregation_layers
     }
 
     call TrainNormalArtifact {
@@ -66,10 +64,9 @@ task TrainMutect3 {
         Int batch_size
         Float dropout_p
         Float reweighting_range
-        Array[Int] hidden_read_layers
-        Array[Int] hidden_info_layers
+        Array[Int] read_layers
+        Array[Int] info_layers
         Array[Int] aggregation_layers
-        Array[Int] output_layers
 
         String mutect3_docker
         Int? preemptible
@@ -89,10 +86,9 @@ task TrainMutect3 {
 
         train_model \
             --training_datasets ~{sep=' ' training_datasets} \
-            --hidden_read_layers ~{sep=' ' hidden_read_layers} \
-            --hidden_info_layers ~{sep=' ' hidden_info_layers} \
+            --read_layers ~{sep=' ' read_layers} \
+            --info_layers ~{sep=' ' info_layers} \
             --aggregation_layers ~{sep=' ' aggregation_layers} \
-            --output_layers ~{sep=' ' output_layers} \
             --dropout_p ~{dropout_p} \
             --reweighting_range ~{reweighting_range} \
             --batch_size ~{batch_size} \

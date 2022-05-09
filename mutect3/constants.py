@@ -4,10 +4,9 @@ HIDDEN_LAYERS_NAME = 'hidden_layers'
 
 INPUT_NAME = 'input'
 OUTPUT_NAME = 'output'
-HIDDEN_READ_LAYERS_NAME = 'hidden_read_layers'
-HIDDEN_INFO_LAYERS_NAME = 'hidden_info_layers'
+READ_LAYERS_NAME = 'read_layers'
+INFO_LAYERS_NAME = 'info_layers'
 AGGREGATION_LAYERS_NAME = 'aggregation_layers'
-OUTPUT_LAYERS_NAME = 'output_layers'
 DROPOUT_P_NAME = 'dropout_p'
 
 TRAINING_DATASETS_NAME = 'training_datasets'

@@ -24,12 +24,12 @@ def effective_count(weights: torch.Tensor):
     return (torch.square(torch.sum(weights)) / torch.sum(torch.square(weights))).item()
 
 
+# note that read layers and info layers exclude the input dimension
 class Mutect3Parameters:
-    def __init__(self, hidden_read_layers, hidden_info_layers, aggregation_layers, output_layers, dropout_p):
-        self.hidden_read_layers = hidden_read_layers
-        self.hidden_info_layers = hidden_info_layers
+    def __init__(self, read_layers, info_layers, aggregation_layers, dropout_p):
+        self.read_layers = read_layers
+        self.info_layers = info_layers
         self.aggregation_layers = aggregation_layers
-        self.output_layers = output_layers
         self.dropout_p = dropout_p
 
 
@@ -82,21 +82,19 @@ class ReadSetClassifier(nn.Module):
         super(ReadSetClassifier, self).__init__()
 
         # phi is the read embedding
-        read_layers = [NUM_READ_FEATURES] + m3_params.hidden_read_layers
+        read_layers = [NUM_READ_FEATURES] + m3_params.read_layers
         self.phi = MLP(read_layers, batch_normalize=False, dropout_p=m3_params.dropout_p)
 
         # omega is the universal embedding of info field variant-level data
-        info_layers = [NUM_INFO_FEATURES] + m3_params.hidden_info_layers
+        info_layers = [NUM_INFO_FEATURES] + m3_params.info_layers
         self.omega = MLP(info_layers, batch_normalize=False, dropout_p=m3_params.dropout_p)
 
         # rho is the universal aggregation function
         ref_alt_info_embedding_dimension = 2 * read_layers[-1] + info_layers[-1]
-        self.rho = MLP([ref_alt_info_embedding_dimension] + m3_params.aggregation_layers, batch_normalize=False,
-                       dropout_p=m3_params.dropout_p)
 
-        # We probably don't need dropout for the final output layers
-        output_layers_sizes = [m3_params.aggregation_layers[-1]] + m3_params.output_layers + [1]
-        self.outputs = nn.ModuleList(MLP(output_layers_sizes) for _ in utils.VariantType)
+        # The [1] is for the output of binary classification, represented as a single artifact/non-artifact logit
+        self.rho = MLP([ref_alt_info_embedding_dimension] + m3_params.aggregation_layers + [1], batch_normalize=False,
+                       dropout_p=m3_params.dropout_p)
 
         self.calibration = Calibration()
 
@@ -113,7 +111,7 @@ class ReadSetClassifier(nn.Module):
         return self.prior_model
 
     def training_parameters(self):
-        return chain(self.phi.parameters(), self.omega.parameters(), self.rho.parameters(), self.outputs.parameters(), [self.calibration.max_logit])
+        return chain(self.phi.parameters(), self.omega.parameters(), self.rho.parameters(), [self.calibration.max_logit])
 
     def calibration_parameters(self):
         return self.calibration.parameters()
@@ -164,17 +162,7 @@ class ReadSetClassifier(nn.Module):
         # stack side-by-side to get 2D tensor, where each variant row is (ref mean, alt mean, info)
         omega_info = torch.sigmoid(self.omega(batch.info()))
         concatenated = torch.cat((ref_means, alt_means, omega_info), dim=1)
-        aggregated = self.rho(concatenated)
-
-        logits = torch.zeros(batch.size())
-        for variant_type in utils.VariantType:
-            # It's slightly wasteful to compute output for every variant type when we only
-            # use one, but this is such a small part of the model and it lets us use batches of mixed variant types
-            output = torch.squeeze(self.outputs[variant_type.value](aggregated))
-            mask = torch.tensor(
-                [1 if variant_type == v_type else 0 for v_type in batch.variant_type()])
-            logits += mask * output
-
+        logits = torch.squeeze(self.rho(concatenated))
         logits = self.calibration.forward(logits, effective_ref_counts, effective_alt_counts)
 
         if posterior:

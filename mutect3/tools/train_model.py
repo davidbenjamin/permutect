@@ -53,22 +53,20 @@ def parse_training_params(args) -> TrainingParameters:
 
 
 def parse_mutect3_params(args) -> Mutect3Parameters:
-    hidden_read_layers = getattr(args, constants.HIDDEN_READ_LAYERS_NAME)
-    hidden_info_layers = getattr(args, constants.HIDDEN_INFO_LAYERS_NAME)
+    read_layers = getattr(args, constants.READ_LAYERS_NAME)
+    info_layers = getattr(args, constants.INFO_LAYERS_NAME)
     aggregation_layers = getattr(args, constants.AGGREGATION_LAYERS_NAME)
-    output_layers = getattr(args, constants.OUTPUT_LAYERS_NAME)
     dropout_p = getattr(args, constants.DROPOUT_P_NAME)
-    return Mutect3Parameters(hidden_read_layers, hidden_info_layers, aggregation_layers, output_layers, dropout_p)
+    return Mutect3Parameters(read_layers, info_layers, aggregation_layers, dropout_p)
 
 
 def parse_arguments():
     parser = argparse.ArgumentParser()
 
     # architecture hyperparameters
-    parser.add_argument('--' + constants.HIDDEN_READ_LAYERS_NAME, nargs='+', type=int, required=True)
-    parser.add_argument('--' + constants.HIDDEN_INFO_LAYERS_NAME, nargs='+', type=int, required=True)
+    parser.add_argument('--' + constants.READ_LAYERS_NAME, nargs='+', type=int, required=True)
+    parser.add_argument('--' + constants.INFO_LAYERS_NAME, nargs='+', type=int, required=True)
     parser.add_argument('--' + constants.AGGREGATION_LAYERS_NAME, nargs='+', type=int, required=True)
-    parser.add_argument('--' + constants.OUTPUT_LAYERS_NAME, nargs='+', type=int, required=True)
     parser.add_argument('--' + constants.DROPOUT_P_NAME, type=float, default=0.0, required=False)
 
     # Training data inputs
