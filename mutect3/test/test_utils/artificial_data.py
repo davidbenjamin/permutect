@@ -1,6 +1,6 @@
 import torch
 import random
-from mutect3.data.read_set_datum import NUM_READ_FEATURES, NUM_INFO_FEATURES, ReadSetDatum
+from mutect3.data.read_set_datum import NUM_READ_FEATURES, NUM_GATK_INFO_FEATURES, ReadSetDatum
 from mutect3.utils import VariantType
 from numpy.random import binomial
 
@@ -15,9 +15,9 @@ def make_random_tensor(mean: torch.Tensor, std: torch.Tensor) -> torch.Tensor:
     return mean + std * torch.randn(len(mean))
 
 
-class RandomInfoGenerator:
+class RandomGATKInfoGenerator:
     def __init__(self, mean: torch.Tensor, std: torch.Tensor):
-        assert len(mean) == NUM_INFO_FEATURES
+        assert len(mean) == NUM_GATK_INFO_FEATURES
         assert len(mean) == len(std)
         self.mean = mean
         self.std = std
@@ -50,7 +50,7 @@ def make_random_ref_and_alt_alleles(variant_type: VariantType):
         return BASES[alt_index] + BASES[ref_index] , BASES[alt_index]
 
 
-def make_random_data(art_gatk_info_gen: RandomInfoGenerator, var_gatk_info_gen: RandomInfoGenerator, art_read_gen: RandomReadGenerator,
+def make_random_data(art_gatk_info_gen: RandomGATKInfoGenerator, var_gatk_info_gen: RandomGATKInfoGenerator, art_read_gen: RandomReadGenerator,
                      var_read_gen: RandomReadGenerator, num_data: int, artifact_fraction=0.5, unlabeled_fraction=0.1,
                      indel_fraction=0.2, ref_downsampling=10, alt_downsampling=10, is_training_data=True, vaf=0.5):
     data = []
@@ -98,8 +98,8 @@ def make_two_gaussian_data(num_data, is_training_data=True, vaf=0.5, artifact_fr
     art_gatk_info_mean = torch.tensor([1] * 9)
     art_gatk_info_std = torch.tensor([1] * 9)
 
-    var_gatk_info_gen = RandomInfoGenerator(var_gatk_info_mean, var_gatk_info_std)
-    art_gatk_info_gen = RandomInfoGenerator(art_gatk_info_mean, art_gatk_info_std)
+    var_gatk_info_gen = RandomGATKInfoGenerator(var_gatk_info_mean, var_gatk_info_std)
+    art_gatk_info_gen = RandomGATKInfoGenerator(art_gatk_info_mean, art_gatk_info_std)
 
     var_read_mean = torch.tensor([-1] * 11)
     var_read_std = torch.tensor([1] * 11)
@@ -123,8 +123,8 @@ def make_wide_and_narrow_gaussian_data(num_data, is_training_data=True, vaf=0.5,
     art_gatk_info_mean = torch.tensor([0] * 9)
     art_gatk_info_std = torch.tensor([2] * 9)
 
-    var_gatk_info_gen = RandomInfoGenerator(var_gatk_info_mean, var_gatk_info_std)
-    art_gatk_info_gen = RandomInfoGenerator(art_gatk_info_mean, art_gatk_info_std)
+    var_gatk_info_gen = RandomGATKInfoGenerator(var_gatk_info_mean, var_gatk_info_std)
+    art_gatk_info_gen = RandomGATKInfoGenerator(art_gatk_info_mean, art_gatk_info_std)
 
     var_read_mean = torch.tensor([0] * 11)
     var_read_std = torch.tensor([1] * 11)
