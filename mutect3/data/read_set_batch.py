@@ -60,9 +60,6 @@ class ReadSetBatch:
                                                     1.0, item.variant_type) for item in data]
         self._normal_artifact_batch = NormalArtifactBatch(normal_artifact_data)
 
-    def augmented_copy(self, beta):
-        return ReadSetBatch([datum.downsampled_copy(beta) for datum in self._original_list])
-
     def original_list(self) -> List[ReadSetDatum]:
         return self._original_list
 

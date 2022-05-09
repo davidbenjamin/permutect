@@ -23,19 +23,19 @@ class ReadSetDataset(Dataset):
 
         # concatenate a bunch of ref tensors and take element-by-element quantiles
         ref = torch.cat([datum.ref_tensor() for datum in self.data[:DATA_COUNT_FOR_QUANTILES]], dim=0)
-        info = torch.stack([datum.info_tensor() for datum in self.data[:DATA_COUNT_FOR_QUANTILES]], dim=0)
+        gatk_info = torch.stack([datum.gatk_info() for datum in self.data[:DATA_COUNT_FOR_QUANTILES]], dim=0)
 
         self.read_medians, self.read_iqrs = medians_and_iqrs(ref)
-        self.info_medians, self.info_iqrs = medians_and_iqrs(info)
+        self.gatk_info_medians, self.gatk_info_iqrs = medians_and_iqrs(gatk_info)
 
         # normalize data
         for n in range(len(self.data)):
             raw = self.data[n]
             normalized_ref = (raw.ref_tensor() - self.read_medians) / self.read_iqrs
             normalized_alt = (raw.alt_tensor() - self.read_medians) / self.read_iqrs
-            normalized_info = (raw.info_tensor() - self.info_medians) / self.info_iqrs
+            normalized_gatk_info = (raw.gatk_info() - self.gatk_info_medians) / self.gatk_info_iqrs
             self.data[n] = ReadSetDatum(raw.contig(), raw.position(), raw.ref(), raw.alt(), normalized_ref, normalized_alt,
-                         normalized_info, raw.label(), raw.tumor_depth(), raw.tumor_alt_count(), raw.normal_depth(),
+                         normalized_gatk_info, raw.label(), raw.tumor_depth(), raw.tumor_alt_count(), raw.normal_depth(),
                          raw.normal_alt_count())
 
     def __len__(self):
@@ -73,7 +73,7 @@ def read_data(dataset_file):
 
             ref_bases = file.readline().strip()  # not currently used
 
-            info_tensor = line_to_tensor(file.readline())
+            gatk_info_tensor = line_to_tensor(file.readline())
 
             # tumor ref count, tumor alt count, normal ref count, normal alt count -- single-spaced
             tumor_ref_count, tumor_alt_count, normal_ref_count, normal_alt_count = map(int, file.readline().strip().split())
@@ -86,7 +86,7 @@ def read_data(dataset_file):
             # pre-downsampling (pd) counts
             pd_tumor_depth, pd_tumor_alt, pd_normal_depth, pd_normal_alt = read_integers(file.readline())
 
-            datum = ReadSetDatum(contig, position, ref, alt, ref_tensor, alt_tensor, info_tensor, label, pd_tumor_depth, pd_tumor_alt, pd_normal_depth, pd_normal_alt)
+            datum = ReadSetDatum(contig, position, ref, alt, ref_tensor, alt_tensor, gatk_info_tensor, label, pd_tumor_depth, pd_tumor_alt, pd_normal_depth, pd_normal_alt)
 
             if tumor_ref_count >= MIN_REF and tumor_alt_count > 0:
                 data.append(datum)

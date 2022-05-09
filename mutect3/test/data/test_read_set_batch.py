@@ -17,7 +17,7 @@ def test_read_set_batch():
     ref_tensors = [torch.rand(n, read_set_datum.NUM_READ_FEATURES) for n in ref_counts]
     alt_tensors = [torch.rand(n, read_set_datum.NUM_READ_FEATURES) for n in alt_counts]
 
-    info_tensors = [torch.rand(read_set_datum.NUM_INFO_FEATURES) for _ in range(size)]
+    gatk_info_tensors = [torch.rand(read_set_datum.NUM_GATK_NFO_FEATURES) for _ in range(size)]
     labels = ["ARTIFACT", "SOMATIC", "ARTIFACT"]
 
     # pre-downsampling counts
@@ -28,7 +28,7 @@ def test_read_set_batch():
     normal_alt_counts = [0, 1, 2]
 
     data = [read_set_datum.ReadSetDatum(contigs[n], positions[n], refs[n], alts[n], ref_tensors[n], alt_tensors[n],
-                                       info_tensors[n], labels[n], tumor_depths[n], tumor_alt_counts[n], normal_depths[n],
+                                       gatk_info_tensors[n], labels[n], tumor_depths[n], tumor_alt_counts[n], normal_depths[n],
                                        normal_alt_counts[n]) for n in range(size)]
 
     batch = read_set_batch.ReadSetBatch(data)

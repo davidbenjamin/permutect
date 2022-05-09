@@ -11,8 +11,9 @@ NUM_INFO_FEATURES = NUM_GATK_INFO_FEATURES + len(utils.VariantType)
 
 
 class ReadSetDatum:
+    # info tensor comes from GATK and does not include one-hot encoding of variant type
     def __init__(self, contig: str, position: int, ref: str, alt: str, ref_tensor: torch.Tensor, alt_tensor: torch.Tensor,
-                 info_tensor: torch.Tensor, label: str, tumor_depth: int, tumor_alt_count: int, normal_depth: int, normal_alt_count: int):
+                 gatk_info_tensor: torch.Tensor, label: str, tumor_depth: int, tumor_alt_count: int, normal_depth: int, normal_alt_count: int):
         self._contig = contig
         self._position = position
         self._ref = ref
@@ -26,7 +27,8 @@ class ReadSetDatum:
 
         # self._info_tensor includes both the original variant info and the one-hot encoding of variant type
         variant_one_hot = torch.Tensor([1 if self._variant_type.value == n else 0 for n in range(len(utils.VariantType))])
-        self._info_tensor = torch.cat((info_tensor, variant_one_hot))
+        self._gatk_info = gatk_info_tensor
+        self._info_tensor = torch.cat((gatk_info_tensor, variant_one_hot))
         self._label = label
 
         # the following counts pertain to the data prior to any downsampling by the GATK Mutect3DatasetEngine or by
@@ -57,6 +59,9 @@ class ReadSetDatum:
     def alt_tensor(self) -> torch.Tensor:
         return self._alt_tensor
 
+    def gatk_info(self):
+        return self._gatk_info
+
     def info_tensor(self) -> torch.Tensor:
         return self._info_tensor
 
@@ -77,19 +82,3 @@ class ReadSetDatum:
 
     def set_label(self, label):
         self._label = label
-
-    # beta is distribution of downsampling fractions
-    def downsampled_copy(self, beta: Beta):
-        ref_frac = beta.sample().item()
-        alt_frac = beta.sample().item()
-
-        ref_length = max(1, round(ref_frac * len(self._ref_tensor)))
-        alt_length = max(1, round(alt_frac * len(self._alt_tensor)))
-        return ReadSetDatum(self._contig, self._position, self._ref, self._alt, downsample(self._ref_tensor, ref_length),
-                            downsample(self._alt_tensor, alt_length), self._info_tensor, self._label, self._tumor_depth,
-                            self._tumor_alt_count, self._normal_depth, self._normal_alt_count)
-
-
-def downsample(tensor: torch.Tensor, downsample_fraction) -> torch.Tensor:
-    return tensor if (downsample_fraction is None or downsample_fraction >= len(tensor)) \
-        else tensor[torch.randperm(len(tensor))[:downsample_fraction]]

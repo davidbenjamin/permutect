@@ -14,7 +14,7 @@ def test_read_set_datum():
 
     ref_tensor = torch.rand(num_ref_reads, read_set_datum.NUM_READ_FEATURES)
     alt_tensor = torch.rand(num_alt_reads, read_set_datum.NUM_READ_FEATURES)
-    info_tensor = torch.rand(read_set_datum.NUM_INFO_FEATURES)
+    gatk_info_tensor = torch.rand(read_set_datum.NUM_GATK_INFO_FEATURES)
     label = "artifact"
 
     tumor_depth = 50
@@ -23,7 +23,7 @@ def test_read_set_datum():
     normal_depth = 70
     normal_alt_count = 1
 
-    snv_datum = read_set_datum.ReadSetDatum(contig, position, ref, alt, ref_tensor, alt_tensor, info_tensor, label,
+    snv_datum = read_set_datum.ReadSetDatum(contig, position, ref, alt, ref_tensor, alt_tensor, gatk_info_tensor, label,
                                             tumor_depth, tumor_alt_count, normal_depth, normal_alt_count)
 
     assert snv_datum.contig() == contig
@@ -32,7 +32,7 @@ def test_read_set_datum():
     assert snv_datum.alt() == alt
     assert torch.equal(snv_datum.ref_tensor(), ref_tensor)
     assert torch.equal(snv_datum.alt_tensor(), alt_tensor)
-    assert torch.equal(snv_datum.info_tensor(), info_tensor)
+    assert torch.equal(snv_datum.info_tensor(), gatk_info_tensor)
     assert snv_datum.label() == label
     assert snv_datum.tumor_depth() == tumor_depth
     assert snv_datum.tumor_alt_count() == tumor_alt_count
@@ -45,13 +45,12 @@ def test_read_set_datum():
 
     assert snv_datum.variant_type() == utils.VariantType.SNV
 
-    insertion_datum = read_set_datum.ReadSetDatum(contig, position, "A", "AC", ref_tensor, alt_tensor, info_tensor,
-                                                  label,
-                                                  tumor_depth, tumor_alt_count, normal_depth, normal_alt_count)
+    insertion_datum = read_set_datum.ReadSetDatum(contig, position, "A", "AC", ref_tensor, alt_tensor, gatk_info_tensor,
+                                                  label, tumor_depth, tumor_alt_count, normal_depth, normal_alt_count)
 
     assert insertion_datum.variant_type() == utils.VariantType.INSERTION
 
-    deletion_datum = read_set_datum.ReadSetDatum(contig, position, "AC", "A", ref_tensor, alt_tensor, info_tensor, label,
+    deletion_datum = read_set_datum.ReadSetDatum(contig, position, "AC", "A", ref_tensor, alt_tensor, gatk_info_tensor, label,
                                                  tumor_depth, tumor_alt_count, normal_depth, normal_alt_count)
 
     assert deletion_datum.variant_type() == utils.VariantType.DELETION
