@@ -81,9 +81,14 @@ class ReadSetClassifier(nn.Module):
     def __init__(self, m3_params: Mutect3Parameters, na_model: NormalArtifactModel):
         super(ReadSetClassifier, self).__init__()
 
+        # for now only use GPU for embedding reads i.e. phi
+        self._use_gpu = torch.cuda.is_available()
+        self._device = torch.device("cuda:0" if self._use_gpu else "cpu")
+
         # phi is the read embedding
         read_layers = [NUM_READ_FEATURES] + m3_params.read_layers
         self.phi = MLP(read_layers, batch_normalize=False, dropout_p=m3_params.dropout_p)
+        self.phi.to(self._device)
 
         # omega is the universal embedding of info field variant-level data
         info_layers = [NUM_INFO_FEATURES] + m3_params.info_layers
@@ -144,8 +149,9 @@ class ReadSetClassifier(nn.Module):
     # note that apply_phi_to_reads returns a 2D tensor of N x E, where E is the embedding dimensions and N is the total
     # number of reads in the whole batch.  Thus, we have to be careful to downsample within each datum.
     def apply_phi_to_reads(self, batch: ReadSetBatch):
-        phi_reads = torch.sigmoid(self.phi(batch.reads()))
-        return phi_reads
+        # note that we put the reads on GPU, apply read embedding phi, then put the result back on CPU
+        phi_reads = torch.sigmoid(self.phi(batch.reads().to(self._device)))
+        return phi_reads.to("cpu")
 
     # beta is for downsampling data augmentation
     def forward_starting_from_phi_reads(self, phi_reads: torch.Tensor, batch: ReadSetBatch, posterior=False, normal_artifact=False, reweighting_range: float=0):

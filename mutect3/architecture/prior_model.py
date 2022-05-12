@@ -16,6 +16,7 @@ class PriorModel(nn.Module):
         self.artifact_spectra = nn.ModuleList()
         self.prior_log_odds = nn.ParameterList()  # log prior ratio log[P(artifact)/P(variant)] for each type
         for _ in utils.VariantType:
+            # TODO: hard-coded magic lambda
             self.artifact_spectra.append(AFSpectrum(lambda_for_initial_z=lambda x: (1 - 10*x)))
             self.prior_log_odds.append(nn.Parameter(torch.tensor(initial_log_ratio)))
 
