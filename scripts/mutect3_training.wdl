@@ -105,6 +105,9 @@ task TrainMutect3 {
         preemptible: select_first([preemptible, 10])
         maxRetries: select_first([max_retries, 0])
         cpu: select_first([cpu, 1])
+        gpuType: "nvidia-tesla-k80"
+        gpuCount: 2
+        nvidiaDriverVersion: "418.87.00"
     }
 
     output {
