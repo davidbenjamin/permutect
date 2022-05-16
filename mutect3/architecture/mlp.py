@@ -12,27 +12,18 @@ class MLP(nn.Module):
     def __init__(self, layer_sizes, batch_normalize=False, dropout_p=None):
         super(MLP, self).__init__()
 
-        self.layers = nn.ModuleList()
-        self.bn = nn.ModuleList()
-        self.dropout = nn.ModuleList()
+        layers = []
         for k in range(len(layer_sizes) - 1):
-            self.layers.append(nn.Linear(layer_sizes[k], layer_sizes[k + 1]))
+            input_dim, output_dim = layer_sizes[k], layer_sizes[k + 1]
+            if batch_normalize:
+                layers.append(nn.BatchNorm1d(num_features=input_dim))
+            layers.append(nn.Linear(input_dim, output_dim))
+            if dropout_p is not None:
+                layers.append(nn.Dropout(p=dropout_p))
+            if k < len(layer_sizes) - 2:
+                layers.append(nn.LeakyReLU())
 
-        if batch_normalize:
-            for size in layer_sizes[1:]:
-                self.bn.append(nn.BatchNorm1d(num_features=size))
-
-        if dropout_p is not None:
-            for _ in layer_sizes[1:]:
-                self.dropout.append(nn.Dropout(p=dropout_p))
+        self._model = nn.Sequential(*layers)
 
     def forward(self, x):
-        for n, layer in enumerate(self.layers):
-            x = layer(x)
-            if self.bn:
-                x = self.bn[n](x)
-            if self.dropout:
-                x = self.dropout[n](x)
-            if n < len(self.layers) - 1:
-                x = nn.functional.leaky_relu(x)
-        return x
+        return self._model.forward(x)
