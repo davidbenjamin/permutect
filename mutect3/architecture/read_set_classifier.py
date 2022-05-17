@@ -329,7 +329,7 @@ class ReadSetClassifier(nn.Module):
                 continue
             phi_reads = self.apply_phi_to_reads(batch)
             logits, ref_counts, alt_counts = self.forward_from_phi_reads_to_calibration(phi_reads, batch)
-            uncalibrated_logits_ref_alt_counts_labels.append((logits.detach(), ref_counts.detach(), alt_counts.detach(), batch.labels.to(self._device)))
+            uncalibrated_logits_ref_alt_counts_labels.append((logits.detach(), ref_counts.detach(), alt_counts.detach(), batch.labels().to(self._device)))
 
         print("Training calibration. . .")
         optimizer = torch.optim.Adam(self.calibration_parameters())
