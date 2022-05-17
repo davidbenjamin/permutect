@@ -78,7 +78,7 @@ class ReadSetClassifier(nn.Module):
     because we have different output layers for each variant type.
     """
 
-    def __init__(self, m3_params: Mutect3Parameters, na_model: NormalArtifactModel, device="cpu"):
+    def __init__(self, m3_params: Mutect3Parameters, na_model: NormalArtifactModel, device=torch.device("cpu")):
         super(ReadSetClassifier, self).__init__()
 
         self._device = device
