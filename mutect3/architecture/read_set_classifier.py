@@ -26,11 +26,12 @@ def effective_count(weights: torch.Tensor):
 
 # note that read layers and info layers exclude the input dimension
 class Mutect3Parameters:
-    def __init__(self, read_layers, info_layers, aggregation_layers, dropout_p):
+    def __init__(self, read_layers, info_layers, aggregation_layers, dropout_p, batch_normalize):
         self.read_layers = read_layers
         self.info_layers = info_layers
         self.aggregation_layers = aggregation_layers
         self.dropout_p = dropout_p
+        self.batch_normalize = batch_normalize
 
 
 class Calibration(nn.Module):
@@ -85,19 +86,19 @@ class ReadSetClassifier(nn.Module):
 
         # phi is the read embedding
         read_layers = [NUM_READ_FEATURES] + m3_params.read_layers
-        self.phi = MLP(read_layers, batch_normalize=False, dropout_p=m3_params.dropout_p)
+        self.phi = MLP(read_layers, batch_normalize=m3_params.batch_normalize, dropout_p=m3_params.dropout_p)
         self.phi.to(self._device)
 
         # omega is the universal embedding of info field variant-level data
         info_layers = [NUM_INFO_FEATURES] + m3_params.info_layers
-        self.omega = MLP(info_layers, batch_normalize=False, dropout_p=m3_params.dropout_p)
+        self.omega = MLP(info_layers, batch_normalize=m3_params.batch_normalize, dropout_p=m3_params.dropout_p)
         self.omega.to(self._device)
 
         # rho is the universal aggregation function
         ref_alt_info_embedding_dimension = 2 * read_layers[-1] + info_layers[-1]
 
         # The [1] is for the output of binary classification, represented as a single artifact/non-artifact logit
-        self.rho = MLP([ref_alt_info_embedding_dimension] + m3_params.aggregation_layers + [1], batch_normalize=False,
+        self.rho = MLP([ref_alt_info_embedding_dimension] + m3_params.aggregation_layers + [1], batch_normalize=m3_params.batch_normalize,
                        dropout_p=m3_params.dropout_p)
         self.rho.to(self._device)
 

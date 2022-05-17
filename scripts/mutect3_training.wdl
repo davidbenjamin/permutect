@@ -15,6 +15,8 @@ workflow TrainMutect3 {
         Array[Int] info_layers
         Array[Int] aggregation_layers
         Array[Int] hidden_normal_artifact_layers
+        String? train_m3_extra_args
+        String? train_na_extra_args
 
         String mutect3_docker
         Int? preemptible
@@ -33,7 +35,8 @@ workflow TrainMutect3 {
             reweighting_range = reweighting_range,
             read_layers = read_layers,
             info_layers = info_layers,
-            aggregation_layers = aggregation_layers
+            aggregation_layers = aggregation_layers,
+            extra_args = train_m3_extra_args
     }
 
     call TrainNormalArtifact {
@@ -45,6 +48,7 @@ workflow TrainMutect3 {
             num_epochs = num_normal_artifact_epochs,
             batch_size = normal_artifact_batch_size,
             hidden_normal_artifact_layers = hidden_normal_artifact_layers,
+            extra_args = train_na_extra_args
     }
 
 
@@ -67,6 +71,7 @@ task TrainMutect3 {
         Array[Int] read_layers
         Array[Int] info_layers
         Array[Int] aggregation_layers
+        String? extra_args
 
         String mutect3_docker
         Int? preemptible
@@ -94,7 +99,8 @@ task TrainMutect3 {
             --batch_size ~{batch_size} \
             --num_epochs ~{num_epochs} \
             --output mutect3.pt \
-            --tensorboard_dir tensorboard
+            --tensorboard_dir tensorboard \
+            ~{extra_args}
     >>>
 
     runtime {
@@ -104,9 +110,9 @@ task TrainMutect3 {
         disks: "local-disk " + select_first([disk_space, 100]) + if use_ssd then " SSD" else " HDD"
         preemptible: select_first([preemptible, 10])
         maxRetries: select_first([max_retries, 0])
-        cpu: select_first([cpu, 1])
+        cpu: select_first([cpu, 2])
         gpuType: "nvidia-tesla-k80"
-        gpuCount: 2
+        gpuCount: 1
         nvidiaDriverVersion: "418.87.00"
     }
 
@@ -123,6 +129,7 @@ task TrainNormalArtifact {
         Int num_epochs
         Int batch_size
         Array[Int] hidden_normal_artifact_layers
+        String? extra_args
 
         String mutect3_docker
         Int? preemptible
@@ -146,7 +153,8 @@ task TrainNormalArtifact {
             --batch_size ~{batch_size} \
             --num_epochs ~{num_epochs} \
             --output normal_artifact.pt \
-            --tensorboard_dir tensorboard
+            --tensorboard_dir tensorboard \
+            ~{extra_args}
     >>>
 
     runtime {
@@ -156,7 +164,7 @@ task TrainNormalArtifact {
         disks: "local-disk " + select_first([disk_space, 100]) + if use_ssd then " SSD" else " HDD"
         preemptible: select_first([preemptible, 10])
         maxRetries: select_first([max_retries, 0])
-        cpu: select_first([cpu, 1])
+        cpu: select_first([cpu, 2])
     }
 
     output {

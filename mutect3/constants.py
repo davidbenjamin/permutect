@@ -8,6 +8,7 @@ READ_LAYERS_NAME = 'read_layers'
 INFO_LAYERS_NAME = 'info_layers'
 AGGREGATION_LAYERS_NAME = 'aggregation_layers'
 DROPOUT_P_NAME = 'dropout_p'
+BATCH_NORMALIZE_NAME = 'batch_normalize'
 
 TRAINING_DATASETS_NAME = 'training_datasets'
 TEST_DATASET_NAME = 'test_dataset'
