@@ -31,7 +31,7 @@ def train_model_and_write_summary(m3_params: Mutect3Parameters, training_params:
     model = ReadSetClassifier(m3_params=m3_params, na_model=na_model).float()
 
     model.train_model(train_loader, valid_loader, training_params.num_epochs, summary_writer=summary_writer, reweighting_range=training_params.reweighting_range)
-    model.learn_calibration(valid_loader, num_epochs=50, summary_writer=summary_writer)
+    model.learn_calibration(valid_loader, num_epochs=50)
     model.evaluate_model_after_training(train_loader, summary_writer)
     return model
 

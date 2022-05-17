@@ -144,7 +144,7 @@ class ReadSetClassifier(nn.Module):
 
     def forward(self, batch: ReadSetBatch, posterior=False, normal_artifact=False):
         phi_reads = self.apply_phi_to_reads(batch)
-        return self.forward_starting_from_phi_reads(phi_reads=phi_reads, batch=batch, posterior=posterior, normal_artifact=normal_artifact)
+        return self.forward_from_phi_reads(phi_reads=phi_reads, batch=batch, posterior=posterior, normal_artifact=normal_artifact)
 
     # for the sake of recycling the read embeddings when training with data augmentation, we split the forward pass
     # into 1) the expensive and recyclable embedding of every single read and 2) everything else
@@ -154,8 +154,7 @@ class ReadSetClassifier(nn.Module):
         # note that we put the reads on GPU, apply read embedding phi, then put the result back on CPU
         return torch.sigmoid(self.phi(batch.reads().to(self._device)))
 
-    # beta is for downsampling data augmentation
-    def forward_starting_from_phi_reads(self, phi_reads: torch.Tensor, batch: ReadSetBatch, posterior=False, normal_artifact=False, weight_range: float=0):
+    def forward_from_phi_reads_to_calibration(self, phi_reads: torch.Tensor, batch: ReadSetBatch, weight_range: float=0):
         weights = torch.ones(len(phi_reads), 1, device=self._device) if weight_range == 0 else (1 + weight_range * (1 - 2 * torch.rand(len(phi_reads), 1, device=self._device)))
         weighted_phi_reads = weights * phi_reads
 
@@ -180,6 +179,11 @@ class ReadSetClassifier(nn.Module):
         omega_info = torch.sigmoid(self.omega(batch.info().to(self._device)))
         concatenated = torch.cat((ref_means, alt_means, omega_info), dim=1)
         logits = torch.squeeze(self.rho(concatenated))
+        return logits, effective_ref_counts, effective_alt_counts
+
+    # beta is for downsampling data augmentation
+    def forward_from_phi_reads(self, phi_reads: torch.Tensor, batch: ReadSetBatch, posterior=False, normal_artifact=False, weight_range: float=0):
+        logits, effective_ref_counts, effective_alt_counts =  self.forward_from_phi_reads_to_calibration(phi_reads, batch, weight_range)
         logits = self.calibration.forward(logits, effective_ref_counts, effective_alt_counts)
 
         if posterior:
@@ -310,28 +314,40 @@ class ReadSetClassifier(nn.Module):
                 summary_writer.add_figure("Artifact AFs", plotting.histogram(artifact_afs, "AFs")[0], iteration)
                 summary_writer.add_figure("AF vs prob", plotting.hexbin(tumor_afs, all_artifact_probs)[0], iteration)
 
-    def learn_calibration(self, loader, num_epochs, summary_writer: SummaryWriter):
+    def learn_calibration(self, loader, num_epochs):
         self.train(False)
         freeze(self.parameters())
         unfreeze(self.calibration_parameters())
 
+        # gather uncalibrated logits -- everything computed by the frozen part of the model -- so that we only
+        # do forward and backward passes on the calibration submodule
+        print("Computing uncalibrated part of model. . .")
+        uncalibrated_logits_ref_alt_counts_labels = []
+        pbar = tqdm(enumerate(loader), mininterval=10)
+        for n, batch in pbar:
+            if not batch.is_labeled():
+                continue
+            phi_reads = self.apply_phi_to_reads(batch)
+            logits, ref_counts, alt_counts = self.forward_from_phi_reads_to_calibration(phi_reads, batch)
+            uncalibrated_logits_ref_alt_counts_labels.append((logits.detach(), ref_counts.detach(), alt_counts.detach(), batch.labels.to(self._device)))
+
+        print("Training calibration. . .")
         optimizer = torch.optim.Adam(self.calibration_parameters())
         bce = nn.BCEWithLogitsLoss()
-
-        for epoch in trange(1, num_epochs + 1, desc="Epoch"):
+        for epoch in trange(1, num_epochs + 1, desc="Calibration epoch"):
             nll_loss = StreamingAverage(device=self._device)
 
-            pbar = tqdm(enumerate(loader), mininterval=10)
-            for n, batch in pbar:
-                if not batch.is_labeled():
-                    continue
-                pred = self.forward(batch)
-                loss = bce(pred, batch.labels().to(self._device))
+            pbar = tqdm(enumerate(uncalibrated_logits_ref_alt_counts_labels), mininterval=10)
+            for n, logits_ref_alt_labels in pbar:
+                logits, ref_counts, alt_counts, labels = logits_ref_alt_labels
+                pred = self.calibration.forward(logits, ref_counts, alt_counts)
+
+                loss = bce(pred, labels)
                 optimizer.zero_grad()
                 loss.backward()
                 optimizer.step()
 
-                nll_loss.record_sum(loss.detach(), batch.size())
+                nll_loss.record_sum(loss.detach(), len(logits))
 
     def calculate_logit_threshold(self, loader, normal_artifact=False, summary_writer: SummaryWriter = None):
         self.train(False)
@@ -389,9 +405,9 @@ class ReadSetClassifier(nn.Module):
                     phi_reads = self.apply_phi_to_reads(batch)
 
                     # beta is for downsampling data augmentation
-                    orig_pred = self.forward_starting_from_phi_reads(phi_reads, batch, posterior=False, normal_artifact=False, weight_range=0)
-                    aug1_pred = self.forward_starting_from_phi_reads(phi_reads, batch, posterior=False, normal_artifact=False, weight_range=reweighting_range)
-                    aug2_pred = self.forward_starting_from_phi_reads(phi_reads, batch, posterior=False, normal_artifact=False, weight_range=reweighting_range)
+                    orig_pred = self.forward_from_phi_reads(phi_reads, batch, posterior=False, normal_artifact=False, weight_range=0)
+                    aug1_pred = self.forward_from_phi_reads(phi_reads, batch, posterior=False, normal_artifact=False, weight_range=reweighting_range)
+                    aug2_pred = self.forward_from_phi_reads(phi_reads, batch, posterior=False, normal_artifact=False, weight_range=reweighting_range)
 
                     if batch.is_labeled():
                         labels = batch.labels()
