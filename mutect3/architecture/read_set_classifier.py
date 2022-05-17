@@ -78,12 +78,10 @@ class ReadSetClassifier(nn.Module):
     because we have different output layers for each variant type.
     """
 
-    def __init__(self, m3_params: Mutect3Parameters, na_model: NormalArtifactModel):
+    def __init__(self, m3_params: Mutect3Parameters, na_model: NormalArtifactModel, device="cpu"):
         super(ReadSetClassifier, self).__init__()
 
-        # for now only use GPU for embedding reads i.e. phi
-        self._use_gpu = torch.cuda.is_available()
-        self._device = torch.device("cuda:0" if self._use_gpu else "cpu")
+        self._device = device
 
         # phi is the read embedding
         read_layers = [NUM_READ_FEATURES] + m3_params.read_layers
@@ -93,6 +91,7 @@ class ReadSetClassifier(nn.Module):
         # omega is the universal embedding of info field variant-level data
         info_layers = [NUM_INFO_FEATURES] + m3_params.info_layers
         self.omega = MLP(info_layers, batch_normalize=False, dropout_p=m3_params.dropout_p)
+        self.omega.to(self._device)
 
         # rho is the universal aggregation function
         ref_alt_info_embedding_dimension = 2 * read_layers[-1] + info_layers[-1]
@@ -100,9 +99,12 @@ class ReadSetClassifier(nn.Module):
         # The [1] is for the output of binary classification, represented as a single artifact/non-artifact logit
         self.rho = MLP([ref_alt_info_embedding_dimension] + m3_params.aggregation_layers + [1], batch_normalize=False,
                        dropout_p=m3_params.dropout_p)
+        self.rho.to(self._device)
 
         self.calibration = Calibration()
+        self.calibration.to(self._device)
 
+        # note: prior model and normal artifact model are not part of training and thus are not ever put on GPU
         self.prior_model = PriorModel(0.0)
 
         self.normal_artifact_model = na_model
@@ -150,28 +152,40 @@ class ReadSetClassifier(nn.Module):
     # number of reads in the whole batch.  Thus, we have to be careful to downsample within each datum.
     def apply_phi_to_reads(self, batch: ReadSetBatch):
         # note that we put the reads on GPU, apply read embedding phi, then put the result back on CPU
-        phi_reads = torch.sigmoid(self.phi(batch.reads().to(self._device)))
-        return phi_reads.to("cpu")
+        return torch.sigmoid(self.phi(batch.reads().to(self._device)))
 
     # beta is for downsampling data augmentation
-    def forward_starting_from_phi_reads(self, phi_reads: torch.Tensor, batch: ReadSetBatch, posterior=False, normal_artifact=False, reweighting_range: float=0):
-        reweightings = torch.ones(len(phi_reads), 1) if reweighting_range == 0 else (1 + reweighting_range*(1 - 2*torch.rand(len(phi_reads), 1)))
+    def forward_starting_from_phi_reads(self, phi_reads: torch.Tensor, batch: ReadSetBatch, posterior=False, normal_artifact=False, weight_range: float=0):
+        weights = torch.ones(len(phi_reads), 1, device=self._device) if weight_range == 0 else (1 + weight_range * (1 - 2 * torch.rand(len(phi_reads), 1, device=self._device)))
+        weighted_phi_reads = weights * phi_reads
 
-        # embed reads and take reweighted mean within each datum to get tensors of shape (batch size x embedding dimension)
-        ref_means = torch.vstack([torch.sum(phi_reads[s], dim=0) / torch.sum(reweightings[s]) for s in batch.ref_slices()])
-        alt_means = torch.vstack([torch.sum(phi_reads[s], dim=0) / torch.sum(reweightings[s]) for s in batch.alt_slices()])
+        end_indices = batch.read_end_indices().to(self._device)
+
+        # 2D tensor of weighed sum of read embeddings within each datum -- all ref reads, then all alt reads
+        read_sums = utils.chunk_sums(weighted_phi_reads, end_indices)
+        weight_sums = utils.chunk_sums(weights, end_indices)
+        read_means = read_sums / weight_sums
+
+        squared_weight_sums = utils.chunk_sums(torch.square(weights), end_indices)
+        effective_read_counts = torch.square(weight_sums) / squared_weight_sums
+
+        ref_means = read_means[:batch.size(), :]
+        alt_means = read_means[batch.size():, :]
 
         # these are fed to the calibration, since reweighting effectively reduces the read counts
-        effective_ref_counts = batch.ref_counts() if reweighting_range == 0 else torch.Tensor([effective_count(reweightings[s]) for s in batch.alt_slices()])
-        effective_alt_counts = batch.alt_counts() if reweighting_range == 0 else torch.Tensor([effective_count(reweightings[s]) for s in batch.alt_slices()])
+        effective_ref_counts = effective_read_counts[:batch.size(), :]
+        effective_alt_counts = effective_read_counts[batch.size():, :]
 
         # stack side-by-side to get 2D tensor, where each variant row is (ref mean, alt mean, info)
-        omega_info = torch.sigmoid(self.omega(batch.info()))
+        omega_info = torch.sigmoid(self.omega(batch.info().to(self._device)))
         concatenated = torch.cat((ref_means, alt_means, omega_info), dim=1)
         logits = torch.squeeze(self.rho(concatenated))
         logits = self.calibration.forward(logits, effective_ref_counts, effective_alt_counts)
 
         if posterior:
+            # the prior model is always on CPU, but if we are computing a posterior it's not training and hence we are not
+            # using a GPU.  In principle we should put logits ont he CPU just in case, but we can be brittle for now
+            # pending some refactoring.  The same applies to the normal artifact model.
             logits = self.prior_model(logits, batch)
 
             if normal_artifact:
@@ -183,7 +197,8 @@ class ReadSetClassifier(nn.Module):
 
                 # log likelihood of tumor read counts given the normal read counts under normal artifact sub-model
                 # P(tumor counts | normal counts)
-                na_log_lk = self.normal_artifact_model.log_likelihood(batch.normal_artifact_batch())
+                na_batch = batch.normal_artifact_batch()
+                na_log_lk = self.normal_artifact_model.log_likelihood(na_batch)
 
                 # note that prior of normal artifact is essentially 1
                 # posterior is P(artifact) = P(tumor counts | normal counts) /[P(tumor counts | normal) + P(somatic)*P(tumor counts | somatic)]
@@ -197,7 +212,7 @@ class ReadSetClassifier(nn.Module):
                 # NORMAL ARTIFACT CALCULATION ENDS
 
                 # normal artifact model is only trained and only applies when normal alt counts are non-zero
-                na_mask = torch.tensor([1 if count > 0 else 0 for count in batch.normal_artifact_batch().normal_alt()])
+                na_mask = torch.tensor([1 if count > 0 else 0 for count in na_batch.normal_alt()])
                 na_masked_logits = na_mask * na_logits - 100 * (
                             1 - na_mask)  # if no normal alt counts, turn off normal artifact
 
@@ -265,7 +280,7 @@ class ReadSetClassifier(nn.Module):
                     loss.backward()
                     optimizer.step()
 
-                    epoch_loss.record_sum(loss.item(), batch.size())
+                    epoch_loss.record_sum(loss.detach(), batch.size())
                     # these depend on the iteration, not the inner epoch loop, and so are only computed in the last epoch
                     if summary_writer is not None and epoch == num_fit_epochs - 1:
                         iter_artifacts += torch.sum(probs).item()
@@ -304,38 +319,20 @@ class ReadSetClassifier(nn.Module):
         bce = nn.BCEWithLogitsLoss()
 
         for epoch in trange(1, num_epochs + 1, desc="Epoch"):
-            nll_loss = StreamingAverage()
-            high_conf_artifact_accuracy = StreamingAverage()
-            high_conf_variant_accuracy = StreamingAverage()
-            med_conf_variant_accuracy = StreamingAverage()
-            med_conf_artifact_accuracy = StreamingAverage()
-            unsure_accuracy = StreamingAverage()
+            nll_loss = StreamingAverage(device=self._device)
 
             pbar = tqdm(enumerate(loader), mininterval=10)
             for n, batch in pbar:
                 if not batch.is_labeled():
                     continue
                 pred = self.forward(batch)
-                loss = bce(pred, batch.labels())
+                loss = bce(pred, batch.labels().to(self._device))
                 optimizer.zero_grad()
                 loss.backward()
                 optimizer.step()
 
-                nll_loss.record_sum(loss.item(), batch.size())
-                correct = ((pred > 0) == (batch.labels() > 0.5)).tolist()
-                high_conf_artifact_accuracy.record_with_mask(correct, pred > 4)
-                high_conf_variant_accuracy.record_with_mask(correct, pred < -4)
-                med_conf_variant_accuracy.record_with_mask(correct, (pred < -1) & (pred > -4))
-                med_conf_artifact_accuracy.record_with_mask(correct, (pred > 1) & (pred < 4))
-                unsure_accuracy.record_with_mask(correct, (pred > -1) & (pred < 1))
+                nll_loss.record_sum(loss.detach(), batch.size())
 
-            summary_writer.add_scalar("calibration/Loss", nll_loss.get(), epoch)
-            summary_writer.add_scalar("calibration/high-confidence artifact accuracy", high_conf_artifact_accuracy.get(), epoch)
-            summary_writer.add_scalar("calibration/high-confidence variant accuracy", high_conf_variant_accuracy.get(), epoch)
-            summary_writer.add_scalar("calibration/med-confidence artifact accuracy", med_conf_artifact_accuracy.get(), epoch)
-            summary_writer.add_scalar("calibration/med-confidence variant accuracy", med_conf_variant_accuracy.get(), epoch)
-            summary_writer.add_scalar("calibration/unsure accuracy", unsure_accuracy.get(), epoch)
-            
     def calculate_logit_threshold(self, loader, normal_artifact=False, summary_writer: SummaryWriter = None):
         self.train(False)
         artifact_probs = []
@@ -373,7 +370,6 @@ class ReadSetClassifier(nn.Module):
 
     def train_model(self, train_loader, valid_loader, num_epochs, summary_writer: SummaryWriter, reweighting_range: float):
         bce = torch.nn.BCEWithLogitsLoss(reduction='sum')
-        individual_bce = torch.nn.BCEWithLogitsLoss(reduction='none')
         train_optimizer = torch.optim.Adam(self.training_parameters())
 
         # balance training by weighting the loss function
@@ -385,42 +381,30 @@ class ReadSetClassifier(nn.Module):
             for epoch_type in [utils.EpochType.TRAIN, utils.EpochType.VALID]:
                 self.set_epoch_type(epoch_type)
                 loader = train_loader if epoch_type == utils.EpochType.TRAIN else valid_loader
-
-                labeled_loss = StreamingAverage()
-                less_than_five_loss = StreamingAverage()
-                more_than_ten_loss = StreamingAverage()
-                variant_sensitivity = StreamingAverage()
-                artifact_sensitivity = StreamingAverage()
-                unlabeled_loss = StreamingAverage()
+                labeled_loss = StreamingAverage(device=self._device)
+                unlabeled_loss = StreamingAverage(device=self._device)
 
                 pbar = tqdm(enumerate(loader), mininterval=10)
                 for n, batch in pbar:
                     phi_reads = self.apply_phi_to_reads(batch)
 
                     # beta is for downsampling data augmentation
-                    orig_pred = self.forward_starting_from_phi_reads(phi_reads, batch, posterior=False, normal_artifact=False, reweighting_range=0)
-                    aug1_pred = self.forward_starting_from_phi_reads(phi_reads, batch, posterior=False, normal_artifact=False, reweighting_range=reweighting_range)
-                    aug2_pred = self.forward_starting_from_phi_reads(phi_reads, batch, posterior=False, normal_artifact=False, reweighting_range=reweighting_range)
+                    orig_pred = self.forward_starting_from_phi_reads(phi_reads, batch, posterior=False, normal_artifact=False, weight_range=0)
+                    aug1_pred = self.forward_starting_from_phi_reads(phi_reads, batch, posterior=False, normal_artifact=False, weight_range=reweighting_range)
+                    aug2_pred = self.forward_starting_from_phi_reads(phi_reads, batch, posterior=False, normal_artifact=False, weight_range=reweighting_range)
 
                     if batch.is_labeled():
                         labels = batch.labels()
                         # labeled loss: cross entropy for original and both augmented copies
                         loss = bce(orig_pred, labels) + bce(aug1_pred, labels) + bce(aug2_pred, labels)
-                        labeled_loss.record_sum(loss.item(), batch.size())
-
-                        individual_loss = individual_bce(orig_pred, labels).tolist()
-                        artifact_sensitivity.record_with_mask((orig_pred > 0).int().tolist(), (labels > 0.5))
-                        variant_sensitivity.record_with_mask((orig_pred < 0).int().tolist(), (labels < 0.5))
-                        less_than_five_loss.record_with_mask(individual_loss, batch.alt_counts() < 5)
-                        more_than_ten_loss.record_with_mask(individual_loss, batch.alt_counts() > 10)
-
+                        labeled_loss.record_sum(loss.detach(), batch.size())
                     else:
                         # unlabeled loss: consistency cross entropy between original and both augmented copies
                         loss1 = bce(aug1_pred, torch.sigmoid(orig_pred.detach()))
                         loss2 = bce(aug2_pred, torch.sigmoid(orig_pred.detach()))
                         loss3 = bce(aug1_pred, torch.sigmoid(aug2_pred.detach()))
                         loss = (loss1 + loss2 + loss3) * labeled_to_unlabeled_ratio
-                        unlabeled_loss.record_sum(loss.item(), batch.size())
+                        unlabeled_loss.record_sum(loss.detach(), batch.size())
 
                     if epoch_type == utils.EpochType.TRAIN:
                         train_optimizer.zero_grad()
@@ -429,57 +413,49 @@ class ReadSetClassifier(nn.Module):
 
                 # done with one epoch type -- training or validation -- for this epoch
                 summary_writer.add_scalar(epoch_type.name + "/Labeled Loss", labeled_loss.get(), epoch)
-                summary_writer.add_scalar(epoch_type.name + "/More Than Ten Loss", more_than_ten_loss.get(), epoch)
-                summary_writer.add_scalar(epoch_type.name + "/Less Than Five Loss", less_than_five_loss.get(), epoch)
                 summary_writer.add_scalar(epoch_type.name + "/Unlabeled Loss", unlabeled_loss.get(), epoch)
-                summary_writer.add_scalar(epoch_type.name + "/Variant Sensitivity", variant_sensitivity.get(), epoch)
-                summary_writer.add_scalar(epoch_type.name + "/Artifact Sensitivity", artifact_sensitivity.get(), epoch)
             # done with training and validation for this epoch
             # note that we have not learned the AF spectrum yet
         # done with training
-        self.record_embeddings(summary_writer, train_loader)
 
-    def record_embeddings(self, summary_writer: SummaryWriter, loader, max_data: int = 10000):
+    def evaluate_model_after_training(self, loader, summary_writer: SummaryWriter):
+        self.freeze_all()
+        self.cpu()
+        self._device = "cpu"
+
+        variant_sensitivity = StreamingAverage()
+        artifact_sensitivity = StreamingAverage()
+        high_conf_artifact_accuracy = StreamingAverage()
+        high_conf_variant_accuracy = StreamingAverage()
+        med_conf_variant_accuracy = StreamingAverage()
+        med_conf_artifact_accuracy = StreamingAverage()
+        unsure_accuracy = StreamingAverage()
+
         pbar = tqdm(enumerate(loader), mininterval=10)
-
-        all_ref_means = []
-        all_alt_means = []
-        all_diffs = []
-        all_info_embeddings = []
-        all_complete_embeddings = []
-        all_labels = []
-        all_types = []
-        data_count = 0
         for n, batch in pbar:
-            if data_count > max_data:
-                break
-            data_count += batch.size()
             if not batch.is_labeled():
                 continue
-            phi_reads = self.apply_phi_to_reads(batch)
+            pred = self.forward(batch, posterior=False, normal_artifact=False)
+            labels = batch.labels()
+            artifact_sensitivity.record_with_mask(pred > 0, labels > 0.5)
+            variant_sensitivity.record_with_mask(pred < 0, labels < 0.5)
 
-            ref_means = torch.vstack([torch.mean(phi_reads[s], dim=0) for s in batch.ref_slices()])
-            alt_means = torch.vstack([torch.mean(phi_reads[s], dim=0) for s in batch.alt_slices()])
-            diffs = alt_means - ref_means
-            omega_info = torch.sigmoid(self.omega(batch.info()))
-            concatenated = torch.cat((ref_means, alt_means, omega_info), dim=1)
-            aggregated = self.rho(concatenated)
+            correct = ((pred > 0) == (batch.labels() > 0.5))
 
-            all_ref_means.append(ref_means)
-            all_alt_means.append(alt_means)
-            all_diffs.append(diffs)
-            all_info_embeddings.append(omega_info)
-            all_complete_embeddings.append(aggregated)
-            all_labels.append(batch.labels())
-            all_types.extend(batch.variant_type())
+            high_conf_artifact_accuracy.record_with_mask(correct, pred > 4)
+            high_conf_variant_accuracy.record_with_mask(correct, pred < -4)
+            med_conf_variant_accuracy.record_with_mask(correct, (pred < -1) & (pred > -4))
+            med_conf_artifact_accuracy.record_with_mask(correct, (pred > 1) & (pred < 4))
+            unsure_accuracy.record_with_mask(correct, (pred > -1) & (pred < 1))
 
-        metadata = [var_type.name +'/' + ("ARTIFACT" if label > 0.5 else "VARIANT") for label, var_type in zip(torch.cat(all_labels), all_types)]
+        summary_writer.add_scalar("Variant Sensitivity", variant_sensitivity.get())
+        summary_writer.add_scalar("Artifact Sensitivity", artifact_sensitivity.get())
+        summary_writer.add_scalar("high-confidence artifact accuracy", high_conf_artifact_accuracy.get())
+        summary_writer.add_scalar("high-confidence variant accuracy", high_conf_variant_accuracy.get())
+        summary_writer.add_scalar("med-confidence artifact accuracy", med_conf_artifact_accuracy.get())
+        summary_writer.add_scalar("med-confidence variant accuracy", med_conf_variant_accuracy.get())
+        summary_writer.add_scalar("unsure accuracy", unsure_accuracy.get())
 
-        summary_writer.add_embedding(mat=torch.vstack(all_ref_means), metadata=metadata, tag='ref means')
-        summary_writer.add_embedding(mat=torch.vstack(all_alt_means), metadata=metadata, tag='alt means')
-        summary_writer.add_embedding(mat=torch.vstack(all_diffs), metadata=metadata, tag='alt - ref means')
-        summary_writer.add_embedding(mat=torch.vstack(all_info_embeddings), metadata=metadata, tag='info embeddings')
-        summary_writer.add_embedding(mat=torch.vstack(all_complete_embeddings), metadata=metadata, tag='top embeddings')
 
 
 

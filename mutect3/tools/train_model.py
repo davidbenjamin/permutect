@@ -32,6 +32,7 @@ def train_m3_model(m3_params: Mutect3Parameters, training_datasets, params: Trai
     print("Training model")
     summary_writer = SummaryWriter(tensorboard_dir)
     model.train_model(train_loader, valid_loader, params.num_epochs, summary_writer=summary_writer, reweighting_range=params.reweighting_range)
+    model.evaluate_model_after_training(train_loader, summary_writer)
     model.learn_calibration(valid_loader, num_epochs=50, summary_writer=summary_writer)
     summary_writer.close()
 

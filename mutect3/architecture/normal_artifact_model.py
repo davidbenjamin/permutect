@@ -96,7 +96,7 @@ class NormalArtifactModel(nn.Module):
                     log_likelihoods = self.forward(batch)
                     weights = 1 / batch.downsampling()
                     loss = -torch.mean(weights * log_likelihoods)
-                    epoch_loss.record(loss.item())
+                    epoch_loss.record(loss.detach())
 
                     if epoch_type == utils.EpochType.TRAIN:
                         optimizer.zero_grad()

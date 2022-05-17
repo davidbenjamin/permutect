@@ -36,11 +36,8 @@ def test_read_set_batch():
     assert batch.is_labeled()
     assert batch.size() == 3
     assert batch.variant_type() == [VariantType.SNV, VariantType.SNV, VariantType.INSERTION]
-    assert batch.ref_slices()[2].start == ref_counts[0] + ref_counts[1]
-    assert batch.ref_slices()[2].stop == ref_counts[0] + ref_counts[1] + ref_counts[2]
-    assert batch.alt_slices()[1].stop == ref_counts[0] + ref_counts[1] + ref_counts[2] + alt_counts[0] + alt_counts[1]
-    assert batch.ref_counts().tolist() == ref_counts
-    assert batch.alt_counts().tolist() == alt_counts
+    # TODO: test read_stop_indices
+
     assert batch.pd_tumor_depths().tolist() == tumor_depths
     assert batch.pd_tumor_alt_counts().tolist() == tumor_alt_counts
 
@@ -51,10 +48,11 @@ def test_read_set_batch():
 
     assert batch.info().shape[0] == 3
 
-    assert batch.normal_artifact_batch().normal_alt().tolist() == normal_alt_counts
-    assert batch.normal_artifact_batch().normal_depth().tolist() == normal_depths
-    assert batch.normal_artifact_batch().tumor_depth().tolist() == tumor_depths
-    assert batch.normal_artifact_batch().tumor_alt().tolist() == tumor_alt_counts
+    na_batch = batch.normal_artifact_batch()
+    assert na_batch.normal_alt().tolist() == normal_alt_counts
+    assert na_batch.normal_depth().tolist() == normal_depths
+    assert na_batch.tumor_depth().tolist() == tumor_depths
+    assert na_batch.tumor_alt().tolist() == tumor_alt_counts
 
     # turn this assertion on once normal artifact uses the VariantType enum
     #assert batch.normal_artifact_batch().variant_type() == batch.variant_type()

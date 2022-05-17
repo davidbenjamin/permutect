@@ -6,6 +6,14 @@ import torch
 from torch.utils.data import random_split
 
 
+# sum rows (0th dimension) of tensor over non-overlapping slices
+# ex: chunk_sum([[1,1],[1,2],[1,3],[1,4],[1,5]], [1,4,5]) = [[1,1], [3,9], [1,5]]
+def chunk_sums(tensor: torch.Tensor, end_indices):
+    cumsums = torch.cumsum(tensor, dim=0)[end_indices, :]
+    cumsums0 = torch.cat([torch.zeros_like(cumsums[0]).unsqueeze(dim=0), cumsums[0:-1]])
+    return cumsums - cumsums0
+
+
 def get_variant_type(alt_allele, ref_allele):
     variant_size = len(alt_allele) - len(ref_allele)
     if variant_size == 0:
@@ -57,31 +65,26 @@ def beta_binomial(n, k, alpha, beta):
 
 
 class StreamingAverage:
-    def __init__(self):
+    def __init__(self, device="cpu"):
         self._count = 0
-        self._sum = 0.0
+        self._sum = torch.tensor([0], device=device)
 
+    # this is the only method where, if we're on GPU, self._sum is transferred to the CPU
     def get(self):
-        return self._sum / (self._count + 0.0001)
+        return self._sum.item() / (self._count + 0.0001)
 
-    def record(self, value: float):
+    # value should live on same device as self._sum
+    def record(self, value: torch.Tensor):
         self._count += 1
         self._sum += value
 
-    def record_sum(self, value_sum, count):
+    # value_sum should live on same device as self._sum
+    def record_sum(self, value_sum: torch.Tensor, count: int):
         self._count += count
         self._sum += value_sum
 
-    def record_multiple(self, values):
-        self._count += len(values)
-        for value in values:
-            self._sum += value
-
     # record only values masked as true
-    def record_with_mask(self, values, mask):
-        for value, include in zip(values, mask):
-            if include:
-                self._count += 1
-                self._sum += value
-
-
+    # values and mask should live on same device as self._sum
+    def record_with_mask(self, values: torch.Tensor, mask: torch.Tensor):
+        self._count += torch.sum(mask)
+        self._sum += torch.sum(values*mask)
