@@ -32,6 +32,7 @@ def train_model_and_write_summary(m3_params: Mutect3Parameters, training_params:
 
     model.train_model(train_loader, valid_loader, training_params.num_epochs, summary_writer=summary_writer, reweighting_range=training_params.reweighting_range)
     model.learn_calibration(valid_loader, num_epochs=50, summary_writer=summary_writer)
+    model.evaluate_model_after_training(train_loader, summary_writer)
     return model
 
 
@@ -53,10 +54,8 @@ def test_separate_gaussian_data():
         events.Reload()
 
         last = training_params.num_epochs - 1
-        assert events.Scalars('TRAIN/Variant Sensitivity')[last].value > 0.98
-        assert events.Scalars('TRAIN/Artifact Sensitivity')[last].value > 0.98
-        assert events.Scalars('VALID/Variant Sensitivity')[last].value > 0.98
-        assert events.Scalars('VALID/Artifact Sensitivity')[last].value > 0.98
+        assert events.Scalars('Variant Sensitivity')[0].value > 0.98
+        assert events.Scalars('Artifact Sensitivity')[0].value > 0.98
 
 
 def test_wide_and_narrow_gaussian_data():
@@ -77,7 +76,5 @@ def test_wide_and_narrow_gaussian_data():
         events.Reload()
 
         last = training_params.num_epochs - 1
-        assert events.Scalars('TRAIN/Variant Sensitivity')[last].value > 0.90
-        assert events.Scalars('TRAIN/Artifact Sensitivity')[last].value > 0.90
-        assert events.Scalars('VALID/Variant Sensitivity')[last].value > 0.90
-        assert events.Scalars('VALID/Artifact Sensitivity')[last].value > 0.90
+        assert events.Scalars('Variant Sensitivity')[0].value > 0.90
+        assert events.Scalars('Artifact Sensitivity')[0].value > 0.90

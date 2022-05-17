@@ -31,7 +31,7 @@ class ReadSetBatch:
                 raise Exception("Batch may not mix labeled and unlabeled")
 
         # if ref read counts are 1, 2, 3 and alt read counts are 1, 2, 1, then end indices are 1, 3, 6, 7, 9, 10
-        self._read_end_indices = torch.cumsum(torch.LongTensor([len(item.ref_tensor()) for item in data] + [len(item.alt_tensor()) for item in data]))
+        self._read_end_indices = torch.cumsum(torch.LongTensor([len(item.ref_tensor()) for item in data] + [len(item.alt_tensor()) for item in data]), dim=0)
 
         self._reads = torch.cat([item.ref_tensor() for item in data] + [item.alt_tensor() for item in data], dim=0)
         self._info = torch.stack([item.info_tensor() for item in data], dim=0)

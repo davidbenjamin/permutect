@@ -8,8 +8,9 @@ from torch.utils.data import random_split
 
 # sum rows (0th dimension) of tensor over non-overlapping slices
 # ex: chunk_sum([[1,1],[1,2],[1,3],[1,4],[1,5]], [1,4,5]) = [[1,1], [3,9], [1,5]]
+# end_indices are exclusive, hence the -1
 def chunk_sums(tensor: torch.Tensor, end_indices):
-    cumsums = torch.cumsum(tensor, dim=0)[end_indices, :]
+    cumsums = torch.cumsum(tensor, dim=0)[end_indices-1, :]
     cumsums0 = torch.cat([torch.zeros_like(cumsums[0]).unsqueeze(dim=0), cumsums[0:-1]])
     return cumsums - cumsums0
 
@@ -67,7 +68,7 @@ def beta_binomial(n, k, alpha, beta):
 class StreamingAverage:
     def __init__(self, device="cpu"):
         self._count = 0
-        self._sum = torch.tensor([0], device=device)
+        self._sum = torch.tensor([0.0], device=device)
 
     # this is the only method where, if we're on GPU, self._sum is transferred to the CPU
     def get(self):
