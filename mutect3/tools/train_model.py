@@ -24,9 +24,12 @@ def train_m3_model(m3_params: Mutect3Parameters, training_datasets, params: Trai
     print("Unlabeled data: " + str(unlabeled_count) + ", labeled data: " + str(len(train_and_valid) - unlabeled_count))
     print("Dataset sizes -- training: " + str(len(training)) + ", validation: " + str(len(valid)))
 
-    train_loader = read_set_dataset.make_semisupervised_data_loader(training, params.batch_size)
-    valid_loader = read_set_dataset.make_semisupervised_data_loader(valid, params.batch_size)
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    use_gpu = torch.cuda.is_available()
+    device = torch.device('cuda' if use_gpu else 'cpu')
+
+    train_loader = read_set_dataset.make_semisupervised_data_loader(training, params.batch_size, pin_memory=use_gpu)
+    valid_loader = read_set_dataset.make_semisupervised_data_loader(valid, params.batch_size, pin_memory=use_gpu)
+
     model = ReadSetClassifier(m3_params=m3_params, na_model=None, device=device).float()
 
     print("Training model. . .")

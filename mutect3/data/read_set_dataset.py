@@ -46,9 +46,9 @@ class ReadSetDataset(Dataset):
 
 
 # this is used for training and validation but not deployment / testing
-def make_semisupervised_data_loader(dataset, batch_size):
+def make_semisupervised_data_loader(dataset, batch_size, pin_memory=False):
     sampler = SemiSupervisedBatchSampler(dataset, batch_size)
-    return DataLoader(dataset=dataset, batch_sampler=sampler, collate_fn=ReadSetBatch)
+    return DataLoader(dataset=dataset, batch_sampler=sampler, collate_fn=ReadSetBatch, pin_memory=pin_memory)
 
 
 def make_test_data_loader(dataset, batch_size):

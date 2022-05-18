@@ -42,6 +42,14 @@ class ReadSetBatch:
         self._pd_tumor_depths = torch.IntTensor([item.tumor_depth() for item in data])
         self._pd_tumor_alt_counts = torch.IntTensor([item.tumor_alt_count() for item in data])
 
+    # pin memory for all tensors that are sent to the GPU
+    def pin_memory(self):
+        self._reads = self._reads.pin_memory()
+        self._info = self._info.pin_memory()
+        self._labels = self._labels.pin_memory()
+        self._read_end_indices = self._read_end_indices.pin_memory()
+        return self
+
     def original_list(self) -> List[ReadSetDatum]:
         return self._original_list
 
