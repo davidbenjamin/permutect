@@ -110,10 +110,9 @@ task TrainMutect3 {
         disks: "local-disk " + select_first([disk_space, 100]) + if use_ssd then " SSD" else " HDD"
         preemptible: select_first([preemptible, 10])
         maxRetries: select_first([max_retries, 0])
-        cpu: select_first([cpu, 2])
-        gpuType: "nvidia-tesla-k80"
+        cpu: select_first([cpu, 1])
+        gpuType: "nvidia-tesla-t4"
         gpuCount: 1
-        nvidiaDriverVersion: "418.87.00"
     }
 
     output {
@@ -164,7 +163,7 @@ task TrainNormalArtifact {
         disks: "local-disk " + select_first([disk_space, 100]) + if use_ssd then " SSD" else " HDD"
         preemptible: select_first([preemptible, 10])
         maxRetries: select_first([max_retries, 0])
-        cpu: select_first([cpu, 2])
+        cpu: select_first([cpu, 1])
     }
 
     output {
