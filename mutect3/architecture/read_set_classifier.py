@@ -281,7 +281,7 @@ class ReadSetClassifier(nn.Module):
                     prior_loss = -probs * artifact_log_priors - (1 - probs) * variant_log_priors
 
                     loss = torch.mean(variant_loss) + torch.mean(artifact_loss) + torch.mean(prior_loss)
-                    optimizer.zero_grad()
+                    optimizer.zero_grad(set_to_none=True)
                     loss.backward()
                     optimizer.step()
 
@@ -344,7 +344,7 @@ class ReadSetClassifier(nn.Module):
                 pred = self.calibration.forward(logits, ref_counts, alt_counts)
 
                 loss = bce(pred, labels)
-                optimizer.zero_grad()
+                optimizer.zero_grad(set_to_none=True)
                 loss.backward()
                 optimizer.step()
 
@@ -424,7 +424,7 @@ class ReadSetClassifier(nn.Module):
                         unlabeled_loss.record_sum(loss.detach(), batch.size())
 
                     if epoch_type == utils.EpochType.TRAIN:
-                        train_optimizer.zero_grad()
+                        train_optimizer.zero_grad(set_to_none=True)
                         loss.backward()
                         train_optimizer.step()
 
