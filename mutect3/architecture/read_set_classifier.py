@@ -388,7 +388,7 @@ class ReadSetClassifier(nn.Module):
 
     def train_model(self, train_loader, valid_loader, num_epochs, summary_writer: SummaryWriter, reweighting_range: float, m3_params: Mutect3Parameters):
         bce = torch.nn.BCEWithLogitsLoss(reduction='sum')
-        train_optimizer = torch.optim.Adam(self.training_parameters(), lr=m3_params.learning_rate)
+        train_optimizer = torch.optim.AdamW(self.training_parameters(), lr=m3_params.learning_rate)
 
         # balance training by weighting the loss function
         total_labeled = sum(batch.size() for batch in train_loader if batch.is_labeled())
