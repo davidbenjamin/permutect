@@ -18,7 +18,7 @@ class MLP(nn.Module):
             if batch_normalize:
                 layers.append(nn.BatchNorm1d(num_features=input_dim))
             layers.append(nn.Linear(input_dim, output_dim))
-            if dropout_p is not None:
+            if dropout_p is not None and dropout_p > 0:
                 layers.append(nn.Dropout(p=dropout_p))
             if k < len(layer_sizes) - 2:
                 layers.append(nn.LeakyReLU())
