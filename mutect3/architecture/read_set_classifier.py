@@ -26,12 +26,13 @@ def effective_count(weights: torch.Tensor):
 
 # note that read layers and info layers exclude the input dimension
 class Mutect3Parameters:
-    def __init__(self, read_layers, info_layers, aggregation_layers, dropout_p, batch_normalize):
+    def __init__(self, read_layers, info_layers, aggregation_layers, dropout_p, batch_normalize, learning_rate):
         self.read_layers = read_layers
         self.info_layers = info_layers
         self.aggregation_layers = aggregation_layers
         self.dropout_p = dropout_p
         self.batch_normalize = batch_normalize
+        self.learning_rate = learning_rate
 
 
 class Calibration(nn.Module):
@@ -385,9 +386,9 @@ class ReadSetClassifier(nn.Module):
 
         return torch.logit(torch.tensor(threshold)).item()
 
-    def train_model(self, train_loader, valid_loader, num_epochs, summary_writer: SummaryWriter, reweighting_range: float):
+    def train_model(self, train_loader, valid_loader, num_epochs, summary_writer: SummaryWriter, reweighting_range: float, m3_params: Mutect3Parameters):
         bce = torch.nn.BCEWithLogitsLoss(reduction='sum')
-        train_optimizer = torch.optim.Adam(self.training_parameters())
+        train_optimizer = torch.optim.Adam(self.training_parameters(), lr=m3_params.learning_rate)
 
         # balance training by weighting the loss function
         total_labeled = sum(batch.size() for batch in train_loader if batch.is_labeled())

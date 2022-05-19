@@ -34,7 +34,8 @@ def train_m3_model(m3_params: Mutect3Parameters, training_datasets, params: Trai
 
     print("Training model. . .")
     summary_writer = SummaryWriter(tensorboard_dir)
-    model.train_model(train_loader, valid_loader, params.num_epochs, summary_writer=summary_writer, reweighting_range=params.reweighting_range)
+    model.train_model(train_loader, valid_loader, params.num_epochs, summary_writer=summary_writer,
+                      reweighting_range=params.reweighting_range, m3_params=m3_params)
     print("Training complete.  Calibrating. . .")
     model.learn_calibration(valid_loader, num_epochs=50)
     print("Calibration complete.  Evaluating trained model. . .")
@@ -64,7 +65,8 @@ def parse_mutect3_params(args) -> Mutect3Parameters:
     aggregation_layers = getattr(args, constants.AGGREGATION_LAYERS_NAME)
     dropout_p = getattr(args, constants.DROPOUT_P_NAME)
     batch_normalize = getattr(args, constants.BATCH_NORMALIZE_NAME)
-    return Mutect3Parameters(read_layers, info_layers, aggregation_layers, dropout_p, batch_normalize)
+    learning_rate = getattr(args, constants.LEARNING_RATE_NAME)
+    return Mutect3Parameters(read_layers, info_layers, aggregation_layers, dropout_p, batch_normalize, learning_rate)
 
 
 def parse_arguments():
@@ -75,6 +77,7 @@ def parse_arguments():
     parser.add_argument('--' + constants.INFO_LAYERS_NAME, nargs='+', type=int, required=True)
     parser.add_argument('--' + constants.AGGREGATION_LAYERS_NAME, nargs='+', type=int, required=True)
     parser.add_argument('--' + constants.DROPOUT_P_NAME, type=float, default=0.0, required=False)
+    parser.add_argument('--' + constants.LEARNING_RATE_NAME, type=float, default=0.001, required=False)
     parser.add_argument('--' + constants.BATCH_NORMALIZE_NAME, action='store_true')
 
     # Training data inputs
