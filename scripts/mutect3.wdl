@@ -11,6 +11,7 @@ workflow Mutect3 {
         File? precomputed_mutect2_vcf_idx
 
         File mutect3_model
+        File normal_artifact_model
         File? intervals
         File? masks
         File ref_fasta
@@ -101,6 +102,7 @@ workflow Mutect3 {
             mutect2_vcf = select_first([precomputed_mutect2_vcf, Mutect2.filtered_vcf]),
             mutect2_vcf_idx = select_first([precomputed_mutect2_vcf_idx, Mutect2.filtered_vcf_idx]),
             mutect3_model = mutect3_model,
+            normal_artifact_model = normal_artifact_model,
             test_dataset = TestDataset.mutect3Dataset,
             batch_size = batch_size,
             mutect3_docker = mutect3_docker,
@@ -115,14 +117,14 @@ workflow Mutect3 {
     output {
         File output_vcf = IndexVCF.vcf
         File output_vcf_idx = IndexVCF.vcf_index
-        File report_pdf = Mutect3Filtering.report_pdf
-        File roc_pdf = Mutect3Filtering.roc_pdf
+        File tensorboard_report = Mutect3Filtering.tensorboard_report
     }
 }
 
 task Mutect3Filtering {
     input {
         File mutect3_model
+        File normal_artifact_model
         File test_dataset
         File mutect2_vcf
         File mutect2_vcf_idx
@@ -148,11 +150,10 @@ task Mutect3Filtering {
             --input ~{mutect2_vcf} \
             --test_dataset ~{test_dataset} \
             --batch_size ~{batch_size} \
-            --trained_m3_model ~{mutect3_model} \
-            --batch_size ~{batch_size} \
+            --m3_model ~{mutect3_model} \
+            --na_model ~{normal_artifact_model} \
             --output mutect3-filtered.vcf \
-            --report_pdf report.pdf \
-            --roc_pdf roc.pdf
+            --tensorboard_dir tensorboard
     >>>
 
     runtime {
@@ -167,8 +168,7 @@ task Mutect3Filtering {
 
     output {
         File output_vcf = "mutect3-filtered.vcf"
-        File report_pdf = "report.pdf"
-        File roc_pdf = "roc.pdf"
+        File tensorboard_report = glob("tensorboard/*tfevents*")[0]
     }
 }
 
