@@ -28,6 +28,19 @@ class VariantType(enum.IntEnum):
     INSERTION = 1
     DELETION = 2
 
+    def one_hot_tensor(self):
+        result = torch.zeros(len(VariantType))
+        result[self.value] = 1
+        return result
+
+    @staticmethod
+    def get_type(ref_allele: str, alt_allele: str):
+        diff = len(alt_allele) - len(ref_allele)
+        if diff == 0:
+            return VariantType.SNV
+        else:
+            return VariantType.INSERTION if diff > 0 else VariantType.DELETION
+
 
 class EpochType(enum.Enum):
     TRAIN = "train"

@@ -20,15 +20,11 @@ class ReadSetDatum:
         self._alt = alt
         self._ref_tensor = ref_tensor
         self._alt_tensor = alt_tensor
-
-        diff = len(self.alt()) - len(self.ref())
-        self._variant_type = utils.VariantType.SNV if diff == 0 else (
-            utils.VariantType.INSERTION if diff > 0 else utils.VariantType.DELETION)
+        self._variant_type = utils.VariantType.get_type(ref, alt)
 
         # self._info_tensor includes both the original variant info and the one-hot encoding of variant type
-        variant_one_hot = torch.Tensor([1 if self._variant_type.value == n else 0 for n in range(len(utils.VariantType))])
         self._gatk_info = gatk_info_tensor
-        self._info_tensor = torch.cat((gatk_info_tensor, variant_one_hot))
+        self._info_tensor = torch.cat((gatk_info_tensor, self._variant_type.one_hot_tensor()))
         self._label = label
 
         # the following counts pertain to the data prior to any downsampling by the GATK Mutect3DatasetEngine or by

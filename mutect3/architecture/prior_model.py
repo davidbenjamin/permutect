@@ -2,7 +2,7 @@ import torch
 from torch import nn
 
 from mutect3 import utils
-from mutect3.architecture.af_spectrum import AFSpectrum
+from mutect3.architecture.beta_binomial_mixture import BetaBinomialMixture
 from mutect3.data.read_set_batch import ReadSetBatch
 
 
@@ -10,38 +10,29 @@ class PriorModel(nn.Module):
     # contains variant spectrum, artifact spectrum, and artifact/variant log prior ratio
     def __init__(self, initial_log_ratio=0.0):
         super(PriorModel, self).__init__()
-        self.variant_spectrum = AFSpectrum()
+        # input size = 1 because all true variant types share a common AF spectrum
+        self.variant_spectrum = BetaBinomialMixture(input_size=1, num_components=5)
 
-        # TODO: is there such thing as a ModuleMap?
-        self.artifact_spectra = nn.ModuleList()
-        self.prior_log_odds = nn.ParameterList()  # log prior ratio log[P(artifact)/P(variant)] for each type
-        for _ in utils.VariantType:
-            # TODO: hard-coded magic lambda
-            self.artifact_spectra.append(AFSpectrum(lambda_for_initial_z=lambda x: (1 - 10*x)))
-            self.prior_log_odds.append(nn.Parameter(torch.tensor(initial_log_ratio)))
+        # artifact spectra for each variant type.  Variant type encoded as one-hot input vector.
+        self.artifact_spectra = BetaBinomialMixture(input_size=len(utils.VariantType), num_components=5)
 
-    def variant_log_likelihoods(self, batch: ReadSetBatch):
-        return self.variant_spectrum.forward(batch)
+        # log prior ratio log[P(artifact)/P(variant)] for each type
+        # linear layer with no bias to select the appropriate log odds given one-hot variant encoding
+        self.prior_log_odds = nn.Linear(in_features=len(utils.VariantType), out_features=1, bias=False)
+
+    def variant_log_likelihoods(self, batch: ReadSetBatch) -> torch.Tensor:
+        dummy_input = torch.ones((batch.size(), 1))     # one-hot tensor with only one type
+        return self.variant_spectrum.forward(dummy_input, batch.pd_tumor_depths(), batch.pd_tumor_alt_counts())
 
     def artifact_log_priors(self, batch: ReadSetBatch):
-        result = torch.zeros(batch.size())
-        for variant_type in utils.VariantType:
-            output = self.prior_log_odds[variant_type.value]
-            mask = torch.tensor([1 if variant_type == datum.variant_type() else 0 for datum in batch.original_list()])
-            result += mask * output
+        return self.prior_log_odds(batch.variant_type_one_hot()).squeeze()
 
-        return result
-
-    # calculate log likelihoods for all variant types and then apply a mask to select the correct
-    # type for each datum in a batch
     def artifact_log_likelihoods(self, batch: ReadSetBatch, include_prior=True):
-        result = torch.zeros(batch.size())
-        for variant_type in utils.VariantType:
-            output = self.artifact_spectra[variant_type.value](batch)
-            if include_prior:
-                output = output + self.prior_log_odds[variant_type.value]
-            mask = torch.tensor([1 if variant_type == datum.variant_type() else 0 for datum in batch.original_list()])
-            result += mask * output
+        var_types = batch.variant_type_one_hot()
+        result = self.artifact_spectra.forward(var_types, batch.pd_tumor_depths(), batch.pd_tumor_alt_counts())
+
+        if include_prior:
+            result += self.prior_log_odds(var_types).squeeze()
 
         return result
 
@@ -54,10 +45,6 @@ class PriorModel(nn.Module):
     def log_evidence(self, logits, batch):
         term1 = torch.logsumexp(torch.column_stack((logits + self.artifact_log_likelihoods(batch), self.variant_spectrum(batch))), dim=1)
 
-        prior_log_odds = torch.zeros_like(logits)
-        for variant_type in utils.VariantType:
-            mask = torch.tensor([1 if variant_type == datum.variant_type() else 0 for datum in batch.original_list()])
-            prior_log_odds += mask * self.prior_log_odds[variant_type.value]
-
+        prior_log_odds = self.artifact_log_priors(batch)
         term2 = torch.logsumexp(torch.column_stack((torch.zeros_like(logits), prior_log_odds)), dim=1)
         return term1 - term2

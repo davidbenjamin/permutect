@@ -80,8 +80,8 @@ class ReadSetBatch:
     def labels(self) -> torch.Tensor:
         return self._labels
 
-    def variant_type(self) -> List[utils.VariantType]:
-        return [item.variant_type() for item in self._original_list]
+    def variant_type_one_hot(self):
+        return torch.vstack([item.variant_type().one_hot_tensor() for item in self._original_list])
 
     def normal_artifact_batch(self) -> NormalArtifactBatch:
         # TODO: variant type needs to go in constructor -- and maybe it should be utils.VariantType, not str

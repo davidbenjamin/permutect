@@ -35,8 +35,6 @@ def test_read_set_batch():
 
     assert batch.is_labeled()
     assert batch.size() == 3
-    assert batch.variant_type() == [VariantType.SNV, VariantType.SNV, VariantType.INSERTION]
-    # TODO: test read_stop_indices
 
     assert batch.pd_tumor_depths().tolist() == tumor_depths
     assert batch.pd_tumor_alt_counts().tolist() == tumor_alt_counts
