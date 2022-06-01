@@ -4,15 +4,11 @@ from mutect3.architecture.beta_binomial_mixture import BetaBinomialMixture
 
 
 def test_make_one_component_dominate():
-    component_to_dominate = 2
-    model = BetaBinomialMixture(input_size=1, num_components=5)
-
-    with torch.no_grad():
-        model.weights_pre_softmax.weight[component_to_dominate] += 10   # boost this row/component
-
-    r = 9
-
-
+    means = torch.Tensor([0.1, 0.3, 0.5, 0.7])
+    model = BetaBinomialMixture(input_size=1, num_components=len(means))
+    model.set_means(means)
+    model.set_weights(torch.Tensor([10, 2, 2, 5]))
+    model.plot_spectrum(torch.Tensor([1]), "T") # spot check spectrum
 
 
 # test with artificial data where there is a single AF, hence count data is binomial
@@ -30,7 +26,7 @@ def test_single_af():
 
     num_epochs = 10000
     for epoch in range(num_epochs):
-        loss = -torch.mean(model.forward(dummy_input, alt_counts, depths.squeeze()))
+        loss = -torch.mean(model.forward(dummy_input, depths.squeeze(), alt_counts))
         optimizer.zero_grad()
         loss.backward()
         optimizer.step()

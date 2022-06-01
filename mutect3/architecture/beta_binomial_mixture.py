@@ -25,10 +25,12 @@ class BetaBinomialMixture(nn.Module):
 
     def __init__(self, input_size, num_components):
         super(BetaBinomialMixture, self).__init__()
+        self.num_components = num_components
+        self.input_size = input_size
 
         self.weights_pre_softmax = nn.Linear(in_features=input_size, out_features=num_components, bias=False)
-        self.alpha_pre_exp = nn.Linear(in_features=input_size, out_features=num_components, bias=False)
-        self.beta_pre_exp = nn.Linear(in_features=input_size, out_features=num_components, bias=False)
+        self.mean_pre_sigmoid = nn.Linear(in_features=input_size, out_features=num_components, bias=False)
+        self.concentration_pre_exp = nn.Linear(in_features=input_size, out_features=num_components, bias=False)
 
         # the kth column of weights corresponds to the kth index of input = 1 and other inputs = 0
         # we are going to manually initialize to equal weights -- all zeroes
@@ -36,14 +38,23 @@ class BetaBinomialMixture(nn.Module):
         # 1, 11, 21, 31, 41, 51 and each column of beta would be 51, 41, 31, 21, 11, 1
         with torch.no_grad():
             self.weights_pre_softmax.weight.copy_(torch.zeros_like(self.weights_pre_softmax.weight))
+            self.concentration_pre_exp.weight.copy_(torch.log(10*num_components*torch.ones_like(self.concentration_pre_exp.weight)))
+            self.set_means((0.5 + torch.arange(num_components))/num_components)
 
-            each_alpha_col = 1.1 + torch.arange(num_components)*50/num_components
-            each_beta_col = each_alpha_col.flip(dims=[0])
-            repeated_alpha_cols = torch.hstack(input_size * [each_alpha_col.unsqueeze(dim=1)])
-            repeated_beta_cols = torch.hstack(input_size * [each_beta_col.unsqueeze(dim=1)])
+    def set_means(self, means):
+        assert len(means) == self.num_components
+        each_mean_col_pre_sigmoid = torch.log(means / (1 - means))
+        repeated_mean_cols = torch.hstack(self.input_size * [each_mean_col_pre_sigmoid.unsqueeze(dim=1)])
+        with torch.no_grad():
+            self.mean_pre_sigmoid.weight.copy_(repeated_mean_cols)
 
-            self.alpha_pre_exp.weight.copy_(torch.log(repeated_alpha_cols))
-            self.beta_pre_exp.weight.copy_(torch.log(repeated_beta_cols))
+    def set_weights(self, weights):
+        assert len(weights) == self.num_components
+        pre_softmax_weights = torch.log(weights)
+        repeated = torch.hstack(self.input_size * [pre_softmax_weights.unsqueeze(dim=1)])
+        with torch.no_grad():
+            self.weights_pre_softmax.weight.copy_(repeated)
+
 
     '''
     here x is a 2D tensor, 1st dimension batch, 2nd dimension being features that determine which Beta mixture to use
@@ -51,8 +62,12 @@ class BetaBinomialMixture(nn.Module):
     '''
     def forward(self, x, n, k):
         log_weights = log_softmax(self.weights_pre_softmax(x), dim=1)
-        alphas = exp(self.alpha_pre_exp(x))
-        betas = exp(self.beta_pre_exp(x))
+
+        # 2D tensors -- 1st dim batch, 2nd dim mixture component
+        means = torch.sigmoid(self.mean_pre_sigmoid(x))
+        concentrations = torch.exp(self.concentration_pre_exp(x))
+        alphas = means * concentrations
+        betas = (1 - means) * concentrations
 
         # we make them 2D, with 1st dim batch, to match alpha and beta.  A single column is OK because the single value of
         # n/k are broadcast over all mixture components
@@ -76,8 +91,11 @@ class BetaBinomialMixture(nn.Module):
 
         # get 1D tensors of one selected alpha and beta shape parameter per datum / row, then sample a fraction from each
         # It may be very wasteful computing everything and only using one component, but this is just for unit testing
-        alphas = exp(self.alpha_pre_exp(x).detach()).gather(dim=1, index=component_indices).squeeze()
-        betas = exp(self.beta_pre_exp(x).detach()).gather(dim=1, index=component_indices).squeeze()
+        means = torch.sigmoid(self.mean_pre_sigmoid(x).detach()).gather(dim=1, index=component_indices).squeeze()
+        concentrations = torch.exp(self.concentration_pre_exp(x).detach()).gather(dim=1, index=component_indices).squeeze()
+        alphas = means * concentrations
+        betas = (1 - means) * concentrations
+
         fractions = torch.distributions.beta.Beta(alphas, betas).sample()   # 1D tensor
 
         # recall, n and fractions are 1D tensors; result is also 1D tensor, one "success" count per datum
@@ -91,8 +109,10 @@ class BetaBinomialMixture(nn.Module):
 
         unsqueezed = x.unsqueeze(dim=0)     # this and the three following tensors are 2D tensors with one row
         log_weights = log_softmax(self.weights_pre_softmax(unsqueezed).detach(), dim=1)
-        alphas = exp(self.alpha_pre_exp(unsqueezed).detach())
-        betas = exp(self.beta_pre_exp(unsqueezed).detach())
+        means = torch.sigmoid(self.mean_pre_sigmoid(unsqueezed).detach())
+        concentrations = torch.exp(self.concentration_pre_exp(unsqueezed).detach())
+        alphas = means * concentrations
+        betas = (1 - means) * concentrations
 
         # since f.unsqueeze(dim=1) is 2D column vector, log_prob produces 2D tensor where row index is f and column index is mixture component
         # adding the single-row 2D tensor log_weights broadcasts to each row / value of f
