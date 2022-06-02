@@ -13,7 +13,7 @@ from torch.utils.tensorboard import SummaryWriter
 
 BATCH_SIZE = 64
 NUM_EPOCHS = 100
-NUM_SPECTRUM_ITERATIONS=10
+NUM_SPECTRUM_ITERATIONS = 100
 TRAINING_PARAMS = TrainingParameters(batch_size=BATCH_SIZE, num_epochs=NUM_EPOCHS, reweighting_range=0.3)
 
 SMALL_MODEL_PARAMS = Mutect3Parameters(read_layers=[5, 5], info_layers=[5, 5], aggregation_layers=[5, 5, 5, 5],

@@ -185,14 +185,14 @@ class ReadSetClassifier(nn.Module):
 
     # beta is for downsampling data augmentation
     def forward_from_phi_reads(self, phi_reads: torch.Tensor, batch: ReadSetBatch, posterior=False, normal_artifact=False, weight_range: float=0):
-        logits, effective_ref_counts, effective_alt_counts =  self.forward_from_phi_reads_to_calibration(phi_reads, batch, weight_range)
+        logits, effective_ref_counts, effective_alt_counts = self.forward_from_phi_reads_to_calibration(phi_reads, batch, weight_range)
         logits = self.calibration.forward(logits, effective_ref_counts, effective_alt_counts)
 
         if posterior:
             # the prior model is always on CPU, but if we are computing a posterior it's not training and hence we are not
             # using a GPU.  In principle we should put logits ont he CPU just in case, but we can be brittle for now
             # pending some refactoring.  The same applies to the normal artifact model.
-            logits = self.prior_model(logits, batch)
+            logits = self.prior_model.posterior_logits(logits, batch)
 
             if normal_artifact:
                 # NORMAL ARTIFACT CALCULATION BEGINS

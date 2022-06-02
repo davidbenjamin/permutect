@@ -20,7 +20,7 @@ class PriorModel(nn.Module):
         # linear layer with no bias to select the appropriate log odds given one-hot variant encoding
         self.prior_log_odds = nn.Linear(in_features=len(utils.VariantType), out_features=1, bias=False)
         with torch.no_grad():
-            self.prior_log_odds.copy_(initial_log_ratio * torch.ones_like(self.prior_log_odds))
+            self.prior_log_odds.weight.copy_(initial_log_ratio * torch.ones_like(self.prior_log_odds.weight))
 
     def variant_log_likelihoods(self, batch: ReadSetBatch) -> torch.Tensor:
         dummy_input = torch.ones((batch.size(), 1))     # one-hot tensor with only one type
@@ -33,8 +33,11 @@ class PriorModel(nn.Module):
         return self.artifact_spectra.forward(batch.variant_type_one_hot(), batch.pd_tumor_depths(), batch.pd_tumor_alt_counts())
 
     # forward pass returns posterior logits of being artifact given likelihood logits
-    def forward(self, logits, batch: ReadSetBatch):
+    def posterior_logits(self, logits, batch: ReadSetBatch):
         return logits + self.artifact_log_priors(batch) + self.artifact_log_likelihoods(batch) - self.variant_spectrum(batch)
+
+    def forward(self, logits, batch: ReadSetBatch):
+        return self.posterior_logits(logits, batch)
 
     # with fixed logits from the ReadSetClassifier, the log probability of seeing the observed tensors and counts
     # This is our objective to maximize when learning the prior model
