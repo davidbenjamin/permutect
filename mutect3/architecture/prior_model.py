@@ -42,7 +42,7 @@ class PriorModel(nn.Module):
     def log_evidence(self, logits, batch: ReadSetBatch):
         log_prior_ratios = self.artifact_log_priors(batch)
 
-        term1 = -torch.log10(torch.exp(log_prior_ratios))
+        term1 = -torch.log1p(torch.exp(log_prior_ratios))
         variant_column = self.variant_log_likelihoods(batch)
         artifact_column = log_prior_ratios + self.artifact_log_likelihoods(batch) + logits
         term2 = torch.logsumexp(torch.column_stack([variant_column, artifact_column]), dim=1)   # 1D tensor
