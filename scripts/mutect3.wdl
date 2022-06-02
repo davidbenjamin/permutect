@@ -19,8 +19,8 @@ workflow Mutect3 {
         Int scatter_count
         File primary_bam
         File primary_bai
-        File control_bam
-        File control_bai
+        File? control_bam
+        File? control_bai
         File? gnomad
         File? gnomad_idx
         File? variants_for_contamination
