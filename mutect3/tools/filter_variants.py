@@ -6,7 +6,6 @@ from torch.utils.tensorboard import SummaryWriter
 from cyvcf2 import VCF, Writer, Variant
 from tqdm.autonotebook import tqdm
 
-import mutect3.architecture.normal_artifact_model
 import mutect3.architecture.read_set_classifier
 from mutect3.data import read_set_datum, read_set_dataset
 from mutect3 import constants
@@ -19,18 +18,9 @@ TRUSTED_M2_FILTERS = {'contamination', 'germline', 'weak_evidence', 'multialleli
 def load_m3_model(path):
     saved = torch.load(path)
     m3_params = saved[constants.M3_PARAMS_NAME]
-    model = mutect3.architecture.read_set_classifier.ReadSetClassifier(m3_params, None)
+    model = mutect3.architecture.read_set_classifier.ReadSetClassifier(m3_params)
     model.load_state_dict(saved[constants.STATE_DICT_NAME])
     return model
-
-
-# this presumes that we have a NormalArtifact model and we have saved it via save_normal_artifact_model as in train_normal_artifact_model.py
-def load_na_model(path):
-    saved = torch.load(path)
-    hidden_layers = saved[constants.HIDDEN_LAYERS_NAME]
-    na_model = mutect3.architecture.normal_artifact_model.NormalArtifactModel(hidden_layers)
-    na_model.load_state_dict(saved[constants.STATE_DICT_NAME])
-    return na_model
 
 
 def encode(contig: str, position: int, alt: str):
@@ -63,7 +53,6 @@ def main():
     parser.add_argument('--' + constants.TENSORBOARD_DIR_NAME, type=str, default='tensorboard', required=False)
     parser.add_argument('--' + constants.BATCH_SIZE_NAME, type=int, default=64, required=False)
     parser.add_argument('--' + constants.NUM_SPECTRUM_ITERATIONS, type=int, default=10, required=False)
-    parser.add_argument('--' + constants.TURN_OFF_NORMAL_ARTIFACT_NAME, action='store_true')
     args = parser.parse_args()
 
     # record encodings of variants that M2 filtered as germline, contamination, or weak evidence
@@ -83,19 +72,16 @@ def main():
     dataset = read_set_dataset.ReadSetDataset(data=m3_variants)
     data_loader = read_set_dataset.make_test_data_loader(dataset, getattr(args, constants.BATCH_SIZE_NAME))
 
-    na_model = load_na_model(getattr(args, constants.NA_MODEL_NAME))
     model = load_m3_model(getattr(args, constants.M3_MODEL_NAME))
-    model.set_normal_artifact_model(na_model)
-    use_normal_artifact = (not getattr(args, constants.TURN_OFF_NORMAL_ARTIFACT_NAME))
 
     # The AF spectrum was, of course, not pre-trained with the rest of the model
     print("Learning AF spectra")
     num_spectrum_iterations = getattr(args, constants.NUM_SPECTRUM_ITERATIONS)
     summary_writer = SummaryWriter(getattr(args, constants.TENSORBOARD_DIR_NAME))
-    model.learn_spectra(data_loader, num_iterations=num_spectrum_iterations, use_normal_artifact=use_normal_artifact, summary_writer=summary_writer)
+    model.learn_spectra(data_loader, num_iterations=num_spectrum_iterations, summary_writer=summary_writer)
 
     print("Calculating optimal logit threshold")
-    logit_threshold = model.calculate_logit_threshold(loader=data_loader, normal_artifact=use_normal_artifact, summary_writer=summary_writer)
+    logit_threshold = model.calculate_logit_threshold(loader=data_loader, summary_writer=summary_writer)
     print("Optimal logit threshold: " + str(logit_threshold))
 
     encoding_to_logit_dict = {}
@@ -103,7 +89,7 @@ def main():
     print("Running final calls")
     pbar = tqdm(enumerate(data_loader), mininterval=10)
     for n, batch in pbar:
-        logits = model.forward(batch, posterior=True, normal_artifact=use_normal_artifact)
+        logits = model.forward(batch, posterior=True)
 
         encodings = [encode_datum(datum) for datum in batch.original_list()]
         for encoding, logit in zip(encodings, logits):

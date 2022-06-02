@@ -46,14 +46,5 @@ def test_read_set_batch():
 
     assert batch.info().shape[0] == 3
 
-    na_batch = batch.normal_artifact_batch()
-    assert na_batch.normal_alt().tolist() == normal_alt_counts
-    assert na_batch.normal_depth().tolist() == normal_depths
-    assert na_batch.tumor_depth().tolist() == tumor_depths
-    assert na_batch.tumor_alt().tolist() == tumor_alt_counts
-
-    # turn this assertion on once normal artifact uses the VariantType enum
-    #assert batch.normal_artifact_batch().variant_type() == batch.variant_type()
-
     assert batch.labels().tolist() == [1.0, 0.0, 1.0]
 

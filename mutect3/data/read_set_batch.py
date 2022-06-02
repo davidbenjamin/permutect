@@ -1,10 +1,6 @@
 from typing import List
 
 import torch
-
-from mutect3 import utils
-from mutect3.data.normal_artifact_batch import NormalArtifactBatch
-from mutect3.data.normal_artifact_datum import NormalArtifactDatum
 from mutect3.data.read_set_datum import ReadSetDatum
 
 
@@ -83,10 +79,3 @@ class ReadSetBatch:
     def variant_type_one_hot(self):
         return torch.vstack([item.variant_type().one_hot_tensor() for item in self._original_list])
 
-    def normal_artifact_batch(self) -> NormalArtifactBatch:
-        # TODO: variant type needs to go in constructor -- and maybe it should be utils.VariantType, not str
-        # TODO: we might need to change the counts in this constructor
-        normal_artifact_data = [NormalArtifactDatum(item.normal_alt_count(), item.normal_depth(),
-                                                    item.tumor_alt_count(), item.tumor_depth(),
-                                                    1.0, item.variant_type) for item in self._original_list]
-        return NormalArtifactBatch(normal_artifact_data)

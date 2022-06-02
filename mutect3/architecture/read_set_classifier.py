@@ -10,7 +10,6 @@ from itertools import chain
 
 from mutect3 import utils
 from mutect3.architecture.mlp import MLP
-from mutect3.architecture.normal_artifact_model import NormalArtifactModel
 from mutect3.architecture.prior_model import PriorModel
 from mutect3.data.read_set_batch import ReadSetBatch
 from mutect3.data.read_set_datum import NUM_READ_FEATURES, NUM_INFO_FEATURES
@@ -80,7 +79,7 @@ class ReadSetClassifier(nn.Module):
     because we have different output layers for each variant type.
     """
 
-    def __init__(self, m3_params: Mutect3Parameters, na_model: NormalArtifactModel, device=torch.device("cpu")):
+    def __init__(self, m3_params: Mutect3Parameters, device=torch.device("cpu")):
         super(ReadSetClassifier, self).__init__()
 
         self._device = device
@@ -108,13 +107,6 @@ class ReadSetClassifier(nn.Module):
 
         # note: prior model and normal artifact model are not part of training and thus are not ever put on GPU
         self.prior_model = PriorModel(0.0)
-
-        self.normal_artifact_model = na_model
-        if na_model is not None:
-            freeze(self.normal_artifact_model.parameters())
-
-    def set_normal_artifact_model(self, na_model: NormalArtifactModel):
-        self.normal_artifact_model = na_model
 
     def get_prior_model(self):
         return self.prior_model
@@ -144,9 +136,9 @@ class ReadSetClassifier(nn.Module):
         freeze(self.parameters())
         unfreeze(self.spectra_parameters())
 
-    def forward(self, batch: ReadSetBatch, posterior=False, normal_artifact=False):
+    def forward(self, batch: ReadSetBatch, posterior=False):
         phi_reads = self.apply_phi_to_reads(batch)
-        return self.forward_from_phi_reads(phi_reads=phi_reads, batch=batch, posterior=posterior, normal_artifact=normal_artifact)
+        return self.forward_from_phi_reads(phi_reads=phi_reads, batch=batch, posterior=posterior)
 
     # for the sake of recycling the read embeddings when training with data augmentation, we split the forward pass
     # into 1) the expensive and recyclable embedding of every single read and 2) everything else
@@ -184,7 +176,7 @@ class ReadSetClassifier(nn.Module):
         return logits, effective_ref_counts, effective_alt_counts
 
     # beta is for downsampling data augmentation
-    def forward_from_phi_reads(self, phi_reads: torch.Tensor, batch: ReadSetBatch, posterior=False, normal_artifact=False, weight_range: float=0):
+    def forward_from_phi_reads(self, phi_reads: torch.Tensor, batch: ReadSetBatch, posterior=False, weight_range: float=0):
         logits, effective_ref_counts, effective_alt_counts = self.forward_from_phi_reads_to_calibration(phi_reads, batch, weight_range)
         logits = self.calibration.forward(logits, effective_ref_counts, effective_alt_counts)
 
@@ -194,46 +186,13 @@ class ReadSetClassifier(nn.Module):
             # pending some refactoring.  The same applies to the normal artifact model.
             logits = self.prior_model.posterior_logits(logits, batch)
 
-            if normal_artifact:
-                # NORMAL ARTIFACT CALCULATION BEGINS
-
-                # posterior probability of normal artifact given observed read counts
-                # log likelihood of tumor read counts given tumor variant spectrum P(tumor counts | somatic variant)
-                somatic_log_lk = self.prior_model.variant_spectrum.log_likelihood(batch.pd_tumor_alt_counts(), batch.pd_tumor_depths())
-
-                # log likelihood of tumor read counts given the normal read counts under normal artifact sub-model
-                # P(tumor counts | normal counts)
-                na_batch = batch.normal_artifact_batch()
-                na_log_lk = self.normal_artifact_model.log_likelihood(na_batch)
-
-                # note that prior of normal artifact is essentially 1
-                # posterior is P(artifact) = P(tumor counts | normal counts) /[P(tumor counts | normal) + P(somatic)*P(tumor counts | somatic)]
-                # and posterior logits are log(post prob artifact / post prob somatic)
-                # so, with n_ll = normal artifact log likelihood and som_ll = somatic log likelihood and pi = log P(somatic)
-                # posterior logit = na_ll - pi - som_ll
-
-                # TODO: WARNING: HARD-CODED MAGIC CONSTANT!!!!!
-                log_somatic_prior = -11.0
-                na_logits = na_log_lk - log_somatic_prior - somatic_log_lk
-                # NORMAL ARTIFACT CALCULATION ENDS
-
-                # normal artifact model is only trained and only applies when normal alt counts are non-zero
-                na_mask = torch.tensor([1 if count > 0 else 0 for count in na_batch.normal_alt()])
-                na_masked_logits = na_mask * na_logits - 100 * (
-                            1 - na_mask)  # if no normal alt counts, turn off normal artifact
-
-                # primitive approach -- just take whichever is greater between the two models' posteriors
-                # WARNING -- commenting out the line below completely disables normal artifact filtering!!!
-                logits = torch.maximum(logits, na_masked_logits)
-
         return logits
 
-    def learn_spectra(self, loader, num_iterations, use_normal_artifact=False, summary_writer: SummaryWriter = None):
+    def learn_spectra(self, loader, num_iterations, summary_writer: SummaryWriter = None):
         self.learn_spectrum_mode()
-        logits_and_batches = [(self.forward(batch=batch, normal_artifact=use_normal_artifact).detach(), batch) for batch in loader]
+        logits_and_batches = [(self.forward(batch=batch).detach(), batch) for batch in loader]
         optimizer = torch.optim.Adam(self.spectra_parameters())
 
-        num_epochs = 50
         for epoch in trange(1, num_iterations + 1, desc="AF spectra epoch"):
             epoch_loss = StreamingAverage(device=self._device)
 
@@ -291,14 +250,14 @@ class ReadSetClassifier(nn.Module):
 
                 nll_loss.record_sum(loss.detach(), len(logits))
 
-    def calculate_logit_threshold(self, loader, normal_artifact=False, summary_writer: SummaryWriter = None):
+    def calculate_logit_threshold(self, loader, summary_writer: SummaryWriter = None):
         self.train(False)
         artifact_probs = []
 
         print("running model over all data in loader to optimize F score")
         pbar = tqdm(enumerate(loader), mininterval=10)
         for n, batch in pbar:
-            artifact_probs.extend(torch.sigmoid(self.forward(batch, posterior=True, normal_artifact=normal_artifact)).tolist())
+            artifact_probs.extend(torch.sigmoid(self.forward(batch, posterior=True)).tolist())
 
         artifact_probs.sort()
         total_variants = len(artifact_probs) - sum(artifact_probs)
@@ -347,9 +306,9 @@ class ReadSetClassifier(nn.Module):
                     phi_reads = self.apply_phi_to_reads(batch)
 
                     # beta is for downsampling data augmentation
-                    orig_pred = self.forward_from_phi_reads(phi_reads, batch, posterior=False, normal_artifact=False, weight_range=0)
-                    aug1_pred = self.forward_from_phi_reads(phi_reads, batch, posterior=False, normal_artifact=False, weight_range=reweighting_range)
-                    aug2_pred = self.forward_from_phi_reads(phi_reads, batch, posterior=False, normal_artifact=False, weight_range=reweighting_range)
+                    orig_pred = self.forward_from_phi_reads(phi_reads, batch, posterior=False, weight_range=0)
+                    aug1_pred = self.forward_from_phi_reads(phi_reads, batch, posterior=False, weight_range=reweighting_range)
+                    aug2_pred = self.forward_from_phi_reads(phi_reads, batch, posterior=False, weight_range=reweighting_range)
 
                     if batch.is_labeled():
                         labels = batch.labels()
@@ -393,7 +352,7 @@ class ReadSetClassifier(nn.Module):
         for n, batch in pbar:
             if not batch.is_labeled():
                 continue
-            pred = self.forward(batch, posterior=False, normal_artifact=False)
+            pred = self.forward(batch, posterior=False)
             labels = batch.labels()
             artifact_sensitivity.record_with_mask(pred > 0, labels > 0.5)
             variant_sensitivity.record_with_mask(pred < 0, labels < 0.5)

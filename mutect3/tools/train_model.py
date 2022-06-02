@@ -30,7 +30,7 @@ def train_m3_model(m3_params: Mutect3Parameters, training_datasets, params: Trai
     train_loader = read_set_dataset.make_semisupervised_data_loader(training, params.batch_size, pin_memory=use_gpu)
     valid_loader = read_set_dataset.make_semisupervised_data_loader(valid, params.batch_size, pin_memory=use_gpu)
 
-    model = ReadSetClassifier(m3_params=m3_params, na_model=None, device=device).float()
+    model = ReadSetClassifier(m3_params=m3_params, device=device).float()
 
     print("Training model. . .")
     summary_writer = SummaryWriter(tensorboard_dir)

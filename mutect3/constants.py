@@ -18,7 +18,6 @@ REWEIGHTING_RANGE_NAME = 'reweighting_range'
 BATCH_SIZE_NAME = 'batch_size'
 NUM_EPOCHS_NAME = 'num_epochs'
 NUM_SPECTRUM_ITERATIONS = 'num_spectrum_iterations'
-TURN_OFF_NORMAL_ARTIFACT_NAME = 'turn_off_normal_artifact'
 
 TENSORBOARD_DIR_NAME = 'tensorboard_dir'
 
