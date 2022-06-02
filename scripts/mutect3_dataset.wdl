@@ -12,8 +12,8 @@ workflow Mutect3Dataset {
         Int scatter_count
         File primary_bam
         File primary_bai
-        File control_bam
-        File control_bai
+        File? control_bam
+        File? control_bai
         File? gnomad
         File? gnomad_idx
         String? m2_extra_args
