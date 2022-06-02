@@ -19,6 +19,8 @@ class PriorModel(nn.Module):
         # log prior ratio log[P(artifact)/P(variant)] for each type
         # linear layer with no bias to select the appropriate log odds given one-hot variant encoding
         self.prior_log_odds = nn.Linear(in_features=len(utils.VariantType), out_features=1, bias=False)
+        with torch.no_grad():
+            self.prior_log_odds.copy_(initial_log_ratio * torch.ones_like(self.prior_log_odds))
 
     def variant_log_likelihoods(self, batch: ReadSetBatch) -> torch.Tensor:
         dummy_input = torch.ones((batch.size(), 1))     # one-hot tensor with only one type
@@ -27,24 +29,22 @@ class PriorModel(nn.Module):
     def artifact_log_priors(self, batch: ReadSetBatch):
         return self.prior_log_odds(batch.variant_type_one_hot()).squeeze()
 
-    def artifact_log_likelihoods(self, batch: ReadSetBatch, include_prior=True):
-        var_types = batch.variant_type_one_hot()
-        result = self.artifact_spectra.forward(var_types, batch.pd_tumor_depths(), batch.pd_tumor_alt_counts())
-
-        if include_prior:
-            result += self.prior_log_odds(var_types).squeeze()
-
-        return result
+    def artifact_log_likelihoods(self, batch: ReadSetBatch):
+        return self.artifact_spectra.forward(batch.variant_type_one_hot(), batch.pd_tumor_depths(), batch.pd_tumor_alt_counts())
 
     # forward pass returns posterior logits of being artifact given likelihood logits
-    def forward(self, logits, batch):
-        return logits + self.artifact_log_likelihoods(batch) - self.variant_spectrum(batch)
+    def forward(self, logits, batch: ReadSetBatch):
+        return logits + self.artifact_log_priors(batch) + self.artifact_log_likelihoods(batch) - self.variant_spectrum(batch)
 
     # with fixed logits from the ReadSetClassifier, the log probability of seeing the observed tensors and counts
     # This is our objective to maximize when learning the prior model
-    def log_evidence(self, logits, batch):
-        term1 = torch.logsumexp(torch.column_stack((logits + self.artifact_log_likelihoods(batch), self.variant_spectrum(batch))), dim=1)
+    # the logits are the log likelihood ratio of artifact to somatic
+    def log_evidence(self, logits, batch: ReadSetBatch):
+        log_prior_ratios = self.artifact_log_priors(batch)
 
-        prior_log_odds = self.artifact_log_priors(batch)
-        term2 = torch.logsumexp(torch.column_stack((torch.zeros_like(logits), prior_log_odds)), dim=1)
-        return term1 - term2
+        term1 = -torch.log10(torch.exp(log_prior_ratios))
+        variant_column = self.variant_log_likelihoods(batch)
+        artifact_column = log_prior_ratios + self.artifact_log_likelihoods(batch) + logits
+        term2 = torch.logsumexp(torch.column_stack([variant_column, artifact_column]), dim=1)   # 1D tensor
+
+        return term1 + term2

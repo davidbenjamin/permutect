@@ -55,7 +55,6 @@ class BetaBinomialMixture(nn.Module):
         with torch.no_grad():
             self.weights_pre_softmax.weight.copy_(repeated)
 
-
     '''
     here x is a 2D tensor, 1st dimension batch, 2nd dimension being features that determine which Beta mixture to use
     n and k are 1D tensors, the only dimension being batch.

@@ -233,88 +233,29 @@ class ReadSetClassifier(nn.Module):
         logits_and_batches = [(self.forward(batch=batch, normal_artifact=use_normal_artifact).detach(), batch) for batch in loader]
         optimizer = torch.optim.Adam(self.spectra_parameters())
 
-        overall_epoch = 0
-        num_fit_epochs = 10
-        for iteration in trange(num_iterations, desc="AF spectra iteration"):
-            tumor_afs, all_artifact_probs = [], []  # for 2D heatmap of tumor_af vs artifact prob
-            probs_and_batches = []
-            variant_afs = []   # debugging -- record which data are variant
-            artifact_afs = []
-            for logits, batch in logits_and_batches:
-                posterior_logits = self.prior_model.forward(logits, batch).detach()
+        num_epochs = 50
+        for epoch in trange(1, num_iterations + 1, desc="AF spectra epoch"):
+            epoch_loss = StreamingAverage(device=self._device)
 
-                # TODO: DON'T KEEP THIS DEBUG LINE WHERE WE USE THE LIKELIHOODS INSTEAD OF THE POSTERIORS!!!
-                posterior_probs = torch.sigmoid(logits).detach()
-                # TODO: ORIGINAL posterior_probs = torch.sigmoid(posterior_logits)
-                probs_and_batches.append((posterior_probs, batch))
+            pbar = tqdm(enumerate(logits_and_batches), mininterval=10)
+            for n, (logits, batch) in pbar:
+                loss = -torch.mean(self.prior_model.log_evidence(logits, batch))
+                optimizer.zero_grad(set_to_none=True)
+                loss.backward()
+                optimizer.step()
 
-                data_list = batch.original_list()
-                for n in range(batch.size()):
-                    datum = data_list[n]
-                    artifact_prob = posterior_probs[n].item()
-                    tumor_af = datum.tumor_alt_count() / datum.tumor_depth()
-                    tumor_afs.append(tumor_af)
-                    all_artifact_probs.append(artifact_prob)
+                epoch_loss.record_sum(len(logits) * loss.detach(), len(logits))
 
-                    if artifact_prob < 0.5:
-                        variant_afs.append(tumor_af)
-                    else:
-                        artifact_afs.append(tumor_af)
-            # done computing posterior probs (the E step) of this iteration
-
-            iter_artifacts, iter_variants, iter_sure_variants, iter_sure_artifacts = 0.0, 0.0, 0, 0
-
-            fit_pbar = trange(num_fit_epochs, desc="AF fitting epoch")
-            for epoch in fit_pbar:
-                overall_epoch += 1
-                epoch_loss = StreamingAverage()
-
-                for probs, batch in probs_and_batches:
-                    variant_probs = (1 - probs)*(probs < 0.2)
-                    artifact_probs = probs * (probs > 0.8)
-
-                    variant_loss = -variant_probs * self.prior_model.variant_log_likelihoods(batch)
-                    artifact_loss = -artifact_probs * self.prior_model.artifact_log_likelihoods(batch, include_prior=False)
-
-                    artifact_log_odds = self.prior_model.artifact_log_priors(batch)
-                    artifact_log_priors = -torch.log1p(torch.exp(-artifact_log_odds))
-                    variant_log_priors = -torch.log1p(torch.exp(artifact_log_odds))
-                    prior_loss = -probs * artifact_log_priors - (1 - probs) * variant_log_priors
-
-                    loss = torch.mean(variant_loss) + torch.mean(artifact_loss) + torch.mean(prior_loss)
-                    optimizer.zero_grad(set_to_none=True)
-                    loss.backward()
-                    optimizer.step()
-
-                    epoch_loss.record_sum(loss.detach(), batch.size())
-                    # these depend on the iteration, not the inner epoch loop, and so are only computed in the last epoch
-                    if summary_writer is not None and epoch == num_fit_epochs - 1:
-                        iter_artifacts += torch.sum(probs).item()
-                        iter_variants += torch.sum(1 - probs).item()
-                        iter_sure_artifacts += torch.sum(probs > 0.99).item()
-                        iter_sure_variants += torch.sum(probs < 0.01).item()
-                # done with batches in this inner epoch
-                summary_writer.add_scalar("spectrum NLL", epoch_loss.get(), overall_epoch)
-            # done with all inner (fit) epochs
             if summary_writer is not None:
-                summary_writer.add_scalar("SNV log prior", self.prior_model.prior_log_odds[0].item(), iteration)
-                summary_writer.add_scalar("Insertion log prior", self.prior_model.prior_log_odds[1].item(), iteration)
-                summary_writer.add_scalar("Deletion log prior", self.prior_model.prior_log_odds[2].item(), iteration)
-                summary_writer.add_scalar("artifact count", iter_artifacts, iteration)
-                summary_writer.add_scalar("variant count", iter_variants, iteration)
-                summary_writer.add_scalar("certain artifact count", iter_sure_artifacts, iteration)
-                summary_writer.add_scalar("certain variant count", iter_sure_variants, iteration)
+                summary_writer.add_scalar("spectrum NLL", epoch_loss.get(), epoch)
+
+                fig, curve = self.get_prior_model().variant_spectrum.plot_spectrum(torch.Tensor([1]), "Variant AF spectrum")
+                summary_writer.add_figure("Variant AF spectrum", fig, epoch)
 
                 for variant_type in utils.VariantType:
-                    fig, curve = self.get_prior_model().artifact_spectra[variant_type.value].plot_spectrum(
+                    fig, curve = self.get_prior_model().artifact_spectra.plot_spectrum(variant_type.one_hot_tensor(),
                         variant_type.name + " artifact AF spectrum")
-                    summary_writer.add_figure(variant_type.name + " artifact AF spectrum", fig, iteration)
-                fig, curve = self.get_prior_model().variant_spectrum.plot_spectrum("Variant AF spectrum")
-                summary_writer.add_figure("Variant AF spectrum", fig, iteration)
-
-                summary_writer.add_figure("Variant AFs", plotting.histogram(variant_afs, "AFs")[0], iteration)
-                summary_writer.add_figure("Artifact AFs", plotting.histogram(artifact_afs, "AFs")[0], iteration)
-                summary_writer.add_figure("AF vs prob", plotting.hexbin(tumor_afs, all_artifact_probs)[0], iteration)
+                    summary_writer.add_figure(variant_type.name + " artifact AF spectrum", fig, epoch)
 
     def learn_calibration(self, loader, num_epochs):
         self.train(False)
@@ -340,8 +281,7 @@ class ReadSetClassifier(nn.Module):
             nll_loss = StreamingAverage(device=self._device)
 
             pbar = tqdm(enumerate(uncalibrated_logits_ref_alt_counts_labels), mininterval=10)
-            for n, logits_ref_alt_labels in pbar:
-                logits, ref_counts, alt_counts, labels = logits_ref_alt_labels
+            for n, (logits, ref_counts, alt_counts, labels) in pbar:
                 pred = self.calibration.forward(logits, ref_counts, alt_counts)
 
                 loss = bce(pred, labels)
