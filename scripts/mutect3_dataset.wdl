@@ -29,8 +29,8 @@ workflow Mutect3Dataset {
     }
 
     Runtime small_runtime = {"gatk_docker": gatk_docker, "gatk_override": gatk_override,
-                                "max_retries": 2, "preemptible": 0, "cpu": 2,
-                                "machine_mem": 4000, "command_mem": 3500,
+                                "max_retries": 2, "preemptible": 0, "cpu": 1,
+                                "machine_mem": 8000, "command_mem": 7500,
                                 "disk": 100, "boot_disk_size": 12}
 
     call m2.SplitIntervals as Split {
@@ -73,9 +73,37 @@ workflow Mutect3Dataset {
             gatk_docker = gatk_docker
     }
 
+    call m2.MergeStats as MergeStats{ input: stats = MakeDataset.stats, runtime_params = small_runtime }
+
+    call m2.MergeVCFs as Merge {
+        input:
+            input_vcfs = MakeDataset.unfiltered_vcf,
+            input_vcf_indices = MakeDataset.unfiltered_vcf_idx,
+            output_name = "m2_calls",
+            compress = false,
+            runtime_params = small_runtime
+    }
+
+    call m2.Filter as Filter {
+        input:
+            ref_fasta = ref_fasta,
+            ref_fai = ref_fai,
+            ref_dict = ref_dict,
+            intervals = intervals,
+            unfiltered_vcf = Merge.merged_vcf,
+            unfiltered_vcf_idx = Merge.merged_vcf_idx,
+            output_name = "filtered_m2_calls",
+            compress = false,
+            mutect_stats = MergeStats.merged_stats,
+            runtime_params = small_runtime,
+    }
+
 
     output {
         File mutect3Dataset = Concatenate.concatenated
+        File filtered_m2_vcf = Filter.filtered_vcf
+        File filtered_m2_vcf_idx = Filter.filtered_vcf_idx
+        File filtering_stats = Filter.filtering_stats
     }
 }
 
@@ -162,6 +190,9 @@ task MakeDataset {
 
     output {
         File dataset = "dataset.txt"
+        File unfiltered_vcf = "output.vcf"
+        File unfiltered_vcf_idx = "output.vcf.idx"
+        File stats = "output.vcf.stats"
     }
 }
 
