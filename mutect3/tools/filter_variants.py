@@ -48,7 +48,6 @@ def main():
     parser.add_argument('--' + constants.INPUT_NAME, help='VCF from GATK', required=True)
     parser.add_argument('--' + constants.TEST_DATASET_NAME, help='test dataset file from GATK', required=True)
     parser.add_argument('--' + constants.M3_MODEL_NAME, help='trained Mutect3 model', required=True)
-    parser.add_argument('--' + constants.NA_MODEL_NAME, help='trained normal artifact model', required=True)
     parser.add_argument('--' + constants.OUTPUT_NAME, help='output filtered vcf', required=True)
     parser.add_argument('--' + constants.TENSORBOARD_DIR_NAME, type=str, default='tensorboard', required=False)
     parser.add_argument('--' + constants.BATCH_SIZE_NAME, type=int, default=64, required=False)

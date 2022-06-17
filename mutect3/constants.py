@@ -22,4 +22,3 @@ NUM_SPECTRUM_ITERATIONS = 'num_spectrum_iterations'
 TENSORBOARD_DIR_NAME = 'tensorboard_dir'
 
 M3_MODEL_NAME = 'm3_model'
-NA_MODEL_NAME = 'na_model'
