@@ -82,3 +82,26 @@ def test_wide_and_narrow_gaussian_data():
         last = training_params.num_epochs - 1
         assert events.Scalars('Variant Sensitivity')[0].value > 0.90
         assert events.Scalars('Artifact Sensitivity')[0].value > 0.90
+
+
+# TODO: this test currently fails -- almost everything is considered an artifact
+# TODO: I must investigate
+def test_strand_bias_data():
+    data = artificial_data.make_random_strand_bias_data(1000, is_training_data=True)
+    params = SMALL_MODEL_PARAMS # TODO: change!!!!!!!
+    training_params = TRAINING_PARAMS
+
+    with tempfile.TemporaryDirectory() as tensorboard_dir:
+        summary_writer = SummaryWriter(tensorboard_dir)
+        model = train_model_and_write_summary(m3_params=params, training_params=training_params, data=data, summary_writer=summary_writer)
+
+        test_data = artificial_data.make_random_strand_bias_data(1000, is_training_data=False, vaf=0.25, unlabeled_fraction=0.0)
+        test_dataset = ReadSetDataset(data=test_data)
+        test_loader = make_test_data_loader(test_dataset, BATCH_SIZE)
+        model.learn_spectra(test_loader, NUM_SPECTRUM_ITERATIONS, summary_writer=summary_writer)
+
+        events = EventAccumulator(tensorboard_dir)
+        events.Reload()
+
+        assert events.Scalars('Variant Sensitivity')[0].value > 0.90
+        assert events.Scalars('Artifact Sensitivity')[0].value > 0.90

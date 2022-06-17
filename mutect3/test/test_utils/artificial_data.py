@@ -95,16 +95,18 @@ def make_random_data(art_gatk_info_gen: RandomGATKInfoGenerator, var_gatk_info_g
     return data
 
 
-# artifacts and variants are identical except 0th component of artifact read tensors is either all -1 or all +1, whereas
-# each non-artifact read is randomly +/-1
-def make_random_strand_bias_data(num_data: int, artifact_fraction=0.5, ref_downsampling=10, alt_downsampling=10, is_training_data=True, vaf=0.5):
+# artifacts and variants are identical except 0th component of artifact read tensors all have the same sign, whereas
+# each non-artifact read is randomly + or -
+def make_random_strand_bias_data(num_data: int, artifact_fraction=0.5, unlabeled_fraction=0.1,
+                                 ref_downsampling=10, alt_downsampling=10, is_training_data=True, vaf=0.5):
     data = []
     for _ in range(0, num_data):
         position = random.randint(1, 1000000)
 
         # generate label
         artifact = random.uniform(0,1) < artifact_fraction
-        label = "ARTIFACT" if artifact else "VARIANT"
+        unlabeled = random.uniform(0, 1) < unlabeled_fraction
+        label = "UNLABELED" if unlabeled else ("ARTIFACT" if artifact else "VARIANT")
 
         # generate variant type
 
@@ -124,10 +126,15 @@ def make_random_strand_bias_data(num_data: int, artifact_fraction=0.5, ref_downs
 
         ref, alt = make_random_ref_and_alt_alleles(VariantType.SNV)
 
-        gatk_info_tensor = (art_gatk_info_gen if artifact else var_gatk_info_gen).generate()
+        gatk_info_tensor = torch.zeros(NUM_GATK_INFO_FEATURES)
 
-        ref_tensor = var_read_gen.generate(ref_count)
-        alt_tensor = (art_read_gen if artifact else var_read_gen).generate(alt_count)
+        # before modifying the 0th element, it's all uniform Gaussian data
+        ref_tensor = torch.randn(ref_count, NUM_READ_FEATURES)
+        alt_tensor = torch.randn(ref_count, NUM_READ_FEATURES)
+
+        if artifact:
+            sign = 1 if random.uniform(0,1) < 0.5 else -1
+            alt_tensor[:, 0] = sign * torch.abs(alt_tensor[:, 0])
 
         data.append(ReadSetDatum("CONTIG", position, ref, alt, ref_tensor, alt_tensor, gatk_info_tensor, label,
                                  pd_tumor_depth, pd_alt_count, normal_depth, normal_alt_count))

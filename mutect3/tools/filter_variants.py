@@ -59,8 +59,26 @@ def main():
     # Mutect3 ignores these
     m2_filtering_to_keep = set([encode_variant(v, zero_based=True) for v in VCF(getattr(args, constants.INPUT_NAME)) if filters_to_keep_from_m2(v)])
 
+    print("Loading model")
+    model = load_m3_model(getattr(args, constants.M3_MODEL_NAME))
+
     print("Reading test dataset")
     unfiltered_test_data = read_set_dataset.read_data(getattr(args, constants.TEST_DATASET_NAME))
+
+    # TODO: START SILLY STUFF
+    # THIS IS SOME RIDICULOUS ONE-OFF STUFF TO CHECK THE LIKELIHOODS MODEL FOR SINGULAR
+    all_data_loader = read_set_dataset.make_test_data_loader(unfiltered_test_data, getattr(args, constants.BATCH_SIZE_NAME))
+
+    print("Calculating all the logits")
+    pbar = tqdm(enumerate(all_data_loader), mininterval=10)
+    for n, batch in pbar:
+        logits = model.forward(batch, posterior=False)
+        encodings = [encode_datum(datum) for datum in batch.original_list()]
+        for encoding, logit in zip(encodings, logits):
+            print(encoding + ": " + str(logit))
+
+    # TODO: END SILLY STUFF
+
     m3_variants = []
     for datum in unfiltered_test_data:
         encoding = encode_datum(datum)
@@ -72,7 +90,6 @@ def main():
     dataset = read_set_dataset.ReadSetDataset(data=m3_variants)
     data_loader = read_set_dataset.make_test_data_loader(dataset, getattr(args, constants.BATCH_SIZE_NAME))
 
-    model = load_m3_model(getattr(args, constants.M3_MODEL_NAME))
 
     # The AF spectrum was, of course, not pre-trained with the rest of the model
     print("Learning AF spectra")
