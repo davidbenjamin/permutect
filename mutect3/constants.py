@@ -21,4 +21,8 @@ NUM_SPECTRUM_ITERATIONS = 'num_spectrum_iterations'
 
 TENSORBOARD_DIR_NAME = 'tensorboard_dir'
 
+INITIAL_LOG_VARIANT_PRIOR_NAME = 'initial_log_variant_prior'
+INITIAL_LOG_ARTIFACT_PRIOR_NAME = 'initial_log_artifact_prior'
+NUM_IGNORED_SITES_NAME = 'num_ignored_sites'
+
 M3_MODEL_NAME = 'm3_model'

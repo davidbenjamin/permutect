@@ -116,9 +116,6 @@ class ArtifactModel(nn.Module):
     def calibration_parameters(self):
         return self.calibration.parameters()
 
-    def spectra_parameters(self):
-        return self.prior_model.parameters()
-
     def freeze_all(self):
         utils.freeze(self.parameters())
 
@@ -129,11 +126,6 @@ class ArtifactModel(nn.Module):
             utils.unfreeze(self.training_parameters())
         else:
             self.freeze_all()
-
-    def learn_spectrum_mode(self):
-        self.train(False)
-        utils.freeze(self.parameters())
-        utils.unfreeze(self.spectra_parameters())
 
     def forward(self, batch: ReadSetBatch, posterior=False):
         phi_reads = self.apply_phi_to_reads(batch)
@@ -186,34 +178,6 @@ class ArtifactModel(nn.Module):
             logits = self.prior_model.posterior_logits(logits, batch)
 
         return logits
-
-    def learn_spectra(self, loader, num_iterations, summary_writer: SummaryWriter = None):
-        self.learn_spectrum_mode()
-        logits_and_batches = [(self.forward(batch=batch).detach(), batch) for batch in loader]
-        optimizer = torch.optim.Adam(self.spectra_parameters())
-
-        for epoch in trange(1, num_iterations + 1, desc="AF spectra epoch"):
-            epoch_loss = utils.StreamingAverage(device=self._device)
-
-            pbar = tqdm(enumerate(logits_and_batches), mininterval=10)
-            for n, (logits, batch) in pbar:
-                loss = -torch.mean(self.prior_model.log_evidence(logits, batch))
-                optimizer.zero_grad(set_to_none=True)
-                loss.backward()
-                optimizer.step()
-
-                epoch_loss.record_sum(len(logits) * loss.detach(), len(logits))
-
-            if summary_writer is not None:
-                summary_writer.add_scalar("spectrum NLL", epoch_loss.get(), epoch)
-
-                fig, curve = self.get_prior_model().variant_spectrum.plot_spectrum(torch.Tensor([1]), "Variant AF spectrum")
-                summary_writer.add_figure("Variant AF spectrum", fig, epoch)
-
-                for variant_type in utils.VariantType:
-                    fig, curve = self.get_prior_model().artifact_spectra.plot_spectrum(variant_type.one_hot_tensor(),
-                        variant_type.name + " artifact AF spectrum")
-                    summary_writer.add_figure(variant_type.name + " artifact AF spectrum", fig, epoch)
 
     def learn_calibration(self, loader, num_epochs):
         self.train(False)

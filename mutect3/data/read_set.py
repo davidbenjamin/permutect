@@ -34,6 +34,9 @@ class ReadSet:
         self._normal_depth = normal_depth
         self._normal_alt_count = normal_alt_count
 
+        # this is used only on filtering datasets for fitting the AF spectra.  It's a GATK annotation
+        self._seq_error_log_likelihood = None
+
     def contig(self) -> str:
         return self._contig
 
@@ -78,3 +81,9 @@ class ReadSet:
 
     def set_label(self, label):
         self._label = label
+
+    def set_seq_error_log_likelihood(self, seq_ll: float):
+        self._seq_error_log_likelihood = seq_ll
+
+    def seq_error_log_likelihood(self):
+        return self._seq_error_log_likelihood

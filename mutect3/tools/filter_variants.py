@@ -6,19 +6,20 @@ from torch.utils.tensorboard import SummaryWriter
 from cyvcf2 import VCF, Writer, Variant
 from tqdm.autonotebook import tqdm
 
-import mutect3.architecture.artifact_model
+from mutect3.architecture.artifact_model import ArtifactModel
+from mutect3.architecture.posterior_model import PosteriorModel
 from mutect3.data import read_set, read_set_dataset
 from mutect3 import constants
 
 # TODO: eventually M3 can handle multiallelics
-TRUSTED_M2_FILTERS = {'contamination', 'germline', 'weak_evidence', 'multiallelic'}
+TRUSTED_M2_FILTERS = {'contamination', 'germline', 'multiallelic'}
 
 
-# this presumes that we have a ReadSetClassifier model and we have saved it via save_mutect3_model as in train_model.py
-def load_m3_model(path):
+# this presumes that we have an ArtifactModel and we have saved it via save_mutect3_model as in train_model.py
+def load_artifact_model(path) -> ArtifactModel:
     saved = torch.load(path)
     m3_params = saved[constants.M3_PARAMS_NAME]
-    model = mutect3.architecture.read_set_classifier.ArtifactModel(m3_params)
+    model = ArtifactModel(m3_params)
     model.load_state_dict(saved[constants.STATE_DICT_NAME])
     return model
 
@@ -29,7 +30,7 @@ def encode(contig: str, position: int, alt: str):
     return contig + ':' + str(position)
 
 
-def encode_datum(datum: read_set_datum.ReadSet):
+def encode_datum(datum: read_set.ReadSet):
     return encode(datum.contig(), datum.position(), datum.alt())
 
 
@@ -52,60 +53,69 @@ def main():
     parser.add_argument('--' + constants.TENSORBOARD_DIR_NAME, type=str, default='tensorboard', required=False)
     parser.add_argument('--' + constants.BATCH_SIZE_NAME, type=int, default=64, required=False)
     parser.add_argument('--' + constants.NUM_SPECTRUM_ITERATIONS, type=int, default=10, required=False)
+    parser.add_argument('--' + constants.INITIAL_LOG_VARIANT_PRIOR_NAME, type=float, default=-10.0, required=False)
+    parser.add_argument('--' + constants.INITIAL_LOG_ARTIFACT_PRIOR_NAME, type=float, default=-10.0, required=False)
+    parser.add_argument('--' + constants.NUM_IGNORED_SITES_NAME, type=float, required=True)
     args = parser.parse_args()
 
-    # record encodings of variants that M2 filtered as germline, contamination, or weak evidence
-    # Mutect3 ignores these
+    # record variants that M2 filtered as germline or contamination.  Mutect3 ignores these
     m2_filtering_to_keep = set([encode_variant(v, zero_based=True) for v in VCF(getattr(args, constants.INPUT_NAME)) if filters_to_keep_from_m2(v)])
 
-    print("Loading model")
-    model = load_m3_model(getattr(args, constants.M3_MODEL_NAME))
+    print("Loading artifact model")
+    artifact_model = load_artifact_model(getattr(args, constants.M3_MODEL_NAME))
+    posterior_model = PosteriorModel(artifact_model, variant_log_prior=getattr(args, constants.INITIAL_LOG_VARIANT_PRIOR_NAME),
+                                     artifact_log_prior=getattr(args, constants.INITIAL_LOG_ARTIFACT_PRIOR_NAME))
 
     print("Reading test dataset")
     unfiltered_test_data = read_set_dataset.read_data(getattr(args, constants.TEST_DATASET_NAME))
 
     # TODO: START SILLY STUFF
     # THIS IS SOME RIDICULOUS ONE-OFF STUFF TO CHECK THE LIKELIHOODS MODEL FOR SINGULAR
-    all_data_loader = read_set_dataset.make_test_data_loader(unfiltered_test_data, getattr(args, constants.BATCH_SIZE_NAME))
+    #all_data_loader = read_set_dataset.make_test_data_loader(unfiltered_test_data, getattr(args, constants.BATCH_SIZE_NAME))
 
-    print("Calculating all the logits")
-    pbar = tqdm(enumerate(all_data_loader), mininterval=10)
-    for n, batch in pbar:
-        logits = model.forward(batch, posterior=False).detach()
-        encodings = [encode_datum(datum) for datum in batch.original_list()]
-        for encoding, logit in zip(encodings, logits):
-            print(encoding + ": " + str(logit.item()))
+    #print("Calculating all the logits")
+    #pbar = tqdm(enumerate(all_data_loader), mininterval=10)
+    #for n, batch in pbar:
+    #    logits = artifact_model.forward(batch, posterior=False).detach()
+    #    encodings = [encode_datum(datum) for datum in batch.original_list()]
+    #    for encoding, logit in zip(encodings, logits):
+    #        print(encoding + ": " + str(logit.item()))
 
     # TODO: END SILLY STUFF
 
-    m3_variants = []
+    # choose which variants to proceed to M3 -- those that M2 didn't filter as germline or contamination
+    filtering_variants = []
     for datum in unfiltered_test_data:
         encoding = encode_datum(datum)
         if encoding not in m2_filtering_to_keep:
-            m3_variants.append(datum)
+            filtering_variants.append(datum)
 
-    print("Size of test dataset: " + str(len(m3_variants)))
+    print("Size of filtering dataset: " + str(len(filtering_variants)))
 
-    dataset = read_set_dataset.ReadSetDataset(data=m3_variants)
-    data_loader = read_set_dataset.make_test_data_loader(dataset, getattr(args, constants.BATCH_SIZE_NAME))
+    filtering_dataset = read_set_dataset.ReadSetDataset(data=filtering_variants)
+    filtering_data_loader = read_set_dataset.make_test_data_loader(filtering_dataset, getattr(args, constants.BATCH_SIZE_NAME))
 
 
-    # The AF spectrum was, of course, not pre-trained with the rest of the model
     print("Learning AF spectra")
     num_spectrum_iterations = getattr(args, constants.NUM_SPECTRUM_ITERATIONS)
     summary_writer = SummaryWriter(getattr(args, constants.TENSORBOARD_DIR_NAME))
-    model.learn_spectra(data_loader, num_iterations=num_spectrum_iterations, summary_writer=summary_writer)
+
+    posterior_model.learn_priors_and_spectra(filtering_data_loader, num_iterations=num_spectrum_iterations,
+        summary_writer=summary_writer, ignored_to_non_ignored_ratio=getattr(args, constants.NUM_IGNORED_SITES_NAME)/len(filtering_variants))
+
+
+    artifact_model.learn_spectra(filtering_data_loader, num_iterations=num_spectrum_iterations, summary_writer=summary_writer)
 
     print("Calculating optimal logit threshold")
-    logit_threshold = model.calculate_logit_threshold(loader=data_loader, summary_writer=summary_writer)
+    logit_threshold = artifact_model.calculate_logit_threshold(loader=filtering_data_loader, summary_writer=summary_writer)
     print("Optimal logit threshold: " + str(logit_threshold))
 
     encoding_to_logit_dict = {}
 
     print("Running final calls")
-    pbar = tqdm(enumerate(data_loader), mininterval=10)
+    pbar = tqdm(enumerate(filtering_data_loader), mininterval=10)
     for n, batch in pbar:
-        logits = model.forward(batch, posterior=True)
+        logits = artifact_model.forward(batch, posterior=True)
 
         encodings = [encode_datum(datum) for datum in batch.original_list()]
         for encoding, logit in zip(encodings, logits):
