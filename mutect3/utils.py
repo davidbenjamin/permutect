@@ -102,3 +102,7 @@ class StreamingAverage:
     def record_with_mask(self, values: torch.Tensor, mask: torch.Tensor):
         self._count += torch.sum(mask)
         self._sum += torch.sum(values*mask)
+
+
+def log_binomial_coefficient(n: torch.Tensor, k: torch.Tensor):
+    return (n + 1).lgamma() - (k + 1).lgamma() - ((n - k) + 1).lgamma()
