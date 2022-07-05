@@ -9,11 +9,9 @@ from tqdm.autonotebook import trange, tqdm
 from itertools import chain
 
 from mutect3.architecture.mlp import MLP
-from mutect3.architecture.prior_model import PriorModel
 from mutect3.data.read_set_batch import ReadSetBatch
 from mutect3.data import read_set
 from mutect3 import utils
-from mutect3.metrics import plotting
 
 warnings.filterwarnings("ignore", message="Setting attributes on ParameterList is not supported.")
 
@@ -104,12 +102,6 @@ class ArtifactModel(nn.Module):
         self.calibration = Calibration()
         self.calibration.to(self._device)
 
-        # note: prior model and normal artifact model are not part of training and thus are not ever put on GPU
-        self.prior_model = PriorModel(0.0)
-
-    def get_prior_model(self):
-        return self.prior_model
-
     def training_parameters(self):
         return chain(self.phi.parameters(), self.omega.parameters(), self.rho.parameters(), [self.calibration.max_logit])
 
@@ -127,9 +119,9 @@ class ArtifactModel(nn.Module):
         else:
             self.freeze_all()
 
-    def forward(self, batch: ReadSetBatch, posterior=False):
+    def forward(self, batch: ReadSetBatch):
         phi_reads = self.apply_phi_to_reads(batch)
-        return self.forward_from_phi_reads(phi_reads=phi_reads, batch=batch, posterior=posterior)
+        return self.forward_from_phi_reads(phi_reads=phi_reads, batch=batch)
 
     # for the sake of recycling the read embeddings when training with data augmentation, we split the forward pass
     # into 1) the expensive and recyclable embedding of every single read and 2) everything else
@@ -167,17 +159,9 @@ class ArtifactModel(nn.Module):
         return logits, effective_ref_counts, effective_alt_counts
 
     # beta is for downsampling data augmentation
-    def forward_from_phi_reads(self, phi_reads: torch.Tensor, batch: ReadSetBatch, posterior=False, weight_range: float=0):
+    def forward_from_phi_reads(self, phi_reads: torch.Tensor, batch: ReadSetBatch, weight_range: float = 0):
         logits, effective_ref_counts, effective_alt_counts = self.forward_from_phi_reads_to_calibration(phi_reads, batch, weight_range)
-        logits = self.calibration.forward(logits, effective_ref_counts, effective_alt_counts)
-
-        if posterior:
-            # the prior model is always on CPU, but if we are computing a posterior it's not training and hence we are not
-            # using a GPU.  In principle we should put logits ont he CPU just in case, but we can be brittle for now
-            # pending some refactoring.  The same applies to the normal artifact model.
-            logits = self.prior_model.posterior_logits(logits, batch)
-
-        return logits
+        return self.calibration.forward(logits, effective_ref_counts, effective_alt_counts)
 
     def learn_calibration(self, loader, num_epochs):
         self.train(False)
@@ -213,41 +197,6 @@ class ArtifactModel(nn.Module):
 
                 nll_loss.record_sum(loss.detach(), len(logits))
 
-    def calculate_logit_threshold(self, loader, summary_writer: SummaryWriter = None):
-        self.train(False)
-        artifact_probs = []
-
-        print("running model over all data in loader to optimize F score")
-        pbar = tqdm(enumerate(loader), mininterval=10)
-        for n, batch in pbar:
-            artifact_probs.extend(torch.sigmoid(self.forward(batch, posterior=True)).tolist())
-
-        artifact_probs.sort()
-        total_variants = len(artifact_probs) - sum(artifact_probs)
-
-        # start by rejecting everything, then raise threshold one datum at a time
-        threshold, tp, fp, best_f = 0.0, 0, 0, 0
-
-        sens, prec = [], []
-        for prob in artifact_probs:
-            tp += (1 - prob)
-            fp += prob
-            sens.append(tp/(total_variants+0.0001))
-            prec.append(tp/(tp+fp+0.0001))
-            current_f = utils.f_score(tp, fp, total_variants)
-
-            if current_f > best_f:
-                best_f = current_f
-                threshold = prob
-
-        if summary_writer is not None:
-            x_y_lab = [(sens, prec, "theoretical ROC curve according to M3's posterior probabilities")]
-            fig, curve = plotting.simple_plot(x_y_lab, x_label="sensitivity", y_label="precision",
-                                              title="theoretical ROC curve according to M3's posterior probabilities")
-            summary_writer.add_figure("theoretical ROC curve", fig)
-
-        return torch.logit(torch.tensor(threshold)).item()
-
     def train_model(self, train_loader, valid_loader, num_epochs, summary_writer: SummaryWriter, reweighting_range: float, m3_params: ArtifactModelParameters):
         bce = torch.nn.BCEWithLogitsLoss(reduction='sum')
         train_optimizer = torch.optim.AdamW(self.training_parameters(), lr=m3_params.learning_rate)
@@ -269,9 +218,9 @@ class ArtifactModel(nn.Module):
                     phi_reads = self.apply_phi_to_reads(batch)
 
                     # beta is for downsampling data augmentation
-                    orig_pred = self.forward_from_phi_reads(phi_reads, batch, posterior=False, weight_range=0)
-                    aug1_pred = self.forward_from_phi_reads(phi_reads, batch, posterior=False, weight_range=reweighting_range)
-                    aug2_pred = self.forward_from_phi_reads(phi_reads, batch, posterior=False, weight_range=reweighting_range)
+                    orig_pred = self.forward_from_phi_reads(phi_reads, batch, weight_range=0)
+                    aug1_pred = self.forward_from_phi_reads(phi_reads, batch, weight_range=reweighting_range)
+                    aug2_pred = self.forward_from_phi_reads(phi_reads, batch, weight_range=reweighting_range)
 
                     if batch.is_labeled():
                         labels = batch.labels()

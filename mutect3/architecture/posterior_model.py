@@ -8,6 +8,7 @@ from mutect3 import utils
 from mutect3.architecture.beta_binomial_mixture import BetaBinomialMixture
 from mutect3.data.read_set_batch import ReadSetBatch
 from mutect3.architecture.artifact_model import ArtifactModel
+from mutect3.metrics import plotting
 
 
 class PosteriorModel(torch.nn.Module):
@@ -47,6 +48,13 @@ class PosteriorModel(torch.nn.Module):
         :return: non-log probabilities as a 2D tensor, 1st index is batch, 2nd is variant/artifact/seq error
         """
         return torch.nn.functional.softmax(self.log_relative_posteriors(batch))
+
+    def error_probabilities(self, batch: ReadSetBatch) -> torch.Tensor:
+        """
+        :param batch:
+        :return: non-log error probabilities as a 1D tensor with length batch size
+        """
+        return 1 - self.posterior_probabilities(batch)[:,0] # 0th column is variant
 
     def log_relative_posteriors(self, batch: ReadSetBatch, artifact_logits: torch.Tensor = None) -> torch.Tensor:
         """
@@ -142,3 +150,38 @@ class PosteriorModel(torch.nn.Module):
                     fig, curve = self.artifact_spectra.plot_spectrum(variant_type.one_hot_tensor(),
                         variant_type.name + " artifact AF spectrum")
                     summary_writer.add_figure(variant_type.name + " artifact AF spectrum", fig, epoch)
+
+    def calculate_probability_threshold(self, loader, summary_writer: SummaryWriter = None):
+        self.train(False)
+        error_probs = []    # includes both artifact and seq errors
+
+        pbar = tqdm(enumerate(loader), mininterval=10)
+        for n, batch in pbar:
+            # 0th column is true variant, subtract it from 1 to get error prob
+            error_probs.extend(self.error_probabilities(batch).tolist())
+
+        error_probs.sort()
+        total_variants = len(error_probs) - sum(error_probs)
+
+        # start by rejecting everything, then raise threshold one datum at a time
+        threshold, tp, fp, best_f = 0.0, 0, 0, 0
+
+        sens, prec = [], []
+        for prob in error_probs:
+            tp += (1 - prob)
+            fp += prob
+            sens.append(tp/(total_variants+0.0001))
+            prec.append(tp/(tp+fp+0.0001))
+            current_f = utils.f_score(tp, fp, total_variants)
+
+            if current_f > best_f:
+                best_f = current_f
+                threshold = prob
+
+        if summary_writer is not None:
+            x_y_lab = [(sens, prec, "theoretical ROC curve according to M3's posterior probabilities")]
+            fig, curve = plotting.simple_plot(x_y_lab, x_label="sensitivity", y_label="precision",
+                                              title="theoretical ROC curve according to M3's posterior probabilities")
+            summary_writer.add_figure("theoretical ROC curve", fig)
+
+        return threshold

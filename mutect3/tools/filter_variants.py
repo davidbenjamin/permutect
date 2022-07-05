@@ -91,40 +91,31 @@ def main():
             filtering_variants.append(datum)
 
     print("Size of filtering dataset: " + str(len(filtering_variants)))
-
     filtering_dataset = read_set_dataset.ReadSetDataset(data=filtering_variants)
     filtering_data_loader = read_set_dataset.make_test_data_loader(filtering_dataset, getattr(args, constants.BATCH_SIZE_NAME))
-
 
     print("Learning AF spectra")
     num_spectrum_iterations = getattr(args, constants.NUM_SPECTRUM_ITERATIONS)
     summary_writer = SummaryWriter(getattr(args, constants.TENSORBOARD_DIR_NAME))
-
     posterior_model.learn_priors_and_spectra(filtering_data_loader, num_iterations=num_spectrum_iterations,
         summary_writer=summary_writer, ignored_to_non_ignored_ratio=getattr(args, constants.NUM_IGNORED_SITES_NAME)/len(filtering_variants))
 
-
-    artifact_model.learn_spectra(filtering_data_loader, num_iterations=num_spectrum_iterations, summary_writer=summary_writer)
-
     print("Calculating optimal logit threshold")
-    logit_threshold = artifact_model.calculate_logit_threshold(loader=filtering_data_loader, summary_writer=summary_writer)
-    print("Optimal logit threshold: " + str(logit_threshold))
+    error_probability_threshold = posterior_model.calculate_probability_threshold(filtering_data_loader, summary_writer)
+    print("Optimal probability threshold: " + str(error_probability_threshold))
 
-    encoding_to_logit_dict = {}
-
-    print("Running final calls")
+    print("Computing final error probabilities")
+    encoding_to_error_prob_dict = {}
     pbar = tqdm(enumerate(filtering_data_loader), mininterval=10)
     for n, batch in pbar:
-        logits = artifact_model.forward(batch, posterior=True)
-
+        error_probs = posterior_model.error_probabilities(batch)
         encodings = [encode_datum(datum) for datum in batch.original_list()]
-        for encoding, logit in zip(encodings, logits):
-            encoding_to_logit_dict[encoding] = logit.item()
+        for encoding, error_prob in zip(encodings, error_probs):
+            encoding_to_error_prob_dict[encoding] = error_prob.item()
 
-    print("Applying computed logits")
-
+    print("Applying threshold")
     unfiltered_vcf = VCF(getattr(args, constants.INPUT_NAME))
-    unfiltered_vcf.add_info_to_header({'ID': 'LOGIT', 'Description': 'Mutect3 posterior logit',
+    unfiltered_vcf.add_info_to_header({'ID': 'ERROR_PROB', 'Description': 'Mutect3 posterior error probability',
                             'Type': 'Float', 'Number': 'A'})
     unfiltered_vcf.add_filter_to_header({'ID': 'mutect3', 'Description': 'fails Mutect3 deep learning filter'})
 
@@ -135,11 +126,12 @@ def main():
         filters = filters_to_keep_from_m2(v)
 
         encoding = encode_variant(v, zero_based=True)   # cyvcf2 is zero-based
-        if encoding in encoding_to_logit_dict:
-            logit = encoding_to_logit_dict[encoding]
-            v.INFO["LOGIT"] = logit
+        if encoding in encoding_to_error_prob_dict:
+            error_prob = encoding_to_error_prob_dict[encoding]
+            v.INFO["ERROR_PROB"] = error_prob
 
-            if logit > logit_threshold:
+            # TODO: distinguish between artifact and weak evidence
+            if error_prob > error_probability_threshold:
                 filters.add("mutect3")
 
         v.FILTER = ';'.join(filters) if filters else 'PASS'
