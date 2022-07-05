@@ -8,12 +8,11 @@ from torch import nn
 from tqdm.autonotebook import trange, tqdm
 from itertools import chain
 
-from mutect3 import utils
 from mutect3.architecture.mlp import MLP
 from mutect3.architecture.prior_model import PriorModel
 from mutect3.data.read_set_batch import ReadSetBatch
-from mutect3.data.read_set_datum import NUM_READ_FEATURES, NUM_INFO_FEATURES
-from mutect3.utils import freeze, unfreeze, f_score, StreamingAverage
+from mutect3.data import read_set
+from mutect3 import utils
 from mutect3.metrics import plotting
 
 warnings.filterwarnings("ignore", message="Setting attributes on ParameterList is not supported.")
@@ -24,7 +23,7 @@ def effective_count(weights: torch.Tensor):
 
 
 # note that read layers and info layers exclude the input dimension
-class Mutect3Parameters:
+class ArtifactModelParameters:
     def __init__(self, read_layers, info_layers, aggregation_layers, dropout_p, batch_normalize, learning_rate):
         self.read_layers = read_layers
         self.info_layers = info_layers
@@ -59,7 +58,7 @@ class Calibration(nn.Module):
         return self.max_logit * torch.tanh(calibrated_logits / self.max_logit)
 
 
-class ReadSetClassifier(nn.Module):
+class ArtifactModel(nn.Module):
     """
     DeepSets framework for reads and variant info.  We embed each read and concatenate the mean ref read
     embedding, mean alt read embedding, and variant info embedding, then apply an aggregation function to
@@ -79,27 +78,27 @@ class ReadSetClassifier(nn.Module):
     because we have different output layers for each variant type.
     """
 
-    def __init__(self, m3_params: Mutect3Parameters, device=torch.device("cpu")):
-        super(ReadSetClassifier, self).__init__()
+    def __init__(self, params: ArtifactModelParameters, device=torch.device("cpu")):
+        super(ArtifactModel, self).__init__()
 
         self._device = device
 
         # phi is the read embedding
-        read_layers = [NUM_READ_FEATURES] + m3_params.read_layers
-        self.phi = MLP(read_layers, batch_normalize=m3_params.batch_normalize, dropout_p=m3_params.dropout_p)
+        read_layers = [read_set.NUM_READ_FEATURES] + params.read_layers
+        self.phi = MLP(read_layers, batch_normalize=params.batch_normalize, dropout_p=params.dropout_p)
         self.phi.to(self._device)
 
         # omega is the universal embedding of info field variant-level data
-        info_layers = [NUM_INFO_FEATURES] + m3_params.info_layers
-        self.omega = MLP(info_layers, batch_normalize=m3_params.batch_normalize, dropout_p=m3_params.dropout_p)
+        info_layers = [read_set.NUM_INFO_FEATURES] + params.info_layers
+        self.omega = MLP(info_layers, batch_normalize=params.batch_normalize, dropout_p=params.dropout_p)
         self.omega.to(self._device)
 
         # rho is the universal aggregation function
         ref_alt_info_embedding_dimension = 2 * read_layers[-1] + info_layers[-1]
 
         # The [1] is for the output of binary classification, represented as a single artifact/non-artifact logit
-        self.rho = MLP([ref_alt_info_embedding_dimension] + m3_params.aggregation_layers + [1], batch_normalize=m3_params.batch_normalize,
-                       dropout_p=m3_params.dropout_p)
+        self.rho = MLP([ref_alt_info_embedding_dimension] + params.aggregation_layers + [1], batch_normalize=params.batch_normalize,
+                       dropout_p=params.dropout_p)
         self.rho.to(self._device)
 
         self.calibration = Calibration()
@@ -121,20 +120,20 @@ class ReadSetClassifier(nn.Module):
         return self.prior_model.parameters()
 
     def freeze_all(self):
-        freeze(self.parameters())
+        utils.freeze(self.parameters())
 
     def set_epoch_type(self, epoch_type: utils.EpochType):
         if epoch_type == utils.EpochType.TRAIN:
             self.train(True)
-            freeze(self.parameters())
-            unfreeze(self.training_parameters())
+            utils.freeze(self.parameters())
+            utils.unfreeze(self.training_parameters())
         else:
             self.freeze_all()
 
     def learn_spectrum_mode(self):
         self.train(False)
-        freeze(self.parameters())
-        unfreeze(self.spectra_parameters())
+        utils.freeze(self.parameters())
+        utils.unfreeze(self.spectra_parameters())
 
     def forward(self, batch: ReadSetBatch, posterior=False):
         phi_reads = self.apply_phi_to_reads(batch)
@@ -194,7 +193,7 @@ class ReadSetClassifier(nn.Module):
         optimizer = torch.optim.Adam(self.spectra_parameters())
 
         for epoch in trange(1, num_iterations + 1, desc="AF spectra epoch"):
-            epoch_loss = StreamingAverage(device=self._device)
+            epoch_loss = utils.StreamingAverage(device=self._device)
 
             pbar = tqdm(enumerate(logits_and_batches), mininterval=10)
             for n, (logits, batch) in pbar:
@@ -218,8 +217,8 @@ class ReadSetClassifier(nn.Module):
 
     def learn_calibration(self, loader, num_epochs):
         self.train(False)
-        freeze(self.parameters())
-        unfreeze(self.calibration_parameters())
+        utils.freeze(self.parameters())
+        utils.unfreeze(self.calibration_parameters())
 
         # gather uncalibrated logits -- everything computed by the frozen part of the model -- so that we only
         # do forward and backward passes on the calibration submodule
@@ -237,7 +236,7 @@ class ReadSetClassifier(nn.Module):
         optimizer = torch.optim.Adam(self.calibration_parameters())
         bce = nn.BCEWithLogitsLoss()
         for epoch in trange(1, num_epochs + 1, desc="Calibration epoch"):
-            nll_loss = StreamingAverage(device=self._device)
+            nll_loss = utils.StreamingAverage(device=self._device)
 
             pbar = tqdm(enumerate(uncalibrated_logits_ref_alt_counts_labels), mininterval=10)
             for n, (logits, ref_counts, alt_counts, labels) in pbar:
@@ -271,7 +270,7 @@ class ReadSetClassifier(nn.Module):
             fp += prob
             sens.append(tp/(total_variants+0.0001))
             prec.append(tp/(tp+fp+0.0001))
-            current_f = f_score(tp, fp, total_variants)
+            current_f = utils.f_score(tp, fp, total_variants)
 
             if current_f > best_f:
                 best_f = current_f
@@ -285,7 +284,7 @@ class ReadSetClassifier(nn.Module):
 
         return torch.logit(torch.tensor(threshold)).item()
 
-    def train_model(self, train_loader, valid_loader, num_epochs, summary_writer: SummaryWriter, reweighting_range: float, m3_params: Mutect3Parameters):
+    def train_model(self, train_loader, valid_loader, num_epochs, summary_writer: SummaryWriter, reweighting_range: float, m3_params: ArtifactModelParameters):
         bce = torch.nn.BCEWithLogitsLoss(reduction='sum')
         train_optimizer = torch.optim.AdamW(self.training_parameters(), lr=m3_params.learning_rate)
 
@@ -298,8 +297,8 @@ class ReadSetClassifier(nn.Module):
             for epoch_type in [utils.EpochType.TRAIN, utils.EpochType.VALID]:
                 self.set_epoch_type(epoch_type)
                 loader = train_loader if epoch_type == utils.EpochType.TRAIN else valid_loader
-                labeled_loss = StreamingAverage(device=self._device)
-                unlabeled_loss = StreamingAverage(device=self._device)
+                labeled_loss = utils.StreamingAverage(device=self._device)
+                unlabeled_loss = utils.StreamingAverage(device=self._device)
 
                 pbar = tqdm(enumerate(loader), mininterval=10)
                 for n, batch in pbar:
@@ -340,13 +339,13 @@ class ReadSetClassifier(nn.Module):
         self.cpu()
         self._device = "cpu"
 
-        variant_sensitivity = StreamingAverage()
-        artifact_sensitivity = StreamingAverage()
-        high_conf_artifact_accuracy = StreamingAverage()
-        high_conf_variant_accuracy = StreamingAverage()
-        med_conf_variant_accuracy = StreamingAverage()
-        med_conf_artifact_accuracy = StreamingAverage()
-        unsure_accuracy = StreamingAverage()
+        variant_sensitivity = utils.StreamingAverage()
+        artifact_sensitivity = utils.StreamingAverage()
+        high_conf_artifact_accuracy = utils.StreamingAverage()
+        high_conf_variant_accuracy = utils.StreamingAverage()
+        med_conf_variant_accuracy = utils.StreamingAverage()
+        med_conf_artifact_accuracy = utils.StreamingAverage()
+        unsure_accuracy = utils.StreamingAverage()
 
         pbar = tqdm(enumerate(loader), mininterval=10)
         for n, batch in pbar:

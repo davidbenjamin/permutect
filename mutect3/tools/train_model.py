@@ -3,7 +3,7 @@ import argparse
 import torch
 from torch.utils.tensorboard import SummaryWriter
 
-from mutect3.architecture.read_set_classifier import Mutect3Parameters, ReadSetClassifier
+from mutect3.architecture.artifact_model import ArtifactModelParameters, ArtifactModel
 from mutect3 import utils, constants
 from mutect3.data import read_set_dataset
 
@@ -15,7 +15,7 @@ class TrainingParameters:
         self.reweighting_range = reweighting_range
 
 
-def train_m3_model(m3_params: Mutect3Parameters, training_datasets, params: TrainingParameters, tensorboard_dir):
+def train_artifact_model(m3_params: ArtifactModelParameters, training_datasets, params: TrainingParameters, tensorboard_dir):
     print("Loading datasets")
     train_and_valid = read_set_dataset.ReadSetDataset(files=training_datasets)
     training, valid = utils.split_dataset_into_train_and_valid(train_and_valid, 0.9)
@@ -30,7 +30,7 @@ def train_m3_model(m3_params: Mutect3Parameters, training_datasets, params: Trai
     train_loader = read_set_dataset.make_semisupervised_data_loader(training, params.batch_size, pin_memory=use_gpu)
     valid_loader = read_set_dataset.make_semisupervised_data_loader(valid, params.batch_size, pin_memory=use_gpu)
 
-    model = ReadSetClassifier(m3_params=m3_params, device=device).float()
+    model = ArtifactModel(params=m3_params, device=device).float()
 
     print("Training model. . .")
     summary_writer = SummaryWriter(tensorboard_dir)
@@ -45,7 +45,7 @@ def train_m3_model(m3_params: Mutect3Parameters, training_datasets, params: Trai
     return model
 
 
-def save_m3_model(model, m3_params, path):
+def save_artifact_model(model, m3_params, path):
     torch.save({
         constants.STATE_DICT_NAME: model.state_dict(),
         constants.M3_PARAMS_NAME: m3_params
@@ -59,14 +59,14 @@ def parse_training_params(args) -> TrainingParameters:
     return TrainingParameters(batch_size, num_epochs, reweighting_range)
 
 
-def parse_mutect3_params(args) -> Mutect3Parameters:
+def parse_mutect3_params(args) -> ArtifactModelParameters:
     read_layers = getattr(args, constants.READ_LAYERS_NAME)
     info_layers = getattr(args, constants.INFO_LAYERS_NAME)
     aggregation_layers = getattr(args, constants.AGGREGATION_LAYERS_NAME)
     dropout_p = getattr(args, constants.DROPOUT_P_NAME)
     batch_normalize = getattr(args, constants.BATCH_NORMALIZE_NAME)
     learning_rate = getattr(args, constants.LEARNING_RATE_NAME)
-    return Mutect3Parameters(read_layers, info_layers, aggregation_layers, dropout_p, batch_normalize, learning_rate)
+    return ArtifactModelParameters(read_layers, info_layers, aggregation_layers, dropout_p, batch_normalize, learning_rate)
 
 
 def parse_arguments():
@@ -99,9 +99,9 @@ def main():
     args = parse_arguments()
     m3_params = parse_mutect3_params(args)
     training_params = parse_training_params(args)
-    model = train_m3_model(m3_params, getattr(args, constants.TRAINING_DATASETS_NAME), training_params,
-                           getattr(args, constants.TENSORBOARD_DIR_NAME))
-    save_m3_model(model, m3_params, getattr(args, constants.OUTPUT_NAME))
+    model = train_artifact_model(m3_params, getattr(args, constants.TRAINING_DATASETS_NAME), training_params,
+                                 getattr(args, constants.TENSORBOARD_DIR_NAME))
+    save_artifact_model(model, m3_params, getattr(args, constants.OUTPUT_NAME))
 
 
 if __name__ == '__main__':

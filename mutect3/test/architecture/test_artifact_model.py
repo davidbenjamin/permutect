@@ -1,8 +1,8 @@
 from mutect3.test.test_utils import artificial_data
 from mutect3.data.read_set_dataset import ReadSetDataset, make_semisupervised_data_loader, make_test_data_loader
-from mutect3.data.read_set_datum import ReadSetDatum
+from mutect3.data.read_set import ReadSet
 from typing import Iterable
-from mutect3.architecture.read_set_classifier import ReadSetClassifier, Mutect3Parameters
+from mutect3.architecture.artifact_model import ArtifactModel, ArtifactModelParameters
 from mutect3 import utils
 from mutect3.tools.train_model import TrainingParameters
 
@@ -15,19 +15,19 @@ NUM_EPOCHS = 100
 NUM_SPECTRUM_ITERATIONS = 100
 TRAINING_PARAMS = TrainingParameters(batch_size=BATCH_SIZE, num_epochs=NUM_EPOCHS, reweighting_range=0.3)
 
-SMALL_MODEL_PARAMS = Mutect3Parameters(read_layers=[5, 5], info_layers=[5, 5], aggregation_layers=[5, 5, 5, 5],
-                                       dropout_p=0.2, batch_normalize=False, learning_rate=0.001)
+SMALL_MODEL_PARAMS = ArtifactModelParameters(read_layers=[5, 5], info_layers=[5, 5], aggregation_layers=[5, 5, 5, 5],
+                                             dropout_p=0.2, batch_normalize=False, learning_rate=0.001)
 
 
 # Note that the test methods in this class also cover batching, samplers, datasets, and data loaders
-def train_model_and_write_summary(m3_params: Mutect3Parameters, training_params: TrainingParameters,
-                                  data: Iterable[ReadSetDatum], summary_writer: SummaryWriter = None):
+def train_model_and_write_summary(m3_params: ArtifactModelParameters, training_params: TrainingParameters,
+                                  data: Iterable[ReadSet], summary_writer: SummaryWriter = None):
     dataset = ReadSetDataset(data=data)
     training, valid = utils.split_dataset_into_train_and_valid(dataset, 0.9)
 
     train_loader = make_semisupervised_data_loader(training, training_params.batch_size)
     valid_loader = make_semisupervised_data_loader(valid, training_params.batch_size)
-    model = ReadSetClassifier(m3_params=m3_params).float()
+    model = ArtifactModel(params=m3_params).float()
 
     model.train_model(train_loader, valid_loader, training_params.num_epochs, summary_writer=summary_writer,
                       reweighting_range=training_params.reweighting_range, m3_params=m3_params)

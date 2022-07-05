@@ -10,7 +10,7 @@ NUM_GATK_INFO_FEATURES = 9  # size of each variant's info field tensor (3 compon
 NUM_INFO_FEATURES = NUM_GATK_INFO_FEATURES + len(utils.VariantType)
 
 
-class ReadSetDatum:
+class ReadSet:
     # info tensor comes from GATK and does not include one-hot encoding of variant type
     def __init__(self, contig: str, position: int, ref: str, alt: str, ref_tensor: torch.Tensor, alt_tensor: torch.Tensor,
                  gatk_info_tensor: torch.Tensor, label: str, tumor_depth: int, tumor_alt_count: int, normal_depth: int, normal_alt_count: int):

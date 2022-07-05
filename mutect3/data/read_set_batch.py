@@ -1,7 +1,7 @@
 from typing import List
 
 import torch
-from mutect3.data.read_set_datum import ReadSetDatum
+from mutect3.data.read_set import ReadSet
 
 
 # Read sets have different sizes so we can't form a batch by naively stacking tensors.  We need a custom way
@@ -19,7 +19,7 @@ from mutect3.data.read_set_datum import ReadSetDatum
 # inside the model, the counts will be used to separate the reads into sets
 class ReadSetBatch:
 
-    def __init__(self, data: List[ReadSetDatum]):
+    def __init__(self, data: List[ReadSet]):
         self._original_list = data  # keep this for downsampling augmentation
         self.labeled = data[0].label() != "UNLABELED"
         for datum in data:
@@ -46,7 +46,7 @@ class ReadSetBatch:
         self._read_end_indices = self._read_end_indices.pin_memory()
         return self
 
-    def original_list(self) -> List[ReadSetDatum]:
+    def original_list(self) -> List[ReadSet]:
         return self._original_list
 
     def is_labeled(self) -> bool:

@@ -6,8 +6,8 @@ from torch.utils.tensorboard import SummaryWriter
 from cyvcf2 import VCF, Writer, Variant
 from tqdm.autonotebook import tqdm
 
-import mutect3.architecture.read_set_classifier
-from mutect3.data import read_set_datum, read_set_dataset
+import mutect3.architecture.artifact_model
+from mutect3.data import read_set, read_set_dataset
 from mutect3 import constants
 
 # TODO: eventually M3 can handle multiallelics
@@ -18,7 +18,7 @@ TRUSTED_M2_FILTERS = {'contamination', 'germline', 'weak_evidence', 'multialleli
 def load_m3_model(path):
     saved = torch.load(path)
     m3_params = saved[constants.M3_PARAMS_NAME]
-    model = mutect3.architecture.read_set_classifier.ReadSetClassifier(m3_params)
+    model = mutect3.architecture.read_set_classifier.ArtifactModel(m3_params)
     model.load_state_dict(saved[constants.STATE_DICT_NAME])
     return model
 
@@ -29,7 +29,7 @@ def encode(contig: str, position: int, alt: str):
     return contig + ':' + str(position)
 
 
-def encode_datum(datum: read_set_datum.ReadSetDatum):
+def encode_datum(datum: read_set_datum.ReadSet):
     return encode(datum.contig(), datum.position(), datum.alt())
 
 
@@ -71,10 +71,10 @@ def main():
     print("Calculating all the logits")
     pbar = tqdm(enumerate(all_data_loader), mininterval=10)
     for n, batch in pbar:
-        logits = model.forward(batch, posterior=False)
+        logits = model.forward(batch, posterior=False).detach()
         encodings = [encode_datum(datum) for datum in batch.original_list()]
         for encoding, logit in zip(encodings, logits):
-            print(encoding + ": " + str(logit))
+            print(encoding + ": " + str(logit.item()))
 
     # TODO: END SILLY STUFF
 

@@ -1,6 +1,6 @@
 import torch
 import random
-from mutect3.data.read_set_datum import NUM_READ_FEATURES, NUM_GATK_INFO_FEATURES, ReadSetDatum
+from mutect3.data.read_set import NUM_READ_FEATURES, NUM_GATK_INFO_FEATURES, ReadSet
 from mutect3.utils import VariantType
 from numpy.random import binomial
 
@@ -89,8 +89,8 @@ def make_random_data(art_gatk_info_gen: RandomGATKInfoGenerator, var_gatk_info_g
         ref_tensor = var_read_gen.generate(ref_count)
         alt_tensor = (art_read_gen if artifact else var_read_gen).generate(alt_count)
 
-        data.append(ReadSetDatum("CONTIG", position, ref, alt, ref_tensor, alt_tensor, gatk_info_tensor, label,
-                                 pd_tumor_depth, pd_alt_count, normal_depth, normal_alt_count))
+        data.append(ReadSet("CONTIG", position, ref, alt, ref_tensor, alt_tensor, gatk_info_tensor, label,
+                            pd_tumor_depth, pd_alt_count, normal_depth, normal_alt_count))
 
     return data
 
@@ -136,8 +136,8 @@ def make_random_strand_bias_data(num_data: int, artifact_fraction=0.5, unlabeled
             sign = 1 if random.uniform(0,1) < 0.5 else -1
             alt_tensor[:, 0] = sign * torch.abs(alt_tensor[:, 0])
 
-        data.append(ReadSetDatum("CONTIG", position, ref, alt, ref_tensor, alt_tensor, gatk_info_tensor, label,
-                                 pd_tumor_depth, pd_alt_count, normal_depth, normal_alt_count))
+        data.append(ReadSet("CONTIG", position, ref, alt, ref_tensor, alt_tensor, gatk_info_tensor, label,
+                            pd_tumor_depth, pd_alt_count, normal_depth, normal_alt_count))
 
     return data
 

@@ -1,4 +1,4 @@
-from mutect3.data import read_set_datum
+from mutect3.data import read_set
 from mutect3 import utils
 import torch
 
@@ -23,8 +23,8 @@ def test_read_set_datum():
     normal_depth = 70
     normal_alt_count = 1
 
-    snv_datum = read_set_datum.ReadSetDatum(contig, position, ref, alt, ref_tensor, alt_tensor, gatk_info_tensor, label,
-                                            tumor_depth, tumor_alt_count, normal_depth, normal_alt_count)
+    snv_datum = read_set_datum.ReadSet(contig, position, ref, alt, ref_tensor, alt_tensor, gatk_info_tensor, label,
+                                       tumor_depth, tumor_alt_count, normal_depth, normal_alt_count)
 
     assert snv_datum.contig() == contig
     assert snv_datum.position() == position
@@ -45,12 +45,12 @@ def test_read_set_datum():
 
     assert snv_datum.variant_type() == utils.VariantType.SNV
 
-    insertion_datum = read_set_datum.ReadSetDatum(contig, position, "A", "AC", ref_tensor, alt_tensor, gatk_info_tensor,
-                                                  label, tumor_depth, tumor_alt_count, normal_depth, normal_alt_count)
+    insertion_datum = read_set_datum.ReadSet(contig, position, "A", "AC", ref_tensor, alt_tensor, gatk_info_tensor,
+                                             label, tumor_depth, tumor_alt_count, normal_depth, normal_alt_count)
 
     assert insertion_datum.variant_type() == utils.VariantType.INSERTION
 
-    deletion_datum = read_set_datum.ReadSetDatum(contig, position, "AC", "A", ref_tensor, alt_tensor, gatk_info_tensor, label,
-                                                 tumor_depth, tumor_alt_count, normal_depth, normal_alt_count)
+    deletion_datum = read_set_datum.ReadSet(contig, position, "AC", "A", ref_tensor, alt_tensor, gatk_info_tensor, label,
+                                            tumor_depth, tumor_alt_count, normal_depth, normal_alt_count)
 
     assert deletion_datum.variant_type() == utils.VariantType.DELETION

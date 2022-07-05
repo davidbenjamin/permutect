@@ -1,5 +1,5 @@
 import torch
-from mutect3.data import read_set_datum, read_set_batch
+from mutect3.data import read_set, read_set_batch
 from mutect3.utils import VariantType
 
 
@@ -27,9 +27,9 @@ def test_read_set_batch():
     normal_depths = [70, 60, 50]
     normal_alt_counts = [0, 1, 2]
 
-    data = [read_set_datum.ReadSetDatum(contigs[n], positions[n], refs[n], alts[n], ref_tensors[n], alt_tensors[n],
-                                       gatk_info_tensors[n], labels[n], tumor_depths[n], tumor_alt_counts[n], normal_depths[n],
-                                       normal_alt_counts[n]) for n in range(size)]
+    data = [read_set_datum.ReadSet(contigs[n], positions[n], refs[n], alts[n], ref_tensors[n], alt_tensors[n],
+                                   gatk_info_tensors[n], labels[n], tumor_depths[n], tumor_alt_counts[n], normal_depths[n],
+                                   normal_alt_counts[n]) for n in range(size)]
 
     batch = read_set_batch.ReadSetBatch(data)
 
