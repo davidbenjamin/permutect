@@ -55,6 +55,7 @@ def make_test_data_loader(dataset, batch_size):
     return DataLoader(dataset=dataset, batch_size=batch_size, collate_fn=ReadSetBatch)
 
 
+# TODO: need to grab the SEQ_ERROR_LIKELIHOOD annotation from GATK
 def read_data(dataset_file):
     data = []
     with open(dataset_file) as file:
@@ -86,8 +87,11 @@ def read_data(dataset_file):
             # pre-downsampling (pd) counts
             pd_tumor_depth, pd_tumor_alt, pd_normal_depth, pd_normal_alt = read_integers(file.readline())
 
-            datum = ReadSet(contig, position, ref, alt, ref_tensor, alt_tensor, gatk_info_tensor, label, pd_tumor_depth, pd_tumor_alt, pd_normal_depth, pd_normal_alt)
+            # seq error log likelihood
+            seq_error_log_likelihood = read_float(file.readline())
 
+            datum = ReadSet(contig, position, ref, alt, ref_tensor, alt_tensor, gatk_info_tensor, label, pd_tumor_depth, pd_tumor_alt, pd_normal_depth, pd_normal_alt)
+            datum.set_seq_error_log_likelihood(seq_error_log_likelihood)
             if tumor_ref_count >= MIN_REF and tumor_alt_count > 0:
                 data.append(datum)
 
@@ -131,6 +135,10 @@ def read_2d_tensor(file, num_lines: int) -> torch.Tensor:
 
 def read_integers(line: str):
     return map(int, line.strip().split())
+
+
+def read_float(line: str):
+    return float(line.strip().split()[0])
 
 
 def chunk(indices, chunk_size):
