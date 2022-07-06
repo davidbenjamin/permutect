@@ -56,9 +56,23 @@ def test_two_components():
             test_on_discrete_af_distribution(fractions_1d=torch.Tensor(fraction_pair), weights_1d=torch.Tensor(weight_pair), training_depths_1d=depths)
 
 
-def test_make_one_component_dominate():
-    means = torch.Tensor([0.1, 0.3, 0.5, 0.7])
-    model = BetaBinomialMixture(input_size=1, num_components=len(means))
-    model.set_means(means)
-    model.set_weights(torch.Tensor([10, 2, 2, 5]))
-    model.plot_spectrum(torch.Tensor([1]), "T") # spot check spectrum
+def test_three_components():
+    num_samples = 1000
+    depth = 100
+    depths = depth * torch.ones(num_samples).int()
+    fractions = (0.1, 0.4, 0.7)
+    for unnormalized_weights in [(1, 1, 1), (1, 4, 1), (1, 5, 9)]:
+        weights = torch.Tensor(unnormalized_weights) / sum(unnormalized_weights)
+        test_on_discrete_af_distribution(fractions_1d=torch.Tensor(fractions), weights_1d=weights, training_depths_1d=depths)
+
+
+def test_peak_over_background():
+    num_samples = 1000
+    depth = 100
+    depths = depth * torch.ones(num_samples).int()
+    fractions = (0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9)
+    for unnormalized_weights in [(5, 1, 1, 1, 1, 1, 1, 1, 1), (1, 1, 1, 1, 5, 1, 1, 1, 1)]:
+        weights = torch.Tensor(unnormalized_weights) / sum(unnormalized_weights)
+        test_on_discrete_af_distribution(fractions_1d=torch.Tensor(fractions), weights_1d=weights,
+                                         training_depths_1d=depths)
+
