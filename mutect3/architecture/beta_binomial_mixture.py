@@ -1,4 +1,6 @@
-from torch import nn, lgamma, exp, log_softmax, unsqueeze, logsumexp
+import math
+from torch import nn, lgamma, exp, unsqueeze, logsumexp
+from torch.nn.functional import softmax, log_softmax
 import torch
 
 from mutect3.metrics.plotting import simple_plot
@@ -79,13 +81,45 @@ class BetaBinomialMixture(nn.Module):
         # yields one number per batch, squeezed into 1D output tensor
         return logsumexp(log_weighted_component_likelihoods, dim=1, keepdim=False)
 
+    # given 1D input tensor, return 1D tensors of component alphas and betas
+    def component_shapes(self, input_1d):
+        input_2d = input_1d.unsqueeze(dim=0)
+        means = torch.sigmoid(self.mean_pre_sigmoid(input_2d)).squeeze()
+        concentrations = torch.exp(self.concentration_pre_exp(input_2d)).squeeze()
+        alphas = means * concentrations
+        betas = (1 - means) * concentrations
+        return alphas, betas
+
+    def component_weights(self, input_1d):
+        input_2d = input_1d.unsqueeze(dim=0)
+        return softmax(self.weights_pre_softmax(input_2d), dim=1).squeeze()
+
+    # given 1D input tensor, return the moments E[x], E[ln(x)], and E[x ln(x)] of the underlying beta mixture
+    def moments_of_underlying_beta_mixture(self, input_1d):
+        alphas, betas = self.component_shapes(input_1d)
+        weights = self.component_weights(input_1d)
+
+        # E[x]
+        component_means = alphas / (alphas + betas)
+        mixture_mean = torch.sum(weights * component_means)
+
+        # E[ln(x)]
+        component_log_means = torch.digamma(alphas) - torch.digamma(alphas + betas)   # digamma broadcasts to make 1D tensor
+        mixture_log_mean = torch.sum(weights * component_log_means)
+
+        # E[x ln(x)]
+        component_log_linear_means = component_means * (torch.digamma(alphas + 1) - torch.digamma(alphas + betas + 1))
+        mixture_log_linear_mean = torch.sum(weights * component_log_linear_means)
+
+        return mixture_mean, mixture_log_mean, mixture_log_linear_mean
+
     '''
     here x is a 2D tensor, 1st dimension batch, 2nd dimension being features that determine which Beta mixture to use
     n is a 1D tensor, the only dimension being batch, and we sample a 1D tensor of k's
     '''
     def sample(self, x, n):
         # compute weights and select one mixture component from the corresponding multinomial for each datum / row
-        weights = exp(log_softmax(self.weights_pre_softmax(x).detach(), dim=1))  # 2D tensor
+        weights = softmax(self.weights_pre_softmax(x).detach(), dim=1)  # 2D tensor
         component_indices = torch.multinomial(weights,  num_samples=1, replacement=True)    # 2D tensor with one column
 
         # get 1D tensors of one selected alpha and beta shape parameter per datum / row, then sample a fraction from each
@@ -99,6 +133,20 @@ class BetaBinomialMixture(nn.Module):
 
         # recall, n and fractions are 1D tensors; result is also 1D tensor, one "success" count per datum
         return torch.distributions.binomial.Binomial(total_count=n, probs=fractions).sample()
+
+    def fit(self, num_epochs, inputs_2d_tensor, depths_1d_tensor, alt_counts_1d_tensor, batch_size=64):
+        optimizer = torch.optim.Adam(self.parameters())
+        num_batches = math.ceil(len(alt_counts_1d_tensor)/batch_size)
+
+        for epoch in range(num_epochs):
+            for batch in range(num_batches):
+                batch_start = batch * batch_size
+                batch_end = min(batch_start + batch_size, len(alt_counts_1d_tensor))
+                batch_slice = slice(batch_start, batch_end)
+                loss = -torch.mean(self.forward(inputs_2d_tensor[batch_slice], depths_1d_tensor[batch_slice], alt_counts_1d_tensor[batch_slice]))
+                optimizer.zero_grad()
+                loss.backward()
+                optimizer.step()
 
     '''
     here x is a 1D tensor, a single datum/row of the 2D tensors as above
