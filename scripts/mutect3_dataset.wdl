@@ -16,6 +16,8 @@ workflow Mutect3Dataset {
         File? control_bai
         File? gnomad
         File? gnomad_idx
+        File? truth_vcf
+        File? truth_vcf_idx
         String? m2_extra_args
         String? split_intervals_extra_args
         Boolean training_data_mode
@@ -57,6 +59,8 @@ workflow Mutect3Dataset {
                 normal_reads_index = control_bai,
                 gnomad = gnomad,
                 gnomad_idx = gnomad_idx,
+                truth_vcf = truth_vcf,
+                truth_vcf_idx = truth_vcf_idx,
                 m2_extra_args = m2_extra_args,
                 training_data_mode = training_data_mode,
 
@@ -119,6 +123,8 @@ task MakeDataset {
         File? normal_reads_index
         File? gnomad
         File? gnomad_idx
+        File? truth_vcf
+        File? truth_vcf_idx
         String? m2_extra_args
         Boolean training_data_mode
 
@@ -151,6 +157,8 @@ task MakeDataset {
       normal_reads_index: {localization_optional: true}
       gnomad: {localization_optional: true}
       gnomad_idx: {localization_optional: true}
+      truth_vcf: {localization_optional: true}
+      truth_vcf_idx: {localization_optional: true}
     }
 
     command <<<
@@ -173,6 +181,7 @@ task MakeDataset {
             -O output.vcf \
             --mutect3-dataset dataset.txt \
             ~{true='--mutect3-training-mode' false='' training_data_mode} \
+            ~{"--mutect3-training-truth " + truth_vcf} \
             ~{m2_extra_args} \
             ~{"--gcs-project-for-requester-pays " + gcs_project_for_requester_pays}
 
