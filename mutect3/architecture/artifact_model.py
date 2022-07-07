@@ -119,6 +119,7 @@ class ArtifactModel(nn.Module):
         else:
             self.freeze_all()
 
+    # returns 1D tensor of length batch_size of log odds ratio (logits) between artifact and non-artifact
     def forward(self, batch: ReadSetBatch):
         phi_reads = self.apply_phi_to_reads(batch)
         return self.forward_from_phi_reads(phi_reads=phi_reads, batch=batch)
@@ -252,13 +253,11 @@ class ArtifactModel(nn.Module):
         self.cpu()
         self._device = "cpu"
 
-        variant_sensitivity = utils.StreamingAverage()
-        artifact_sensitivity = utils.StreamingAverage()
-        high_conf_artifact_accuracy = utils.StreamingAverage()
-        high_conf_variant_accuracy = utils.StreamingAverage()
-        med_conf_variant_accuracy = utils.StreamingAverage()
-        med_conf_artifact_accuracy = utils.StreamingAverage()
-        unsure_accuracy = utils.StreamingAverage()
+        logit_bins = [(-999, -4), (-4, -1), (-1, 1), (1, 4), (4, 999)]
+        logit_bin_accuracies = [utils.StreamingAverage() for _ in logit_bins]
+        count_bins = [(1, 2), (3, 4), (5, 7), (8, 10), (11, 20), (21, 1000), (1, 1000)]  # inclusive on both sides, last is all
+        var_sens_by_count = [utils.StreamingAverage() for _ in count_bins]
+        art_sens_by_count = [utils.StreamingAverage() for _ in count_bins]
 
         pbar = tqdm(enumerate(loader), mininterval=10)
         for n, batch in pbar:
@@ -266,24 +265,22 @@ class ArtifactModel(nn.Module):
                 continue
             pred = self.forward(batch, posterior=False)
             labels = batch.labels()
-            artifact_sensitivity.record_with_mask(pred > 0, labels > 0.5)
-            variant_sensitivity.record_with_mask(pred < 0, labels < 0.5)
-
             correct = ((pred > 0) == (batch.labels() > 0.5))
+            alt_counts = batch.alt_counts()
 
-            high_conf_artifact_accuracy.record_with_mask(correct, pred > 4)
-            high_conf_variant_accuracy.record_with_mask(correct, pred < -4)
-            med_conf_variant_accuracy.record_with_mask(correct, (pred < -1) & (pred > -4))
-            med_conf_artifact_accuracy.record_with_mask(correct, (pred > 1) & (pred < 4))
-            unsure_accuracy.record_with_mask(correct, (pred > -1) & (pred < 1))
+            for logit_bin, ave in zip(logit_bins, logit_bin_accuracies):
+                ave.record_with_mask(correct, (pred > logit_bin[0]) & (pred < logit_bin[1]))
 
-        summary_writer.add_scalar("Variant Sensitivity", variant_sensitivity.get())
-        summary_writer.add_scalar("Artifact Sensitivity", artifact_sensitivity.get())
-        summary_writer.add_scalar("high-confidence artifact accuracy", high_conf_artifact_accuracy.get())
-        summary_writer.add_scalar("high-confidence variant accuracy", high_conf_variant_accuracy.get())
-        summary_writer.add_scalar("med-confidence artifact accuracy", med_conf_artifact_accuracy.get())
-        summary_writer.add_scalar("med-confidence variant accuracy", med_conf_variant_accuracy.get())
-        summary_writer.add_scalar("unsure accuracy", unsure_accuracy.get())
+            for c_bin, var_sens, art_sens in zip(count_bins, var_sens_by_count, art_sens_by_count):
+                var_sens.record_with_mask(correct, (labels < 0.5) & (c_bin[0] <= alt_counts) & (c_bin[1] >= alt_counts))
+                art_sens.record_with_mask(correct, (labels > 0.5) & (c_bin[0] <= alt_counts) & (c_bin[1] >= alt_counts))
+
+        for c_bin, var_sens, art_sens in zip(count_bins, var_sens_by_count, art_sens_by_count):
+            summary_writer.add_scalar("variant sensitivity for alt counts between " + str(c_bin[0]) + " and " + str(c_bin[1]), var_sens.get())
+            summary_writer.add_scalar("artifact sensitivity for alt counts between " + str(c_bin[0]) + " and " + str(c_bin[1]), art_sens.get())
+        
+        for logit_bin, ave in zip(logit_bins, logit_bin_accuracies):
+            summary_writer.add_scalar("accuracy for logits between " + str(logit_bin[0]) + " and " + str(logit_bin[1]), ave.get())
 
 
 
