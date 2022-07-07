@@ -7,6 +7,7 @@ from torch.utils.tensorboard import SummaryWriter
 from torch import nn
 from tqdm.autonotebook import trange, tqdm
 from itertools import chain
+from queue import PriorityQueue
 
 from mutect3.architecture.mlp import MLP
 from mutect3.data.read_set_batch import ReadSetBatch
@@ -248,7 +249,7 @@ class ArtifactModel(nn.Module):
             # note that we have not learned the AF spectrum yet
         # done with training
 
-    def evaluate_model_after_training(self, loader, summary_writer: SummaryWriter, prefix: str):
+    def evaluate_model_after_training(self, loader, summary_writer: SummaryWriter, prefix: str, num_worst: int = 100):
         self.freeze_all()
         self.cpu()
         self._device = "cpu"
@@ -259,11 +260,14 @@ class ArtifactModel(nn.Module):
         var_sens_by_count = [utils.StreamingAverage() for _ in count_bins]
         art_sens_by_count = [utils.StreamingAverage() for _ in count_bins]
 
+        worst_missed_artifacts = PriorityQueue(num_worst)
+        worst_false_artifacts = PriorityQueue(num_worst)
+
         pbar = tqdm(enumerate(loader), mininterval=10)
         for n, batch in pbar:
             if not batch.is_labeled():
                 continue
-            pred = self.forward(batch, posterior=False)
+            pred = self.forward(batch)
             labels = batch.labels()
             correct = ((pred > 0) == (batch.labels() > 0.5))
             alt_counts = batch.alt_counts()
