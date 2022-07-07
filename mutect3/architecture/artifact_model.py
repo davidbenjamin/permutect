@@ -278,10 +278,6 @@ class ArtifactModel(nn.Module):
         for c_bin, var_sens, art_sens in zip(count_bins, var_sens_by_count, art_sens_by_count):
             summary_writer.add_scalar("variant sensitivity for alt counts between " + str(c_bin[0]) + " and " + str(c_bin[1]), var_sens.get())
             summary_writer.add_scalar("artifact sensitivity for alt counts between " + str(c_bin[0]) + " and " + str(c_bin[1]), art_sens.get())
-        
+
         for logit_bin, ave in zip(logit_bins, logit_bin_accuracies):
             summary_writer.add_scalar("accuracy for logits between " + str(logit_bin[0]) + " and " + str(logit_bin[1]), ave.get())
-
-
-
-
