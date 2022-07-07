@@ -39,7 +39,8 @@ def train_artifact_model(m3_params: ArtifactModelParameters, training_datasets, 
     print("Training complete.  Calibrating. . .")
     model.learn_calibration(valid_loader, num_epochs=50)
     print("Calibration complete.  Evaluating trained model. . .")
-    model.evaluate_model_after_training(train_loader, summary_writer)
+    model.evaluate_model_after_training(train_loader, summary_writer, "training data: ")
+    model.evaluate_model_after_training(valid_loader, summary_writer, "validation data: ")
     summary_writer.close()
 
     return model

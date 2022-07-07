@@ -32,7 +32,7 @@ def train_model_and_write_summary(m3_params: ArtifactModelParameters, training_p
     model.train_model(train_loader, valid_loader, training_params.num_epochs, summary_writer=summary_writer,
                       reweighting_range=training_params.reweighting_range, m3_params=m3_params)
     model.learn_calibration(valid_loader, num_epochs=50)
-    model.evaluate_model_after_training(train_loader, summary_writer)
+    model.evaluate_model_after_training(train_loader, summary_writer, "training data: ")
     return model
 
 
