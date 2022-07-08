@@ -41,6 +41,12 @@ def train_artifact_model(m3_params: ArtifactModelParameters, training_datasets, 
     print("Calibration complete.  Evaluating trained model. . .")
     model.evaluate_model_after_training(train_loader, summary_writer, "training data: ")
     model.evaluate_model_after_training(valid_loader, summary_writer, "validation data: ")
+    model.evaluate_model_after_training(valid_loader, summary_writer, "validation data for (1,25) and (50,50): ",
+                                        artifact_beta_shape=(1, 25), variant_beta_shape=(50, 50))
+    model.evaluate_model_after_training(valid_loader, summary_writer, "validation data for (1,25) and (25,25): ",
+                                        artifact_beta_shape=(1, 25), variant_beta_shape=(25, 25))
+    model.evaluate_model_after_training(valid_loader, summary_writer, "validation data for (1,50) and (50,50): ",
+                                        artifact_beta_shape=(1, 50), variant_beta_shape=(50, 50))
     summary_writer.close()
 
     return model

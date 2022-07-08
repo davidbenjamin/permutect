@@ -14,6 +14,8 @@ from mutect3.data.read_set_batch import ReadSetBatch
 from mutect3.data import read_set
 from mutect3 import utils
 
+from mutect3.architecture.beta_binomial_mixture import beta_binomial
+
 warnings.filterwarnings("ignore", message="Setting attributes on ParameterList is not supported.")
 
 
@@ -250,7 +252,10 @@ class ArtifactModel(nn.Module):
             # note that we have not learned the AF spectrum yet
         # done with training
 
-    def evaluate_model_after_training(self, loader, summary_writer: SummaryWriter, prefix: str, num_worst: int = 100):
+    # the beta shape parameters are for primitive posterior probability estimation and are pairs of floats
+    # representing beta distributions of allele fractions for both true variants and artifacts
+    def evaluate_model_after_training(self, loader, summary_writer: SummaryWriter, prefix: str, num_worst: int = 100,
+                                      artifact_beta_shape=None, variant_beta_shape=None):
         self.freeze_all()
         self.cpu()
         self._device = "cpu"
@@ -268,7 +273,16 @@ class ArtifactModel(nn.Module):
         for n, batch in pbar:
             if not batch.is_labeled():
                 continue
+
             pred = self.forward(batch)
+
+            # experiment with approximate posterior to see what kind of accuracy to expect when
+            if artifact_beta_shape is not None and variant_beta_shape is not None:
+                variant_count_log_likelihood = beta_binomial(batch.pd_tumor_depths(), batch.pd_tumor_alt_count(),
+                                                             variant_beta_shape[0], variant_beta_shape[1])
+                artifact_count_log_likelihood = beta_binomial(batch.pd_tumor_depths(), batch.pd_tumor_alt_count(),
+                                                              artifact_beta_shape[0], artifact_beta_shape[1])
+                pred = pred + artifact_count_log_likelihood - variant_count_log_likelihood
             labels = batch.labels()
             correct = ((pred > 0) == (batch.labels() > 0.5))
             alt_counts = batch.alt_counts()
