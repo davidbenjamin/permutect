@@ -206,7 +206,7 @@ class ArtifactModel(nn.Module):
         # balance training by weighting the loss function
         total_labeled = sum(batch.size() for batch in train_loader if batch.is_labeled())
         total_unlabeled = sum(batch.size() for batch in train_loader if not batch.is_labeled())
-        labeled_to_unlabeled_ratio = total_labeled / total_unlabeled
+        labeled_to_unlabeled_ratio = None if total_unlabeled == 0 else total_labeled / total_unlabeled
 
         for epoch in trange(1, num_epochs + 1, desc="Epoch"):
             for epoch_type in [utils.EpochType.TRAIN, utils.EpochType.VALID]:
@@ -245,6 +245,7 @@ class ArtifactModel(nn.Module):
                 # done with one epoch type -- training or validation -- for this epoch
                 summary_writer.add_scalar(epoch_type.name + "/Labeled Loss", labeled_loss.get(), epoch)
                 summary_writer.add_scalar(epoch_type.name + "/Unlabeled Loss", unlabeled_loss.get(), epoch)
+                print("Labeled loss for epoch " + str(epoch) + " of " + epoch_type.name + ": " + str(labeled_loss.get()))
             # done with training and validation for this epoch
             # note that we have not learned the AF spectrum yet
         # done with training

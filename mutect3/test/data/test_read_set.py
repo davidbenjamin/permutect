@@ -1,6 +1,6 @@
-from mutect3.data import read_set
-from mutect3 import utils
 import torch
+
+from mutect3 import utils
 
 
 def test_read_set_datum():

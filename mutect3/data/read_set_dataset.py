@@ -166,11 +166,13 @@ class SemiSupervisedBatchSampler(Sampler):
         labeled_indices = self.artifact_indices[:artifact_count] + self.non_artifact_indices[:artifact_count]
         random.shuffle(labeled_indices)
 
-        unlabeled_batch_size = round((len(labeled_indices) / len(self.unlabeled_indices)) * self.batch_size)
+        all_labeled = len(self.unlabeled_indices) == 0
+        unlabeled_batch_size = None if all_labeled else \
+            round((len(labeled_indices) / len(self.unlabeled_indices)) * self.batch_size)
 
-        labeled_batches = chunk(labeled_indices, unlabeled_batch_size)
-        unlabeled_batches = chunk(self.unlabeled_indices, self.batch_size)
-        combined = [batch.tolist() for batch in list(labeled_batches + unlabeled_batches)]
+        labeled_batches = chunk(labeled_indices, self.batch_size)
+        unlabeled_batches = None if all_labeled else chunk(self.unlabeled_indices, unlabeled_batch_size)
+        combined = [batch.tolist() for batch in list(labeled_batches if all_labeled else (labeled_batches + unlabeled_batches))]
         random.shuffle(combined)
         return iter(combined)
 
