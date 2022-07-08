@@ -278,9 +278,9 @@ class ArtifactModel(nn.Module):
 
             # experiment with approximate posterior to see what kind of accuracy to expect when
             if artifact_beta_shape is not None and variant_beta_shape is not None:
-                variant_count_log_likelihood = beta_binomial(batch.pd_tumor_depths(), batch.pd_tumor_alt_count(),
+                variant_count_log_likelihood = beta_binomial(batch.pd_tumor_depths(), batch.pd_tumor_alt_counts(),
                                                              variant_beta_shape[0], variant_beta_shape[1])
-                artifact_count_log_likelihood = beta_binomial(batch.pd_tumor_depths(), batch.pd_tumor_alt_count(),
+                artifact_count_log_likelihood = beta_binomial(batch.pd_tumor_depths(), batch.pd_tumor_alt_counts(),
                                                               artifact_beta_shape[0], artifact_beta_shape[1])
                 pred = pred + artifact_count_log_likelihood - variant_count_log_likelihood
             labels = batch.labels()
