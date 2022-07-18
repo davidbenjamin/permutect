@@ -121,6 +121,10 @@ class PosteriorModel(torch.nn.Module):
 
             pbar = tqdm(enumerate(artifact_logits_and_batches), mininterval=10)
             for n, (artifact_logits, batch) in pbar:
+                for datum in batch:
+                    print(datum.contig())
+                    print(str(datum.position()))
+                    print(str(datum.seq_error_log_likelihood()))
                 relative_posteriors = self.log_relative_posteriors(batch, artifact_logits)
                 log_evidence = torch.logsumexp(relative_posteriors, dim=1)
                 loss = -torch.mean(log_evidence)

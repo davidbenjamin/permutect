@@ -69,20 +69,6 @@ def main():
     print("Reading test dataset")
     unfiltered_test_data = read_set_dataset.read_data(getattr(args, constants.TEST_DATASET_NAME))
 
-    # TODO: START SILLY STUFF
-    # THIS IS SOME RIDICULOUS ONE-OFF STUFF TO CHECK THE LIKELIHOODS MODEL FOR SINGULAR
-    #all_data_loader = read_set_dataset.make_test_data_loader(unfiltered_test_data, getattr(args, constants.BATCH_SIZE_NAME))
-
-    #print("Calculating all the logits")
-    #pbar = tqdm(enumerate(all_data_loader), mininterval=10)
-    #for n, batch in pbar:
-    #    logits = artifact_model.forward(batch, posterior=False).detach()
-    #    encodings = [encode_datum(datum) for datum in batch.original_list()]
-    #    for encoding, logit in zip(encodings, logits):
-    #        print(encoding + ": " + str(logit.item()))
-
-    # TODO: END SILLY STUFF
-
     # choose which variants to proceed to M3 -- those that M2 didn't filter as germline or contamination
     filtering_variants = []
     for datum in unfiltered_test_data:

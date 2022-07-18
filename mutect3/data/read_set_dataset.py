@@ -55,7 +55,6 @@ def make_test_data_loader(dataset, batch_size):
     return DataLoader(dataset=dataset, batch_size=batch_size, collate_fn=ReadSetBatch)
 
 
-# TODO: need to grab the SEQ_ERROR_LIKELIHOOD annotation from GATK
 def read_data(dataset_file):
     data = []
     with open(dataset_file) as file:
