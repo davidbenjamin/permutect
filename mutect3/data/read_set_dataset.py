@@ -1,5 +1,7 @@
 import random
 from typing import Iterable
+import os
+from tqdm.autonotebook import tqdm
 
 import torch
 from torch.utils.data import Dataset, DataLoader
@@ -36,7 +38,7 @@ class ReadSetDataset(Dataset):
             normalized_gatk_info = (raw.gatk_info() - self.gatk_info_medians) / self.gatk_info_iqrs
             self.data[n] = ReadSet(raw.contig(), raw.position(), raw.ref(), raw.alt(), normalized_ref, normalized_alt,
                                    normalized_gatk_info, raw.label(), raw.tumor_depth(), raw.tumor_alt_count(), raw.normal_depth(),
-                                   raw.normal_alt_count())
+                                   raw.normal_alt_count(), raw.seq_error_log_likelihood())
 
     def __len__(self):
         return len(self.data)
@@ -57,8 +59,10 @@ def make_test_data_loader(dataset, batch_size):
 
 def read_data(dataset_file):
     data = []
-    with open(dataset_file) as file:
+
+    with open(dataset_file) as file, tqdm(total=os.path.getsize(dataset_file)) as pbar:
         while True:
+            pbar.update(file.tell() - pbar.n)
             # get label
             first_line = file.readline()
             if not first_line:
@@ -89,8 +93,8 @@ def read_data(dataset_file):
             # seq error log likelihood
             seq_error_log_likelihood = read_float(file.readline())
 
-            datum = ReadSet(contig, position, ref, alt, ref_tensor, alt_tensor, gatk_info_tensor, label, pd_tumor_depth, pd_tumor_alt, pd_normal_depth, pd_normal_alt)
-            datum.set_seq_error_log_likelihood(seq_error_log_likelihood)
+            datum = ReadSet(contig, position, ref, alt, ref_tensor, alt_tensor, gatk_info_tensor, label, pd_tumor_depth,
+                            pd_tumor_alt, pd_normal_depth, pd_normal_alt, seq_error_log_likelihood)
             if tumor_ref_count >= MIN_REF and tumor_alt_count > 0:
                 data.append(datum)
 

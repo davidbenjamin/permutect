@@ -42,6 +42,12 @@ class VariantType(enum.IntEnum):
             return VariantType.INSERTION if diff > 0 else VariantType.DELETION
 
 
+class CallType(enum.IntEnum):
+    VARIANT = 0
+    ARTIFACT = 1
+    SEQ_ERROR = 2
+
+
 class EpochType(enum.Enum):
     TRAIN = "train"
     VALID = "valid"
@@ -49,7 +55,7 @@ class EpochType(enum.Enum):
 
 
 def split_dataset_into_train_and_valid(dataset, train_fraction=0.9):
-    train_len = int(0.9 * len(dataset))
+    train_len = int(train_fraction * len(dataset))
     valid_len = len(dataset) - train_len
     return random_split(dataset, lengths=[train_len, valid_len])
 
