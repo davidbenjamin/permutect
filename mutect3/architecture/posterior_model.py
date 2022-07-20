@@ -2,7 +2,9 @@ import torch
 from torch.utils.tensorboard import SummaryWriter
 
 from itertools import chain
+from collections import defaultdict
 from tqdm.autonotebook import trange, tqdm
+from matplotlib import pyplot as plt
 
 from mutect3 import utils
 from mutect3.utils import VariantType, CallType
@@ -143,13 +145,33 @@ class PosteriorModel(torch.nn.Module):
             if summary_writer is not None:
                 summary_writer.add_scalar("spectrum negative log evidence", epoch_loss.get(), epoch)
 
-                fig, curve = self.variant_spectrum.plot_spectrum("Variant AF spectrum")
-                summary_writer.add_figure("Variant AF spectrum", fig, epoch)
+                # plot AF spectra in 2x2 grid
+                spectra_fig, spectra_axs = plt.subplots(2, 2, sharex='True', sharey='True')
+                frac, dens = self.variant_spectrum.spectrum_density_vs_fraction()
+                spectra_axs[0, 0].plot(frac.numpy(), dens.numpy())
+                spectra_axs[0, 0].set_title("Variant AF Spectrum")
 
                 for variant_type in VariantType:
-                    fig, curve = self.artifact_spectra.plot_spectrum(variant_type.one_hot_tensor(),
-                        variant_type.name + " artifact AF spectrum")
-                    summary_writer.add_figure(variant_type.name + " artifact AF spectrum", fig, epoch)
+                    n = variant_type + 1    # +1 is the offset for variant
+                    row, col = int(n/2), n % 2
+                    frac, dens = self.artifact_spectrum.spectrum_density_vs_fraction(variant_type.one_hot_tensor())
+                    spectra_axs[row, col].plot(frac.numpy(), dens.numpy())
+                    spectra_axs[row, col].set_title(variant_type.name + " artifact AF spectrum")
+
+                for ax in spectra_fig.get_axes():
+                    ax.label_outer()
+
+                summary_writer.add_figure("Artifact and Variant AF Spectra", spectra_fig, epoch)
+
+                # bar plot of log priors -- data is indexed by call type name, and x ticks are variant types
+                log_prior_bar_plot_data = defaultdict(list)
+                for variant_type in VariantType:
+                    log_priors = torch.nn.functional.log_softmax(self.unnormalized_priors(variant_type.one_hot_tensor().unsqueeze(dim=0)), dim=1)
+                    for call_type in (CallType.VARIANT, CallType.ARTIFACT):
+                        log_prior_bar_plot_data[call_type.name].append(log_priors.squeeze()[call_type])
+
+                prior_fig, prior_ax = plotting.grouped_bar_plot(log_prior_bar_plot_data, [v_type.name for v_type in VariantType], "log priors")
+                summary_writer.add_figure("log priors", prior_fig, epoch)
 
     def calculate_probability_threshold(self, loader, summary_writer: SummaryWriter = None):
         self.train(False)
