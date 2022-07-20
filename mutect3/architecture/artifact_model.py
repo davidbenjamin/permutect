@@ -1,5 +1,6 @@
 # bug before PyTorch 1.7.1 that warns when constructing ParameterList
 import warnings
+from collections import defaultdict
 
 import torch
 from torch.utils.tensorboard import SummaryWriter
@@ -13,6 +14,8 @@ from mutect3.architecture.mlp import MLP
 from mutect3.data.read_set_batch import ReadSetBatch
 from mutect3.data import read_set
 from mutect3 import utils
+from mutect3.utils import CallType
+from mutect3.metrics import plotting
 
 from mutect3.architecture.beta_binomial_mixture import beta_binomial
 
@@ -260,11 +263,12 @@ class ArtifactModel(nn.Module):
         self.cpu()
         self._device = "cpu"
 
+        # accuracy indexed by logit bin
+        # sensitivity indexed by truth label, then count bin -- 1st key is utils.CallType, 2nd is the count bin
         logit_bins = [(-999, -4), (-4, -1), (-1, 1), (1, 4), (4, 999)]
-        logit_bin_accuracies = [utils.StreamingAverage() for _ in logit_bins]
-        count_bins = [(1, 2), (3, 4), (5, 7), (8, 10), (11, 20), (21, 1000), (1, 1000)]  # inclusive on both sides, last is all
-        var_sens_by_count = [utils.StreamingAverage() for _ in count_bins]
-        art_sens_by_count = [utils.StreamingAverage() for _ in count_bins]
+        count_bins = [(1, 2), (3, 4), (5, 7), (8, 10), (11, 20), (21, 1000)]  # inclusive on both sides
+        accuracy = defaultdict(utils.StreamingAverage)
+        sensitivity = defaultdict(lambda: defaultdict(utils.StreamingAverage))
 
         worst_missed_artifacts = PriorityQueue(num_worst)
         worst_false_artifacts = PriorityQueue(num_worst)
@@ -287,16 +291,19 @@ class ArtifactModel(nn.Module):
             correct = ((pred > 0) == (batch.labels() > 0.5))
             alt_counts = batch.alt_counts()
 
-            for logit_bin, ave in zip(logit_bins, logit_bin_accuracies):
-                ave.record_with_mask(correct, (pred > logit_bin[0]) & (pred < logit_bin[1]))
+            for l_bin in logit_bins:
+                accuracy[l_bin].record_with_mask(correct, (pred > l_bin[0]) & (pred < l_bin[1]))
 
-            for c_bin, var_sens, art_sens in zip(count_bins, var_sens_by_count, art_sens_by_count):
-                var_sens.record_with_mask(correct, (labels < 0.5) & (c_bin[0] <= alt_counts) & (c_bin[1] >= alt_counts))
-                art_sens.record_with_mask(correct, (labels > 0.5) & (c_bin[0] <= alt_counts) & (c_bin[1] >= alt_counts))
+            for c_bin in count_bins:
+                count_mask = (c_bin[0] <= alt_counts) & (c_bin[1] >= alt_counts)
+                sensitivity[CallType.VARIANT][c_bin].record_with_mask(correct, (labels < 0.5) & count_mask)
+                sensitivity[CallType.ARTIFACT][c_bin].record_with_mask(correct, (labels > 0.5) & count_mask)
 
-        for c_bin, var_sens, art_sens in zip(count_bins, var_sens_by_count, art_sens_by_count):
-            summary_writer.add_scalar(prefix + "variant sensitivity for alt counts between " + str(c_bin[0]) + " and " + str(c_bin[1]), var_sens.get())
-            summary_writer.add_scalar(prefix + "artifact sensitivity for alt counts between " + str(c_bin[0]) + " and " + str(c_bin[1]), art_sens.get())
+        sens_bar_plot_data = {label: (sensitivity[label][c_bin].get() for c_bin in count_bins) for label in sensitivity.keys()}
+        count_bin_labels = [("{}-{}".format(c_bin[0], c_bin[1])) for c_bin in count_bins]
+        sens_fig, sens_ax = plotting.grouped_bar_plot(sens_bar_plot_data, count_bin_labels, "sensitivity")
+        summary_writer.add_figure(prefix + " sensitivity by alt count", sens_fig)
 
-        for logit_bin, ave in zip(logit_bins, logit_bin_accuracies):
-            summary_writer.add_scalar(prefix + "accuracy for logits between " + str(logit_bin[0]) + " and " + str(logit_bin[1]), ave.get())
+        logit_bin_labels = [("{}-{}".format(l_bin[0], l_bin[1])) for l_bin in logit_bins]
+        acc_fig, acc_ax = plotting.simple_bar_plot([accuracy[l_bin].get() for l_bin in logit_bins], logit_bin_labels, "accuracy")
+        summary_writer.add_figure(prefix + " accuracy by logit output", acc_fig)

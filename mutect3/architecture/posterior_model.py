@@ -24,7 +24,7 @@ class PosteriorModel(torch.nn.Module):
         utils.freeze(self.artifact_model.parameters())
 
         # TODO introduce parameters class so that num_components is not hard-coded
-        # input size = 1 because all true variant types share a common AF spectrum
+        # featureless because true variant types share a common AF spectrum
         self.variant_spectrum = FeaturelessBetaBinomialMixture(num_components=5)
 
         # artifact spectra for each variant type.  Variant type encoded as one-hot input vector.
@@ -33,7 +33,7 @@ class PosteriorModel(torch.nn.Module):
         # pre-softmax priors [log P(variant), log P(artifact), log P(seq error)] for each variant type
         # linear layer with no bias to select the appropriate priors given one-hot variant encoding
         # in torch linear layers the weight is indexed by out-features, then in-features, so indices are
-        # self.unnormalized_priors.weight[0 = variant, 1 = artifact, 2 = seq error; SNV = 0, INSERTION = 1, DELETION = 2]
+        # self.unnormalized_priors.weight[call type, variant type]
         self.unnormalized_priors = torch.nn.Linear(in_features=len(VariantType), out_features=len(CallType), bias=False)
         with torch.no_grad():
             initial = torch.zeros_like(self.unnormalized_priors.weight)
@@ -48,14 +48,14 @@ class PosteriorModel(torch.nn.Module):
         :param batch:
         :return: non-log probabilities as a 2D tensor, 1st index is batch, 2nd is variant/artifact/seq error
         """
-        return torch.nn.functional.softmax(self.log_relative_posteriors(batch))
+        return torch.nn.functional.softmax(self.log_relative_posteriors(batch), dim=1)
 
     def error_probabilities(self, batch: ReadSetBatch) -> torch.Tensor:
         """
         :param batch:
         :return: non-log error probabilities as a 1D tensor with length batch size
         """
-        return 1 - self.posterior_probabilities(batch)[:, CallType.VARIANT] # 0th column is variant
+        return 1 - self.posterior_probabilities(batch)[:, CallType.VARIANT]     # 0th column is variant
 
     def log_relative_posteriors(self, batch: ReadSetBatch, artifact_logits: torch.Tensor = None) -> torch.Tensor:
         """
