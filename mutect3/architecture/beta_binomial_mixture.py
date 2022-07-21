@@ -188,7 +188,7 @@ class FeaturelessBetaBinomialMixture(nn.Module):
     Same as above, but no feature input -- there's only one spectrum as opposed to feature-dependent spectra
     """
 
-    def __init__(self, input_size, num_components):
+    def __init__(self, num_components):
         super(FeaturelessBetaBinomialMixture, self).__init__()
         self.beta_binomial_mixture = BetaBinomialMixture(1, num_components)
 

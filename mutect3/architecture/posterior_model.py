@@ -146,7 +146,7 @@ class PosteriorModel(torch.nn.Module):
                 summary_writer.add_scalar("spectrum negative log evidence", epoch_loss.get(), epoch)
 
                 # plot AF spectra in 2x2 grid
-                spectra_fig, spectra_axs = plt.subplots(2, 2, sharex='True', sharey='True')
+                spectra_fig, spectra_axs = plt.subplots(2, 2, sharex='all', sharey='all')
                 frac, dens = self.variant_spectrum.spectrum_density_vs_fraction()
                 spectra_axs[0, 0].plot(frac.numpy(), dens.numpy())
                 spectra_axs[0, 0].set_title("Variant AF Spectrum")
@@ -154,7 +154,7 @@ class PosteriorModel(torch.nn.Module):
                 for variant_type in VariantType:
                     n = variant_type + 1    # +1 is the offset for variant
                     row, col = int(n/2), n % 2
-                    frac, dens = self.artifact_spectrum.spectrum_density_vs_fraction(variant_type.one_hot_tensor())
+                    frac, dens = self.artifact_spectra.spectrum_density_vs_fraction(variant_type.one_hot_tensor())
                     spectra_axs[row, col].plot(frac.numpy(), dens.numpy())
                     spectra_axs[row, col].set_title(variant_type.name + " artifact AF spectrum")
 
@@ -168,7 +168,7 @@ class PosteriorModel(torch.nn.Module):
                 for variant_type in VariantType:
                     log_priors = torch.nn.functional.log_softmax(self.unnormalized_priors(variant_type.one_hot_tensor().unsqueeze(dim=0)), dim=1)
                     for call_type in (CallType.VARIANT, CallType.ARTIFACT):
-                        log_prior_bar_plot_data[call_type.name].append(log_priors.squeeze()[call_type])
+                        log_prior_bar_plot_data[call_type.name].append(log_priors.squeeze().detach()[call_type])
 
                 prior_fig, prior_ax = plotting.grouped_bar_plot(log_prior_bar_plot_data, [v_type.name for v_type in VariantType], "log priors")
                 summary_writer.add_figure("log priors", prior_fig, epoch)
