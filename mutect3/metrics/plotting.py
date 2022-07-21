@@ -16,37 +16,48 @@ def simple_plot(x_y_lab_tuples, x_label, y_label, title):
     return fig, curve
 
 
-def simple_bar_plot(heights, x_labels, y_label):
-    fig, ax = plt.subplots()
-    bar_width = 0.25
+def simple_bar_plot_on_axis(ax, heights, x_labels, y_label):
+    spacing = 3
+    bar_width = 0.45 * spacing
 
-    x_positions = [i for i in range(len(heights))]
+    x_positions = [spacing*i for i in range(len(heights))]
     ax.bar(x_positions, heights, width=bar_width, edgecolor='white')
     ax.set_xticks(x_positions, x_labels)
     ax.set_ylabel(y_label)
     # ax.legend()
 
+
+def simple_bar_plot(heights, x_labels, y_label):
+    fig, ax = plt.subplots()
+    simple_bar_plot_on_axis(ax, heights, x_labels, y_label)
     return fig, ax
+
+
+# apply grouped bar plot to an axis (subplot) object
+# heights by category is a dict of category to bar heights, where the nth bar height
+# corresponds to the nth x label
+def grouped_bar_plot_on_axis(ax, heights_by_category, x_labels, y_label):
+    spacing = 5
+    bar_width = 0.45 * spacing
+
+    for n, (category, heights) in enumerate(heights_by_category.items()):
+        offset = n * bar_width
+        x_positions = [offset + spacing*i for i in range(len(heights))]
+        ax.bar(x_positions, heights, width=bar_width, edgecolor='white', label=category)
+
+    # Add xticks on the middle of the group bars
+    # plt.xlabel('group', fontweight='bold')
+    ticks_offset = bar_width * len(heights_by_category)/2
+    ax.set_xticks([ticks_offset + spacing*i for i in range(len(x_labels))], x_labels, rotation=90)
+    ax.set_ylabel(y_label)
+    ax.legend()
 
 
 # heights by category is a dict of category to bar heights, where the nth bar height
 # corresponds to the nth x label
 def grouped_bar_plot(heights_by_category, x_labels, y_label):
     fig, ax = plt.subplots()
-    bar_width = 0.25
-
-    for n, (category, heights) in enumerate(heights_by_category.items()):
-        offset = n * bar_width
-        x_positions = [offset + i for i in range(len(heights))]
-        ax.bar(x_positions, heights, width=bar_width, edgecolor='white', label=category)
-
-    # Add xticks on the middle of the group bars
-    # plt.xlabel('group', fontweight='bold')
-    ticks_offset = bar_width * len(heights_by_category)/2
-    ax.set_xticks([ticks_offset + i for i in range(len(x_labels))], x_labels)
-    ax.set_ylabel(y_label)
-    ax.legend()
-
+    grouped_bar_plot_on_axis(ax, heights_by_category, x_labels, y_label)
     return fig, ax
 
 

@@ -15,6 +15,7 @@ def test_training(dataset):
         train_model.train_artifact_model(m3_params, [dataset], training_params, tensorboard_dir)
         events = EventAccumulator(tensorboard_dir)
         events.Reload()
+        h = 99
 
 
 def test_on_dream1():

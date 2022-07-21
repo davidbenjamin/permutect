@@ -79,6 +79,9 @@ class ReadSetBatch:
     def variant_type_one_hot(self):
         return torch.vstack([item.variant_type().one_hot_tensor() for item in self._original_list])
 
+    def variant_type_mask(self, variant_type):
+        return torch.BoolTensor([item.variant_type() == variant_type for item in self._original_list])
+
     # this assumes that this batch is being used at a point where the constituent data have seq error log likelihoods
     def seq_error_log_likelihoods(self):
         return torch.Tensor([item.seq_error_log_likelihood() for item in self._original_list])

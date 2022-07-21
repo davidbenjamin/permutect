@@ -9,12 +9,13 @@ from torch import nn
 from tqdm.autonotebook import trange, tqdm
 from itertools import chain
 from queue import PriorityQueue
+from matplotlib import pyplot as plt
 
 from mutect3.architecture.mlp import MLP
 from mutect3.data.read_set_batch import ReadSetBatch
 from mutect3.data import read_set
 from mutect3 import utils
-from mutect3.utils import CallType
+from mutect3.utils import CallType, VariantType
 from mutect3.metrics import plotting
 
 from mutect3.architecture.beta_binomial_mixture import beta_binomial
@@ -257,7 +258,8 @@ class ArtifactModel(nn.Module):
 
     # the beta shape parameters are for primitive posterior probability estimation and are pairs of floats
     # representing beta distributions of allele fractions for both true variants and artifacts
-    def evaluate_model_after_training(self, loader, summary_writer: SummaryWriter, prefix: str, num_worst: int = 100,
+    # loaders by name is eg {"train": train_loader, "valid": valid_loader}
+    def evaluate_model_after_training(self, loaders_by_name, summary_writer: SummaryWriter, prefix: str = "", num_worst: int = 100,
                                       artifact_beta_shape=None, variant_beta_shape=None):
         self.freeze_all()
         self.cpu()
@@ -267,43 +269,68 @@ class ArtifactModel(nn.Module):
         # sensitivity indexed by truth label, then count bin -- 1st key is utils.CallType, 2nd is the count bin
         logit_bins = [(-999, -4), (-4, -1), (-1, 1), (1, 4), (4, 999)]
         count_bins = [(1, 2), (3, 4), (5, 7), (8, 10), (11, 20), (21, 1000)]  # inclusive on both sides
-        accuracy = defaultdict(utils.StreamingAverage)
-        sensitivity = defaultdict(lambda: defaultdict(utils.StreamingAverage))
-
-        worst_missed_artifacts = PriorityQueue(num_worst)
-        worst_false_artifacts = PriorityQueue(num_worst)
-
-        pbar = tqdm(enumerate(loader), mininterval=10)
-        for n, batch in pbar:
-            if not batch.is_labeled():
-                continue
-
-            pred = self.forward(batch)
-
-            # experiment with approximate posterior to see what kind of accuracy to expect when
-            if artifact_beta_shape is not None and variant_beta_shape is not None:
-                variant_count_log_likelihood = beta_binomial(batch.pd_tumor_depths(), batch.pd_tumor_alt_counts(),
-                                                             variant_beta_shape[0], variant_beta_shape[1])
-                artifact_count_log_likelihood = beta_binomial(batch.pd_tumor_depths(), batch.pd_tumor_alt_counts(),
-                                                              artifact_beta_shape[0], artifact_beta_shape[1])
-                pred = pred + artifact_count_log_likelihood - variant_count_log_likelihood
-            labels = batch.labels()
-            correct = ((pred > 0) == (batch.labels() > 0.5))
-            alt_counts = batch.alt_counts()
-
-            for l_bin in logit_bins:
-                accuracy[l_bin].record_with_mask(correct, (pred > l_bin[0]) & (pred < l_bin[1]))
-
-            for c_bin in count_bins:
-                count_mask = (c_bin[0] <= alt_counts) & (c_bin[1] >= alt_counts)
-                sensitivity[CallType.VARIANT][c_bin].record_with_mask(correct, (labels < 0.5) & count_mask)
-                sensitivity[CallType.ARTIFACT][c_bin].record_with_mask(correct, (labels > 0.5) & count_mask)
-
-        sens_bar_plot_data = {label: (sensitivity[label][c_bin].get() for c_bin in count_bins) for label in sensitivity.keys()}
-        count_bin_labels = [("{}-{}".format(c_bin[0], c_bin[1])) for c_bin in count_bins]
-        sens_fig, sens_ax = plotting.grouped_bar_plot(sens_bar_plot_data, count_bin_labels, "sensitivity")
-        summary_writer.add_figure(prefix + " sensitivity by alt count", sens_fig)
-
         logit_bin_labels = [("{}-{}".format(l_bin[0], l_bin[1])) for l_bin in logit_bins]
-        acc_fig, acc_ax = plotting.simple_bar_plot([accuracy[l_bin].get() for l_bin in logit_bins], logit_bin_labels, "accuracy")
+        count_bin_labels = [(("{}-{}".format(c_bin[0], c_bin[1])) if c_bin[1] < 100 else "{}+".format(c_bin[0])) for c_bin in count_bins]
+
+        # grid of figures -- rows are loaders, columns are variant types
+        # each subplot is a bar chart grouped by call type (variant vs artifact)
+        sens_fig, sens_axs = plt.subplots(len(loaders_by_name), len(VariantType), sharex='all', sharey='all')
+
+        # accuracy is indexed by loader only
+        acc_fig, acc_axs = plt.subplots(1, len(loaders_by_name), sharex='all', sharey='all')
+
+        for loader_idx, (loader_name, loader) in enumerate(loaders_by_name.items()):
+            accuracy = defaultdict(utils.StreamingAverage)
+            # indexed by variant type, then call type (artifact vs variant), then count bin
+            sensitivity = {var_type: defaultdict(lambda: defaultdict(utils.StreamingAverage)) for var_type in VariantType}
+
+            worst_missed_artifacts = PriorityQueue(num_worst)
+            worst_false_artifacts = PriorityQueue(num_worst)
+
+            pbar = tqdm(enumerate(loader), mininterval=10)
+            for n, batch in pbar:
+                if not batch.is_labeled():
+                    continue
+
+                pred = self.forward(batch)
+
+                # experiment with approximate posterior to see what kind of accuracy to expect when
+                if artifact_beta_shape is not None and variant_beta_shape is not None:
+                    variant_count_log_likelihood = beta_binomial(batch.pd_tumor_depths(), batch.pd_tumor_alt_counts(),
+                                                                 variant_beta_shape[0], variant_beta_shape[1])
+                    artifact_count_log_likelihood = beta_binomial(batch.pd_tumor_depths(), batch.pd_tumor_alt_counts(),
+                                                                  artifact_beta_shape[0], artifact_beta_shape[1])
+                    pred = pred + artifact_count_log_likelihood - variant_count_log_likelihood
+                labels = batch.labels()
+                correct = ((pred > 0) == (batch.labels() > 0.5))
+                alt_counts = batch.alt_counts()
+
+                for l_bin in logit_bins:
+                    accuracy[l_bin].record_with_mask(correct, (pred > l_bin[0]) & (pred < l_bin[1]))
+
+                for var_type in VariantType:
+                    variant_mask = batch.variant_type_mask(var_type)
+                    for c_bin in count_bins:
+                        count_mask = (c_bin[0] <= alt_counts) & (c_bin[1] >= alt_counts)
+                        count_and_variant_mask = count_mask & variant_mask
+                        sensitivity[var_type][CallType.VARIANT][c_bin].record_with_mask(correct, (labels < 0.5) & count_and_variant_mask)
+                        sensitivity[var_type][CallType.ARTIFACT][c_bin].record_with_mask(correct, (labels > 0.5) & count_and_variant_mask)
+            # done collecting data for this particular loader, now fill in subplots for this loader's row
+            for var_type in VariantType:
+                # data for one particular subplot
+                sens_bar_plot_data = {label.name: [sensitivity[var_type][label][c_bin].get().item() for c_bin in count_bins] for label in sensitivity[var_type].keys()}
+                plotting.grouped_bar_plot_on_axis(sens_axs[loader_idx, var_type], sens_bar_plot_data, count_bin_labels, loader_name)
+                sens_axs[loader_idx, var_type].set_title(var_type.name)
+
+            plotting.simple_bar_plot_on_axis(acc_axs[loader_idx], [accuracy[l_bin].get() for l_bin in logit_bins], logit_bin_labels, "accuracy")
+            acc_axs[loader_idx].set_title(loader_name)
+
+        # done collecting stats for all loaders and filling in subplots
+        for ax in sens_fig.get_axes():
+            ax.label_outer()
+        for ax in acc_fig.get_axes():
+            ax.label_outer()
+
+        sens_fig.tight_layout()
+        summary_writer.add_figure("{} sensitivity by alt count".format(prefix), sens_fig)
         summary_writer.add_figure(prefix + " accuracy by logit output", acc_fig)
