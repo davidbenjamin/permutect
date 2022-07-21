@@ -18,9 +18,11 @@ REWEIGHTING_RANGE_NAME = 'reweighting_range'
 BATCH_SIZE_NAME = 'batch_size'
 NUM_EPOCHS_NAME = 'num_epochs'
 NUM_SPECTRUM_ITERATIONS = 'num_spectrum_iterations'
-TURN_OFF_NORMAL_ARTIFACT_NAME = 'turn_off_normal_artifact'
 
 TENSORBOARD_DIR_NAME = 'tensorboard_dir'
 
+INITIAL_LOG_VARIANT_PRIOR_NAME = 'initial_log_variant_prior'
+INITIAL_LOG_ARTIFACT_PRIOR_NAME = 'initial_log_artifact_prior'
+NUM_IGNORED_SITES_NAME = 'num_ignored_sites'
+
 M3_MODEL_NAME = 'm3_model'
-NA_MODEL_NAME = 'na_model'

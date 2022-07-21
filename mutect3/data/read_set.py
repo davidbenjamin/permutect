@@ -10,25 +10,22 @@ NUM_GATK_INFO_FEATURES = 9  # size of each variant's info field tensor (3 compon
 NUM_INFO_FEATURES = NUM_GATK_INFO_FEATURES + len(utils.VariantType)
 
 
-class ReadSetDatum:
+class ReadSet:
     # info tensor comes from GATK and does not include one-hot encoding of variant type
     def __init__(self, contig: str, position: int, ref: str, alt: str, ref_tensor: torch.Tensor, alt_tensor: torch.Tensor,
-                 gatk_info_tensor: torch.Tensor, label: str, tumor_depth: int, tumor_alt_count: int, normal_depth: int, normal_alt_count: int):
+                 gatk_info_tensor: torch.Tensor, label: str, tumor_depth: int, tumor_alt_count: int, normal_depth: int, normal_alt_count: int,
+                 seq_error_log_likelihood: float = None):
         self._contig = contig
         self._position = position
         self._ref = ref
         self._alt = alt
         self._ref_tensor = ref_tensor
         self._alt_tensor = alt_tensor
-
-        diff = len(self.alt()) - len(self.ref())
-        self._variant_type = utils.VariantType.SNV if diff == 0 else (
-            utils.VariantType.INSERTION if diff > 0 else utils.VariantType.DELETION)
+        self._variant_type = utils.VariantType.get_type(ref, alt)
 
         # self._info_tensor includes both the original variant info and the one-hot encoding of variant type
-        variant_one_hot = torch.Tensor([1 if self._variant_type.value == n else 0 for n in range(len(utils.VariantType))])
         self._gatk_info = gatk_info_tensor
-        self._info_tensor = torch.cat((gatk_info_tensor, variant_one_hot))
+        self._info_tensor = torch.cat((gatk_info_tensor, self._variant_type.one_hot_tensor()))
         self._label = label
 
         # the following counts pertain to the data prior to any downsampling by the GATK Mutect3DatasetEngine or by
@@ -37,6 +34,9 @@ class ReadSetDatum:
         self._tumor_alt_count = tumor_alt_count
         self._normal_depth = normal_depth
         self._normal_alt_count = normal_alt_count
+
+        # this is used only on filtering datasets for fitting the AF spectra.  It's a GATK annotation
+        self._seq_error_log_likelihood = seq_error_log_likelihood
 
     def contig(self) -> str:
         return self._contig
@@ -82,3 +82,6 @@ class ReadSetDatum:
 
     def set_label(self, label):
         self._label = label
+
+    def seq_error_log_likelihood(self):
+        return self._seq_error_log_likelihood

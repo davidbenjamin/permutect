@@ -1,7 +1,7 @@
 version 1.0
 
 import "https://raw.githubusercontent.com/gatk-workflows/gatk4-somatic-snvs-indels/2.6.0/mutect2.wdl" as m2
-import "https://api.firecloud.org/ga4gh/v1/tools/davidben:mutect3-dataset/versions/2/plain-WDL/descriptor" as dataset
+import "https://api.firecloud.org/ga4gh/v1/tools/davidben:mutect3-dataset/versions/4/plain-WDL/descriptor" as dataset
 
 
 workflow Mutect3 {
@@ -11,7 +11,6 @@ workflow Mutect3 {
         File? precomputed_mutect2_vcf_idx
 
         File mutect3_model
-        File normal_artifact_model
         File? intervals
         File? masks
         File ref_fasta
@@ -20,8 +19,8 @@ workflow Mutect3 {
         Int scatter_count
         File primary_bam
         File primary_bai
-        File control_bam
-        File control_bai
+        File? control_bam
+        File? control_bai
         File? gnomad
         File? gnomad_idx
         File? variants_for_contamination
@@ -31,7 +30,6 @@ workflow Mutect3 {
         Boolean? run_orientation_bias_mixture_model_filter
         String? m2_extra_args
         String? split_intervals_extra_args
-        Int? max_na_records
         Int batch_size
 
 
@@ -102,7 +100,6 @@ workflow Mutect3 {
             mutect2_vcf = select_first([precomputed_mutect2_vcf, Mutect2.filtered_vcf]),
             mutect2_vcf_idx = select_first([precomputed_mutect2_vcf_idx, Mutect2.filtered_vcf_idx]),
             mutect3_model = mutect3_model,
-            normal_artifact_model = normal_artifact_model,
             test_dataset = TestDataset.mutect3Dataset,
             batch_size = batch_size,
             mutect3_docker = mutect3_docker,
@@ -124,7 +121,6 @@ workflow Mutect3 {
 task Mutect3Filtering {
     input {
         File mutect3_model
-        File normal_artifact_model
         File test_dataset
         File mutect2_vcf
         File mutect2_vcf_idx
@@ -151,7 +147,6 @@ task Mutect3Filtering {
             --test_dataset ~{test_dataset} \
             --batch_size ~{batch_size} \
             --m3_model ~{mutect3_model} \
-            --na_model ~{normal_artifact_model} \
             --output mutect3-filtered.vcf \
             --tensorboard_dir tensorboard
     >>>

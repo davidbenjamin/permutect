@@ -1,11 +1,7 @@
 from typing import List
 
 import torch
-
-from mutect3 import utils
-from mutect3.data.normal_artifact_batch import NormalArtifactBatch
-from mutect3.data.normal_artifact_datum import NormalArtifactDatum
-from mutect3.data.read_set_datum import ReadSetDatum
+from mutect3.data.read_set import ReadSet
 
 
 # Read sets have different sizes so we can't form a batch by naively stacking tensors.  We need a custom way
@@ -23,7 +19,7 @@ from mutect3.data.read_set_datum import ReadSetDatum
 # inside the model, the counts will be used to separate the reads into sets
 class ReadSetBatch:
 
-    def __init__(self, data: List[ReadSetDatum]):
+    def __init__(self, data: List[ReadSet]):
         self._original_list = data  # keep this for downsampling augmentation
         self.labeled = data[0].label() != "UNLABELED"
         for datum in data:
@@ -50,7 +46,7 @@ class ReadSetBatch:
         self._read_end_indices = self._read_end_indices.pin_memory()
         return self
 
-    def original_list(self) -> List[ReadSetDatum]:
+    def original_list(self) -> List[ReadSet]:
         return self._original_list
 
     def is_labeled(self) -> bool:
@@ -80,13 +76,13 @@ class ReadSetBatch:
     def labels(self) -> torch.Tensor:
         return self._labels
 
-    def variant_type(self) -> List[utils.VariantType]:
-        return [item.variant_type() for item in self._original_list]
+    def variant_type_one_hot(self):
+        return torch.vstack([item.variant_type().one_hot_tensor() for item in self._original_list])
 
-    def normal_artifact_batch(self) -> NormalArtifactBatch:
-        # TODO: variant type needs to go in constructor -- and maybe it should be utils.VariantType, not str
-        # TODO: we might need to change the counts in this constructor
-        normal_artifact_data = [NormalArtifactDatum(item.normal_alt_count(), item.normal_depth(),
-                                                    item.tumor_alt_count(), item.tumor_depth(),
-                                                    1.0, item.variant_type) for item in self._original_list]
-        return NormalArtifactBatch(normal_artifact_data)
+    def variant_type_mask(self, variant_type):
+        return torch.BoolTensor([item.variant_type() == variant_type for item in self._original_list])
+
+    # this assumes that this batch is being used at a point where the constituent data have seq error log likelihoods
+    def seq_error_log_likelihoods(self):
+        return torch.Tensor([item.seq_error_log_likelihood() for item in self._original_list])
+

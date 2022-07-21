@@ -1,5 +1,5 @@
 import torch
-from mutect3.data import read_set_datum, read_set_batch
+from mutect3.data import read_set, read_set_batch
 from mutect3.utils import VariantType
 
 
@@ -27,16 +27,14 @@ def test_read_set_batch():
     normal_depths = [70, 60, 50]
     normal_alt_counts = [0, 1, 2]
 
-    data = [read_set_datum.ReadSetDatum(contigs[n], positions[n], refs[n], alts[n], ref_tensors[n], alt_tensors[n],
-                                       gatk_info_tensors[n], labels[n], tumor_depths[n], tumor_alt_counts[n], normal_depths[n],
-                                       normal_alt_counts[n]) for n in range(size)]
+    data = [read_set_datum.ReadSet(contigs[n], positions[n], refs[n], alts[n], ref_tensors[n], alt_tensors[n],
+                                   gatk_info_tensors[n], labels[n], tumor_depths[n], tumor_alt_counts[n], normal_depths[n],
+                                   normal_alt_counts[n]) for n in range(size)]
 
     batch = read_set_batch.ReadSetBatch(data)
 
     assert batch.is_labeled()
     assert batch.size() == 3
-    assert batch.variant_type() == [VariantType.SNV, VariantType.SNV, VariantType.INSERTION]
-    # TODO: test read_stop_indices
 
     assert batch.pd_tumor_depths().tolist() == tumor_depths
     assert batch.pd_tumor_alt_counts().tolist() == tumor_alt_counts
@@ -47,15 +45,6 @@ def test_read_set_batch():
     assert batch.reads().shape[1] == read_set_datum.NUM_READ_FEATURES
 
     assert batch.info().shape[0] == 3
-
-    na_batch = batch.normal_artifact_batch()
-    assert na_batch.normal_alt().tolist() == normal_alt_counts
-    assert na_batch.normal_depth().tolist() == normal_depths
-    assert na_batch.tumor_depth().tolist() == tumor_depths
-    assert na_batch.tumor_alt().tolist() == tumor_alt_counts
-
-    # turn this assertion on once normal artifact uses the VariantType enum
-    #assert batch.normal_artifact_batch().variant_type() == batch.variant_type()
 
     assert batch.labels().tolist() == [1.0, 0.0, 1.0]
 
