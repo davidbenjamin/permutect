@@ -10,10 +10,17 @@ from mutect3.architecture.artifact_model import ArtifactModel
 from mutect3.architecture.posterior_model import PosteriorModel
 from mutect3.data import read_set, read_set_dataset
 from mutect3 import constants
+from mutect3.utils import CallType
 
 # TODO: eventually M3 can handle multiallelics
 TRUSTED_M2_FILTERS = {'contamination', 'germline', 'multiallelic'}
 
+ERROR_PROB_INFO_KEY = 'ERROR_PROB'
+SEQ_ERROR_PROB_INFO_KEY = 'SEQ_ERROR_PROB'
+ARTIFACT_PROB_INFO_KEY = 'ARTIFACT_PROB'
+
+ARTIFACT_FILTER = 'artifact'
+SEQ_ERROR_FILTER = 'seq_error'
 
 # this presumes that we have an ArtifactModel and we have saved it via save_mutect3_model as in train_model.py
 def load_artifact_model(path) -> ArtifactModel:
@@ -112,31 +119,41 @@ def make_filtering_data_loader(dataset_file, input_vcf, batch_size: int):
 
 def apply_filtering_to_vcf(input_vcf, output_vcf, error_probability_threshold, filtering_data_loader, posterior_model):
     print("Computing final error probabilities")
-    encoding_to_error_prob_dict = {}
+    encoding_to_post_prob_dict = {}
     pbar = tqdm(enumerate(filtering_data_loader), mininterval=10)
     for n, batch in pbar:
-        error_probs = posterior_model.error_probabilities(batch)
+        posterior_probs = posterior_model.posterior_probabilities(batch)
         encodings = [encode_datum(datum) for datum in batch.original_list()]
-        for encoding, error_prob in zip(encodings, error_probs):
-            encoding_to_error_prob_dict[encoding] = error_prob.item()
+        for encoding, post_probs in zip(encodings, posterior_probs):
+            encoding_to_post_prob_dict[encoding] = post_probs.tolist()
     print("Applying threshold")
     unfiltered_vcf = VCF(input_vcf)
-    unfiltered_vcf.add_info_to_header({'ID': 'ERROR_PROB', 'Description': 'Mutect3 posterior error probability',
+    unfiltered_vcf.add_info_to_header({'ID': ERROR_PROB_INFO_KEY, 'Description': 'Mutect3 posterior error probability',
                                        'Type': 'Float', 'Number': 'A'})
-    unfiltered_vcf.add_filter_to_header({'ID': 'mutect3', 'Description': 'fails Mutect3 deep learning filter'})
+    unfiltered_vcf.add_info_to_header({'ID': SEQ_ERROR_PROB_INFO_KEY, 'Description': 'Mutect3 posterior robability of sequencing error',
+         'Type': 'Float', 'Number': 'A'})
+    unfiltered_vcf.add_info_to_header({'ID': ARTIFACT_PROB_INFO_KEY, 'Description': 'Mutect3 posterior probability of artifact',
+         'Type': 'Float', 'Number': 'A'})
+    unfiltered_vcf.add_filter_to_header({'ID': ARTIFACT_FILTER, 'Description': 'technical artifact'})
+    unfiltered_vcf.add_filter_to_header({'ID': SEQ_ERROR_FILTER, 'Description': 'sequencing error'})
     writer = Writer(output_vcf, unfiltered_vcf)  # input vcf is a template for the header
     pbar = tqdm(enumerate(unfiltered_vcf), mininterval=10)
     for n, v in pbar:
         filters = filters_to_keep_from_m2(v)
 
         encoding = encode_variant(v, zero_based=True)  # cyvcf2 is zero-based
-        if encoding in encoding_to_error_prob_dict:
-            error_prob = encoding_to_error_prob_dict[encoding]
-            v.INFO["ERROR_PROB"] = error_prob
+        if encoding in encoding_to_post_prob_dict:
+            post_probs = encoding_to_post_prob_dict[encoding]
+            error_prob = 1 - post_probs[CallType.VARIANT]
+            seq_error_prob = post_probs[CallType.SEQ_ERROR]
+            artifact_prob = post_probs[CallType.ARTIFACT]
+            v.INFO[ERROR_PROB_INFO_KEY] = error_prob
+            v.INFO[SEQ_ERROR_PROB_INFO_KEY] = seq_error_prob
+            v.INFO[ARTIFACT_PROB_INFO_KEY] = artifact_prob
 
-            # TODO: distinguish between artifact and weak evidence
+            # TODO: this needs updating once we add germline filtering etc
             if error_prob > error_probability_threshold:
-                filters.add("mutect3")
+                filters.add(ARTIFACT_FILTER if artifact_prob > seq_error_prob else SEQ_ERROR_FILTER)
 
         v.FILTER = ';'.join(filters) if filters else 'PASS'
         writer.write_record(v)
