@@ -22,7 +22,8 @@ def simple_bar_plot_on_axis(ax, heights, x_labels, y_label):
 
     x_positions = [spacing*i for i in range(len(heights))]
     ax.bar(x_positions, heights, width=bar_width, edgecolor='white')
-    ax.set_xticks(x_positions, x_labels, rotation=90)
+    ax.set_xticks(x_positions, labels=x_labels)
+    plt.setp(ax.get_xticklabels(), rotation=90)
     ax.set_ylabel(y_label)
     # ax.legend()
 
@@ -48,7 +49,8 @@ def grouped_bar_plot_on_axis(ax, heights_by_category, x_labels, y_label):
     # Add xticks on the middle of the group bars
     # plt.xlabel('group', fontweight='bold')
     ticks_offset = bar_width * len(heights_by_category)/2
-    ax.set_xticks([ticks_offset + spacing*i for i in range(len(x_labels))], x_labels, rotation=90)
+    ax.set_xticks([ticks_offset + spacing*i for i in range(len(x_labels))], labels=x_labels)
+    plt.setp(ax.get_xticklabels(), rotation=90)
     ax.set_ylabel(y_label)
     ax.legend()
 
