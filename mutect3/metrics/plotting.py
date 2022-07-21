@@ -18,11 +18,11 @@ def simple_plot(x_y_lab_tuples, x_label, y_label, title):
 
 def simple_bar_plot_on_axis(ax, heights, x_labels, y_label):
     spacing = 3
-    bar_width = 0.45 * spacing
+    bar_width = 0.7 * spacing
 
     x_positions = [spacing*i for i in range(len(heights))]
     ax.bar(x_positions, heights, width=bar_width, edgecolor='white')
-    ax.set_xticks(x_positions, x_labels)
+    ax.set_xticks(x_positions, x_labels, rotation=90)
     ax.set_ylabel(y_label)
     # ax.legend()
 
@@ -38,7 +38,7 @@ def simple_bar_plot(heights, x_labels, y_label):
 # corresponds to the nth x label
 def grouped_bar_plot_on_axis(ax, heights_by_category, x_labels, y_label):
     spacing = 5
-    bar_width = 0.45 * spacing
+    bar_width = 0.7 * spacing / len(heights_by_category)
 
     for n, (category, heights) in enumerate(heights_by_category.items()):
         offset = n * bar_width
