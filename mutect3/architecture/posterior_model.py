@@ -133,7 +133,7 @@ class PosteriorModel(torch.nn.Module):
                 for variant_type in VariantType:
                     log_priors = torch.nn.functional.log_softmax(self.unnormalized_priors(variant_type.one_hot_tensor().unsqueeze(dim=0)), dim=1)
                     log_seq_error_prior = log_priors.squeeze()[CallType.SEQ_ERROR]
-                    missing_loss = ignored_to_non_ignored_ratio * log_seq_error_prior
+                    missing_loss = -ignored_to_non_ignored_ratio * log_seq_error_prior  
                     loss += missing_loss
 
                 optimizer.zero_grad(set_to_none=True)

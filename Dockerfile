@@ -1,4 +1,4 @@
-FROM python:3.8-buster
+FROM python:3.9.13-buster
 
 COPY requirements.txt /
 COPY setup.py /
