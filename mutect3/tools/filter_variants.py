@@ -22,6 +22,7 @@ ARTIFACT_PROB_INFO_KEY = 'ARTIFACT_PROB'
 ARTIFACT_FILTER = 'artifact'
 SEQ_ERROR_FILTER = 'seq_error'
 
+
 # this presumes that we have an ArtifactModel and we have saved it via save_mutect3_model as in train_model.py
 def load_artifact_model(path) -> ArtifactModel:
     saved = torch.load(path)
@@ -63,6 +64,7 @@ def parse_arguments():
     parser.add_argument('--' + constants.INITIAL_LOG_VARIANT_PRIOR_NAME, type=float, default=-10.0, required=False)
     parser.add_argument('--' + constants.INITIAL_LOG_ARTIFACT_PRIOR_NAME, type=float, default=-10.0, required=False)
     parser.add_argument('--' + constants.NUM_IGNORED_SITES_NAME, type=float, required=True)
+    parser.add_argument('--' + constants.MAF_SEGMENTS_NAME, required=False)
     return parser.parse_args()
 
 

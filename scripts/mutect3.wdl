@@ -1,16 +1,12 @@
 version 1.0
 
-import "https://raw.githubusercontent.com/gatk-workflows/gatk4-somatic-snvs-indels/2.6.0/mutect2.wdl" as m2
-import "https://api.firecloud.org/ga4gh/v1/tools/davidben:mutect3-dataset/versions/4/plain-WDL/descriptor" as dataset
+import "https://api.firecloud.org/ga4gh/v1/tools/davidben:mutect2/versions/1/plain-WDL/descriptor" as m2
 
 
 workflow Mutect3 {
     input {
-        # circumvent running Mutect2 within this workflow
-        File? precomputed_mutect2_vcf
-        File? precomputed_mutect2_vcf_idx
-
         File mutect3_model
+
         File? intervals
         File? masks
         File ref_fasta
@@ -40,56 +36,31 @@ workflow Mutect3 {
         Int? max_retries
     }
 
-    if (!defined(precomputed_mutect2_vcf)) {
-        call m2.Mutect2 {
-            input:
-                intervals = intervals,
-                ref_fasta = ref_fasta,
-                ref_fai = ref_fai,
-                ref_dict = ref_dict,
-                tumor_reads = primary_bam,
-                tumor_reads_index = primary_bai,
-                normal_reads = control_bam,
-                normal_reads_index = control_bai,
-
-                scatter_count = scatter_count,
-                gnomad = gnomad,
-                gnomad_idx = gnomad_idx,
-                variants_for_contamination = variants_for_contamination,
-                variants_for_contamination_idx = variants_for_contamination_idx,
-                realignment_index_bundle = realignment_index_bundle,
-                realignment_extra_args = realignment_extra_args,
-                run_orientation_bias_mixture_model_filter = run_orientation_bias_mixture_model_filter,
-                m2_extra_args = m2_extra_args,
-                make_bamout = false,
-
-                gatk_docker = gatk_docker,
-                gatk_override = gatk_override,
-                preemptible = preemptible,
-                max_retries = max_retries
-        }
-    }
-
-    call dataset.Mutect3Dataset as TestDataset {
+    call m2.Mutect2 {
         input:
+            make_m3_training_dataset = false,
+            make_m3_test_dataset = true,
             intervals = intervals,
-            masks = masks,
             ref_fasta = ref_fasta,
             ref_fai = ref_fai,
             ref_dict = ref_dict,
+            tumor_reads = primary_bam,
+            tumor_reads_index = primary_bai,
+            normal_reads = control_bam,
+            normal_reads_index = control_bai,
+
             scatter_count = scatter_count,
-            primary_bam = primary_bam,
-            primary_bai = primary_bai,
-            control_bam = control_bam,
-            control_bai = control_bai,
             gnomad = gnomad,
             gnomad_idx = gnomad_idx,
+            variants_for_contamination = variants_for_contamination,
+            variants_for_contamination_idx = variants_for_contamination_idx,
+            realignment_index_bundle = realignment_index_bundle,
+            realignment_extra_args = realignment_extra_args,
+            run_orientation_bias_mixture_model_filter = run_orientation_bias_mixture_model_filter,
             m2_extra_args = m2_extra_args,
-            split_intervals_extra_args = split_intervals_extra_args,
-            training_data_mode = false,
+            make_bamout = false,
 
             gatk_docker = gatk_docker,
-            mutect3_docker = mutect3_docker,
             gatk_override = gatk_override,
             preemptible = preemptible,
             max_retries = max_retries
@@ -97,10 +68,12 @@ workflow Mutect3 {
 
     call Mutect3Filtering {
         input:
-            mutect2_vcf = select_first([precomputed_mutect2_vcf, Mutect2.filtered_vcf]),
-            mutect2_vcf_idx = select_first([precomputed_mutect2_vcf_idx, Mutect2.filtered_vcf_idx]),
+            mutect2_vcf = Mutect2.filtered_vcf,
+            mutect2_vcf_idx = Mutect2.filtered_vcf_idx,
             mutect3_model = mutect3_model,
-            test_dataset = TestDataset.mutect3Dataset,
+            test_dataset = select_first([Mutect2.m3_dataset]),
+            maf_segments = Mutect2.maf_segments,
+            mutect_stats = Mutect2.mutect_stats,
             batch_size = batch_size,
             mutect3_docker = mutect3_docker,
     }
@@ -124,6 +97,8 @@ task Mutect3Filtering {
         File test_dataset
         File mutect2_vcf
         File mutect2_vcf_idx
+        File? maf_segments
+        File mutect_stats
         Int batch_size
 
         String mutect3_docker
@@ -142,11 +117,14 @@ task Mutect3Filtering {
     command <<<
         set -e
 
+        num_ignored=`grep "callable" ~{mutect_stats} | while read name value; do echo $value; done`
+
         filter_variants \
             --input ~{mutect2_vcf} \
             --test_dataset ~{test_dataset} \
             --batch_size ~{batch_size} \
             --m3_model ~{mutect3_model} \
+            --num_ignored_sites $num_ignored \
             --output mutect3-filtered.vcf \
             --tensorboard_dir tensorboard
     >>>
