@@ -3,6 +3,7 @@ FROM python:3.9.13-buster
 COPY requirements.txt /
 COPY setup.py /
 RUN pip install --no-cache-dir -r /requirements.txt
+RUN pip install numpy --upgrade --ignore-installed
 
 ADD mutect3/ /mutect3
 
