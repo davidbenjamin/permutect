@@ -108,11 +108,15 @@ def make_filtering_data_loader(dataset_file, input_vcf, batch_size: int):
     # record variants that M2 filtered as germline or contamination.  Mutect3 ignores these
     m2_filtering_to_keep = set([encode_variant(v, zero_based=True) for v in VCF(input_vcf) if
                                 filters_to_keep_from_m2(v)])
+
+    allele_frequencies = {encode_variant(v, zero_based=True): 10 ** (-v.INFO["POPAF"]) for v in VCF(input_vcf)}
+
     # choose which variants to proceed to M3 -- those that M2 didn't filter as germline or contamination
     filtering_variants = []
     for datum in unfiltered_test_data:
         encoding = encode_datum(datum)
         if encoding not in m2_filtering_to_keep:
+            datum.set_allele_frequency(allele_frequencies[encoding])
             filtering_variants.append(datum)
     print("Size of filtering dataset: " + str(len(filtering_variants)))
     filtering_dataset = read_set_dataset.ReadSetDataset(data=filtering_variants)

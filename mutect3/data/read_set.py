@@ -38,6 +38,8 @@ class ReadSet:
         # this is used only on filtering datasets for fitting the AF spectra.  It's a GATK annotation
         self._seq_error_log_likelihood = seq_error_log_likelihood
 
+        self._allele_frequency = None
+
     def contig(self) -> str:
         return self._contig
 
@@ -85,3 +87,9 @@ class ReadSet:
 
     def seq_error_log_likelihood(self):
         return self._seq_error_log_likelihood
+
+    def set_allele_frequency(self, af: float):
+        self._allele_frequency = af
+
+    def allele_frequency(self) -> float:
+        return self._allele_frequency

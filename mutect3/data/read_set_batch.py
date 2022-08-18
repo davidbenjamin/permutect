@@ -86,3 +86,7 @@ class ReadSetBatch:
     def seq_error_log_likelihoods(self):
         return torch.Tensor([item.seq_error_log_likelihood() for item in self._original_list])
 
+    # this assumes that this batch is being used at a point where the constituent data have allele frequencies
+    def allele_frequencies(self):
+        return torch.Tensor([item.allele_frequency() for item in self._original_list])
+
