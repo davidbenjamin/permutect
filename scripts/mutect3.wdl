@@ -88,6 +88,9 @@ workflow Mutect3 {
         File output_vcf = IndexVCF.vcf
         File output_vcf_idx = IndexVCF.vcf_index
         File tensorboard_report = Mutect3Filtering.tensorboard_report
+        File test_dataset = select_first([Mutect2.m3_dataset])
+        File mutect2_vcf = Mutect2.filtered_vcf
+        File mutect2_vcf_idx = Mutect2.filtered_vcf_idx
     }
 }
 

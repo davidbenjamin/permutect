@@ -79,12 +79,13 @@ def main():
                       batch_size=getattr(args, constants.BATCH_SIZE_NAME),
                       num_spectrum_iterations=getattr(args, constants.NUM_SPECTRUM_ITERATIONS),
                       tensorboard_dir=getattr(args, constants.TENSORBOARD_DIR_NAME),
-                      num_ignored_sites=getattr(args, constants.NUM_IGNORED_SITES_NAME))
+                      num_ignored_sites=getattr(args, constants.NUM_IGNORED_SITES_NAME),
+                      maf_segments=getattr(args, constants.MAF_SEGMENTS_NAME))
 
 
 def make_filtered_vcf(saved_artifact_model, initial_log_variant_prior: float, initial_log_artifact_prior: float,
                       test_dataset_file, input_vcf, output_vcf, batch_size: int, num_spectrum_iterations: int, tensorboard_dir,
-                      num_ignored_sites: int):
+                      num_ignored_sites: int, maf_segments):
     print("Loading artifact model and test dataset")
     artifact_model = load_artifact_model(saved_artifact_model)
     posterior_model = PosteriorModel(artifact_model, initial_log_variant_prior, initial_log_artifact_prior)
@@ -132,7 +133,7 @@ def apply_filtering_to_vcf(input_vcf, output_vcf, error_probability_threshold, f
     unfiltered_vcf = VCF(input_vcf)
     unfiltered_vcf.add_info_to_header({'ID': ERROR_PROB_INFO_KEY, 'Description': 'Mutect3 posterior error probability',
                                        'Type': 'Float', 'Number': 'A'})
-    unfiltered_vcf.add_info_to_header({'ID': SEQ_ERROR_PROB_INFO_KEY, 'Description': 'Mutect3 posterior robability of sequencing error',
+    unfiltered_vcf.add_info_to_header({'ID': SEQ_ERROR_PROB_INFO_KEY, 'Description': 'Mutect3 posterior probability of sequencing error',
          'Type': 'Float', 'Number': 'A'})
     unfiltered_vcf.add_info_to_header({'ID': ARTIFACT_PROB_INFO_KEY, 'Description': 'Mutect3 posterior probability of artifact',
          'Type': 'Float', 'Number': 'A'})
