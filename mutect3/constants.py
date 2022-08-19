@@ -25,5 +25,6 @@ INITIAL_LOG_VARIANT_PRIOR_NAME = 'initial_log_variant_prior'
 INITIAL_LOG_ARTIFACT_PRIOR_NAME = 'initial_log_artifact_prior'
 NUM_IGNORED_SITES_NAME = 'num_ignored_sites'
 MAF_SEGMENTS_NAME = 'maf_segments'
+GERMLINE_MODE_NAME = 'germline_mode'
 
 M3_MODEL_NAME = 'm3_model'

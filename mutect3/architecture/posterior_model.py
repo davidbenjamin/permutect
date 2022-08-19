@@ -59,12 +59,13 @@ class PosteriorModel(torch.nn.Module):
         """
         return torch.nn.functional.softmax(self.log_relative_posteriors(batch), dim=1)
 
-    def error_probabilities(self, batch: ReadSetBatch) -> torch.Tensor:
+    def error_probabilities(self, batch: ReadSetBatch, germline_mode: bool = False) -> torch.Tensor:
         """
+        :param germline_mode:
         :param batch:
         :return: non-log error probabilities as a 1D tensor with length batch size
         """
-        return 1 - self.posterior_probabilities(batch)[:, CallType.SOMATIC]     # 0th column is variant
+        return 1 - self.posterior_probabilities(batch)[:, CallType.GERMLINE if germline_mode else CallType.SOMATIC]     # 0th column is variant
 
     def log_relative_posteriors(self, batch: ReadSetBatch, artifact_logits: torch.Tensor = None) -> torch.Tensor:
         """
@@ -189,14 +190,14 @@ class PosteriorModel(torch.nn.Module):
                 prior_fig, prior_ax = plotting.grouped_bar_plot(log_prior_bar_plot_data, [v_type.name for v_type in VariantType], "log priors")
                 summary_writer.add_figure("log priors", prior_fig, epoch)
 
-    def calculate_probability_threshold(self, loader, summary_writer: SummaryWriter = None):
+    def calculate_probability_threshold(self, loader, summary_writer: SummaryWriter = None, germline_mode: bool = False):
         self.train(False)
         error_probs = []    # includes both artifact and seq errors
 
         pbar = tqdm(enumerate(loader), mininterval=10)
         for n, batch in pbar:
             # 0th column is true variant, subtract it from 1 to get error prob
-            error_probs.extend(self.error_probabilities(batch).tolist())
+            error_probs.extend(self.error_probabilities(batch, germline_mode).tolist())
 
         error_probs.sort()
         total_variants = len(error_probs) - sum(error_probs)

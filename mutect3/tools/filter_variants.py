@@ -20,6 +20,7 @@ TRUSTED_M2_FILTERS = {'contamination', 'multiallelic'}
 POST_PROB_INFO_KEY = 'POST'
 
 FILTER_NAMES = ['dummy' for _ in CallType]
+FILTER_NAMES[CallType.SOMATIC] = 'somatic'
 FILTER_NAMES[CallType.SEQ_ERROR] = 'seq_error'
 FILTER_NAMES[CallType.ARTIFACT] = 'artifact'
 FILTER_NAMES[CallType.GERMLINE] = 'germline'
@@ -67,6 +68,7 @@ def parse_arguments():
     parser.add_argument('--' + constants.INITIAL_LOG_ARTIFACT_PRIOR_NAME, type=float, default=-10.0, required=False)
     parser.add_argument('--' + constants.NUM_IGNORED_SITES_NAME, type=float, required=True)
     parser.add_argument('--' + constants.MAF_SEGMENTS_NAME, required=False)
+    parser.add_argument('--' + constants.GERMLINE_MODE_NAME, action='store_true')
     return parser.parse_args()
 
 
@@ -82,12 +84,13 @@ def main():
                       num_spectrum_iterations=getattr(args, constants.NUM_SPECTRUM_ITERATIONS),
                       tensorboard_dir=getattr(args, constants.TENSORBOARD_DIR_NAME),
                       num_ignored_sites=getattr(args, constants.NUM_IGNORED_SITES_NAME),
-                      maf_segments=getattr(args, constants.MAF_SEGMENTS_NAME))
+                      maf_segments=getattr(args, constants.MAF_SEGMENTS_NAME),
+                      germline_mode=getattr(args, constants.GERMLINE_MODE_NAME))
 
 
 def make_filtered_vcf(saved_artifact_model, initial_log_variant_prior: float, initial_log_artifact_prior: float,
                       test_dataset_file, input_vcf, output_vcf, batch_size: int, num_spectrum_iterations: int, tensorboard_dir,
-                      num_ignored_sites: int, maf_segments):
+                      num_ignored_sites: int, maf_segments, germline_mode: bool):
     print("Loading artifact model and test dataset")
     artifact_model = load_artifact_model(saved_artifact_model)
     posterior_model = PosteriorModel(artifact_model, initial_log_variant_prior, initial_log_artifact_prior)
@@ -99,9 +102,9 @@ def make_filtered_vcf(saved_artifact_model, initial_log_variant_prior: float, in
         summary_writer=summary_writer, ignored_to_non_ignored_ratio=num_ignored_sites/len(filtering_data_loader.dataset))
 
     print("Calculating optimal logit threshold")
-    error_probability_threshold = posterior_model.calculate_probability_threshold(filtering_data_loader, summary_writer)
+    error_probability_threshold = posterior_model.calculate_probability_threshold(filtering_data_loader, summary_writer, germline_mode=germline_mode)
     print("Optimal probability threshold: " + str(error_probability_threshold))
-    apply_filtering_to_vcf(input_vcf, output_vcf, error_probability_threshold, filtering_data_loader, posterior_model)
+    apply_filtering_to_vcf(input_vcf, output_vcf, error_probability_threshold, filtering_data_loader, posterior_model, germline_mode=germline_mode)
 
 
 def make_filtering_data_loader(dataset_file, input_vcf, batch_size: int) -> DataLoader:
@@ -126,8 +129,9 @@ def make_filtering_data_loader(dataset_file, input_vcf, batch_size: int) -> Data
     return filtering_data_loader
 
 
-def apply_filtering_to_vcf(input_vcf, output_vcf, error_probability_threshold, filtering_data_loader, posterior_model):
+def apply_filtering_to_vcf(input_vcf, output_vcf, error_probability_threshold, filtering_data_loader, posterior_model, germline_mode: bool = False):
     print("Computing final error probabilities")
+    passing_call_type = CallType.GERMLINE if germline_mode else CallType.SOMATIC
     encoding_to_post_prob_dict = {}
     pbar = tqdm(enumerate(filtering_data_loader), mininterval=10)
     for n, batch in pbar:
@@ -143,7 +147,7 @@ def apply_filtering_to_vcf(input_vcf, output_vcf, error_probability_threshold, f
                                        'Type': 'Float', 'Number': 'A'})
 
     for n, filter_name in enumerate(FILTER_NAMES):
-        if n != CallType.SOMATIC:
+        if n != passing_call_type:
             unfiltered_vcf.add_filter_to_header({'ID': filter_name, 'Description': filter_name})
 
     writer = Writer(output_vcf, unfiltered_vcf)  # input vcf is a template for the header
@@ -157,11 +161,11 @@ def apply_filtering_to_vcf(input_vcf, output_vcf, error_probability_threshold, f
             post_probs = encoding_to_post_prob_dict[encoding]
             v.INFO[POST_PROB_INFO_KEY] = post_probs
 
-            error_prob = 1 - post_probs[CallType.SOMATIC]
+            error_prob = 1 - post_probs[passing_call_type]
             if error_prob > error_probability_threshold:
                 # get the error type with the largest posterior probability
                 highest_prob_indices = torch.topk(post_probs, 2).indices.tolist()
-                highest_prob_index = highest_prob_indices[1] if highest_prob_indices[0] == CallType.SOMATIC else highest_prob_indices[0]
+                highest_prob_index = highest_prob_indices[1] if highest_prob_indices[0] == passing_call_type else highest_prob_indices[0]
                 filters.add(FILTER_NAMES[highest_prob_index])
 
         v.FILTER = ';'.join(filters) if filters else 'PASS'
