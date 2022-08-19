@@ -313,7 +313,7 @@ class ArtifactModel(nn.Module):
                     for c_bin in count_bins:
                         count_mask = (c_bin[0] <= alt_counts) & (c_bin[1] >= alt_counts)
                         count_and_variant_mask = count_mask & variant_mask
-                        sensitivity[var_type][CallType.VARIANT][c_bin].record_with_mask(correct, (labels < 0.5) & count_and_variant_mask)
+                        sensitivity[var_type][CallType.SOMATIC][c_bin].record_with_mask(correct, (labels < 0.5) & count_and_variant_mask)
                         sensitivity[var_type][CallType.ARTIFACT][c_bin].record_with_mask(correct, (labels > 0.5) & count_and_variant_mask)
             # done collecting data for this particular loader, now fill in subplots for this loader's row
             for var_type in VariantType:

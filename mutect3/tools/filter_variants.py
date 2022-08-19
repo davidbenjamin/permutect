@@ -6,6 +6,8 @@ from torch.utils.tensorboard import SummaryWriter
 from cyvcf2 import VCF, Writer, Variant
 from tqdm.autonotebook import tqdm
 
+from torch.utils.data import DataLoader
+
 from mutect3.architecture.artifact_model import ArtifactModel
 from mutect3.architecture.posterior_model import PosteriorModel
 from mutect3.data import read_set, read_set_dataset
@@ -13,14 +15,14 @@ from mutect3 import constants
 from mutect3.utils import CallType
 
 # TODO: eventually M3 can handle multiallelics
-TRUSTED_M2_FILTERS = {'contamination', 'germline', 'multiallelic'}
+TRUSTED_M2_FILTERS = {'contamination', 'multiallelic'}
 
-ERROR_PROB_INFO_KEY = 'ERROR_PROB'
-SEQ_ERROR_PROB_INFO_KEY = 'SEQ_ERROR_PROB'
-ARTIFACT_PROB_INFO_KEY = 'ARTIFACT_PROB'
+POST_PROB_INFO_KEY = 'POST'
 
-ARTIFACT_FILTER = 'artifact'
-SEQ_ERROR_FILTER = 'seq_error'
+FILTER_NAMES = ['dummy' for _ in CallType]
+FILTER_NAMES[CallType.SEQ_ERROR] = 'seq_error'
+FILTER_NAMES[CallType.ARTIFACT] = 'artifact'
+FILTER_NAMES[CallType.GERMLINE] = 'germline'
 
 
 # this presumes that we have an ArtifactModel and we have saved it via save_mutect3_model as in train_model.py
@@ -102,7 +104,7 @@ def make_filtered_vcf(saved_artifact_model, initial_log_variant_prior: float, in
     apply_filtering_to_vcf(input_vcf, output_vcf, error_probability_threshold, filtering_data_loader, posterior_model)
 
 
-def make_filtering_data_loader(dataset_file, input_vcf, batch_size: int):
+def make_filtering_data_loader(dataset_file, input_vcf, batch_size: int) -> DataLoader:
     print("Reading test dataset")
     unfiltered_test_data = read_set_dataset.read_data(dataset_file)
     # record variants that M2 filtered as germline or contamination.  Mutect3 ignores these
@@ -135,32 +137,32 @@ def apply_filtering_to_vcf(input_vcf, output_vcf, error_probability_threshold, f
             encoding_to_post_prob_dict[encoding] = post_probs.tolist()
     print("Applying threshold")
     unfiltered_vcf = VCF(input_vcf)
-    unfiltered_vcf.add_info_to_header({'ID': ERROR_PROB_INFO_KEY, 'Description': 'Mutect3 posterior error probability',
+
+    all_types = [call_type.name for call_type in CallType]
+    unfiltered_vcf.add_info_to_header({'ID': POST_PROB_INFO_KEY, 'Description': 'Mutect3 posterior probability of {' + ', '.join(all_types) + '}',
                                        'Type': 'Float', 'Number': 'A'})
-    unfiltered_vcf.add_info_to_header({'ID': SEQ_ERROR_PROB_INFO_KEY, 'Description': 'Mutect3 posterior probability of sequencing error',
-         'Type': 'Float', 'Number': 'A'})
-    unfiltered_vcf.add_info_to_header({'ID': ARTIFACT_PROB_INFO_KEY, 'Description': 'Mutect3 posterior probability of artifact',
-         'Type': 'Float', 'Number': 'A'})
-    unfiltered_vcf.add_filter_to_header({'ID': ARTIFACT_FILTER, 'Description': 'technical artifact'})
-    unfiltered_vcf.add_filter_to_header({'ID': SEQ_ERROR_FILTER, 'Description': 'sequencing error'})
+
+    for n, filter_name in enumerate(FILTER_NAMES):
+        if n != CallType.SOMATIC:
+            unfiltered_vcf.add_filter_to_header({'ID': filter_name, 'Description': filter_name})
+
     writer = Writer(output_vcf, unfiltered_vcf)  # input vcf is a template for the header
     pbar = tqdm(enumerate(unfiltered_vcf), mininterval=10)
     for n, v in pbar:
         filters = filters_to_keep_from_m2(v)
 
+        # TODO: in germline mode, somatic doesn't exist (or is just highly irrelevant) and germline is not an error!
         encoding = encode_variant(v, zero_based=True)  # cyvcf2 is zero-based
         if encoding in encoding_to_post_prob_dict:
             post_probs = encoding_to_post_prob_dict[encoding]
-            error_prob = 1 - post_probs[CallType.VARIANT]
-            seq_error_prob = post_probs[CallType.SEQ_ERROR]
-            artifact_prob = post_probs[CallType.ARTIFACT]
-            v.INFO[ERROR_PROB_INFO_KEY] = error_prob
-            v.INFO[SEQ_ERROR_PROB_INFO_KEY] = seq_error_prob
-            v.INFO[ARTIFACT_PROB_INFO_KEY] = artifact_prob
+            v.INFO[POST_PROB_INFO_KEY] = post_probs
 
-            # TODO: this needs updating once we add germline filtering etc
+            error_prob = 1 - post_probs[CallType.SOMATIC]
             if error_prob > error_probability_threshold:
-                filters.add(ARTIFACT_FILTER if artifact_prob > seq_error_prob else SEQ_ERROR_FILTER)
+                # get the error type with the largest posterior probability
+                highest_prob_indices = torch.topk(post_probs, 2).indices.tolist()
+                highest_prob_index = highest_prob_indices[1] if highest_prob_indices[0] == CallType.SOMATIC else highest_prob_indices[0]
+                filters.add(FILTER_NAMES[highest_prob_index])
 
         v.FILTER = ';'.join(filters) if filters else 'PASS'
         writer.write_record(v)

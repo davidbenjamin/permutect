@@ -36,14 +36,21 @@ class PosteriorModel(torch.nn.Module):
         # linear layer with no bias to select the appropriate priors given one-hot variant encoding
         # in torch linear layers the weight is indexed by out-features, then in-features, so indices are
         # self.unnormalized_priors.weight[call type, variant type]
-        self.unnormalized_priors = torch.nn.Linear(in_features=len(VariantType), out_features=len(CallType), bias=False)
+        self._unnormalized_priors = torch.nn.Linear(in_features=len(VariantType), out_features=len(CallType), bias=False)
         with torch.no_grad():
-            initial = torch.zeros_like(self.unnormalized_priors.weight)
+            initial = torch.zeros_like(self._unnormalized_priors.weight)
             # the following assignments are broadcast over rows; that is, each variant type gets the same prior
-            initial[CallType.VARIANT] = variant_log_prior
+            initial[CallType.SOMATIC] = variant_log_prior
             initial[CallType.ARTIFACT] = artifact_log_prior
             initial[CallType.SEQ_ERROR] = 0
-            self.unnormalized_priors.weight.copy_(initial)
+            initial[CallType.GERMLINE] = 0
+            self._unnormalized_priors.weight.copy_(initial)
+
+    def make_unnormalized_priors(self, variant_types_one_hot_2d: torch.Tensor, allele_frequencies_1d: torch.Tensor) -> torch.Tensor:
+        result = self._unnormalized_priors(variant_types_one_hot_2d)
+        result[:, CallType.SEQ_ERROR] = 0
+        result[:, CallType.GERMLINE] = torch.log(1 - torch.square(1-allele_frequencies_1d))     # 1 minus hom ref probability
+        return result   # batch size x len(CallType)
 
     def posterior_probabilities(self, batch: ReadSetBatch) -> torch.Tensor:
         """
@@ -57,7 +64,7 @@ class PosteriorModel(torch.nn.Module):
         :param batch:
         :return: non-log error probabilities as a 1D tensor with length batch size
         """
-        return 1 - self.posterior_probabilities(batch)[:, CallType.VARIANT]     # 0th column is variant
+        return 1 - self.posterior_probabilities(batch)[:, CallType.SOMATIC]     # 0th column is variant
 
     def log_relative_posteriors(self, batch: ReadSetBatch, artifact_logits: torch.Tensor = None) -> torch.Tensor:
         """
@@ -75,7 +82,7 @@ class PosteriorModel(torch.nn.Module):
         log_combinatorial_factors = utils.log_binomial_coefficient(batch.pd_tumor_depths(), batch.pd_tumor_alt_counts())
 
         # log priors of all call types for each datum -- batch.size() x len(CallType) tensor
-        log_priors = torch.nn.functional.log_softmax(self.unnormalized_priors(types), dim=1)
+        log_priors = torch.nn.functional.log_softmax(self.make_unnormalized_priors(types, batch.allele_frequencies()), dim=1)
 
         # log priors of all call types for each datum -- batch.size() x len(CallType) tensor
         # initialize (arbitrarily) to zero, then fill in the variant, artifact, and seq error columns
@@ -85,8 +92,8 @@ class PosteriorModel(torch.nn.Module):
         # the probability that these *particular* reads exhibit the alt allele.  Since any read is (essentially) equally
         # likely to exhibit a variant, we simply divide by the combinatorial factor (depth)C(count)
         # this yields a 1D tensor of length batch_size
-        log_likelihoods[:, CallType.VARIANT] = self.variant_spectrum.forward(batch.pd_tumor_depths(),
-            batch.pd_tumor_alt_counts()) - log_combinatorial_factors
+        log_likelihoods[:, CallType.SOMATIC] = self.variant_spectrum.forward(batch.pd_tumor_depths(),
+                                                                             batch.pd_tumor_alt_counts()) - log_combinatorial_factors
 
         # the artifact model gives the log likelihood ratio of these reads being alt given artifact, non-artifact
         # this is also a 1D tensor of length batch_size
@@ -95,6 +102,14 @@ class PosteriorModel(torch.nn.Module):
             batch.pd_tumor_alt_counts()) - log_combinatorial_factors + artifact_term
 
         log_likelihoods[:, CallType.SEQ_ERROR] = batch.seq_error_log_likelihoods()
+
+        # TODO: GENERALIZE GERMLINE LOG LIKELIHOOD TO COPY NUMBER != 2 by using maf_segments
+        # TODO: this is only a tumor-only germline model! It can become MUCH more useful if we include the normal
+        # TODO: read counts!
+        # if copy number = 2 ie maf = 1/2,
+        # probability of these particular reads being ref is (1/2)^num_ref
+        # probability of these particular reads being alt is (1/2)^num_alt
+        log_likelihoods[:, CallType.GERMLINE] = -(batch.pd_tumor_ref_counts() + batch.pd_tumor_alt_counts())*torch.log(torch.Tensor([2]))
 
         return log_priors + log_likelihoods
 
@@ -115,7 +130,7 @@ class PosteriorModel(torch.nn.Module):
         artifact_logits_and_batches = [(self.artifact_model.forward(batch=batch).detach(), batch) for batch in loader]
 
         spectra_and_prior_params = chain(self.variant_spectrum.parameters(), self.artifact_spectra.parameters(),
-                                         self.unnormalized_priors.parameters())
+                                         self._unnormalized_priors.parameters())
         optimizer = torch.optim.Adam(spectra_and_prior_params)
 
         for epoch in trange(1, num_iterations + 1, desc="AF spectra epoch"):
@@ -130,8 +145,9 @@ class PosteriorModel(torch.nn.Module):
                 # note that we don't multiply by batch size because we take the mean of log evidence above
                 # however, we must sum over variant types since each ignored site is simultaneously a missing non-SNV,
                 # a missing non-INSERTION etc
+                # we use a germline allele frequency of 0.001 for the missing sites but it doesn't really matter
                 for variant_type in VariantType:
-                    log_priors = torch.nn.functional.log_softmax(self.unnormalized_priors(variant_type.one_hot_tensor().unsqueeze(dim=0)), dim=1)
+                    log_priors = torch.nn.functional.log_softmax(self.make_unnormalized_priors(variant_type.one_hot_tensor().unsqueeze(dim=0), torch.Tensor([0.001])), dim=1)
                     log_seq_error_prior = log_priors.squeeze()[CallType.SEQ_ERROR]
                     missing_loss = -ignored_to_non_ignored_ratio * log_seq_error_prior  
                     loss += missing_loss
@@ -166,8 +182,8 @@ class PosteriorModel(torch.nn.Module):
                 # bar plot of log priors -- data is indexed by call type name, and x ticks are variant types
                 log_prior_bar_plot_data = defaultdict(list)
                 for variant_type in VariantType:
-                    log_priors = torch.nn.functional.log_softmax(self.unnormalized_priors(variant_type.one_hot_tensor().unsqueeze(dim=0)), dim=1)
-                    for call_type in (CallType.VARIANT, CallType.ARTIFACT):
+                    log_priors = torch.nn.functional.log_softmax(self.make_unnormalized_priors(variant_type.one_hot_tensor().unsqueeze(dim=0), torch.Tensor([0.001])), dim=1)
+                    for call_type in (CallType.SOMATIC, CallType.ARTIFACT):
                         log_prior_bar_plot_data[call_type.name].append(log_priors.squeeze().detach()[call_type])
 
                 prior_fig, prior_ax = plotting.grouped_bar_plot(log_prior_bar_plot_data, [v_type.name for v_type in VariantType], "log priors")

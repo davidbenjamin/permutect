@@ -43,9 +43,10 @@ class VariantType(enum.IntEnum):
 
 
 class CallType(enum.IntEnum):
-    VARIANT = 0
+    SOMATIC = 0
     ARTIFACT = 1
     SEQ_ERROR = 2
+    GERMLINE = 3
 
 
 class EpochType(enum.Enum):

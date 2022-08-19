@@ -70,6 +70,9 @@ class ReadSetBatch:
     def pd_tumor_alt_counts(self) -> torch.IntTensor:
         return self._pd_tumor_alt_counts
 
+    def pd_tumor_ref_counts(self) -> torch.IntTensor:
+        return self._pd_tumor_depths - self._pd_tumor_alt_counts
+
     def info(self) -> torch.Tensor:
         return self._info
 
