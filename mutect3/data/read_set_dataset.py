@@ -92,9 +92,10 @@ def read_data(dataset_file):
 
             # seq error log likelihood
             seq_error_log_likelihood = read_float(file.readline())
+            normal_seq_error_log_likelihood = read_float(file.readline())
 
             datum = ReadSet(contig, position, ref, alt, ref_tensor, alt_tensor, gatk_info_tensor, label, pd_tumor_depth,
-                            pd_tumor_alt, pd_normal_depth, pd_normal_alt, seq_error_log_likelihood)
+                            pd_tumor_alt, pd_normal_depth, pd_normal_alt, seq_error_log_likelihood, normal_seq_error_log_likelihood)
             if tumor_ref_count >= MIN_REF and tumor_alt_count > 0:
                 data.append(datum)
 

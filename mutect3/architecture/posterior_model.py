@@ -98,25 +98,24 @@ class PosteriorModel(torch.nn.Module):
         # this yields a 1D tensor of length batch_size
         log_likelihoods[:, CallType.SOMATIC] = self.variant_spectrum.forward(batch.pd_tumor_depths(),
                                                                              batch.pd_tumor_alt_counts()) - log_combinatorial_factors
+        # TODO: include normal by giving it the seq error likelihood model when tumor is somatic and adding
 
         # the artifact model gives the log likelihood ratio of these reads being alt given artifact, non-artifact
         # this is also a 1D tensor of length batch_size
         artifact_term = artifact_logits if artifact_logits is not None else self.artifact_model.forward(batch)
         log_likelihoods[:, CallType.ARTIFACT] = self.artifact_spectra.forward(types, batch.pd_tumor_depths(),
             batch.pd_tumor_alt_counts()) - log_combinatorial_factors + artifact_term
+        # TODO: include normal by giving it a mixture model of 1) the seq error likelihood model and 2) a normal artifact
+        # TODO: spectrum model when tumor is artifact and adding
 
         log_likelihoods[:, CallType.SEQ_ERROR] = batch.seq_error_log_likelihoods()
+        # TODO: include normal by giving it the same seq error likelihood model and adding
 
         # since this is a default dict, if there's no segmentation for the contig we will get no overlaps but not an error
         # In our case there is either one or zero overlaps, and overlaps have the form
         segmentation_overlaps = [self.segmentation[item.contig()][item.position()] for item in batch.original_list()]
         mafs = torch.Tensor([overlaps[0].data if overlaps else 0.5 for overlaps in segmentation_overlaps])
 
-        # TODO: this is only a tumor-only germline model! It can become MUCH more useful if we include the normal
-        # TODO: read counts!
-        # if copy number = 2 ie maf = 1/2,
-        # probability of these particular reads being ref is (1/2)^num_ref
-        # probability of these particular reads being alt is (1/2)^num_alt
         afs = batch.allele_frequencies()
         het_probs = 2*afs*(1-afs)
         hom_probs = afs*afs
@@ -124,12 +123,12 @@ class PosteriorModel(torch.nn.Module):
         hom_proportion = 1 - het_proportion
 
         # the following should both be 1D tensors of length batch size
-        alt_minor_log_likelihoods = torch.log(het_proportion/2) + batch.pd_tumor_alt_counts() * torch.log(mafs) + batch.pd_tumor_ref_counts() * torch.log(1 - mafs)
+        alt_minor_log_likelihoods = torch.log(het_proportion / 2) + batch.pd_tumor_alt_counts() * torch.log(mafs) + batch.pd_tumor_ref_counts() * torch.log(1 - mafs)
         alt_major_log_likelihoods = torch.log(het_proportion / 2) + batch.pd_tumor_ref_counts() * torch.log(mafs) + batch.pd_tumor_alt_counts() * torch.log(1 - mafs)
         hom_log_likelihoods = torch.log(hom_proportion) + utils.beta_binomial(batch.pd_tumor_depths(), batch.pd_tumor_alt_counts(), 98, 2) - log_combinatorial_factors
 
         log_likelihoods[:, CallType.GERMLINE] = torch.logsumexp(torch.vstack((alt_minor_log_likelihoods, alt_major_log_likelihoods, hom_log_likelihoods)), dim=0)
-
+        # TODO: include normal by giving it the same germline likelihood model and adding
         return log_priors + log_likelihoods
 
     def learn_priors_and_spectra(self, loader, num_iterations, ignored_to_non_ignored_ratio: float,

@@ -76,7 +76,7 @@ def get_segmentation(segments_file) -> defaultdict:
 
     with open(segments_file, 'r') as file:
         for line in file:
-            if line.startswith("#"):
+            if line.startswith("#") or (line.startswith("contig") and line.endswith("minor_allele_fraction")):
                 continue
             tokens = line.split()
             contig, start, stop, maf = tokens[0], int(tokens[1]), int(tokens[2]), float(tokens[3])
