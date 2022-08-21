@@ -1,5 +1,7 @@
 import argparse
 from typing import Set
+from intervaltree import IntervalTree
+from collections import defaultdict
 
 import torch
 from torch.utils.tensorboard import SummaryWriter
@@ -18,12 +20,7 @@ from mutect3.utils import CallType
 TRUSTED_M2_FILTERS = {'contamination', 'multiallelic'}
 
 POST_PROB_INFO_KEY = 'POST'
-
-FILTER_NAMES = ['dummy' for _ in CallType]
-FILTER_NAMES[CallType.SOMATIC] = 'somatic'
-FILTER_NAMES[CallType.SEQ_ERROR] = 'seq_error'
-FILTER_NAMES[CallType.ARTIFACT] = 'artifact'
-FILTER_NAMES[CallType.GERMLINE] = 'germline'
+FILTER_NAMES = [call_type.name.lower() for call_type in CallType]
 
 
 # this presumes that we have an ArtifactModel and we have saved it via save_mutect3_model as in train_model.py
@@ -72,8 +69,25 @@ def parse_arguments():
     return parser.parse_args()
 
 
+def get_segmentation(segments_file) -> defaultdict:
+    result = defaultdict(IntervalTree)
+    if segments_file is None:
+        return result
+
+    with open(segments_file, 'r') as file:
+        for line in file:
+            if line.startswith("#"):
+                continue
+            tokens = line.split()
+            contig, start, stop, maf = tokens[0], int(tokens[1]), int(tokens[2]), float(tokens[3])
+            result[contig][start:stop] = maf
+
+    return result
+
+
 def main():
     args = parse_arguments()
+
     make_filtered_vcf(saved_artifact_model=getattr(args, constants.M3_MODEL_NAME),
                       initial_log_variant_prior=getattr(args, constants.INITIAL_LOG_VARIANT_PRIOR_NAME),
                       initial_log_artifact_prior=getattr(args, constants.INITIAL_LOG_ARTIFACT_PRIOR_NAME),
@@ -85,15 +99,16 @@ def main():
                       tensorboard_dir=getattr(args, constants.TENSORBOARD_DIR_NAME),
                       num_ignored_sites=getattr(args, constants.NUM_IGNORED_SITES_NAME),
                       maf_segments=getattr(args, constants.MAF_SEGMENTS_NAME),
-                      germline_mode=getattr(args, constants.GERMLINE_MODE_NAME))
+                      germline_mode=getattr(args, constants.GERMLINE_MODE_NAME),
+                      segmentation=get_segmentation(getattr(args, constants.MAF_SEGMENTS_NAME)))
 
 
 def make_filtered_vcf(saved_artifact_model, initial_log_variant_prior: float, initial_log_artifact_prior: float,
                       test_dataset_file, input_vcf, output_vcf, batch_size: int, num_spectrum_iterations: int, tensorboard_dir,
-                      num_ignored_sites: int, maf_segments, germline_mode: bool):
+                      num_ignored_sites: int, maf_segments, germline_mode: bool, segmentation=defaultdict(IntervalTree)):
     print("Loading artifact model and test dataset")
     artifact_model = load_artifact_model(saved_artifact_model)
-    posterior_model = PosteriorModel(artifact_model, initial_log_variant_prior, initial_log_artifact_prior)
+    posterior_model = PosteriorModel(artifact_model, initial_log_variant_prior, initial_log_artifact_prior, segmentation=segmentation)
     filtering_data_loader = make_filtering_data_loader(test_dataset_file, input_vcf, batch_size)
 
     print("Learning AF spectra")

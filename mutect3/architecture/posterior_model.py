@@ -3,6 +3,7 @@ from torch.utils.tensorboard import SummaryWriter
 
 from itertools import chain
 from collections import defaultdict
+from intervaltree import IntervalTree
 from tqdm.autonotebook import trange, tqdm
 from matplotlib import pyplot as plt
 
@@ -19,11 +20,13 @@ class PosteriorModel(torch.nn.Module):
 
     """
 
-    def __init__(self, artifact_model: ArtifactModel, variant_log_prior: float, artifact_log_prior: float):
+    def __init__(self, artifact_model: ArtifactModel, variant_log_prior: float, artifact_log_prior: float, segmentation=defaultdict(IntervalTree)):
         super(PosteriorModel, self).__init__()
 
         self.artifact_model = artifact_model
         utils.freeze(self.artifact_model.parameters())
+
+        self.segmentation = segmentation
 
         # TODO introduce parameters class so that num_components is not hard-coded
         # featureless because true variant types share a common AF spectrum
@@ -104,7 +107,11 @@ class PosteriorModel(torch.nn.Module):
 
         log_likelihoods[:, CallType.SEQ_ERROR] = batch.seq_error_log_likelihoods()
 
-        # TODO: GENERALIZE GERMLINE LOG LIKELIHOOD TO COPY NUMBER != 2 by using maf_segments
+        # since this is a default dict, if there's no segmentation for the contig we will get no overlaps but not an error
+        # In our case there is either one or zero overlaps, and overlaps have the form
+        segmentation_overlaps = [self.segmentation[item.contig()][item.position()] for item in batch.original_list()]
+        mafs = torch.Tensor([overlaps[0].data if overlaps else 0.5 for overlaps in segmentation_overlaps])
+
         # TODO: this is only a tumor-only germline model! It can become MUCH more useful if we include the normal
         # TODO: read counts!
         # if copy number = 2 ie maf = 1/2,
@@ -117,10 +124,11 @@ class PosteriorModel(torch.nn.Module):
         hom_proportion = 1 - het_proportion
 
         # the following should both be 1D tensors of length batch size
-        het_log_likelihoods = torch.log(het_proportion) -(batch.pd_tumor_ref_counts() + batch.pd_tumor_alt_counts())*torch.log(torch.Tensor([2]))
+        alt_minor_log_likelihoods = torch.log(het_proportion/2) + batch.pd_tumor_alt_counts() * torch.log(mafs) + batch.pd_tumor_ref_counts() * torch.log(1 - mafs)
+        alt_major_log_likelihoods = torch.log(het_proportion / 2) + batch.pd_tumor_ref_counts() * torch.log(mafs) + batch.pd_tumor_alt_counts() * torch.log(1 - mafs)
         hom_log_likelihoods = torch.log(hom_proportion) + utils.beta_binomial(batch.pd_tumor_depths(), batch.pd_tumor_alt_counts(), 98, 2) - log_combinatorial_factors
 
-        log_likelihoods[:, CallType.GERMLINE] = torch.logsumexp(torch.vstack((het_log_likelihoods, hom_log_likelihoods)), dim=0)
+        log_likelihoods[:, CallType.GERMLINE] = torch.logsumexp(torch.vstack((alt_minor_log_likelihoods, alt_major_log_likelihoods, hom_log_likelihoods)), dim=0)
 
         return log_priors + log_likelihoods
 
