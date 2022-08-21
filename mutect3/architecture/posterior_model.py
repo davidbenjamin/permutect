@@ -110,7 +110,17 @@ class PosteriorModel(torch.nn.Module):
         # if copy number = 2 ie maf = 1/2,
         # probability of these particular reads being ref is (1/2)^num_ref
         # probability of these particular reads being alt is (1/2)^num_alt
-        log_likelihoods[:, CallType.GERMLINE] = -(batch.pd_tumor_ref_counts() + batch.pd_tumor_alt_counts())*torch.log(torch.Tensor([2]))
+        afs = batch.allele_frequencies()
+        het_probs = 2*afs*(1-afs)
+        hom_probs = afs*afs
+        het_proportion = het_probs/(het_probs + hom_probs)
+        hom_proportion = 1 - het_proportion
+
+        # the following should both be 1D tensors of length batch size
+        het_log_likelihoods = torch.log(het_proportion) -(batch.pd_tumor_ref_counts() + batch.pd_tumor_alt_counts())*torch.log(torch.Tensor([2]))
+        hom_log_likelihoods = torch.log(hom_proportion) + utils.beta_binomial(batch.pd_tumor_depths(), batch.pd_tumor_alt_counts(), 98, 2) - log_combinatorial_factors
+
+        log_likelihoods[:, CallType.GERMLINE] = torch.logsumexp(torch.vstack((het_log_likelihoods, hom_log_likelihoods)), dim=0)
 
         return log_priors + log_likelihoods
 
