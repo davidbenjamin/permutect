@@ -30,7 +30,7 @@ def train_artifact_model(m3_params: ArtifactModelParameters, training_datasets, 
     train_loader = read_set_dataset.make_semisupervised_data_loader(training, params.batch_size, pin_memory=use_gpu)
     valid_loader = read_set_dataset.make_semisupervised_data_loader(valid, params.batch_size, pin_memory=use_gpu)
 
-    model = ArtifactModel(params=m3_params, device=device).float()
+    model = ArtifactModel(params=m3_params, num_read_features=training.num_read_features(), device=device).float()
 
     print("Training model. . .")
     summary_writer = SummaryWriter(tensorboard_dir)
@@ -54,7 +54,8 @@ def train_artifact_model(m3_params: ArtifactModelParameters, training_datasets, 
 def save_artifact_model(model, m3_params, path):
     torch.save({
         constants.STATE_DICT_NAME: model.state_dict(),
-        constants.M3_PARAMS_NAME: m3_params
+        constants.M3_PARAMS_NAME: m3_params,
+        constants.NUM_READ_FEATURES_NAME: model.num_read_features()
     }, path)
 
 

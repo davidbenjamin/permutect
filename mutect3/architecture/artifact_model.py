@@ -83,13 +83,14 @@ class ArtifactModel(nn.Module):
     because we have different output layers for each variant type.
     """
 
-    def __init__(self, params: ArtifactModelParameters, device=torch.device("cpu")):
+    def __init__(self, params: ArtifactModelParameters, num_read_features: int, device=torch.device("cpu")):
         super(ArtifactModel, self).__init__()
 
         self._device = device
+        self._num_read_features = num_read_features
 
         # phi is the read embedding
-        read_layers = [read_set.NUM_READ_FEATURES] + params.read_layers
+        read_layers = [self._num_read_features] + params.read_layers
         self.phi = MLP(read_layers, batch_normalize=params.batch_normalize, dropout_p=params.dropout_p)
         self.phi.to(self._device)
 
@@ -108,6 +109,9 @@ class ArtifactModel(nn.Module):
 
         self.calibration = Calibration()
         self.calibration.to(self._device)
+
+    def num_read_features(self) -> int:
+        return self._num_read_features
 
     def training_parameters(self):
         return chain(self.phi.parameters(), self.omega.parameters(), self.rho.parameters(), [self.calibration.max_logit])

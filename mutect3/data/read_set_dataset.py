@@ -46,6 +46,9 @@ class ReadSetDataset(Dataset):
     def __getitem__(self, index):
         return self.data[index]
 
+    def num_read_features(self) -> int:
+        return self.data[0].alt_tensor().size()[1]  # number of columns in (arbitrarily) the first alt read tensor of the dataset
+
 
 # this is used for training and validation but not deployment / testing
 def make_semisupervised_data_loader(dataset, batch_size, pin_memory=False):

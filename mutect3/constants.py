@@ -1,5 +1,6 @@
 STATE_DICT_NAME = 'model_state_dict'
 M3_PARAMS_NAME = 'm3_params'
+NUM_READ_FEATURES_NAME = 'num_read_features'
 HIDDEN_LAYERS_NAME = 'hidden_layers'
 
 INPUT_NAME = 'input'

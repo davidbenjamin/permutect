@@ -3,8 +3,6 @@ from torch.distributions import Beta
 
 from mutect3 import utils
 
-NUM_READ_FEATURES = 11  # size of each read's feature vector from M2 annotation
-
 NUM_GATK_INFO_FEATURES = 9  # size of each variant's info field tensor (3 components for HEC, one each for HAPDOM, HAPCOMP)
 # and 5 for ref bases STR info
 NUM_INFO_FEATURES = NUM_GATK_INFO_FEATURES + len(utils.VariantType)

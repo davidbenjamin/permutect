@@ -11,11 +11,12 @@ def test_read_set_batch():
     refs = ['A', 'C', 'G']
     alts = ['C', 'G', 'TT']
 
+    num_read_features = 11
     ref_counts = [6, 11, 7]
     alt_counts = [2, 15, 6]
 
-    ref_tensors = [torch.rand(n, read_set_datum.NUM_READ_FEATURES) for n in ref_counts]
-    alt_tensors = [torch.rand(n, read_set_datum.NUM_READ_FEATURES) for n in alt_counts]
+    ref_tensors = [torch.rand(n, num_read_features) for n in ref_counts]
+    alt_tensors = [torch.rand(n, num_read_features) for n in alt_counts]
 
     gatk_info_tensors = [torch.rand(read_set_datum.NUM_GATK_NFO_FEATURES) for _ in range(size)]
     labels = ["ARTIFACT", "SOMATIC", "ARTIFACT"]
@@ -42,7 +43,7 @@ def test_read_set_batch():
     assert batch.original_list() == data
 
     assert batch.reads().shape[0] == sum(ref_counts) + sum(alt_counts)
-    assert batch.reads().shape[1] == read_set_datum.NUM_READ_FEATURES
+    assert batch.reads().shape[1] == num_read_features
 
     assert batch.info().shape[0] == 3
 

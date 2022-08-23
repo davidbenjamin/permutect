@@ -12,9 +12,10 @@ def test_read_set_datum():
 
     num_ref_reads = 6
     num_alt_reads = 8
+    num_read_features = 11
 
-    ref_tensor = torch.rand(num_ref_reads, read_set.NUM_READ_FEATURES)
-    alt_tensor = torch.rand(num_alt_reads, read_set.NUM_READ_FEATURES)
+    ref_tensor = torch.rand(num_ref_reads, num_read_features)
+    alt_tensor = torch.rand(num_alt_reads, num_read_features)
     gatk_info_tensor = torch.rand(read_set.NUM_GATK_INFO_FEATURES)
     label = "artifact"
 

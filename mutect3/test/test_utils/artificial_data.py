@@ -1,10 +1,12 @@
 import torch
 import random
-from mutect3.data.read_set import NUM_READ_FEATURES, NUM_GATK_INFO_FEATURES, ReadSet
+from mutect3.data.read_set import NUM_GATK_INFO_FEATURES, ReadSet
 from mutect3.utils import VariantType
 from numpy.random import binomial
 
 BASES = ['A', 'C', 'G', 'T']
+
+NUM_READ_FEATURES = 11
 
 
 # random isotropic Gaussian tensor, dilated by different amounts in each dimension
