@@ -30,7 +30,7 @@ def train_artifact_model(m3_params: ArtifactModelParameters, training_datasets, 
     train_loader = read_set_dataset.make_semisupervised_data_loader(training, params.batch_size, pin_memory=use_gpu)
     valid_loader = read_set_dataset.make_semisupervised_data_loader(valid, params.batch_size, pin_memory=use_gpu)
 
-    model = ArtifactModel(params=m3_params, num_read_features=training.num_read_features(), device=device).float()
+    model = ArtifactModel(params=m3_params, num_read_features=train_and_valid.num_read_features(), device=device).float()
 
     print("Training model. . .")
     summary_writer = SummaryWriter(tensorboard_dir)

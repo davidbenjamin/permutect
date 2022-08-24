@@ -27,7 +27,7 @@ def train_model_and_write_summary(m3_params: ArtifactModelParameters, training_p
 
     train_loader = make_semisupervised_data_loader(training, training_params.batch_size)
     valid_loader = make_semisupervised_data_loader(valid, training_params.batch_size)
-    model = ArtifactModel(params=m3_params, num_read_features=training.num_read_features()).float()
+    model = ArtifactModel(params=m3_params, num_read_features=dataset.num_read_features()).float()
 
     model.train_model(train_loader, valid_loader, training_params.num_epochs, summary_writer=summary_writer,
                       reweighting_range=training_params.reweighting_range, m3_params=m3_params)
