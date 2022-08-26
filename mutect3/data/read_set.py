@@ -12,7 +12,7 @@ class ReadSet:
     # info tensor comes from GATK and does not include one-hot encoding of variant type
     def __init__(self, contig: str, position: int, ref: str, alt: str, ref_tensor: torch.Tensor, alt_tensor: torch.Tensor,
                  gatk_info_tensor: torch.Tensor, label: str, tumor_depth: int, tumor_alt_count: int, normal_depth: int, normal_alt_count: int,
-                 seq_error_log_likelihood: float = None, normal_seq_error_log_likelihood: float = None):
+                 seq_error_log_likelihood: float = None, normal_seq_error_log_likelihood: float = None, allele_frequency: float = None):
         self._contig = contig
         self._position = position
         self._ref = ref
@@ -37,7 +37,7 @@ class ReadSet:
         self._seq_error_log_likelihood = seq_error_log_likelihood
         self._normal_seq_error_log_likelihood = normal_seq_error_log_likelihood
 
-        self._allele_frequency = None
+        self._allele_frequency = allele_frequency
 
     def contig(self) -> str:
         return self._contig

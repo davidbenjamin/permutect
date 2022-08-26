@@ -125,7 +125,7 @@ class PosteriorModel(torch.nn.Module):
         # the following should both be 1D tensors of length batch size
         alt_minor_log_likelihoods = torch.log(het_proportion / 2) + batch.pd_tumor_alt_counts() * torch.log(mafs) + batch.pd_tumor_ref_counts() * torch.log(1 - mafs)
         alt_major_log_likelihoods = torch.log(het_proportion / 2) + batch.pd_tumor_ref_counts() * torch.log(mafs) + batch.pd_tumor_alt_counts() * torch.log(1 - mafs)
-        hom_log_likelihoods = torch.log(hom_proportion) + utils.beta_binomial(batch.pd_tumor_depths(), batch.pd_tumor_alt_counts(), 98, 2) - log_combinatorial_factors
+        hom_log_likelihoods = torch.log(hom_proportion) + utils.beta_binomial(batch.pd_tumor_depths(), batch.pd_tumor_alt_counts(), torch.Tensor([98.0]), torch.Tensor([2.0])) - log_combinatorial_factors
 
         log_likelihoods[:, CallType.GERMLINE] = torch.logsumexp(torch.vstack((alt_minor_log_likelihoods, alt_major_log_likelihoods, hom_log_likelihoods)), dim=0)
         # TODO: include normal by giving it the same germline likelihood model and adding

@@ -38,7 +38,8 @@ class ReadSetDataset(Dataset):
             normalized_gatk_info = (raw.gatk_info() - self.gatk_info_medians) / self.gatk_info_iqrs
             self.data[n] = ReadSet(raw.contig(), raw.position(), raw.ref(), raw.alt(), normalized_ref, normalized_alt,
                                    normalized_gatk_info, raw.label(), raw.tumor_depth(), raw.tumor_alt_count(), raw.normal_depth(),
-                                   raw.normal_alt_count(), raw.seq_error_log_likelihood())
+                                   raw.normal_alt_count(), raw.seq_error_log_likelihood(), raw.normal_seq_error_log_likelihood(),
+                                   raw.allele_frequency())
 
     def __len__(self):
         return len(self.data)

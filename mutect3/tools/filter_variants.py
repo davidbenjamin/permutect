@@ -49,6 +49,11 @@ def encode_variant(v: Variant, zero_based=False):
     return encode(v.CHROM, start, alt)
 
 
+def get_first_numeric_element(variant, key):
+    tuple_or_scalar = variant.INFO[key]
+    return tuple_or_scalar[0] if type(tuple_or_scalar) is tuple else tuple_or_scalar
+
+
 def filters_to_keep_from_m2(v: Variant) -> Set[str]:
     return set([]) if v.FILTER is None else set(v.FILTER.split(";")).intersection(TRUSTED_M2_FILTERS)
 
@@ -99,14 +104,13 @@ def main():
                       num_spectrum_iterations=getattr(args, constants.NUM_SPECTRUM_ITERATIONS),
                       tensorboard_dir=getattr(args, constants.TENSORBOARD_DIR_NAME),
                       num_ignored_sites=getattr(args, constants.NUM_IGNORED_SITES_NAME),
-                      maf_segments=getattr(args, constants.MAF_SEGMENTS_NAME),
                       germline_mode=getattr(args, constants.GERMLINE_MODE_NAME),
                       segmentation=get_segmentation(getattr(args, constants.MAF_SEGMENTS_NAME)))
 
 
 def make_filtered_vcf(saved_artifact_model, initial_log_variant_prior: float, initial_log_artifact_prior: float,
                       test_dataset_file, input_vcf, output_vcf, batch_size: int, num_spectrum_iterations: int, tensorboard_dir,
-                      num_ignored_sites: int, maf_segments, germline_mode: bool, segmentation=defaultdict(IntervalTree)):
+                      num_ignored_sites: int, germline_mode: bool = False, segmentation=defaultdict(IntervalTree)):
     print("Loading artifact model and test dataset")
     artifact_model = load_artifact_model(saved_artifact_model)
     posterior_model = PosteriorModel(artifact_model, initial_log_variant_prior, initial_log_artifact_prior, segmentation=segmentation)
@@ -130,7 +134,7 @@ def make_filtering_data_loader(dataset_file, input_vcf, batch_size: int) -> Data
     m2_filtering_to_keep = set([encode_variant(v, zero_based=True) for v in VCF(input_vcf) if
                                 filters_to_keep_from_m2(v)])
 
-    allele_frequencies = {encode_variant(v, zero_based=True): 10 ** (-v.INFO["POPAF"]) for v in VCF(input_vcf)}
+    allele_frequencies = {encode_variant(v, zero_based=True): 10 ** (-get_first_numeric_element(v, "POPAF")) for v in VCF(input_vcf)}
 
     # choose which variants to proceed to M3 -- those that M2 didn't filter as germline or contamination
     filtering_variants = []
@@ -175,12 +179,12 @@ def apply_filtering_to_vcf(input_vcf, output_vcf, error_probability_threshold, f
         encoding = encode_variant(v, zero_based=True)  # cyvcf2 is zero-based
         if encoding in encoding_to_post_prob_dict:
             post_probs = encoding_to_post_prob_dict[encoding]
-            v.INFO[POST_PROB_INFO_KEY] = post_probs
+            v.INFO[POST_PROB_INFO_KEY] = ','.join(map(str, post_probs))
 
             error_prob = 1 - post_probs[passing_call_type]
             if error_prob > error_probability_threshold:
                 # get the error type with the largest posterior probability
-                highest_prob_indices = torch.topk(post_probs, 2).indices.tolist()
+                highest_prob_indices = torch.topk(torch.Tensor(post_probs), 2).indices.tolist()
                 highest_prob_index = highest_prob_indices[1] if highest_prob_indices[0] == passing_call_type else highest_prob_indices[0]
                 filters.add(FILTER_NAMES[highest_prob_index])
 
