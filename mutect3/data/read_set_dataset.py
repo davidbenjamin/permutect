@@ -70,6 +70,7 @@ def read_data(dataset_file):
             # get label
             first_line = file.readline()
             if not first_line:
+                print("DEBUG: break statement reached")
                 break
             label = first_line.strip()
 
@@ -102,7 +103,8 @@ def read_data(dataset_file):
                             pd_tumor_alt, pd_normal_depth, pd_normal_alt, seq_error_log_likelihood, normal_seq_error_log_likelihood)
             if tumor_ref_count >= MIN_REF and tumor_alt_count > 0:
                 data.append(datum)
-
+        print("DEBUG: while loop exited")
+    print("DEBUG: with statement exited")
     return data
 
 
