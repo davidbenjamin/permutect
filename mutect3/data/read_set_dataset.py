@@ -65,7 +65,9 @@ def read_data(dataset_file):
     data = []
 
     with open(dataset_file) as file, tqdm(total=os.path.getsize(dataset_file)) as pbar:
+        n = 0
         while True:
+            n += 1
             pbar.update(file.tell() - pbar.n)
             # get label
             first_line = file.readline()
@@ -78,31 +80,47 @@ def read_data(dataset_file):
             locus, mutation = file.readline().strip().split(",")
             contig, position = locus.split(":")
             position = int(position)
+            if n % 10000 == 0:
+                print(contig + ":" + str(position))
+            DEBUG_LAST_ONE = (position == 155259590)    # DEBUG!!!!
             ref, alt = mutation.strip().split("->")
 
             ref_bases = file.readline().strip()  # not currently used
 
             gatk_info_tensor = line_to_tensor(file.readline())
+            if DEBUG_LAST_ONE:
+                print("WE GOT INFO")
+
 
             # tumor ref count, tumor alt count, normal ref count, normal alt count -- single-spaced
             tumor_ref_count, tumor_alt_count, normal_ref_count, normal_alt_count = map(int, file.readline().strip().split())
 
             ref_tensor = read_2d_tensor(file, tumor_ref_count)
             alt_tensor = read_2d_tensor(file, tumor_alt_count)
+            if DEBUG_LAST_ONE:
+                print("WE GOT ref and alt tensors")
             # normal_ref_tensor = read_2d_tensor(file, normal_ref_count)  # not currently used
             # normal_alt_tensor = read_2d_tensor(file, normal_alt_count)  # not currently used
 
             # pre-downsampling (pd) counts
             pd_tumor_depth, pd_tumor_alt, pd_normal_depth, pd_normal_alt = read_integers(file.readline())
+            if DEBUG_LAST_ONE:
+                print("WE GOT COUNTS")
 
             # seq error log likelihood
             seq_error_log_likelihood = read_float(file.readline())
             normal_seq_error_log_likelihood = read_float(file.readline())
+            if DEBUG_LAST_ONE:
+                print("WE GOT SEQ ERRORS")
 
             datum = ReadSet(contig, position, ref, alt, ref_tensor, alt_tensor, gatk_info_tensor, label, pd_tumor_depth,
                             pd_tumor_alt, pd_normal_depth, pd_normal_alt, seq_error_log_likelihood, normal_seq_error_log_likelihood)
+            if DEBUG_LAST_ONE:
+                print("WE MADE A DATUM")
             if tumor_ref_count >= MIN_REF and tumor_alt_count > 0:
                 data.append(datum)
+            if DEBUG_LAST_ONE:
+                print("WE'RE DONE WITH THE LAST ONE")
         print("DEBUG: while loop exited")
     print("DEBUG: with statement exited")
     return data
