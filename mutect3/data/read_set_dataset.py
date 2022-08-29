@@ -66,9 +66,11 @@ def read_data(dataset_file):
 
     with open(dataset_file) as file, tqdm(total=os.path.getsize(dataset_file)) as pbar:
         n = 0
+        print("DEBUG PRINT STATEMENT JUST FOR FUN")
         while True:
             n += 1
-            pbar.update(file.tell() - pbar.n)
+            if n % 10000 == 0:
+                pbar.update(file.tell() - pbar.n)
             # get label
             first_line = file.readline()
             if not first_line:
