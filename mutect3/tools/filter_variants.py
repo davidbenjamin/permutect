@@ -129,6 +129,7 @@ def make_filtered_vcf(saved_artifact_model, initial_log_variant_prior: float, in
 
 def make_filtering_data_loader(dataset_file, input_vcf, batch_size: int) -> DataLoader:
     print("Reading test dataset")
+    print("This is a pointless print")
     unfiltered_test_data = read_set_dataset.read_data(dataset_file)
 
     print("recording M2 filters")

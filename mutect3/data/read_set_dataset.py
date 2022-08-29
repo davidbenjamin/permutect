@@ -62,9 +62,11 @@ def make_test_data_loader(dataset, batch_size):
 
 
 def read_data(dataset_file):
+    print("we are in the read_data function")
     data = []
 
-    with open(dataset_file) as file, tqdm(total=os.path.getsize(dataset_file)) as pbar:
+    with open(dataset_file) as file: #, tqdm(total=os.path.getsize(dataset_file)) as pbar:
+        print("we are in the with statement")
         n = 0
         print("DEBUG PRINT STATEMENT JUST FOR FUN")
         while True:
@@ -77,6 +79,8 @@ def read_data(dataset_file):
                 print("DEBUG: break statement reached")
                 break
             label = first_line.strip()
+            if n % 5000 == 0:
+                print(label)
 
             # contig:position,ref->alt
             locus, mutation = file.readline().strip().split(",")
