@@ -69,8 +69,8 @@ def read_data(dataset_file):
         print("DEBUG PRINT STATEMENT JUST FOR FUN")
         while True:
             n += 1
-            if n % 10000 == 0:
-                pbar.update(file.tell() - pbar.n)
+            # if n % 10000 == 0:
+            #    pbar.update(file.tell() - pbar.n)
             # get label
             first_line = file.readline()
             if not first_line:
