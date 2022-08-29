@@ -84,54 +84,39 @@ def read_data(dataset_file):
             locus, mutation = file.readline().strip().split(",")
             contig, position = locus.split(":")
             position = int(position)
-            if n % 10000 == 0:
+            if n % 1000 == 0:
                 print(contig + ":" + str(position))
-            DEBUG_EVIL_ONE = (position == 4114494)    # DEBUG!!!!
             ref, alt = mutation.strip().split("->")
 
             ref_bases = file.readline().strip()  # not currently used
 
             gatk_info_tensor = line_to_tensor(file.readline())
-            if DEBUG_EVIL_ONE:
-                print("WE GOT INFO")
-
 
             # tumor ref count, tumor alt count, normal ref count, normal alt count -- single-spaced
             tumor_ref_count, tumor_alt_count, normal_ref_count, normal_alt_count = map(int, file.readline().strip().split())
 
-            if tumor_ref_count == 0:
-                print("NO TUMOR REF at " + contig + ":" + str(position))
-
-            if tumor_alt_count == 0:
-                print("NO TUMOR ALT at " + contig + ":" + str(position))
-
-
             ref_tensor = read_2d_tensor(file, tumor_ref_count)
             alt_tensor = read_2d_tensor(file, tumor_alt_count)
-            if DEBUG_EVIL_ONE:
-                print("WE GOT ref and alt tensors")
+
             # normal_ref_tensor = read_2d_tensor(file, normal_ref_count)  # not currently used
             # normal_alt_tensor = read_2d_tensor(file, normal_alt_count)  # not currently used
 
             # pre-downsampling (pd) counts
             pd_tumor_depth, pd_tumor_alt, pd_normal_depth, pd_normal_alt = read_integers(file.readline())
-            if DEBUG_EVIL_ONE:
-                print("WE GOT COUNTS")
 
             # seq error log likelihood
             seq_error_log_likelihood = read_float(file.readline())
             normal_seq_error_log_likelihood = read_float(file.readline())
-            if DEBUG_EVIL_ONE:
-                print("WE GOT SEQ ERRORS")
 
-            datum = ReadSet(contig, position, ref, alt, ref_tensor, alt_tensor, gatk_info_tensor, label, pd_tumor_depth,
-                            pd_tumor_alt, pd_normal_depth, pd_normal_alt, seq_error_log_likelihood, normal_seq_error_log_likelihood)
-            if DEBUG_EVIL_ONE:
-                print("WE MADE A DATUM")
-            if tumor_ref_count >= MIN_REF and tumor_alt_count > 0:
-                data.append(datum)
-            if DEBUG_EVIL_ONE:
-                print("WE'RE DONE WITH THE LAST ONE")
+            # debug to see if reducing memory consumption is the issue
+            if n % 10 == 0:
+                datum = ReadSet(contig, position, ref, alt, ref_tensor, alt_tensor, gatk_info_tensor, label, pd_tumor_depth,
+                                pd_tumor_alt, pd_normal_depth, pd_normal_alt, seq_error_log_likelihood, normal_seq_error_log_likelihood)
+
+                if tumor_ref_count >= MIN_REF and tumor_alt_count > 0:
+
+                    data.append(datum)
+
         print("DEBUG: while loop exited")
     print("DEBUG: with statement exited")
     return data
