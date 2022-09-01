@@ -8,10 +8,10 @@ from tqdm.autonotebook import trange, tqdm
 from matplotlib import pyplot as plt
 
 from mutect3 import utils
+from mutect3.data.posterior_batch import PosteriorBatch
 from mutect3.utils import VariantType, CallType
 from mutect3.architecture.beta_binomial_mixture import BetaBinomialMixture, FeaturelessBetaBinomialMixture
 from mutect3.data.read_set_batch import ReadSetBatch
-from mutect3.architecture.artifact_model import ArtifactModel
 from mutect3.metrics import plotting
 
 
@@ -19,12 +19,8 @@ class PosteriorModel(torch.nn.Module):
     """
 
     """
-
-    def __init__(self, artifact_model: ArtifactModel, variant_log_prior: float, artifact_log_prior: float, segmentation=defaultdict(IntervalTree)):
+    def __init__(self, variant_log_prior: float, artifact_log_prior: float, segmentation=defaultdict(IntervalTree)):
         super(PosteriorModel, self).__init__()
-
-        self.artifact_model = artifact_model
-        utils.freeze(self.artifact_model.parameters())
 
         self.segmentation = segmentation
 
@@ -55,25 +51,23 @@ class PosteriorModel(torch.nn.Module):
         result[:, CallType.GERMLINE] = torch.log(1 - torch.square(1-allele_frequencies_1d))     # 1 minus hom ref probability
         return result   # batch size x len(CallType)
 
-    def posterior_probabilities(self, batch: ReadSetBatch) -> torch.Tensor:
+    def posterior_probabilities(self, batch: PosteriorBatch) -> torch.Tensor:
         """
         :param batch:
         :return: non-log probabilities as a 2D tensor, 1st index is batch, 2nd is variant/artifact/seq error
         """
         return torch.nn.functional.softmax(self.log_relative_posteriors(batch), dim=1)
 
-    def error_probabilities(self, batch: ReadSetBatch, germline_mode: bool = False) -> torch.Tensor:
+    def error_probabilities(self, batch: PosteriorBatch, germline_mode: bool = False) -> torch.Tensor:
         """
-        :param germline_mode:
+        :param germline_mode: if True, germline classification is not considered an error mode
         :param batch:
         :return: non-log error probabilities as a 1D tensor with length batch size
         """
         return 1 - self.posterior_probabilities(batch)[:, CallType.GERMLINE if germline_mode else CallType.SOMATIC]     # 0th column is variant
 
-    def log_relative_posteriors(self, batch: ReadSetBatch, artifact_logits: torch.Tensor = None) -> torch.Tensor:
+    def log_relative_posteriors(self, batch: PosteriorBatch) -> torch.Tensor:
         """
-        :param artifact_logits: precomputed log odds ratio of artifact to non-artifact likelihoods.  If absent, it is computed
-            from self.artifact_model
         :param batch:
         :batch.seq_error_log_likelihoods() is the probability that these *particular* reads exhibit the alt allele given a
         sequencing error ie an error explainable in terms of base qualities.  For example if we have two alt reads with error
@@ -99,12 +93,8 @@ class PosteriorModel(torch.nn.Module):
         log_likelihoods[:, CallType.SOMATIC] = self.variant_spectrum.forward(batch.pd_tumor_depths(),
                                                                              batch.pd_tumor_alt_counts()) - log_combinatorial_factors
         # TODO: include normal by giving it the seq error likelihood model when tumor is somatic and adding
-
-        # the artifact model gives the log likelihood ratio of these reads being alt given artifact, non-artifact
-        # this is also a 1D tensor of length batch_size
-        artifact_term = artifact_logits if artifact_logits is not None else self.artifact_model.forward(batch)
         log_likelihoods[:, CallType.ARTIFACT] = self.artifact_spectra.forward(types, batch.pd_tumor_depths(),
-            batch.pd_tumor_alt_counts()) - log_combinatorial_factors + artifact_term
+            batch.pd_tumor_alt_counts()) - log_combinatorial_factors + batch.artifact_logits()
         # TODO: include normal by giving it a mixture model of 1) the seq error likelihood model and 2) a normal artifact
         # TODO: spectrum model when tumor is artifact and adding
 
@@ -131,22 +121,18 @@ class PosteriorModel(torch.nn.Module):
         # TODO: include normal by giving it the same germline likelihood model and adding
         return log_priors + log_likelihoods
 
-    def learn_priors_and_spectra(self, loader, num_iterations, ignored_to_non_ignored_ratio: float,
+    def learn_priors_and_spectra(self, posterior_loader, num_iterations, ignored_to_non_ignored_ratio: float,
                                  summary_writer: SummaryWriter = None):
         """
         :param summary_writer:
         :param num_iterations:
-        :param loader:
+        :param posterior_loader:
         :param ignored_to_non_ignored_ratio: ratio of sites in which no evidence of variation was found to sites in which
         sufficient evidence was found to emit test data.  Without this parameter (i.e. if it were set to zero) we would
         underestimate the frequency of sequencing error, hence overestimate the prior probability of variation.
 
         :return:
         """
-
-        # precompute the logits of the artifact model
-        artifact_logits_and_batches = [(self.artifact_model.forward(batch=batch).detach(), batch) for batch in loader]
-
         spectra_and_prior_params = chain(self.variant_spectrum.parameters(), self.artifact_spectra.parameters(),
                                          self._unnormalized_priors.parameters())
         optimizer = torch.optim.Adam(spectra_and_prior_params)
@@ -154,9 +140,9 @@ class PosteriorModel(torch.nn.Module):
         for epoch in trange(1, num_iterations + 1, desc="AF spectra epoch"):
             epoch_loss = utils.StreamingAverage()
 
-            pbar = tqdm(enumerate(artifact_logits_and_batches), mininterval=10)
-            for n, (artifact_logits, batch) in pbar:
-                relative_posteriors = self.log_relative_posteriors(batch, artifact_logits)
+            pbar = tqdm(enumerate(posterior_loader), mininterval=10)
+            for n, batch in pbar:
+                relative_posteriors = self.log_relative_posteriors(batch)
                 log_evidence = torch.logsumexp(relative_posteriors, dim=1)
                 loss = -torch.mean(log_evidence)
 
@@ -174,7 +160,7 @@ class PosteriorModel(torch.nn.Module):
                 loss.backward()
                 optimizer.step()
 
-                epoch_loss.record_sum(len(artifact_logits) * loss.detach(), len(artifact_logits))
+                epoch_loss.record_sum(batch.size() * loss.detach(), batch.size())
 
             if summary_writer is not None:
                 summary_writer.add_scalar("spectrum negative log evidence", epoch_loss.get(), epoch)

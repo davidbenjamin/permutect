@@ -1,10 +1,8 @@
 import random
 from typing import Iterable
-import os
-from itertools import chain
 
 import torch
-from torch.utils.data import Dataset, DataLoader, IterableDataset
+from torch.utils.data import Dataset, DataLoader
 from torch.utils.data.sampler import Sampler
 
 from mutect3.data.read_set import ReadSet
@@ -13,20 +11,25 @@ from mutect3.data.read_set_batch import ReadSetBatch
 
 MIN_REF = 5
 EPSILON = 0.00001
-DATA_COUNT_FOR_QUANTILES = 10000
+QUANTILE_DATA_COUNT = 10000
 
 
 class ReadSetDataset(Dataset):
-    def __init__(self, files=[], data: Iterable[ReadSet] = []):
+    def __init__(self, files=[], data: Iterable[ReadSet] = [], shuffle: bool = True):
         self.data = []
         for table_file in files:
             self.data.extend(read_data(table_file))
         self.data.extend(data)
-        random.shuffle(self.data)
+        if shuffle:
+            random.shuffle(self.data)
 
         # concatenate a bunch of ref tensors and take element-by-element quantiles
-        ref = torch.cat([datum.ref_tensor() for datum in self.data[:DATA_COUNT_FOR_QUANTILES]], dim=0)
-        gatk_info = torch.stack([datum.gatk_info() for datum in self.data[:DATA_COUNT_FOR_QUANTILES]], dim=0)
+        # for simplicity we do sampling with replacement
+        N = len(self.data)
+        random_indices = range(N) if N <= QUANTILE_DATA_COUNT else torch.randint(0, N, (QUANTILE_DATA_COUNT,)).tolist()
+
+        ref = torch.cat([self.data[n].ref_tensor() for n in random_indices], dim=0)
+        gatk_info = torch.stack([self.data[n].gatk_info() for n in random_indices], dim=0)
 
         self.read_medians, self.read_iqrs = medians_and_iqrs(ref)
         self.gatk_info_medians, self.gatk_info_iqrs = medians_and_iqrs(gatk_info)
@@ -52,42 +55,13 @@ class ReadSetDataset(Dataset):
         return self.data[0].alt_tensor().size()[1]  # number of columns in (arbitrarily) the first alt read tensor of the dataset
 
 
-def data_generator_from_saved_dataset(saved_dataset_file):
-    dataset = torch.load(saved_dataset_file)
-    for datum in dataset:
-        yield datum
-    # free up memory once generation is done.  We can't omit this because the generator doesn't necessarily go out of scope after iteration.
-    del dataset
-
-
-# concatenate multiple ReadSetDatasets stored on disk via torch.save(), loading only one at a time
-class CombinedReadSetDataset(IterableDataset):
-    def __init__(self, saved_dataset_files, num_read_features: int, total_size: int):
-        super(CombinedReadSetDataset).__init__()
-        self.saved_dataset_files = saved_dataset_files
-        self._num_read_features = num_read_features
-        self._total_size = total_size
-
-    #def __getitem__(self, index) -> T_co:
-    #    pass
-
-    def __iter__(self):
-        return chain((data_generator_from_saved_dataset(file) for file in self.saved_dataset_files))
-
-    def __len__(self):
-        return self._total_size
-
-    def num_read_features(self) -> int:
-        return self._num_read_features
-
-
 # this is used for training and validation but not deployment / testing
-def make_semisupervised_data_loader(dataset, batch_size, pin_memory=False):
+def make_semisupervised_data_loader(dataset: ReadSetDataset, batch_size: int, pin_memory=False):
     sampler = SemiSupervisedBatchSampler(dataset, batch_size)
     return DataLoader(dataset=dataset, batch_sampler=sampler, collate_fn=ReadSetBatch, pin_memory=pin_memory)
 
 
-def make_test_data_loader(dataset, batch_size):
+def make_test_data_loader(dataset: ReadSetDataset, batch_size: int):
     return DataLoader(dataset=dataset, batch_size=batch_size, collate_fn=ReadSetBatch)
 
 

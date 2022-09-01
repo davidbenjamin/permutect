@@ -16,6 +16,8 @@ from mutect3.architecture.artifact_model import ArtifactModel
 from mutect3.architecture.posterior_model import PosteriorModel
 from mutect3.data import read_set, read_set_dataset
 from mutect3 import constants
+from mutect3.data.posterior_dataset import PosteriorDataset
+from mutect3.data.posterior_datum import PosteriorDatum
 from mutect3.utils import CallType
 
 # TODO: eventually M3 can handle multiallelics
@@ -24,7 +26,7 @@ TRUSTED_M2_FILTERS = {'contamination', 'multiallelic'}
 POST_PROB_INFO_KEY = 'POST'
 FILTER_NAMES = [call_type.name.lower() for call_type in CallType]
 
-DATA_COUNT_FOR_PICKLES = 100000
+CHUNK_SIZE = 100000
 
 
 # this presumes that we have an ArtifactModel and we have saved it via save_mutect3_model as in train_model.py
@@ -43,7 +45,7 @@ def encode(contig: str, position: int, alt: str):
     return contig + ':' + str(position)
 
 
-def encode_datum(datum: read_set.ReadSet):
+def encode_datum(datum: PosteriorDatum):
     return encode(datum.contig(), datum.position(), datum.alt())
 
 
@@ -117,25 +119,24 @@ def make_filtered_vcf(saved_artifact_model, initial_log_variant_prior: float, in
                       num_ignored_sites: int, germline_mode: bool = False, segmentation=defaultdict(IntervalTree)):
     print("Loading artifact model and test dataset")
     artifact_model = load_artifact_model(saved_artifact_model)
-    posterior_model = PosteriorModel(artifact_model, initial_log_variant_prior, initial_log_artifact_prior, segmentation=segmentation)
-    filtering_data_loader = make_filtering_data_loader(test_dataset_file, input_vcf, batch_size)
+    posterior_model = PosteriorModel(initial_log_variant_prior, initial_log_artifact_prior, segmentation=segmentation)
+    posterior_data_loader = make_posterior_data_loader(test_dataset_file, input_vcf, artifact_model, batch_size)
 
     print("Learning AF spectra")
     summary_writer = SummaryWriter(tensorboard_dir)
-    posterior_model.learn_priors_and_spectra(filtering_data_loader, num_iterations=num_spectrum_iterations,
-        summary_writer=summary_writer, ignored_to_non_ignored_ratio=num_ignored_sites/len(filtering_data_loader.dataset))
+
+    # TODO: filtering data loader is now a filtering dataset!!!
+    posterior_model.learn_priors_and_spectra(posterior_data_loader, num_iterations=num_spectrum_iterations,
+        summary_writer=summary_writer, ignored_to_non_ignored_ratio=num_ignored_sites/len(posterior_data_loader.dataset))
 
     print("Calculating optimal logit threshold")
-    error_probability_threshold = posterior_model.calculate_probability_threshold(filtering_data_loader, summary_writer, germline_mode=germline_mode)
+    error_probability_threshold = posterior_model.calculate_probability_threshold(posterior_data_loader, summary_writer, germline_mode=germline_mode)
     print("Optimal probability threshold: " + str(error_probability_threshold))
-    apply_filtering_to_vcf(input_vcf, output_vcf, error_probability_threshold, filtering_data_loader, posterior_model, germline_mode=germline_mode)
+    apply_filtering_to_vcf(input_vcf, output_vcf, error_probability_threshold, posterior_data_loader, posterior_model, germline_mode=germline_mode)
 
 
-def make_filtering_data_loader(dataset_file, input_vcf, batch_size: int) -> DataLoader:
+def make_posterior_data_loader(dataset_file, input_vcf, artifact_model: ArtifactModel, batch_size: int):
     print("Reading test dataset")
-
-    # note: this is a generator of (ReadSet, PosteriorDatum)
-    unfiltered_test_data = read_set_dataset.read_data(dataset_file, posterior=True)
 
     m2_filtering_to_keep = set()
     allele_frequencies = {}
@@ -149,51 +150,52 @@ def make_filtering_data_loader(dataset_file, input_vcf, batch_size: int) -> Data
 
         allele_frequencies[encoding] = 10 ** (-get_first_numeric_element(v, "POPAF"))
 
-    # break up data into pickled ReadSetDatasets
-    # saved_dataset_dir = tempfile.TemporaryDirectory()
-    dataset_files = []
+    print("preparing dataset to pass to Mutect3 posterior probability model")
+    read_sets_buffer = []
+    posterior_buffer = []
+    posterior_data = []
 
-    print("preparing dataset to pass to Mutect3")
-    # choose which variants to proceed to M3 -- those that M2 didn't filter as germline or contamination
-    filtering_variants = []
-    total_count = 0
-    for datum in unfiltered_test_data:
-        encoding = encode_datum(datum)
+    for artifact_datum, posterior_datum in read_set_dataset.read_data(dataset_file, posterior=True):
+        encoding = encode_datum(posterior_datum)
         if encoding not in m2_filtering_to_keep:
-            datum.set_allele_frequency(allele_frequencies[encoding])
-            filtering_variants.append(datum)
-            total_count += 1
+            posterior_datum.set_allele_frequency(allele_frequencies[encoding])
+            posterior_buffer.append(posterior_datum)
+            read_sets_buffer.append(artifact_datum)
 
-        # this logic ensures that at the end of the for loop filtering_variants is not left with a tiny chunk
-        # of data, which would be bad for normalization
-        if len(filtering_variants) == 2 * DATA_COUNT_FOR_PICKLES:
-            dataset = read_set_dataset.ReadSetDataset(data=filtering_variants[:DATA_COUNT_FOR_PICKLES])
-            file = tempfile.TemporaryFile()
-            torch.save(dataset, file, pickle_protocol=HIGHEST_PROTOCOL)
-            dataset_files.append(file)
+        # this logic ensures that after for loop buffers are full enough to normalize read sets data
+        if len(read_sets_buffer) == 2 * CHUNK_SIZE:
+            process_buffers(artifact_model, batch_size, read_sets_buffer, posterior_buffer, posterior_data, CHUNK_SIZE)
 
-            # remove the saved data
-            filtering_variants = filtering_variants[DATA_COUNT_FOR_PICKLES:]
-    # TODO: next four lines are code duplication
-    dataset = read_set_dataset.ReadSetDataset(data=filtering_variants)
-    file = tempfile.TemporaryFile()
-    torch.save(dataset, file, pickle_protocol=HIGHEST_PROTOCOL)
-    dataset_files.append(file)
+    # flush the remaining buffered data, after which posterior data should include everything and the buffers should be empty
+    process_buffers(artifact_model, batch_size, read_sets_buffer, posterior_buffer, posterior_data, len(posterior_buffer))
 
-    poo = torch.load(file)
-
-    print("Size of filtering dataset: " + str(total_count))
-    combined_dataset = read_set_dataset.CombinedReadSetDataset(dataset_files, dataset.num_read_features(), total_count)
-    return read_set_dataset.make_test_data_loader(combined_dataset, batch_size)
+    print("Size of filtering dataset: " + str(len(posterior_data)))
+    posterior_dataset = PosteriorDataset(posterior_data)
+    return posterior_dataset.make_posterior_data_loader(posterior_dataset, batch_size)
 
 
-def apply_filtering_to_vcf(input_vcf, output_vcf, error_probability_threshold, filtering_data_loader, posterior_model, germline_mode: bool = False):
+def process_buffers(artifact_model, batch_size, read_sets_buffer, posterior_buffer, posterior_data, chunk_size):
+    artifact_dataset = read_set_dataset.ReadSetDataset(data=read_sets_buffer[:chunk_size], shuffle=False)
+    logits = []
+    for artifact_batch in read_set_dataset.make_test_data_loader(artifact_dataset, batch_size):
+        logits.extend(artifact_model.forward(batch=artifact_batch).detach().tolist())
+    for logit, posterior in zip(logits, posterior_buffer[:chunk_size]):
+        posterior.set_artifact_logit(logit)
+    posterior_data.extend(posterior_buffer)
+
+    # NOTE: these lines are grayed-out in PyCharm but they are necessary to clear space in the buffers!
+    read_sets_buffer = read_sets_buffer[chunk_size:]
+    posterior_buffer = posterior_buffer[chunk_size:]
+
+
+def apply_filtering_to_vcf(input_vcf, output_vcf, error_probability_threshold, posterior_loader, posterior_model, germline_mode: bool = False):
     print("Computing final error probabilities")
     passing_call_type = CallType.GERMLINE if germline_mode else CallType.SOMATIC
     encoding_to_post_prob_dict = {}
-    pbar = tqdm(enumerate(filtering_data_loader), mininterval=10)
+    pbar = tqdm(enumerate(posterior_loader), mininterval=10)
     for n, batch in pbar:
         posterior_probs = posterior_model.posterior_probabilities(batch)
+
         encodings = [encode_datum(datum) for datum in batch.original_list()]
         for encoding, post_probs in zip(encodings, posterior_probs):
             encoding_to_post_prob_dict[encoding] = post_probs.tolist()
