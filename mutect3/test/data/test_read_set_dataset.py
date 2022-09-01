@@ -79,7 +79,7 @@ def test_read_data():
 
         f.writelines(lines)
 
-    data = ds.read_data(tmp.name)
+    data = list(ds.read_data(tmp.name))
     assert len(data) == 2
     assert data[0].label() == "UNLABELED"
     assert data[1].alt() == "G"

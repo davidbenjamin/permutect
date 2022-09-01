@@ -1,11 +1,13 @@
 import argparse
+import tempfile
+from pickle import HIGHEST_PROTOCOL
 from typing import Set
 from intervaltree import IntervalTree
 from collections import defaultdict
 
 import torch
 from torch.utils.tensorboard import SummaryWriter
-from cyvcf2 import VCF, Writer, Variant
+import cyvcf2
 from tqdm.autonotebook import tqdm
 
 from torch.utils.data import DataLoader
@@ -21,6 +23,8 @@ TRUSTED_M2_FILTERS = {'contamination', 'multiallelic'}
 
 POST_PROB_INFO_KEY = 'POST'
 FILTER_NAMES = [call_type.name.lower() for call_type in CallType]
+
+DATA_COUNT_FOR_PICKLES = 100000
 
 
 # this presumes that we have an ArtifactModel and we have saved it via save_mutect3_model as in train_model.py
@@ -43,7 +47,7 @@ def encode_datum(datum: read_set.ReadSet):
     return encode(datum.contig(), datum.position(), datum.alt())
 
 
-def encode_variant(v: Variant, zero_based=False):
+def encode_variant(v: cyvcf2.Variant, zero_based=False):
     alt = v.ALT[0]  # TODO: we're assuming biallelic
     start = (v.start + 1) if zero_based else v.start
     return encode(v.CHROM, start, alt)
@@ -54,7 +58,7 @@ def get_first_numeric_element(variant, key):
     return tuple_or_scalar[0] if type(tuple_or_scalar) is tuple else tuple_or_scalar
 
 
-def filters_to_keep_from_m2(v: Variant) -> Set[str]:
+def filters_to_keep_from_m2(v: cyvcf2.Variant) -> Set[str]:
     return set([]) if v.FILTER is None else set(v.FILTER.split(";")).intersection(TRUSTED_M2_FILTERS)
 
 
@@ -129,29 +133,58 @@ def make_filtered_vcf(saved_artifact_model, initial_log_variant_prior: float, in
 
 def make_filtering_data_loader(dataset_file, input_vcf, batch_size: int) -> DataLoader:
     print("Reading test dataset")
-    print("This is a pointless print")
-    unfiltered_test_data = read_set_dataset.read_data(dataset_file)
 
-    print("recording M2 filters")
-    # record variants that M2 filtered as germline or contamination.  Mutect3 ignores these
-    m2_filtering_to_keep = set([encode_variant(v, zero_based=True) for v in VCF(input_vcf) if
-                                filters_to_keep_from_m2(v)])
+    # note: this is a generator of (ReadSet, PosteriorDatum)
+    unfiltered_test_data = read_set_dataset.read_data(dataset_file, posterior=True)
 
-    print("recording allele frequencies")
-    allele_frequencies = {encode_variant(v, zero_based=True): 10 ** (-get_first_numeric_element(v, "POPAF")) for v in VCF(input_vcf)}
+    m2_filtering_to_keep = set()
+    allele_frequencies = {}
+
+    print("recording M2 filters and allele frequencies from input VCF")
+    for v in cyvcf2.VCF(input_vcf):
+        encoding = encode_variant(v, zero_based=True)
+
+        if filters_to_keep_from_m2(v):
+            m2_filtering_to_keep.add(encoding)
+
+        allele_frequencies[encoding] = 10 ** (-get_first_numeric_element(v, "POPAF"))
+
+    # break up data into pickled ReadSetDatasets
+    # saved_dataset_dir = tempfile.TemporaryDirectory()
+    dataset_files = []
 
     print("preparing dataset to pass to Mutect3")
     # choose which variants to proceed to M3 -- those that M2 didn't filter as germline or contamination
     filtering_variants = []
+    total_count = 0
     for datum in unfiltered_test_data:
         encoding = encode_datum(datum)
         if encoding not in m2_filtering_to_keep:
             datum.set_allele_frequency(allele_frequencies[encoding])
             filtering_variants.append(datum)
-    print("Size of filtering dataset: " + str(len(filtering_variants)))
-    filtering_dataset = read_set_dataset.ReadSetDataset(data=filtering_variants)
-    filtering_data_loader = read_set_dataset.make_test_data_loader(filtering_dataset, batch_size)
-    return filtering_data_loader
+            total_count += 1
+
+        # this logic ensures that at the end of the for loop filtering_variants is not left with a tiny chunk
+        # of data, which would be bad for normalization
+        if len(filtering_variants) == 2 * DATA_COUNT_FOR_PICKLES:
+            dataset = read_set_dataset.ReadSetDataset(data=filtering_variants[:DATA_COUNT_FOR_PICKLES])
+            file = tempfile.TemporaryFile()
+            torch.save(dataset, file, pickle_protocol=HIGHEST_PROTOCOL)
+            dataset_files.append(file)
+
+            # remove the saved data
+            filtering_variants = filtering_variants[DATA_COUNT_FOR_PICKLES:]
+    # TODO: next four lines are code duplication
+    dataset = read_set_dataset.ReadSetDataset(data=filtering_variants)
+    file = tempfile.TemporaryFile()
+    torch.save(dataset, file, pickle_protocol=HIGHEST_PROTOCOL)
+    dataset_files.append(file)
+
+    poo = torch.load(file)
+
+    print("Size of filtering dataset: " + str(total_count))
+    combined_dataset = read_set_dataset.CombinedReadSetDataset(dataset_files, dataset.num_read_features(), total_count)
+    return read_set_dataset.make_test_data_loader(combined_dataset, batch_size)
 
 
 def apply_filtering_to_vcf(input_vcf, output_vcf, error_probability_threshold, filtering_data_loader, posterior_model, germline_mode: bool = False):
@@ -165,7 +198,7 @@ def apply_filtering_to_vcf(input_vcf, output_vcf, error_probability_threshold, f
         for encoding, post_probs in zip(encodings, posterior_probs):
             encoding_to_post_prob_dict[encoding] = post_probs.tolist()
     print("Applying threshold")
-    unfiltered_vcf = VCF(input_vcf)
+    unfiltered_vcf = cyvcf2.VCF(input_vcf)
 
     all_types = [call_type.name for call_type in CallType]
     unfiltered_vcf.add_info_to_header({'ID': POST_PROB_INFO_KEY, 'Description': 'Mutect3 posterior probability of {' + ', '.join(all_types) + '}',
@@ -175,7 +208,7 @@ def apply_filtering_to_vcf(input_vcf, output_vcf, error_probability_threshold, f
         if n != passing_call_type:
             unfiltered_vcf.add_filter_to_header({'ID': filter_name, 'Description': filter_name})
 
-    writer = Writer(output_vcf, unfiltered_vcf)  # input vcf is a template for the header
+    writer = cyvcf2.Writer(output_vcf, unfiltered_vcf)  # input vcf is a template for the header
     pbar = tqdm(enumerate(unfiltered_vcf), mininterval=10)
     for n, v in pbar:
         filters = filters_to_keep_from_m2(v)

@@ -1,13 +1,14 @@
 import random
 from typing import Iterable
 import os
-from tqdm.autonotebook import tqdm
+from itertools import chain
 
 import torch
-from torch.utils.data import Dataset, DataLoader
+from torch.utils.data import Dataset, DataLoader, IterableDataset
 from torch.utils.data.sampler import Sampler
 
 from mutect3.data.read_set import ReadSet
+from mutect3.data.posterior_datum import PosteriorDatum
 from mutect3.data.read_set_batch import ReadSetBatch
 
 MIN_REF = 5
@@ -51,6 +52,35 @@ class ReadSetDataset(Dataset):
         return self.data[0].alt_tensor().size()[1]  # number of columns in (arbitrarily) the first alt read tensor of the dataset
 
 
+def data_generator_from_saved_dataset(saved_dataset_file):
+    dataset = torch.load(saved_dataset_file)
+    for datum in dataset:
+        yield datum
+    # free up memory once generation is done.  We can't omit this because the generator doesn't necessarily go out of scope after iteration.
+    del dataset
+
+
+# concatenate multiple ReadSetDatasets stored on disk via torch.save(), loading only one at a time
+class CombinedReadSetDataset(IterableDataset):
+    def __init__(self, saved_dataset_files, num_read_features: int, total_size: int):
+        super(CombinedReadSetDataset).__init__()
+        self.saved_dataset_files = saved_dataset_files
+        self._num_read_features = num_read_features
+        self._total_size = total_size
+
+    #def __getitem__(self, index) -> T_co:
+    #    pass
+
+    def __iter__(self):
+        return chain((data_generator_from_saved_dataset(file) for file in self.saved_dataset_files))
+
+    def __len__(self):
+        return self._total_size
+
+    def num_read_features(self) -> int:
+        return self._num_read_features
+
+
 # this is used for training and validation but not deployment / testing
 def make_semisupervised_data_loader(dataset, batch_size, pin_memory=False):
     sampler = SemiSupervisedBatchSampler(dataset, batch_size)
@@ -61,33 +91,23 @@ def make_test_data_loader(dataset, batch_size):
     return DataLoader(dataset=dataset, batch_size=batch_size, collate_fn=ReadSetBatch)
 
 
-def read_data(dataset_file):
-    print("we are in the read_data function")
-    data = []
-
-    with open(dataset_file) as file: #, tqdm(total=os.path.getsize(dataset_file)) as pbar:
-        print("we are in the with statement")
+# generator that reads a plain text dataset file and yields data
+# in posterior model, yield a tuple of ReadSet and PosteriorDatum
+def read_data(dataset_file, posterior: bool = False):
+    with open(dataset_file) as file:
         n = 0
-        print("DEBUG PRINT STATEMENT JUST FOR FUN")
-        while True:
+        while label := file.readline().strip():
             n += 1
-            # if n % 10000 == 0:
-            #    pbar.update(file.tell() - pbar.n)
-            # get label
-            first_line = file.readline()
-            if not first_line:
-                print("DEBUG: break statement reached")
-                break
-            label = first_line.strip()
 
             # contig:position,ref->alt
             locus, mutation = file.readline().strip().split(",")
             contig, position = locus.split(":")
             position = int(position)
-            if n % 1000 == 0:
+            if n % 10000 == 0:
                 print(contig + ":" + str(position))
             ref, alt = mutation.strip().split("->")
 
+            # ref base string
             ref_bases = file.readline().strip()  # not currently used
 
             gatk_info_tensor = line_to_tensor(file.readline())
@@ -108,25 +128,23 @@ def read_data(dataset_file):
             seq_error_log_likelihood = read_float(file.readline())
             normal_seq_error_log_likelihood = read_float(file.readline())
 
-            # debug to see if reducing memory consumption is the issue
-            if n % 10 == 0:
-                datum = ReadSet(contig, position, ref, alt, ref_tensor, alt_tensor, gatk_info_tensor, label, pd_tumor_depth,
+            datum = ReadSet(contig, position, ref, alt, ref_tensor, alt_tensor, gatk_info_tensor, label, pd_tumor_depth,
                                 pd_tumor_alt, pd_normal_depth, pd_normal_alt, seq_error_log_likelihood, normal_seq_error_log_likelihood)
 
-                if tumor_ref_count >= MIN_REF and tumor_alt_count > 0:
-
-                    data.append(datum)
-
-        print("DEBUG: while loop exited")
-    print("DEBUG: with statement exited")
-    return data
+            if tumor_ref_count >= MIN_REF and tumor_alt_count > 0:
+                if posterior:
+                    posterior_datum = PosteriorDatum(contig, position, ref, alt, pd_tumor_depth,
+                                pd_tumor_alt, pd_normal_depth, pd_normal_alt, seq_error_log_likelihood, normal_seq_error_log_likelihood)
+                    yield datum, posterior_datum
+                else:
+                    yield datum
 
 
 def medians_and_iqrs(tensor_2d: torch.Tensor):
     # column medians etc
-    medians = torch.quantile(tensor_2d, 0.5, dim=0, keepdim=False)
+    medians = torch.quantile(tensor_2d.float(), 0.5, dim=0, keepdim=False)
     vals = [0.05, 0.01, 0.0]
-    iqrs = [torch.quantile(tensor_2d, 1 - x, dim=0, keepdim=False) - torch.quantile(tensor_2d, x, dim=0, keepdim=False)
+    iqrs = [torch.quantile(tensor_2d.float(), 1 - x, dim=0, keepdim=False) - torch.quantile(tensor_2d.float(), x, dim=0, keepdim=False)
             for x in vals]
 
     # for each element, try first the IQR, but if it's zero try successively larger ranges
@@ -146,7 +164,7 @@ def medians_and_iqrs(tensor_2d: torch.Tensor):
 def line_to_tensor(line: str) -> torch.Tensor:
     tokens = line.strip().split()
     floats = [float(token) for token in tokens]
-    return torch.FloatTensor(floats)
+    return torch.HalfTensor(floats)     # 16-bit float
 
 
 def read_2d_tensor(file, num_lines: int) -> torch.Tensor:
