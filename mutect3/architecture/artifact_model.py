@@ -263,8 +263,7 @@ class ArtifactModel(nn.Module):
     # the beta shape parameters are for primitive posterior probability estimation and are pairs of floats
     # representing beta distributions of allele fractions for both true variants and artifacts
     # loaders by name is eg {"train": train_loader, "valid": valid_loader}
-    def evaluate_model_after_training(self, loaders_by_name, summary_writer: SummaryWriter, prefix: str = "", num_worst: int = 100,
-                                      artifact_beta_shape=None, variant_beta_shape=None):
+    def evaluate_model_after_training(self, loaders_by_name, summary_writer: SummaryWriter, prefix: str = ""):
         self.freeze_all()
         self.cpu()
         self._device = "cpu"
@@ -288,9 +287,6 @@ class ArtifactModel(nn.Module):
             # indexed by variant type, then call type (artifact vs variant), then count bin
             sensitivity = {var_type: defaultdict(lambda: defaultdict(utils.StreamingAverage)) for var_type in VariantType}
 
-            worst_missed_artifacts = PriorityQueue(num_worst)
-            worst_false_artifacts = PriorityQueue(num_worst)
-
             pbar = tqdm(enumerate(loader), mininterval=10)
             for n, batch in pbar:
                 if not batch.is_labeled():
@@ -298,13 +294,6 @@ class ArtifactModel(nn.Module):
 
                 pred = self.forward(batch)
 
-                # experiment with approximate posterior to see what kind of accuracy to expect when
-                if artifact_beta_shape is not None and variant_beta_shape is not None:
-                    variant_count_log_likelihood = beta_binomial(batch.pd_tumor_depths(), batch.pd_tumor_alt_counts(),
-                                                                 variant_beta_shape[0], variant_beta_shape[1])
-                    artifact_count_log_likelihood = beta_binomial(batch.pd_tumor_depths(), batch.pd_tumor_alt_counts(),
-                                                                  artifact_beta_shape[0], artifact_beta_shape[1])
-                    pred = pred + artifact_count_log_likelihood - variant_count_log_likelihood
                 labels = batch.labels()
                 correct = ((pred > 0) == (batch.labels() > 0.5))
                 alt_counts = batch.alt_counts()

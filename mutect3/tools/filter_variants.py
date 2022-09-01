@@ -1,6 +1,4 @@
 import argparse
-import tempfile
-from pickle import HIGHEST_PROTOCOL
 from typing import Set
 from intervaltree import IntervalTree
 from collections import defaultdict
@@ -10,11 +8,9 @@ from torch.utils.tensorboard import SummaryWriter
 import cyvcf2
 from tqdm.autonotebook import tqdm
 
-from torch.utils.data import DataLoader
-
 from mutect3.architecture.artifact_model import ArtifactModel
 from mutect3.architecture.posterior_model import PosteriorModel
-from mutect3.data import read_set, read_set_dataset
+from mutect3.data import read_set_dataset
 from mutect3 import constants
 from mutect3.data.posterior_dataset import PosteriorDataset
 from mutect3.data.posterior_datum import PosteriorDatum
@@ -155,12 +151,12 @@ def make_posterior_data_loader(dataset_file, input_vcf, artifact_model: Artifact
     posterior_buffer = []
     posterior_data = []
 
-    for artifact_datum, posterior_datum in read_set_dataset.read_data(dataset_file, posterior=True):
+    for read_set, posterior_datum in read_set_dataset.read_data(dataset_file, posterior=True):
         encoding = encode_datum(posterior_datum)
         if encoding not in m2_filtering_to_keep:
             posterior_datum.set_allele_frequency(allele_frequencies[encoding])
             posterior_buffer.append(posterior_datum)
-            read_sets_buffer.append(artifact_datum)
+            read_sets_buffer.append(read_set)
 
         # this logic ensures that after for loop buffers are full enough to normalize read sets data
         if len(read_sets_buffer) == 2 * CHUNK_SIZE:

@@ -34,10 +34,6 @@ class ReadSetBatch:
         self._labels = torch.FloatTensor([1.0 if item.label() == "ARTIFACT" else 0.0 for item in data]) if self.labeled else None
         self._size = len(data)
 
-        # pre-downsampled allele counts
-        self._pd_tumor_depths = torch.IntTensor([item.tumor_depth() for item in data])
-        self._pd_tumor_alt_counts = torch.IntTensor([item.tumor_alt_count() for item in data])
-
     # pin memory for all tensors that are sent to the GPU
     def pin_memory(self):
         self._reads = self._reads.pin_memory()
@@ -64,15 +60,6 @@ class ReadSetBatch:
     def alt_counts(self) -> torch.IntTensor:
         return torch.IntTensor([len(item.alt_tensor()) for item in self._original_list])
 
-    def pd_tumor_depths(self) -> torch.IntTensor:
-        return self._pd_tumor_depths
-
-    def pd_tumor_alt_counts(self) -> torch.IntTensor:
-        return self._pd_tumor_alt_counts
-
-    def pd_tumor_ref_counts(self) -> torch.IntTensor:
-        return self._pd_tumor_depths - self._pd_tumor_alt_counts
-
     def info(self) -> torch.Tensor:
         return self._info
 
@@ -84,15 +71,3 @@ class ReadSetBatch:
 
     def variant_type_mask(self, variant_type):
         return torch.BoolTensor([item.variant_type() == variant_type for item in self._original_list])
-
-    # this assumes that this batch is being used at a point where the constituent data have seq error log likelihoods
-    def seq_error_log_likelihoods(self):
-        return torch.Tensor([item.seq_error_log_likelihood() for item in self._original_list])
-
-    def normal_seq_error_log_likelihoods(self):
-        return torch.Tensor([item.normal_seq_error_log_likelihood() for item in self._original_list])
-
-    # this assumes that this batch is being used at a point where the constituent data have allele frequencies
-    def allele_frequencies(self):
-        return torch.Tensor([item.allele_frequency() for item in self._original_list])
-

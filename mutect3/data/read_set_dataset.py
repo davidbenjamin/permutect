@@ -8,6 +8,7 @@ from torch.utils.data.sampler import Sampler
 from mutect3.data.read_set import ReadSet
 from mutect3.data.posterior_datum import PosteriorDatum
 from mutect3.data.read_set_batch import ReadSetBatch
+from mutect3.utils import VariantType
 
 MIN_REF = 5
 EPSILON = 0.00001
@@ -40,10 +41,8 @@ class ReadSetDataset(Dataset):
             normalized_ref = (raw.ref_tensor() - self.read_medians) / self.read_iqrs
             normalized_alt = (raw.alt_tensor() - self.read_medians) / self.read_iqrs
             normalized_gatk_info = (raw.gatk_info() - self.gatk_info_medians) / self.gatk_info_iqrs
-            self.data[n] = ReadSet(raw.contig(), raw.position(), raw.ref(), raw.alt(), normalized_ref, normalized_alt,
-                                   normalized_gatk_info, raw.label(), raw.tumor_depth(), raw.tumor_alt_count(), raw.normal_depth(),
-                                   raw.normal_alt_count(), raw.seq_error_log_likelihood(), raw.normal_seq_error_log_likelihood(),
-                                   raw.allele_frequency())
+            self.data[n] = ReadSet(raw.variant_type(), normalized_ref, normalized_alt, normalized_gatk_info,
+                                   raw.label())
 
     def __len__(self):
         return len(self.data)
@@ -102,8 +101,7 @@ def read_data(dataset_file, posterior: bool = False):
             seq_error_log_likelihood = read_float(file.readline())
             normal_seq_error_log_likelihood = read_float(file.readline())
 
-            datum = ReadSet(contig, position, ref, alt, ref_tensor, alt_tensor, gatk_info_tensor, label, pd_tumor_depth,
-                                pd_tumor_alt, pd_normal_depth, pd_normal_alt, seq_error_log_likelihood, normal_seq_error_log_likelihood)
+            datum = ReadSet(VariantType.get_type(ref, alt), ref_tensor, alt_tensor, gatk_info_tensor, label)
 
             if tumor_ref_count >= MIN_REF and tumor_alt_count > 0:
                 if posterior:

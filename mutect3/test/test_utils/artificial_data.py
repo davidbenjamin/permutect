@@ -39,19 +39,6 @@ class RandomReadGenerator:
         return torch.vstack([make_random_tensor(self.mean, self.std) for _ in range(num_reads)])
 
 
-# return tuple of ref allele, alt_allele
-def make_random_ref_and_alt_alleles(variant_type: VariantType):
-    ref_index = random.randint(0, len(BASES) - 1)
-    alt_index = (ref_index + random.randint(1, len(BASES) - 1)) % len(BASES)
-    if variant_type == VariantType.SNV:
-        return BASES[ref_index], BASES[alt_index]
-    # make a 1-base insertion
-    elif variant_type == VariantType.INSERTION:
-        return BASES[ref_index], BASES[ref_index] + BASES[alt_index]
-    elif variant_type == VariantType.DELETION:
-        return BASES[alt_index] + BASES[ref_index] , BASES[alt_index]
-
-
 def make_random_data(art_gatk_info_gen: RandomGATKInfoGenerator, var_gatk_info_gen: RandomGATKInfoGenerator, art_read_gen: RandomReadGenerator,
                      var_read_gen: RandomReadGenerator, num_data: int, artifact_fraction=0.5, unlabeled_fraction=0.1,
                      indel_fraction=0.2, ref_downsampling=10, alt_downsampling=10, is_training_data=True, vaf=0.5,
@@ -81,18 +68,12 @@ def make_random_data(art_gatk_info_gen: RandomGATKInfoGenerator, var_gatk_info_g
         if alt_count == 0:
             continue
 
-        # TODO: eventually model normal artifact, but not yet
-        normal_depth, normal_alt_count = 50, 0
-
-        ref, alt = make_random_ref_and_alt_alleles(variant_type)
-
         gatk_info_tensor = (art_gatk_info_gen if artifact else var_gatk_info_gen).generate()
 
         ref_tensor = var_read_gen.generate(ref_count)
         alt_tensor = (art_read_gen if artifact else var_read_gen).generate(alt_count)
 
-        data.append(ReadSet("CONTIG", position, ref, alt, ref_tensor, alt_tensor, gatk_info_tensor, label,
-                            pd_tumor_depth, pd_alt_count, normal_depth, normal_alt_count))
+        data.append(ReadSet(variant_type, ref_tensor, alt_tensor, gatk_info_tensor, label))
 
     return data
 
@@ -103,14 +84,10 @@ def make_random_strand_bias_data(num_data: int, artifact_fraction=0.5, unlabeled
                                  ref_downsampling=10, alt_downsampling=10, is_training_data=True, vaf=0.5):
     data = []
     for _ in range(0, num_data):
-        position = random.randint(1, 1000000)
-
         # generate label
         artifact = random.uniform(0,1) < artifact_fraction
         unlabeled = random.uniform(0, 1) < unlabeled_fraction
         label = "UNLABELED" if unlabeled else ("ARTIFACT" if artifact else "VARIANT")
-
-        # generate variant type
 
         ref_count = ref_downsampling
         # if it's test data and a variant, we draw the alt count from the AF spectrum
@@ -123,23 +100,17 @@ def make_random_strand_bias_data(num_data: int, artifact_fraction=0.5, unlabeled
         if alt_count == 0:
             continue
 
-        # TODO: eventually model normal artifact, but not yet
-        normal_depth, normal_alt_count = 50, 0
-
-        ref, alt = make_random_ref_and_alt_alleles(VariantType.SNV)
-
         gatk_info_tensor = torch.zeros(NUM_GATK_INFO_FEATURES)
 
         # before modifying the 0th element, it's all uniform Gaussian data
         ref_tensor = torch.randn(ref_count, NUM_READ_FEATURES)
-        alt_tensor = torch.randn(ref_count, NUM_READ_FEATURES)
+        alt_tensor = torch.randn(alt_count, NUM_READ_FEATURES)
 
         if artifact:
             sign = 1 if random.uniform(0,1) < 0.5 else -1
             alt_tensor[:, 0] = sign * torch.abs(alt_tensor[:, 0])
 
-        data.append(ReadSet("CONTIG", position, ref, alt, ref_tensor, alt_tensor, gatk_info_tensor, label,
-                            pd_tumor_depth, pd_alt_count, normal_depth, normal_alt_count))
+        data.append(ReadSet(VariantType.SNV, ref_tensor, alt_tensor, gatk_info_tensor, label))
 
     return data
 
