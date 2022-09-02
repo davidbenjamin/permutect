@@ -60,6 +60,8 @@ def test_separate_gaussian_data():
             events.Reload()
 
             # TODO: these have been replaced with images, so it's not so simple to check the output quality from the tensorboard
+            # TODO: for now I can put in a breakpoint and manually run tensorboard --logdir <tensorboard temp directory>
+            # TODO: to spot check the figures
             # assert events.Scalars('Variant Sensitivity')[0].value > 0.98
             # assert events.Scalars('Artifact Sensitivity')[0].value > 0.98
 
@@ -73,17 +75,8 @@ def test_wide_and_narrow_gaussian_data():
         summary_writer = SummaryWriter(tensorboard_dir)
         model = train_model_and_write_summary(m3_params=params, training_params=training_params, data=data, summary_writer=summary_writer)
 
-        test_data = artificial_data.make_two_gaussian_data(1000, is_training_data=False, vaf=0.25, unlabeled_fraction=0.0)
-        test_dataset = ReadSetDataset(data=test_data)
-        test_loader = make_test_data_loader(test_dataset, BATCH_SIZE)
-        model.learn_spectra(test_loader, NUM_SPECTRUM_ITERATIONS, summary_writer=summary_writer)
-
         events = EventAccumulator(tensorboard_dir)
         events.Reload()
-
-        last = training_params.num_epochs - 1
-        assert events.Scalars('Variant Sensitivity')[0].value > 0.90
-        assert events.Scalars('Artifact Sensitivity')[0].value > 0.90
 
 
 # TODO: this test currently fails -- almost everything is considered an artifact

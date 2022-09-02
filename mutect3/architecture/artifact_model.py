@@ -247,6 +247,8 @@ class ArtifactModel(nn.Module):
                         loss = (loss1 + loss2 + loss3) * labeled_to_unlabeled_ratio
                         unlabeled_loss.record_sum(loss.detach(), batch.size())
 
+                    assert not loss.isnan().item()  # all sorts of errors produce a nan here.  This is a good place to spot it
+
                     if epoch_type == utils.Epoch.TRAIN:
                         train_optimizer.zero_grad(set_to_none=True)
                         loss.backward()

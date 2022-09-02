@@ -19,4 +19,4 @@ def test_training(dataset):
 
 
 def test_on_dream1():
-    test_training("/Users/davidben/mutect3/all_dream/small.dataset")
+    test_training("/Users/davidben/mutect3/just-dream-1/dream1-normal-small-training.dataset")

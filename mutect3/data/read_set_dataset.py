@@ -14,6 +14,9 @@ MIN_REF = 5
 EPSILON = 0.00001
 QUANTILE_DATA_COUNT = 10000
 
+# TODO: in order to handle very large fragments (and chimeric reads), we may eventually prefer to log-scale fragment sizes
+MAX_VALUE = 10000  # clamp inputs to this range
+
 
 class ReadSetDataset(Dataset):
     def __init__(self, files=[], data: Iterable[ReadSet] = [], shuffle: bool = True):
@@ -100,6 +103,10 @@ def read_data(dataset_file, posterior: bool = False):
             seq_error_log_likelihood = read_float(file.readline())
             normal_seq_error_log_likelihood = read_float(file.readline())
 
+            assert ref_tensor is None or not torch.sum(ref_tensor).isnan().item(), contig + ":" + str(position)
+            assert alt_tensor is None or not torch.sum(alt_tensor).isnan().item(), contig + ":" + str(position)
+            assert not torch.sum(gatk_info_tensor).isnan().item(), contig + ":" + str(position)
+
             datum = ReadSet(Variation.get_type(ref, alt), ref_tensor, alt_tensor, gatk_info_tensor, label)
 
             if ref_tensor_size >= MIN_REF and alt_tensor_size > 0:
@@ -135,7 +142,7 @@ def medians_and_iqrs(tensor_2d: torch.Tensor):
 def line_to_tensor(line: str) -> torch.Tensor:
     tokens = line.strip().split()
     floats = [float(token) for token in tokens]
-    return torch.HalfTensor(floats)     # 16-bit float
+    return torch.clamp(torch.FloatTensor(floats), -MAX_VALUE, MAX_VALUE).half()
 
 
 def read_2d_tensor(file, num_lines: int) -> torch.Tensor:
