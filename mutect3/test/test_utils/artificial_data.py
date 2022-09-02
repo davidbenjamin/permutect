@@ -1,12 +1,11 @@
 import torch
 import random
 from mutect3.data.read_set import NUM_GATK_INFO_FEATURES, ReadSet
-from mutect3.utils import VariantType
+from mutect3.utils import Variation, Label
 from numpy.random import binomial
 
-BASES = ['A', 'C', 'G', 'T']
 
-NUM_READ_FEATURES = 11
+NUM_READ_FEATURES = 5
 
 
 # random isotropic Gaussian tensor, dilated by different amounts in each dimension
@@ -30,7 +29,6 @@ class RandomGATKInfoGenerator:
 
 class RandomReadGenerator:
     def __init__(self, mean: torch.Tensor, std: torch.Tensor):
-        assert len(mean) == NUM_READ_FEATURES
         assert len(mean) == len(std)
         self.mean = mean
         self.std = std
@@ -50,11 +48,11 @@ def make_random_data(art_gatk_info_gen: RandomGATKInfoGenerator, var_gatk_info_g
         # generate label
         artifact = random.uniform(0,1) < artifact_fraction
         unlabeled = random.uniform(0,1) < unlabeled_fraction
-        label = "UNLABELED" if unlabeled else ("ARTIFACT" if artifact else "VARIANT")
+        label = Label.UNLABELED if unlabeled else (Label.ARTIFACT if artifact else Label.VARIANT)
 
         # generate variant type
         indel = random.uniform(0,1) < indel_fraction
-        variant_type = (VariantType.DELETION if random.uniform(0,1) < 0.5 else VariantType.INSERTION) if indel else VariantType.SNV
+        variant_type = (Variation.DELETION if random.uniform(0, 1) < 0.5 else Variation.INSERTION) if indel else Variation.SNV
 
         ref_count = ref_downsampling
         # if it's test data and a variant, we draw the alt count from the AF spectrum
@@ -87,15 +85,14 @@ def make_random_strand_bias_data(num_data: int, artifact_fraction=0.5, unlabeled
         # generate label
         artifact = random.uniform(0,1) < artifact_fraction
         unlabeled = random.uniform(0, 1) < unlabeled_fraction
-        label = "UNLABELED" if unlabeled else ("ARTIFACT" if artifact else "VARIANT")
+        label = Label.UNLABELED if unlabeled else (Label.ARTIFACT if artifact else Label.VARIANT)
 
-        ref_count = ref_downsampling
         # if it's test data and a variant, we draw the alt count from the AF spectrum
-        # the pd_alt_count is only relevant for variant test data
+        # the alt_count is only relevant for variant test data
         # we assume artifact used the original alts but variant was downsampled from a het
-        pd_tumor_depth = 100
-        pd_alt_count = random.randint(3, 10) if artifact else binomial(pd_tumor_depth, vaf)
-        alt_count = random.randint(3, 10) if (artifact or is_training_data) else min(alt_downsampling, pd_alt_count)
+        depth = 100
+        alt_count = random.randint(3, 10) if artifact else binomial(depth, vaf)
+        alt_tensor_size = random.randint(3, 10) if (artifact or is_training_data) else min(alt_downsampling, alt_count)
 
         if alt_count == 0:
             continue
@@ -103,14 +100,14 @@ def make_random_strand_bias_data(num_data: int, artifact_fraction=0.5, unlabeled
         gatk_info_tensor = torch.zeros(NUM_GATK_INFO_FEATURES)
 
         # before modifying the 0th element, it's all uniform Gaussian data
-        ref_tensor = torch.randn(ref_count, NUM_READ_FEATURES)
-        alt_tensor = torch.randn(alt_count, NUM_READ_FEATURES)
+        ref_tensor = torch.randn(ref_downsampling, NUM_READ_FEATURES)
+        alt_tensor = torch.randn(alt_tensor_size, NUM_READ_FEATURES)
 
         if artifact:
             sign = 1 if random.uniform(0,1) < 0.5 else -1
             alt_tensor[:, 0] = sign * torch.abs(alt_tensor[:, 0])
 
-        data.append(ReadSet(VariantType.SNV, ref_tensor, alt_tensor, gatk_info_tensor, label))
+        data.append(ReadSet(Variation.SNV, ref_tensor, alt_tensor, gatk_info_tensor, label))
 
     return data
 

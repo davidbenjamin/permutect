@@ -4,17 +4,17 @@ from mutect3 import utils
 class PosteriorDatum:
     # info tensor comes from GATK and does not include one-hot encoding of variant type
     def __init__(self, contig: str, position: int, ref: str, alt: str,
-                 tumor_depth: int, tumor_alt_count: int, normal_depth: int, normal_alt_count: int,
+                 depth: int, alt_count: int, normal_depth: int, normal_alt_count: int,
                  seq_error_log_likelihood: float, normal_seq_error_log_likelihood: float, allele_frequency: float =  None,
                  artifact_logit: float = None):
         self._contig = contig
         self._position = position
         self._ref = ref
         self._alt = alt
-        self._variant_type = utils.VariantType.get_type(ref, alt)
+        self._variant_type = utils.Variation.get_type(ref, alt)
 
-        self._tumor_depth = tumor_depth
-        self._tumor_alt_count = tumor_alt_count
+        self._depth = depth
+        self._alt_count = alt_count
         self._normal_depth = normal_depth
         self._normal_alt_count = normal_alt_count
 
@@ -37,14 +37,14 @@ class PosteriorDatum:
     def alt(self) -> str:
         return self._alt
 
-    def variant_type(self) -> utils.VariantType:
+    def variant_type(self) -> utils.Variation:
         return self._variant_type
 
-    def tumor_depth(self) -> int:
-        return self._tumor_depth
+    def depth(self) -> int:
+        return self._depth
 
-    def tumor_alt_count(self) -> int:
-        return self._tumor_alt_count
+    def alt_count(self) -> int:
+        return self._alt_count
 
     def normal_depth(self) -> int:
         return self._normal_depth

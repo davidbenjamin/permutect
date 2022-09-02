@@ -14,13 +14,13 @@ from mutect3.data import read_set_dataset
 from mutect3 import constants
 from mutect3.data.posterior_dataset import PosteriorDataset
 from mutect3.data.posterior_datum import PosteriorDatum
-from mutect3.utils import CallType
+from mutect3.utils import Call
 
 # TODO: eventually M3 can handle multiallelics
 TRUSTED_M2_FILTERS = {'contamination', 'multiallelic'}
 
 POST_PROB_INFO_KEY = 'POST'
-FILTER_NAMES = [call_type.name.lower() for call_type in CallType]
+FILTER_NAMES = [call_type.name.lower() for call_type in Call]
 
 CHUNK_SIZE = 100000
 
@@ -186,7 +186,7 @@ def process_buffers(artifact_model, batch_size, read_sets_buffer, posterior_buff
 
 def apply_filtering_to_vcf(input_vcf, output_vcf, error_probability_threshold, posterior_loader, posterior_model, germline_mode: bool = False):
     print("Computing final error probabilities")
-    passing_call_type = CallType.GERMLINE if germline_mode else CallType.SOMATIC
+    passing_call_type = Call.GERMLINE if germline_mode else Call.SOMATIC
     encoding_to_post_prob_dict = {}
     pbar = tqdm(enumerate(posterior_loader), mininterval=10)
     for n, batch in pbar:
@@ -198,7 +198,7 @@ def apply_filtering_to_vcf(input_vcf, output_vcf, error_probability_threshold, p
     print("Applying threshold")
     unfiltered_vcf = cyvcf2.VCF(input_vcf)
 
-    all_types = [call_type.name for call_type in CallType]
+    all_types = [call_type.name for call_type in Call]
     unfiltered_vcf.add_info_to_header({'ID': POST_PROB_INFO_KEY, 'Description': 'Mutect3 posterior probability of {' + ', '.join(all_types) + '}',
                                        'Type': 'Float', 'Number': 'A'})
 

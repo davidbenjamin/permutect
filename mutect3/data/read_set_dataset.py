@@ -8,7 +8,7 @@ from torch.utils.data.sampler import Sampler
 from mutect3.data.read_set import ReadSet
 from mutect3.data.posterior_datum import PosteriorDatum
 from mutect3.data.read_set_batch import ReadSetBatch
-from mutect3.utils import VariantType
+from mutect3.utils import Variation, Label
 
 MIN_REF = 5
 EPSILON = 0.00001
@@ -41,8 +41,7 @@ class ReadSetDataset(Dataset):
             normalized_ref = (raw.ref_tensor() - self.read_medians) / self.read_iqrs
             normalized_alt = (raw.alt_tensor() - self.read_medians) / self.read_iqrs
             normalized_gatk_info = (raw.gatk_info() - self.gatk_info_medians) / self.gatk_info_iqrs
-            self.data[n] = ReadSet(raw.variant_type(), normalized_ref, normalized_alt, normalized_gatk_info,
-                                   raw.label())
+            self.data[n] = ReadSet(raw.variant_type(), normalized_ref, normalized_alt, normalized_gatk_info, raw.label())
 
     def __len__(self):
         return len(self.data)
@@ -69,7 +68,8 @@ def make_test_data_loader(dataset: ReadSetDataset, batch_size: int):
 def read_data(dataset_file, posterior: bool = False):
     with open(dataset_file) as file:
         n = 0
-        while label := file.readline().strip():
+        while label_str := file.readline().strip():
+            label = Label.get_label(label_str)
             n += 1
 
             # contig:position,ref->alt
@@ -86,27 +86,26 @@ def read_data(dataset_file, posterior: bool = False):
             gatk_info_tensor = line_to_tensor(file.readline())
 
             # tumor ref count, tumor alt count, normal ref count, normal alt count -- single-spaced
-            tumor_ref_count, tumor_alt_count, normal_ref_count, normal_alt_count = map(int, file.readline().strip().split())
+            # these are the read counts of our possibly-downsampled tensors, not the original sequencing data
+            ref_tensor_size, alt_tensor_size, normal_ref_tensor_size, normal_alt_tensor_size = map(int, file.readline().strip().split())
 
-            ref_tensor = read_2d_tensor(file, tumor_ref_count)
-            alt_tensor = read_2d_tensor(file, tumor_alt_count)
+            ref_tensor = read_2d_tensor(file, ref_tensor_size)
+            alt_tensor = read_2d_tensor(file, alt_tensor_size)
 
-            # normal_ref_tensor = read_2d_tensor(file, normal_ref_count)  # not currently used
-            # normal_alt_tensor = read_2d_tensor(file, normal_alt_count)  # not currently used
+            # normal_ref_tensor = read_2d_tensor(file, normal_ref_tensor_size)  # not currently used
+            # normal_alt_tensor = read_2d_tensor(file, normal_alt_tensor_size)  # not currently used
 
-            # pre-downsampling (pd) counts
-            pd_tumor_depth, pd_tumor_alt, pd_normal_depth, pd_normal_alt = read_integers(file.readline())
+            depth, alt_count, normal_depth, normal_alt_count = read_integers(file.readline())
 
-            # seq error log likelihood
             seq_error_log_likelihood = read_float(file.readline())
             normal_seq_error_log_likelihood = read_float(file.readline())
 
-            datum = ReadSet(VariantType.get_type(ref, alt), ref_tensor, alt_tensor, gatk_info_tensor, label)
+            datum = ReadSet(Variation.get_type(ref, alt), ref_tensor, alt_tensor, gatk_info_tensor, label)
 
-            if tumor_ref_count >= MIN_REF and tumor_alt_count > 0:
+            if ref_tensor_size >= MIN_REF and alt_tensor_size > 0:
                 if posterior:
-                    posterior_datum = PosteriorDatum(contig, position, ref, alt, pd_tumor_depth,
-                                pd_tumor_alt, pd_normal_depth, pd_normal_alt, seq_error_log_likelihood, normal_seq_error_log_likelihood)
+                    posterior_datum = PosteriorDatum(contig, position, ref, alt, depth,
+                                alt_count, normal_depth, normal_alt_count, seq_error_log_likelihood, normal_seq_error_log_likelihood)
                     yield datum, posterior_datum
                 else:
                     yield datum

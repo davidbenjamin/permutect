@@ -15,7 +15,7 @@ from mutect3.architecture.mlp import MLP
 from mutect3.data.read_set_batch import ReadSetBatch
 from mutect3.data import read_set
 from mutect3 import utils
-from mutect3.utils import CallType, VariantType
+from mutect3.utils import Call, Variation
 from mutect3.metrics import plotting
 
 from mutect3.architecture.beta_binomial_mixture import beta_binomial
@@ -122,8 +122,8 @@ class ArtifactModel(nn.Module):
     def freeze_all(self):
         utils.freeze(self.parameters())
 
-    def set_epoch_type(self, epoch_type: utils.EpochType):
-        if epoch_type == utils.EpochType.TRAIN:
+    def set_epoch_type(self, epoch_type: utils.Epoch):
+        if epoch_type == utils.Epoch.TRAIN:
             self.train(True)
             utils.freeze(self.parameters())
             utils.unfreeze(self.training_parameters())
@@ -219,9 +219,9 @@ class ArtifactModel(nn.Module):
         labeled_to_unlabeled_ratio = None if total_unlabeled == 0 else total_labeled / total_unlabeled
 
         for epoch in trange(1, num_epochs + 1, desc="Epoch"):
-            for epoch_type in [utils.EpochType.TRAIN, utils.EpochType.VALID]:
+            for epoch_type in [utils.Epoch.TRAIN, utils.Epoch.VALID]:
                 self.set_epoch_type(epoch_type)
-                loader = train_loader if epoch_type == utils.EpochType.TRAIN else valid_loader
+                loader = train_loader if epoch_type == utils.Epoch.TRAIN else valid_loader
                 labeled_loss = utils.StreamingAverage(device=self._device)
                 unlabeled_loss = utils.StreamingAverage(device=self._device)
 
@@ -247,7 +247,7 @@ class ArtifactModel(nn.Module):
                         loss = (loss1 + loss2 + loss3) * labeled_to_unlabeled_ratio
                         unlabeled_loss.record_sum(loss.detach(), batch.size())
 
-                    if epoch_type == utils.EpochType.TRAIN:
+                    if epoch_type == utils.Epoch.TRAIN:
                         train_optimizer.zero_grad(set_to_none=True)
                         loss.backward()
                         train_optimizer.step()
@@ -277,7 +277,7 @@ class ArtifactModel(nn.Module):
 
         # grid of figures -- rows are loaders, columns are variant types
         # each subplot is a bar chart grouped by call type (variant vs artifact)
-        sens_fig, sens_axs = plt.subplots(len(loaders_by_name), len(VariantType), sharex='all', sharey='all')
+        sens_fig, sens_axs = plt.subplots(len(loaders_by_name), len(Variation), sharex='all', sharey='all')
 
         # accuracy is indexed by loader only
         acc_fig, acc_axs = plt.subplots(1, len(loaders_by_name), sharex='all', sharey='all')
@@ -285,7 +285,7 @@ class ArtifactModel(nn.Module):
         for loader_idx, (loader_name, loader) in enumerate(loaders_by_name.items()):
             accuracy = defaultdict(utils.StreamingAverage)
             # indexed by variant type, then call type (artifact vs variant), then count bin
-            sensitivity = {var_type: defaultdict(lambda: defaultdict(utils.StreamingAverage)) for var_type in VariantType}
+            sensitivity = {var_type: defaultdict(lambda: defaultdict(utils.StreamingAverage)) for var_type in Variation}
 
             pbar = tqdm(enumerate(loader), mininterval=10)
             for n, batch in pbar:
@@ -301,15 +301,15 @@ class ArtifactModel(nn.Module):
                 for l_bin in logit_bins:
                     accuracy[l_bin].record_with_mask(correct, (pred > l_bin[0]) & (pred < l_bin[1]))
 
-                for var_type in VariantType:
+                for var_type in Variation:
                     variant_mask = batch.variant_type_mask(var_type)
                     for c_bin in count_bins:
                         count_mask = (c_bin[0] <= alt_counts) & (c_bin[1] >= alt_counts)
                         count_and_variant_mask = count_mask & variant_mask
-                        sensitivity[var_type][CallType.SOMATIC][c_bin].record_with_mask(correct, (labels < 0.5) & count_and_variant_mask)
-                        sensitivity[var_type][CallType.ARTIFACT][c_bin].record_with_mask(correct, (labels > 0.5) & count_and_variant_mask)
+                        sensitivity[var_type][Call.SOMATIC][c_bin].record_with_mask(correct, (labels < 0.5) & count_and_variant_mask)
+                        sensitivity[var_type][Call.ARTIFACT][c_bin].record_with_mask(correct, (labels > 0.5) & count_and_variant_mask)
             # done collecting data for this particular loader, now fill in subplots for this loader's row
-            for var_type in VariantType:
+            for var_type in Variation:
                 # data for one particular subplot
                 sens_bar_plot_data = {label.name: [sensitivity[var_type][label][c_bin].get().item() for c_bin in count_bins] for label in sensitivity[var_type].keys()}
                 plotting.grouped_bar_plot_on_axis(sens_axs[loader_idx, var_type], sens_bar_plot_data, count_bin_labels, loader_name)

@@ -9,7 +9,7 @@ from matplotlib import pyplot as plt
 
 from mutect3 import utils
 from mutect3.data.posterior_batch import PosteriorBatch
-from mutect3.utils import VariantType, CallType
+from mutect3.utils import Variation, Call
 from mutect3.architecture.beta_binomial_mixture import BetaBinomialMixture, FeaturelessBetaBinomialMixture
 from mutect3.data.read_set_batch import ReadSetBatch
 from mutect3.metrics import plotting
@@ -29,26 +29,26 @@ class PosteriorModel(torch.nn.Module):
         self.variant_spectrum = FeaturelessBetaBinomialMixture(num_components=5)
 
         # artifact spectra for each variant type.  Variant type encoded as one-hot input vector.
-        self.artifact_spectra = BetaBinomialMixture(input_size=len(VariantType), num_components=5)
+        self.artifact_spectra = BetaBinomialMixture(input_size=len(Variation), num_components=5)
 
         # pre-softmax priors [log P(variant), log P(artifact), log P(seq error)] for each variant type
         # linear layer with no bias to select the appropriate priors given one-hot variant encoding
         # in torch linear layers the weight is indexed by out-features, then in-features, so indices are
         # self.unnormalized_priors.weight[call type, variant type]
-        self._unnormalized_priors = torch.nn.Linear(in_features=len(VariantType), out_features=len(CallType), bias=False)
+        self._unnormalized_priors = torch.nn.Linear(in_features=len(Variation), out_features=len(Call), bias=False)
         with torch.no_grad():
             initial = torch.zeros_like(self._unnormalized_priors.weight)
             # the following assignments are broadcast over rows; that is, each variant type gets the same prior
-            initial[CallType.SOMATIC] = variant_log_prior
-            initial[CallType.ARTIFACT] = artifact_log_prior
-            initial[CallType.SEQ_ERROR] = 0
-            initial[CallType.GERMLINE] = 0
+            initial[Call.SOMATIC] = variant_log_prior
+            initial[Call.ARTIFACT] = artifact_log_prior
+            initial[Call.SEQ_ERROR] = 0
+            initial[Call.GERMLINE] = 0
             self._unnormalized_priors.weight.copy_(initial)
 
     def make_unnormalized_priors(self, variant_types_one_hot_2d: torch.Tensor, allele_frequencies_1d: torch.Tensor) -> torch.Tensor:
         result = self._unnormalized_priors(variant_types_one_hot_2d)
-        result[:, CallType.SEQ_ERROR] = 0
-        result[:, CallType.GERMLINE] = torch.log(1 - torch.square(1-allele_frequencies_1d))     # 1 minus hom ref probability
+        result[:, Call.SEQ_ERROR] = 0
+        result[:, Call.GERMLINE] = torch.log(1 - torch.square(1 - allele_frequencies_1d))     # 1 minus hom ref probability
         return result   # batch size x len(CallType)
 
     def posterior_probabilities(self, batch: PosteriorBatch) -> torch.Tensor:
@@ -64,7 +64,7 @@ class PosteriorModel(torch.nn.Module):
         :param batch:
         :return: non-log error probabilities as a 1D tensor with length batch size
         """
-        return 1 - self.posterior_probabilities(batch)[:, CallType.GERMLINE if germline_mode else CallType.SOMATIC]     # 0th column is variant
+        return 1 - self.posterior_probabilities(batch)[:, Call.GERMLINE if germline_mode else Call.SOMATIC]     # 0th column is variant
 
     def log_relative_posteriors(self, batch: PosteriorBatch) -> torch.Tensor:
         """
@@ -90,15 +90,15 @@ class PosteriorModel(torch.nn.Module):
         # the probability that these *particular* reads exhibit the alt allele.  Since any read is (essentially) equally
         # likely to exhibit a variant, we simply divide by the combinatorial factor (depth)C(count)
         # this yields a 1D tensor of length batch_size
-        log_likelihoods[:, CallType.SOMATIC] = self.variant_spectrum.forward(batch.pd_tumor_depths(),
-                                                                             batch.pd_tumor_alt_counts()) - log_combinatorial_factors
+        log_likelihoods[:, Call.SOMATIC] = self.variant_spectrum.forward(batch.pd_tumor_depths(),
+                                                                         batch.pd_tumor_alt_counts()) - log_combinatorial_factors
         # TODO: include normal by giving it the seq error likelihood model when tumor is somatic and adding
-        log_likelihoods[:, CallType.ARTIFACT] = self.artifact_spectra.forward(types, batch.pd_tumor_depths(),
-            batch.pd_tumor_alt_counts()) - log_combinatorial_factors + batch.artifact_logits()
+        log_likelihoods[:, Call.ARTIFACT] = self.artifact_spectra.forward(types, batch.pd_tumor_depths(),
+                                                                          batch.pd_tumor_alt_counts()) - log_combinatorial_factors + batch.artifact_logits()
         # TODO: include normal by giving it a mixture model of 1) the seq error likelihood model and 2) a normal artifact
         # TODO: spectrum model when tumor is artifact and adding
 
-        log_likelihoods[:, CallType.SEQ_ERROR] = batch.seq_error_log_likelihoods()
+        log_likelihoods[:, Call.SEQ_ERROR] = batch.seq_error_log_likelihoods()
         # TODO: include normal by giving it the same seq error likelihood model and adding
 
         # since this is a default dict, if there's no segmentation for the contig we will get no overlaps but not an error
@@ -117,7 +117,7 @@ class PosteriorModel(torch.nn.Module):
         alt_major_log_likelihoods = torch.log(het_proportion / 2) + batch.pd_tumor_ref_counts() * torch.log(mafs) + batch.pd_tumor_alt_counts() * torch.log(1 - mafs)
         hom_log_likelihoods = torch.log(hom_proportion) + utils.beta_binomial(batch.pd_tumor_depths(), batch.pd_tumor_alt_counts(), torch.Tensor([98.0]), torch.Tensor([2.0])) - log_combinatorial_factors
 
-        log_likelihoods[:, CallType.GERMLINE] = torch.logsumexp(torch.vstack((alt_minor_log_likelihoods, alt_major_log_likelihoods, hom_log_likelihoods)), dim=0)
+        log_likelihoods[:, Call.GERMLINE] = torch.logsumexp(torch.vstack((alt_minor_log_likelihoods, alt_major_log_likelihoods, hom_log_likelihoods)), dim=0)
         # TODO: include normal by giving it the same germline likelihood model and adding
         return log_priors + log_likelihoods
 
@@ -150,9 +150,9 @@ class PosteriorModel(torch.nn.Module):
                 # however, we must sum over variant types since each ignored site is simultaneously a missing non-SNV,
                 # a missing non-INSERTION etc
                 # we use a germline allele frequency of 0.001 for the missing sites but it doesn't really matter
-                for variant_type in VariantType:
+                for variant_type in Variation:
                     log_priors = torch.nn.functional.log_softmax(self.make_unnormalized_priors(variant_type.one_hot_tensor().unsqueeze(dim=0), torch.Tensor([0.001])), dim=1)
-                    log_seq_error_prior = log_priors.squeeze()[CallType.SEQ_ERROR]
+                    log_seq_error_prior = log_priors.squeeze()[Call.SEQ_ERROR]
                     missing_loss = -ignored_to_non_ignored_ratio * log_seq_error_prior  
                     loss += missing_loss
 
@@ -171,7 +171,7 @@ class PosteriorModel(torch.nn.Module):
                 spectra_axs[0, 0].plot(frac.numpy(), dens.numpy())
                 spectra_axs[0, 0].set_title("Variant AF Spectrum")
 
-                for variant_type in VariantType:
+                for variant_type in Variation:
                     n = variant_type + 1    # +1 is the offset for variant
                     row, col = int(n/2), n % 2
                     frac, dens = self.artifact_spectra.spectrum_density_vs_fraction(variant_type.one_hot_tensor())
@@ -185,12 +185,12 @@ class PosteriorModel(torch.nn.Module):
 
                 # bar plot of log priors -- data is indexed by call type name, and x ticks are variant types
                 log_prior_bar_plot_data = defaultdict(list)
-                for variant_type in VariantType:
+                for variant_type in Variation:
                     log_priors = torch.nn.functional.log_softmax(self.make_unnormalized_priors(variant_type.one_hot_tensor().unsqueeze(dim=0), torch.Tensor([0.001])), dim=1)
-                    for call_type in (CallType.SOMATIC, CallType.ARTIFACT):
+                    for call_type in (Call.SOMATIC, Call.ARTIFACT):
                         log_prior_bar_plot_data[call_type.name].append(log_priors.squeeze().detach()[call_type])
 
-                prior_fig, prior_ax = plotting.grouped_bar_plot(log_prior_bar_plot_data, [v_type.name for v_type in VariantType], "log priors")
+                prior_fig, prior_ax = plotting.grouped_bar_plot(log_prior_bar_plot_data, [v_type.name for v_type in Variation], "log priors")
                 summary_writer.add_figure("log priors", prior_fig, epoch)
 
     def calculate_probability_threshold(self, loader, summary_writer: SummaryWriter = None, germline_mode: bool = False):

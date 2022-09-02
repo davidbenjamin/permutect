@@ -10,8 +10,8 @@ class PosteriorBatch:
         self._original_list = data  # keep this for downsampling augmentation
         self._size = len(data)
 
-        self._pd_tumor_depths = torch.IntTensor([item.tumor_depth() for item in data])
-        self._pd_tumor_alt_counts = torch.IntTensor([item.tumor_alt_count() for item in data])
+        self._pd_tumor_depths = torch.IntTensor([item.depth() for item in data])
+        self._pd_tumor_alt_counts = torch.IntTensor([item.alt_count() for item in data])
 
         self._variant_type_one_hot = torch.vstack([item.variant_type().one_hot_tensor() for item in self._original_list])
 

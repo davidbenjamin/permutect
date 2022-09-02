@@ -4,13 +4,13 @@ from mutect3.data.read_set import ReadSet
 
 
 # make a three-datum batch
-from mutect3.utils import VariantType
+from mutect3.utils import Variation, Label
 
 
 def test_read_set_batch():
     size = 3
 
-    variant_types = [VariantType.SNV, VariantType.SNV, VariantType.INSERTION]
+    variant_types = [Variation.SNV, Variation.SNV, Variation.INSERTION]
     num_read_features = 11
     ref_counts = [6, 11, 7]
     alt_counts = [2, 15, 6]
@@ -19,7 +19,7 @@ def test_read_set_batch():
     alt_tensors = [torch.rand(n, num_read_features) for n in alt_counts]
 
     gatk_info_tensors = [torch.rand(read_set.NUM_GATK_NFO_FEATURES) for _ in range(size)]
-    labels = ["ARTIFACT", "SOMATIC", "ARTIFACT"]
+    labels = [Label.ARTIFACT, Label.SOMATIC, Label.ARTIFACT]
 
     data = [ReadSet(variant_types[n], ref_tensors[n], alt_tensors[n], gatk_info_tensors[n], labels[n]) for n in range(size)]
 
