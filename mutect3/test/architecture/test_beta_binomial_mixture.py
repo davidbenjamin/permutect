@@ -3,14 +3,6 @@ from torch.distributions.binomial import Binomial
 from mutect3.architecture.beta_binomial_mixture import BetaBinomialMixture
 
 
-# compare learned beta binomial mixture to the data it was trained on
-def compare_model_to_data(model: BetaBinomialMixture, inputs_2d_tensor, depths_1d_tensor, alt_counts_1d_tensor):
-    generated_alt_counts = model.sample(inputs_2d_tensor, depths_1d_tensor)
-
-    means = torch.mean(
-    )
-
-
 # given a discrete distribution of allele fractions between 0 and 1, and desired depths, generate alt counts,
 # fit a BetaBinomialMixture, and compare moments of the underlying Beta mixture (without the binomial part) to
 # those of the empirical allele fractions
@@ -36,7 +28,7 @@ def test_on_discrete_af_distribution(fractions_1d: torch.Tensor, weights_1d: tor
 
     assert torch.abs(model_mean - given_mean).item() < 0.02
     assert torch.abs(model_log_mean - given_log_mean).item() < 0.1
-    assert torch.abs(model_log_linear_mean - given_log_linear_mean).item() < 0.02
+    assert torch.abs(model_log_linear_mean - given_log_linear_mean).item() < 0.03
 
 
 def test_single_component():

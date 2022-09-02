@@ -277,10 +277,10 @@ class ArtifactModel(nn.Module):
 
         # grid of figures -- rows are loaders, columns are variant types
         # each subplot is a bar chart grouped by call type (variant vs artifact)
-        sens_fig, sens_axs = plt.subplots(len(loaders_by_name), len(Variation), sharex='all', sharey='all')
+        sens_fig, sens_axs = plt.subplots(len(loaders_by_name), len(Variation), sharex='all', sharey='all', squeeze=False)
 
         # accuracy is indexed by loader only
-        acc_fig, acc_axs = plt.subplots(1, len(loaders_by_name), sharex='all', sharey='all')
+        acc_fig, acc_axs = plt.subplots(1, len(loaders_by_name), sharex='all', sharey='all', squeeze=False)
 
         for loader_idx, (loader_name, loader) in enumerate(loaders_by_name.items()):
             accuracy = defaultdict(utils.StreamingAverage)
@@ -315,8 +315,8 @@ class ArtifactModel(nn.Module):
                 plotting.grouped_bar_plot_on_axis(sens_axs[loader_idx, var_type], sens_bar_plot_data, count_bin_labels, loader_name)
                 sens_axs[loader_idx, var_type].set_title(var_type.name)
 
-            plotting.simple_bar_plot_on_axis(acc_axs[loader_idx], [accuracy[l_bin].get() for l_bin in logit_bins], logit_bin_labels, "accuracy")
-            acc_axs[loader_idx].set_title(loader_name)
+            plotting.simple_bar_plot_on_axis(acc_axs[0, loader_idx], [accuracy[l_bin].get() for l_bin in logit_bins], logit_bin_labels, "accuracy")
+            acc_axs[0, loader_idx].set_title(loader_name)
 
         # done collecting stats for all loaders and filling in subplots
         for ax in sens_fig.get_axes():

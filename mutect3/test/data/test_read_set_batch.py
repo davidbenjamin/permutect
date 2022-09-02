@@ -18,8 +18,8 @@ def test_read_set_batch():
     ref_tensors = [torch.rand(n, num_read_features) for n in ref_counts]
     alt_tensors = [torch.rand(n, num_read_features) for n in alt_counts]
 
-    gatk_info_tensors = [torch.rand(read_set.NUM_GATK_NFO_FEATURES) for _ in range(size)]
-    labels = [Label.ARTIFACT, Label.SOMATIC, Label.ARTIFACT]
+    gatk_info_tensors = [torch.rand(read_set.NUM_GATK_INFO_FEATURES) for _ in range(size)]
+    labels = [Label.ARTIFACT, Label.VARIANT, Label.ARTIFACT]
 
     data = [ReadSet(variant_types[n], ref_tensors[n], alt_tensors[n], gatk_info_tensors[n], labels[n]) for n in range(size)]
 

@@ -163,9 +163,9 @@ def chunk(indices, chunk_size):
 # it's convenient to have equal numbers of labeled and unlabeled batches, so we adjust the unlabeled batch size
 class SemiSupervisedBatchSampler(Sampler):
     def __init__(self, dataset: ReadSetDataset, batch_size):
-        self.artifact_indices = [n for n in range(len(dataset)) if dataset[n].label() == "ARTIFACT"]
-        self.non_artifact_indices = [n for n in range(len(dataset)) if dataset[n].label() == "VARIANT"]
-        self.unlabeled_indices = [n for n in range(len(dataset)) if dataset[n].label() == "UNLABELED"]
+        self.artifact_indices = [n for n in range(len(dataset)) if dataset[n].label() == Label.ARTIFACT]
+        self.non_artifact_indices = [n for n in range(len(dataset)) if dataset[n].label() == Label.VARIANT]
+        self.unlabeled_indices = [n for n in range(len(dataset)) if dataset[n].label() == Label.UNLABELED]
         self.batch_size = batch_size
 
     # randomly sample non-artifact indices to get a balanced training set

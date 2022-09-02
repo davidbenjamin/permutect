@@ -6,6 +6,7 @@ from torch.utils.tensorboard import SummaryWriter
 from mutect3.architecture.artifact_model import ArtifactModelParameters, ArtifactModel
 from mutect3 import utils, constants
 from mutect3.data import read_set_dataset
+from mutect3.utils import Label
 
 
 class TrainingParameters:
@@ -20,7 +21,7 @@ def train_artifact_model(m3_params: ArtifactModelParameters, training_datasets, 
     train_and_valid = read_set_dataset.ReadSetDataset(files=training_datasets)
     training, valid = utils.split_dataset_into_train_and_valid(train_and_valid, 0.9)
 
-    unlabeled_count = sum([1 for datum in train_and_valid if datum.label() == "UNLABELED"])
+    unlabeled_count = sum([1 for datum in train_and_valid if datum.label() == Label.UNLABELED])
     print("Unlabeled data: " + str(unlabeled_count) + ", labeled data: " + str(len(train_and_valid) - unlabeled_count))
     print("Dataset sizes -- training: " + str(len(training)) + ", validation: " + str(len(valid)))
 

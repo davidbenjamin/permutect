@@ -2,13 +2,15 @@ import tempfile
 import mutect3.data.read_set_dataset as ds
 import torch
 
+from mutect3 import utils
+
 
 def test_line_to_tensor():
     line1 = "1.0 1.1 1.2 1.3"
     tensor1 = ds.line_to_tensor(line1)
 
     # allow for tensor rounding error
-    assert torch.max(torch.tensor([1.0, 1.1, 1.2, 1.3]) - tensor1).item() < 0.0000001
+    assert torch.max(torch.tensor([1.0, 1.1, 1.2, 1.3]) - tensor1).item() < 0.001
 
 
 def test_read_integers():
@@ -16,7 +18,7 @@ def test_read_integers():
     integers = ds.read_integers(line1)
 
     # allow for tensor rounding error
-    assert list(integers) == [1,2,3,4]
+    assert list(integers) == [1, 2, 3, 4]
 
 
 def test_read_2d_tensor():
@@ -63,6 +65,8 @@ def test_read_data():
             "24 32 0 0 23 42 351 77 274 0 0\n",
             "23 31 0 0 35 30 350 65 285 0 0\n",
             "36 4 26 2\n",
+            "0.879\n",
+            "4.55\n",
             "ARTIFACT\n",
             "1:13079, C->G\n",
             "CCAGCTGGGTCGACAGACAGG\n",
@@ -74,15 +78,17 @@ def test_read_data():
             "27 24 0 1 8 21 290 281 9 0 0\n",
             "27 24 0 1 8 21 290 281 9 0 0\n",
             "23 31 1 1 4 21 346 341 5 0 0\n",
-            "78 4 75 2\n"
+            "78 4 75 2\n",
+            "12.5\n",
+            "-73.3\n"
         ]
 
         f.writelines(lines)
 
     data = list(ds.read_data(tmp.name))
     assert len(data) == 2
-    assert data[0].label() == "UNLABELED"
-    assert torch.max(data[0].info_tensor() - torch.tensor([0.192, 0.000, 0.000, 1.000, 1.000, 1.000, 1.000, 1.000, 1.000])).item() < 0.00001
+    assert data[0].label() == utils.Label.UNLABELED
+    assert torch.max(data[0].info_tensor() - torch.tensor([0.192, 0.000, 0.000, 1.000, 1.000, 1.000, 1.000, 1.000, 1.000] + [1, 0, 0])).item() < 0.001
 
     assert data[1].ref_tensor().size()[0] == 5
     assert data[1].alt_tensor().size()[0] == 1
