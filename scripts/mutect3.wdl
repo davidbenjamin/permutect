@@ -129,6 +129,13 @@ task Mutect3Filtering {
         filter_variants \
             --input ~{mutect2_vcf} \
             --test_dataset ~{test_dataset} \
+            --m3_model ~{mutect3_model} \
+            --num_ignored_sites 2000000000 \
+            --output mutect3-filtered.vcf \
+
+        filter_variants \
+            --input ~{mutect2_vcf} \
+            --test_dataset ~{test_dataset} \
             --batch_size ~{batch_size} \
             --m3_model ~{mutect3_model} \
             --num_ignored_sites $num_ignored \
