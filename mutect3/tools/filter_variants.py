@@ -78,6 +78,7 @@ def parse_arguments():
 
 
 def get_segmentation(segments_file) -> defaultdict:
+    print("pointless debug line in get_segmentation")
     result = defaultdict(IntervalTree)
     if segments_file is None:
         return result

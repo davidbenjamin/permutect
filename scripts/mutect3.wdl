@@ -122,6 +122,7 @@ task Mutect3Filtering {
         echo "DEBUG 1"
         num_ignored=`grep "callable" ~{mutect_stats} | while read name value; do echo $value; done`
         echo "DEBUG 2"
+        echo $num_ignored
 
         filter_variants \
             --input ~{mutect2_vcf} \
@@ -131,6 +132,8 @@ task Mutect3Filtering {
             --num_ignored_sites $num_ignored \
             --output mutect3-filtered.vcf \
             --tensorboard_dir tensorboard
+
+        echo "THIS IS A POINTLESS DEBUG LINE"
     >>>
 
     runtime {
