@@ -127,6 +127,10 @@ task Mutect3Filtering {
         echo "DEBUG 2b"
 
         filter_variants \
+            --favorite_duck mallard \
+            --favorite_input output
+
+        filter_variants \
             --input ~{mutect2_vcf} \
             --test_dataset ~{test_dataset} \
             --m3_model ~{mutect3_model} \
