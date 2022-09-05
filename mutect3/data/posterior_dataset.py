@@ -19,6 +19,5 @@ class PosteriorDataset(Dataset):
     def __getitem__(self, index) -> PosteriorDatum:
         return self.data[index]
 
-
-def make_posterior_data_loader(dataset: PosteriorDataset, batch_size: int):
-    return DataLoader(dataset=dataset, batch_size=batch_size, collate_fn=PosteriorBatch)
+    def make_data_loader(self, batch_size: int):
+        return DataLoader(dataset=self, batch_size=batch_size, collate_fn=PosteriorBatch)

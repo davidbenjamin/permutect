@@ -1,9 +1,9 @@
-from mutect3.tools import train_model
-from mutect3.architecture import artifact_model
+import tempfile
 
 from tensorboard.backend.event_processing.event_accumulator import EventAccumulator
-import tempfile
-from torch.utils.tensorboard import SummaryWriter
+
+from mutect3.architecture import artifact_model
+from mutect3.tools import train_model
 
 
 def test_training(dataset):

@@ -167,7 +167,7 @@ def make_posterior_data_loader(dataset_file, input_vcf, artifact_model: Artifact
 
     print("Size of filtering dataset: " + str(len(posterior_data)))
     posterior_dataset = PosteriorDataset(posterior_data)
-    return posterior_dataset.make_posterior_data_loader(posterior_dataset, batch_size)
+    return posterior_dataset.make_data_loader(batch_size)
 
 
 def process_buffers(artifact_model, batch_size, read_sets_buffer, posterior_buffer, posterior_data, chunk_size):
