@@ -98,7 +98,7 @@ def main():
     print("DEBUG 3")
     args = parse_arguments()
     print("DEBUG 4")
-
+    '''
     make_filtered_vcf(saved_artifact_model=getattr(args, constants.M3_MODEL_NAME),
                       initial_log_variant_prior=getattr(args, constants.INITIAL_LOG_VARIANT_PRIOR_NAME),
                       initial_log_artifact_prior=getattr(args, constants.INITIAL_LOG_ARTIFACT_PRIOR_NAME),
@@ -111,6 +111,7 @@ def main():
                       num_ignored_sites=getattr(args, constants.NUM_IGNORED_SITES_NAME),
                       germline_mode=getattr(args, constants.GERMLINE_MODE_NAME),
                       segmentation=get_segmentation(getattr(args, constants.MAF_SEGMENTS_NAME)))
+    '''
 
 
 def make_filtered_vcf(saved_artifact_model, initial_log_variant_prior: float, initial_log_artifact_prior: float,
