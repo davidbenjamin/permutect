@@ -160,6 +160,8 @@ def make_posterior_data_loader(dataset_file, input_vcf, artifact_model: Artifact
 
         # this logic ensures that after for loop buffers are full enough to normalize read sets data
         if len(read_sets_buffer) == 2 * CHUNK_SIZE:
+            print("processing " + str(CHUNK_SIZE) + " read sets for posterior model.")
+            print(posterior_datum.contig() + ":" + str(posterior_datum.position()))
             process_buffers(artifact_model, batch_size, read_sets_buffer, posterior_buffer, posterior_data, CHUNK_SIZE)
 
     # flush the remaining buffered data, after which posterior data should include everything and the buffers should be empty

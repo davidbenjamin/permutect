@@ -22,5 +22,5 @@ def test_filtering():
                                           batch_size=64,
                                           num_spectrum_iterations=10,
                                           tensorboard_dir=tensorboard_dir,
-                                          num_ignored_sites=2_000_000_000)
+                                          num_ignored_sites=float("2.0E9"))
         dummy_breakpoint = 77
