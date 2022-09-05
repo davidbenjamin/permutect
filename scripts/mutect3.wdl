@@ -121,15 +121,8 @@ task Mutect3Filtering {
         set -e
         num_ignored=`grep "callable" ~{mutect_stats} | while read name value; do echo $value; done`
 
-        filter_variants \
-            --input ~{mutect2_vcf} \
-            --test_dataset ~{test_dataset} \
-            --batch_size ~{batch_size} \
-            --m3_model ~{mutect3_model} \
-            ~{"--maf_segments " + maf_segments} \
-            --num_ignored_sites $num_ignored \
-            --output mutect3-filtered.vcf \ 
-            --tensorboard_dir tensorboard
+        filter_variants --input ~{mutect2_vcf} --test_dataset ~{test_dataset} --m3_model ~{mutect3_model} --output mutect3-filtered.vcf \
+            --batch_size ~{batch_size} ~{"--maf_segments " + maf_segments} --num_ignored_sites $num_ignored
     >>>
 
     runtime {
