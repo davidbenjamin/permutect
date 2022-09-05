@@ -122,7 +122,9 @@ task Mutect3Filtering {
         echo "DEBUG 1"
         num_ignored=`grep "callable" ~{mutect_stats} | while read name value; do echo $value; done`
         echo "DEBUG 2"
+        echo "DEBUG 2a"
         echo $num_ignored
+        echo "DEBUG 2b"
 
         filter_variants \
             --input ~{mutect2_vcf} \
