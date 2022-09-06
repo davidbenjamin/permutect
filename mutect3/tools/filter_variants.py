@@ -113,14 +113,13 @@ def main():
                       segmentation=get_segmentation(getattr(args, constants.MAF_SEGMENTS_NAME)))
 
 
-
 def make_filtered_vcf(saved_artifact_model, initial_log_variant_prior: float, initial_log_artifact_prior: float,
                       test_dataset_file, input_vcf, output_vcf, batch_size: int, num_spectrum_iterations: int, tensorboard_dir,
                       num_ignored_sites: int, germline_mode: bool = False, segmentation=defaultdict(IntervalTree)):
     print("Loading artifact model and test dataset")
     artifact_model = load_artifact_model(saved_artifact_model)
     posterior_model = PosteriorModel(initial_log_variant_prior, initial_log_artifact_prior, segmentation=segmentation)
-    posterior_data_loader = make_posterior_data_loader(test_dataset_file, input_vcf, artifact_model, batch_size)
+    # posterior_data_loader = make_posterior_data_loader(test_dataset_file, input_vcf, artifact_model, batch_size)
 
     print("Learning AF spectra")
     summary_writer = SummaryWriter(tensorboard_dir)
