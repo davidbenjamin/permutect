@@ -2,6 +2,7 @@ import argparse
 from typing import Set
 from intervaltree import IntervalTree
 from collections import defaultdict
+import psutil
 
 import torch
 from torch.utils.tensorboard import SummaryWriter
@@ -119,7 +120,7 @@ def make_filtered_vcf(saved_artifact_model, initial_log_variant_prior: float, in
     print("Loading artifact model and test dataset")
     artifact_model = load_artifact_model(saved_artifact_model)
     posterior_model = PosteriorModel(initial_log_variant_prior, initial_log_artifact_prior, segmentation=segmentation)
-    # posterior_data_loader = make_posterior_data_loader(test_dataset_file, input_vcf, artifact_model, batch_size)
+    posterior_data_loader = make_posterior_data_loader(test_dataset_file, input_vcf, artifact_model, batch_size)
 
     print("Learning AF spectra")
     summary_writer = SummaryWriter(tensorboard_dir)
@@ -154,7 +155,12 @@ def make_posterior_data_loader(dataset_file, input_vcf, artifact_model: Artifact
     posterior_buffer = []
     posterior_data = []
 
+    num_chunks = 0
     for read_set, posterior_datum in read_set_dataset.read_data(dataset_file, posterior=True):
+        print("memory usage percent: " + str(psutil.virtual_memory().percent))
+        num_chunks += 1
+        if num_chunks > 5:
+            break
         encoding = encode_datum(posterior_datum)
         if encoding not in m2_filtering_to_keep:
             posterior_datum.set_allele_frequency(allele_frequencies[encoding])
