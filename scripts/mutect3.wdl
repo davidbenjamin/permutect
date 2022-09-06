@@ -118,7 +118,7 @@ task Mutect3Filtering {
     Int command_mem = machine_mem - 500
 
     command <<<
-        set -e
+        # set -e
         num_ignored=`grep "callable" ~{mutect_stats} | while read name value; do echo $value; done`
 
         filter_variants --input ~{mutect2_vcf} --test_dataset ~{test_dataset} --m3_model ~{mutect3_model} --output mutect3-filtered.vcf \
