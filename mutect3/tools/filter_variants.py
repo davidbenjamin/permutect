@@ -156,8 +156,8 @@ def make_posterior_data_loader(dataset_file, input_vcf, artifact_model: Artifact
     posterior_data = []
 
     num_chunks = 0
+    num_data = 0
     for read_set, posterior_datum in read_set_dataset.read_data(dataset_file, posterior=True):
-        print("memory usage percent: " + str(psutil.virtual_memory().percent))
         if num_chunks > 5:
             break
         encoding = encode_datum(posterior_datum)
@@ -165,10 +165,18 @@ def make_posterior_data_loader(dataset_file, input_vcf, artifact_model: Artifact
             posterior_datum.set_allele_frequency(allele_frequencies[encoding])
             posterior_buffer.append(posterior_datum)
             read_sets_buffer.append(read_set)
+            num_data += 1
+
+            if num_data % 10000 == 0:
+                print("cumulative: " + str(num_data))
+                print("read sets buffer: " + str(len(read_sets_buffer)))
+                print("posterior buffer: " + str(len(posterior_buffer)))
+                print("posterior data: " + str(len(posterior_data)))
 
         # this logic ensures that after for loop buffers are full enough to normalize read sets data
         if len(read_sets_buffer) == 2 * CHUNK_SIZE:
             num_chunks += 1
+            print("memory usage percent: " + str(psutil.virtual_memory().percent))
             print("processing " + str(CHUNK_SIZE) + " read sets for posterior model.")
             print(posterior_datum.contig() + ":" + str(posterior_datum.position()))
             process_buffers(artifact_model, batch_size, read_sets_buffer, posterior_buffer, posterior_data, CHUNK_SIZE)
@@ -190,9 +198,11 @@ def process_buffers(artifact_model, batch_size, read_sets_buffer, posterior_buff
         posterior.set_artifact_logit(logit)
     posterior_data.extend(posterior_buffer)
 
+    print("length of read sets and posterior buffers prior to clearing space: " + str(len(read_sets_buffer)) + ", " + str(len(posterior_buffer)))
     # NOTE: these lines are grayed-out in PyCharm but they are necessary to clear space in the buffers!
     read_sets_buffer = read_sets_buffer[chunk_size:]
     posterior_buffer = posterior_buffer[chunk_size:]
+    print("length of read sets and posterior buffers after clearing space: " + str(len(read_sets_buffer)) + ", " + str(len(posterior_buffer)))
 
 
 def apply_filtering_to_vcf(input_vcf, output_vcf, error_probability_threshold, posterior_loader, posterior_model, germline_mode: bool = False):

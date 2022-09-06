@@ -79,7 +79,7 @@ def read_data(dataset_file, posterior: bool = False):
             locus, mutation = file.readline().strip().split(",")
             contig, position = locus.split(":")
             position = int(position)
-            if n % 10000 == 0:
+            if n % 100000 == 0:
                 print(contig + ":" + str(position))
             ref, alt = mutation.strip().split("->")
 
