@@ -204,7 +204,7 @@ def process_buffers(artifact_model, batch_size, read_sets_buffer, posterior_buff
         logits.extend(artifact_model.forward(batch=artifact_batch).detach().tolist())
     for logit, posterior in zip(logits, posterior_buffer[chunk_size:]):
         posterior.set_artifact_logit(logit)
-    posterior_data.extend(posterior_buffer)
+    posterior_data.extend(posterior_buffer[chunk_size:])
 
     # clear space in the buffers
     del read_sets_buffer[chunk_size:]
