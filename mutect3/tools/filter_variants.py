@@ -85,7 +85,7 @@ def get_segmentation(segments_file) -> defaultdict:
 
     with open(segments_file, 'r') as file:
         for line in file:
-            if line.startswith("#") or (line.startswith("contig") and line.endswith("minor_allele_fraction")):
+            if line.startswith("#") or (line.startswith("contig") and "minor_allele_fraction" in line):
                 continue
             tokens = line.split()
             contig, start, stop, maf = tokens[0], int(tokens[1]), int(tokens[2]), float(tokens[3])
@@ -98,7 +98,7 @@ def main():
     print("DEBUG 3")
     args = parse_arguments()
     print("DEBUG 4")
-    
+
     make_filtered_vcf(saved_artifact_model=getattr(args, constants.M3_MODEL_NAME),
                       initial_log_variant_prior=getattr(args, constants.INITIAL_LOG_VARIANT_PRIOR_NAME),
                       initial_log_artifact_prior=getattr(args, constants.INITIAL_LOG_ARTIFACT_PRIOR_NAME),
