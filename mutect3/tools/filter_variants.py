@@ -79,11 +79,12 @@ def parse_arguments():
 
 
 def get_segmentation(segments_file) -> defaultdict:
-    print("pointless debug line in get_segmentation")
+
     result = defaultdict(IntervalTree)
     if segments_file is None:
         return result
 
+    print(" reading segmentation file")
     with open(segments_file, 'r') as file:
         for line in file:
             if line.startswith("#") or (line.startswith("contig") and "minor_allele_fraction" in line):
@@ -96,9 +97,7 @@ def get_segmentation(segments_file) -> defaultdict:
 
 
 def main():
-    print("DEBUG 3")
     args = parse_arguments()
-    print("DEBUG 4")
 
     make_filtered_vcf(saved_artifact_model=getattr(args, constants.M3_MODEL_NAME),
                       initial_log_variant_prior=getattr(args, constants.INITIAL_LOG_VARIANT_PRIOR_NAME),
@@ -155,27 +154,16 @@ def make_posterior_data_loader(dataset_file, input_vcf, artifact_model: Artifact
     posterior_buffer = []
     posterior_data = []
 
-    num_chunks = 0
-    num_data = 0
     for read_set, posterior_datum in read_set_dataset.read_data(dataset_file, posterior=True):
-        if num_chunks > 5:
-            break
+
         encoding = encode_datum(posterior_datum)
         if encoding not in m2_filtering_to_keep:
             posterior_datum.set_allele_frequency(allele_frequencies[encoding])
             posterior_buffer.append(posterior_datum)
             read_sets_buffer.append(read_set)
-            num_data += 1
-
-            if num_data % 10000 == 0:
-                print("cumulative: " + str(num_data))
-                print("read sets buffer: " + str(len(read_sets_buffer)))
-                print("posterior buffer: " + str(len(posterior_buffer)))
-                print("posterior data: " + str(len(posterior_data)))
 
         # this logic ensures that after for loop buffers are full enough to normalize read sets data
         if len(read_sets_buffer) == 2 * CHUNK_SIZE:
-            num_chunks += 1
             print("memory usage percent: " + str(psutil.virtual_memory().percent))
             print("processing " + str(CHUNK_SIZE) + " read sets for posterior model.")
             print(posterior_datum.contig() + ":" + str(posterior_datum.position()))
