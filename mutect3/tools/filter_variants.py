@@ -179,7 +179,15 @@ def make_posterior_data_loader(dataset_file, input_vcf, artifact_model: Artifact
             print("memory usage percent: " + str(psutil.virtual_memory().percent))
             print("processing " + str(CHUNK_SIZE) + " read sets for posterior model.")
             print(posterior_datum.contig() + ":" + str(posterior_datum.position()))
+
+            buffer_len_before = len(read_sets_buffer)
+            cum_len_before = len(posterior_data)
             process_buffers(artifact_model, batch_size, read_sets_buffer, posterior_buffer, posterior_data, CHUNK_SIZE)
+
+            # make sure memory clearing was done correctly, because there are pitfalls
+            assert len(read_sets_buffer) == buffer_len_before - CHUNK_SIZE
+            assert len(read_sets_buffer) == len(posterior_buffer)
+            assert len(posterior_data) == cum_len_before + CHUNK_SIZE
 
     # flush the remaining buffered data, after which posterior data should include everything and the buffers should be empty
     process_buffers(artifact_model, batch_size, read_sets_buffer, posterior_buffer, posterior_data, len(posterior_buffer))
@@ -190,19 +198,17 @@ def make_posterior_data_loader(dataset_file, input_vcf, artifact_model: Artifact
 
 
 def process_buffers(artifact_model, batch_size, read_sets_buffer, posterior_buffer, posterior_data, chunk_size):
-    artifact_dataset = read_set_dataset.ReadSetDataset(data=read_sets_buffer[:chunk_size], shuffle=False)
+    artifact_dataset = read_set_dataset.ReadSetDataset(data=read_sets_buffer[chunk_size:], shuffle=False)
     logits = []
     for artifact_batch in read_set_dataset.make_test_data_loader(artifact_dataset, batch_size):
         logits.extend(artifact_model.forward(batch=artifact_batch).detach().tolist())
-    for logit, posterior in zip(logits, posterior_buffer[:chunk_size]):
+    for logit, posterior in zip(logits, posterior_buffer[chunk_size:]):
         posterior.set_artifact_logit(logit)
     posterior_data.extend(posterior_buffer)
 
-    print("length of read sets and posterior buffers prior to clearing space: " + str(len(read_sets_buffer)) + ", " + str(len(posterior_buffer)))
-    # NOTE: these lines are grayed-out in PyCharm but they are necessary to clear space in the buffers!
-    read_sets_buffer = read_sets_buffer[chunk_size:]
-    posterior_buffer = posterior_buffer[chunk_size:]
-    print("length of read sets and posterior buffers after clearing space: " + str(len(read_sets_buffer)) + ", " + str(len(posterior_buffer)))
+    # clear space in the buffers
+    del read_sets_buffer[chunk_size:]
+    del posterior_buffer[chunk_size:]
 
 
 def apply_filtering_to_vcf(input_vcf, output_vcf, error_probability_threshold, posterior_loader, posterior_model, germline_mode: bool = False):
