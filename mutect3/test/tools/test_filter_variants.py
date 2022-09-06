@@ -8,9 +8,10 @@ from torch.utils.tensorboard import SummaryWriter
 
 def test_filtering():
     saved_artifact_model = "/Users/davidben/mutect3/just-dream-1/mutect3.pt"
-    test_dataset_file = "/Users/davidben/mutect3/just-dream-1/small-test.dataset"
-    # test_dataset_file = "/Users/davidben/mutect3/just-dream-1/big.dataset"
-    unfiltered_vcf = "/Users/davidben/mutect3/just-dream-1/small-m2-calls.vcf"
+    # test_dataset_file = "/Users/davidben/mutect3/just-dream-1/small-test.dataset"
+    test_dataset_file = "/Users/davidben/mutect3/just-dream-1/big.dataset"
+    # unfiltered_vcf = "/Users/davidben/mutect3/just-dream-1/small-m2-calls.vcf"
+    unfiltered_vcf = "/Users/davidben/mutect3/just-dream-1/filtered_m2_calls.vcf"
 
     with tempfile.TemporaryDirectory() as tensorboard_dir, tempfile.TemporaryFile() as output_vcf:
         filter_variants.make_filtered_vcf(saved_artifact_model=saved_artifact_model,

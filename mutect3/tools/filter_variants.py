@@ -158,7 +158,6 @@ def make_posterior_data_loader(dataset_file, input_vcf, artifact_model: Artifact
     num_chunks = 0
     for read_set, posterior_datum in read_set_dataset.read_data(dataset_file, posterior=True):
         print("memory usage percent: " + str(psutil.virtual_memory().percent))
-        num_chunks += 1
         if num_chunks > 5:
             break
         encoding = encode_datum(posterior_datum)
@@ -169,6 +168,7 @@ def make_posterior_data_loader(dataset_file, input_vcf, artifact_model: Artifact
 
         # this logic ensures that after for loop buffers are full enough to normalize read sets data
         if len(read_sets_buffer) == 2 * CHUNK_SIZE:
+            num_chunks += 1
             print("processing " + str(CHUNK_SIZE) + " read sets for posterior model.")
             print(posterior_datum.contig() + ":" + str(posterior_datum.position()))
             process_buffers(artifact_model, batch_size, read_sets_buffer, posterior_buffer, posterior_data, CHUNK_SIZE)
