@@ -198,17 +198,17 @@ def make_posterior_data_loader(dataset_file, input_vcf, artifact_model: Artifact
 
 
 def process_buffers(artifact_model, batch_size, read_sets_buffer, posterior_buffer, posterior_data, chunk_size):
-    artifact_dataset = read_set_dataset.ReadSetDataset(data=read_sets_buffer[chunk_size:], shuffle=False)
+    artifact_dataset = read_set_dataset.ReadSetDataset(data=read_sets_buffer[-chunk_size:], shuffle=False)
     logits = []
     for artifact_batch in read_set_dataset.make_test_data_loader(artifact_dataset, batch_size):
         logits.extend(artifact_model.forward(batch=artifact_batch).detach().tolist())
-    for logit, posterior in zip(logits, posterior_buffer[chunk_size:]):
+    for logit, posterior in zip(logits, posterior_buffer[-chunk_size:]):
         posterior.set_artifact_logit(logit)
-    posterior_data.extend(posterior_buffer[chunk_size:])
+    posterior_data.extend(posterior_buffer[-chunk_size:])
 
     # clear space in the buffers
-    del read_sets_buffer[chunk_size:]
-    del posterior_buffer[chunk_size:]
+    del read_sets_buffer[-chunk_size:]
+    del posterior_buffer[-chunk_size:]
 
 
 def apply_filtering_to_vcf(input_vcf, output_vcf, error_probability_threshold, posterior_loader, posterior_model, germline_mode: bool = False):
