@@ -104,7 +104,7 @@ class PosteriorModel(torch.nn.Module):
         # since this is a default dict, if there's no segmentation for the contig we will get no overlaps but not an error
         # In our case there is either one or zero overlaps, and overlaps have the form
         segmentation_overlaps = [self.segmentation[item.contig()][item.position()] for item in batch.original_list()]
-        mafs = torch.Tensor([overlaps[0].data if overlaps else 0.5 for overlaps in segmentation_overlaps])
+        mafs = torch.Tensor([list(overlaps)[0].data if overlaps else 0.5 for overlaps in segmentation_overlaps])
 
         afs = batch.allele_frequencies()
         het_probs = 2*afs*(1-afs)
