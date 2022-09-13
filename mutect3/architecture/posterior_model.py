@@ -34,7 +34,7 @@ def germline_log_likelihood(afs, mafs, alt_counts, ref_counts):
     # the following should both be 1D tensors of length batch size
     alt_minor_ll = log_half_het_prop + alt_counts * log_mafs + ref_counts * log_1m_mafs
     alt_major_ll = log_half_het_prop + ref_counts * log_mafs + alt_counts * log_1m_mafs
-    hom_ll = torch.log(hom_proportion) + utils.beta_binomial(depths, alt_counts(), HOM_ALPHA, HOM_BETA)
+    hom_ll = torch.log(hom_proportion) + utils.beta_binomial(depths, alt_counts, HOM_ALPHA, HOM_BETA)
 
     return torch.logsumexp(torch.vstack((alt_minor_ll, alt_major_ll, hom_ll)), dim=0)
 

@@ -43,6 +43,9 @@ class PosteriorBatch:
     def ref_counts(self) -> torch.IntTensor:
         return self._depths - self._alt_counts
 
+    def normal_ref_counts(self) -> torch.IntTensor:
+        return self._normal_depths - self._normal_alt_counts
+
     def variant_type_one_hot(self):
         return self._variant_type_one_hot
 
