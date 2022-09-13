@@ -43,11 +43,13 @@ class PosteriorModel(torch.nn.Module):
     """
 
     """
-    def __init__(self, variant_log_prior: float, artifact_log_prior: float, segmentation=defaultdict(IntervalTree)):
+    def __init__(self, variant_log_prior: float, artifact_log_prior: float, segmentation=defaultdict(IntervalTree),
+                 normal_segmentation=defaultdict(IntervalTree)):
         super(PosteriorModel, self).__init__()
 
         # TODO: might as well give the normal segmentation as well
         self.segmentation = segmentation
+        self.normal_segmentation = normal_segmentation
 
         # TODO introduce parameters class so that num_components is not hard-coded
         # featureless because true variant types share a common AF spectrum
@@ -126,10 +128,9 @@ class PosteriorModel(torch.nn.Module):
         # since this is a default dict, if there's no segmentation for the contig we will get no overlaps but not an error
         # In our case there is either one or zero overlaps, and overlaps have the form
         segmentation_overlaps = [self.segmentation[item.contig()][item.position()] for item in batch.original_list()]
+        normal_segmentation_overlaps = [self.normal_segmentation[item.contig()][item.position()] for item in batch.original_list()]
         mafs = torch.Tensor([list(overlaps)[0].data if overlaps else 0.5 for overlaps in segmentation_overlaps])
-
-        # TODO: allow for CNV / segmentation in normal
-        normal_mafs = torch.Tensor([0.5 for _ in segmentation_overlaps])
+        normal_mafs = torch.Tensor([list(overlaps)[0].data if overlaps else 0.5 for overlaps in normal_segmentation_overlaps])
 
         afs = batch.allele_frequencies()
         germline_ll = germline_log_likelihood(afs, mafs, batch.alt_counts(), batch.ref_counts())
