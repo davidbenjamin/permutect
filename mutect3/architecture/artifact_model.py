@@ -18,8 +18,6 @@ from mutect3 import utils
 from mutect3.utils import Call, Variation
 from mutect3.metrics import plotting
 
-from mutect3.architecture.beta_binomial_mixture import beta_binomial
-
 warnings.filterwarnings("ignore", message="Setting attributes on ParameterList is not supported.")
 
 

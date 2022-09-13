@@ -10,8 +10,10 @@ class PosteriorBatch:
         self._original_list = data  # keep this for downsampling augmentation
         self._size = len(data)
 
-        self._pd_tumor_depths = torch.IntTensor([item.depth() for item in data])
-        self._pd_tumor_alt_counts = torch.IntTensor([item.alt_count() for item in data])
+        self._depths = torch.IntTensor([item.depth() for item in data])
+        self._alt_counts = torch.IntTensor([item.alt_count() for item in data])
+        self._normal_depths = torch.IntTensor([item.normal_depth() for item in data])
+        self._normal_alt_counts = torch.IntTensor([item.normal_alt_count() for item in data])
 
         self._variant_type_one_hot = torch.vstack([item.variant_type().one_hot_tensor() for item in self._original_list])
 
@@ -26,14 +28,20 @@ class PosteriorBatch:
     def size(self) -> int:
         return self._size
 
-    def pd_tumor_depths(self) -> torch.IntTensor:
-        return self._pd_tumor_depths
+    def depths(self) -> torch.IntTensor:
+        return self._depths
 
-    def pd_tumor_alt_counts(self) -> torch.IntTensor:
-        return self._pd_tumor_alt_counts
+    def alt_counts(self) -> torch.IntTensor:
+        return self._alt_counts
 
-    def pd_tumor_ref_counts(self) -> torch.IntTensor:
-        return self._pd_tumor_depths - self._pd_tumor_alt_counts
+    def normal_depths(self) -> torch.IntTensor:
+        return self._normal_depths
+
+    def normal_alt_counts(self) -> torch.IntTensor:
+        return self._normal_alt_counts
+
+    def ref_counts(self) -> torch.IntTensor:
+        return self._depths - self._alt_counts
 
     def variant_type_one_hot(self):
         return self._variant_type_one_hot

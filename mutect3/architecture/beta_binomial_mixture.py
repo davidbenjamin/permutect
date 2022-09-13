@@ -4,16 +4,7 @@ from torch.nn.functional import softmax, log_softmax
 import torch
 
 from mutect3.metrics.plotting import simple_plot
-
-
-# note: this function works for n, k, alpha, beta tensors of the same shape
-# the result is computed element-wise ie result[i,j. . .] = beta_binomial(n[i,j..], k[i,j..], alpha[i,j..], beta[i,j..)
-# often n, k will correspond to a batch dimension and alpha, beta correspond to a model, in which case
-# unsqueezing is necessary
-def beta_binomial(n, k, alpha, beta):
-    return lgamma(k + alpha) + lgamma(n - k + beta) + lgamma(alpha + beta) \
-           - lgamma(n + alpha + beta) - lgamma(alpha) - lgamma(beta)
-
+from mutect3.utils import beta_binomial
 
 class BetaBinomialMixture(nn.Module):
     """

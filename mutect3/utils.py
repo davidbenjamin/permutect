@@ -94,6 +94,7 @@ def f_score(tp, fp, total_true):
 # the result is computed element-wise ie result[i,j. . .] = beta_binomial(n[i,j..], k[i,j..], alpha[i,j..], beta[i,j..)
 # often n, k will correspond to a batch dimension and alpha, beta correspond to a model, in which case
 # unsqueezing is necessary
+# NOTE: this excludes the nCk factor
 def beta_binomial(n, k, alpha, beta):
     return torch.lgamma(k + alpha) + torch.lgamma(n - k + beta) + torch.lgamma(alpha + beta) \
            - torch.lgamma(n + alpha + beta) - torch.lgamma(alpha) - torch.lgamma(beta)

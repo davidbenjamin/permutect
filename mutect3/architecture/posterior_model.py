@@ -14,6 +14,30 @@ from mutect3.architecture.beta_binomial_mixture import BetaBinomialMixture, Feat
 from mutect3.data.read_set_batch import ReadSetBatch
 from mutect3.metrics import plotting
 
+HOM_ALPHA, HOM_BETA = torch.Tensor([98.0]), torch.Tensor([2.0])
+
+
+# TODO: write unit test asserting that this comes out to zero when counts are zero
+# given germline, the probability of these particular reads being alt
+def germline_log_likelihood(afs, mafs, alt_counts, ref_counts):
+    het_probs = 2 * afs * (1 - afs)
+    hom_probs = afs * afs
+    het_proportion = het_probs / (het_probs + hom_probs)
+    hom_proportion = 1 - het_proportion
+
+    log_mafs = torch.log(mafs)
+    log_1m_mafs = torch.log(1 - mafs)
+    log_half_het_prop = torch.log(het_proportion / 2)
+
+    depths = alt_counts + ref_counts
+
+    # the following should both be 1D tensors of length batch size
+    alt_minor_ll = log_half_het_prop + alt_counts * log_mafs + ref_counts * log_1m_mafs
+    alt_major_ll = log_half_het_prop + ref_counts * log_mafs + alt_counts * log_1m_mafs
+    hom_ll = torch.log(hom_proportion) + utils.beta_binomial(depths, alt_counts(), HOM_ALPHA, HOM_BETA)
+
+    return torch.logsumexp(torch.vstack((alt_minor_ll, alt_major_ll, hom_ll)), dim=0)
+
 
 class PosteriorModel(torch.nn.Module):
     """
@@ -22,11 +46,12 @@ class PosteriorModel(torch.nn.Module):
     def __init__(self, variant_log_prior: float, artifact_log_prior: float, segmentation=defaultdict(IntervalTree)):
         super(PosteriorModel, self).__init__()
 
+        # TODO: might as well give the normal segmentation as well
         self.segmentation = segmentation
 
         # TODO introduce parameters class so that num_components is not hard-coded
         # featureless because true variant types share a common AF spectrum
-        self.variant_spectrum = FeaturelessBetaBinomialMixture(num_components=5)
+        self.somatic_spectrum = FeaturelessBetaBinomialMixture(num_components=5)
 
         # artifact spectra for each variant type.  Variant type encoded as one-hot input vector.
         self.artifact_spectra = BetaBinomialMixture(input_size=len(Variation), num_components=5)
@@ -77,7 +102,6 @@ class PosteriorModel(torch.nn.Module):
         :return:
         """
         types = batch.variant_type_one_hot()
-        log_combinatorial_factors = utils.log_binomial_coefficient(batch.pd_tumor_depths(), batch.pd_tumor_alt_counts())
 
         # log priors of all call types for each datum -- batch.size() x len(CallType) tensor
         log_priors = torch.nn.functional.log_softmax(self.make_unnormalized_priors(types, batch.allele_frequencies()), dim=1)
@@ -86,39 +110,33 @@ class PosteriorModel(torch.nn.Module):
         # initialize (arbitrarily) to zero, then fill in the variant, artifact, and seq error columns
         log_likelihoods = torch.zeros_like(log_priors)
 
-        # the AF spectrum's forward method outputs the log likelihood of some number of alt reads, whereas we need
-        # the probability that these *particular* reads exhibit the alt allele.  Since any read is (essentially) equally
-        # likely to exhibit a variant, we simply divide by the combinatorial factor (depth)C(count)
-        # this yields a 1D tensor of length batch_size
-        log_likelihoods[:, Call.SOMATIC] = self.variant_spectrum.forward(batch.pd_tumor_depths(),
-                                                                         batch.pd_tumor_alt_counts()) - log_combinatorial_factors
-        # TODO: include normal by giving it the seq error likelihood model when tumor is somatic and adding
-        log_likelihoods[:, Call.ARTIFACT] = self.artifact_spectra.forward(types, batch.pd_tumor_depths(),
-                                                                          batch.pd_tumor_alt_counts()) - log_combinatorial_factors + batch.artifact_logits()
-        # TODO: include normal by giving it a mixture model of 1) the seq error likelihood model and 2) a normal artifact
-        # TODO: spectrum model when tumor is artifact and adding
+        # the AF spectrum's forward method uses a beta binomial that excludes the nCk combinatorial factor
+        # Thus it gives the log likelihood that these *particular* reads exhibit the alt allele with no modification.
+        somatic_ll = self.somatic_spectrum.forward(batch.depths(), batch.alt_counts())
+        log_likelihoods[:, Call.SOMATIC] = somatic_ll + batch.normal_seq_error_log_likelihoods()
 
-        log_likelihoods[:, Call.SEQ_ERROR] = batch.seq_error_log_likelihoods()
-        # TODO: include normal by giving it the same seq error likelihood model and adding
+        # TODO: need to mix in possibility of artifact in normal as well as tumor -- currently assume artifact in tumor and nothing in normal
+        log_likelihoods[:, Call.ARTIFACT] = self.artifact_spectra.forward(types, batch.depths(), batch.alt_counts()) \
+            + batch.artifact_logits() + batch.normal_seq_error_log_likelihoods()
+
+        # sample's and normal's reads both explained by sequencing error ie nothing going on in either
+        # TODO: need to mix in possibility of nothing happening in tumor but artifact in normal -- currently assume seq error in tumor and seq error in normal
+        log_likelihoods[:, Call.SEQ_ERROR] = batch.seq_error_log_likelihoods() + batch.normal_seq_error_log_likelihoods()
 
         # since this is a default dict, if there's no segmentation for the contig we will get no overlaps but not an error
         # In our case there is either one or zero overlaps, and overlaps have the form
         segmentation_overlaps = [self.segmentation[item.contig()][item.position()] for item in batch.original_list()]
         mafs = torch.Tensor([list(overlaps)[0].data if overlaps else 0.5 for overlaps in segmentation_overlaps])
 
+        # TODO: allow for CNV / segmentation in normal
+        normal_mafs = torch.Tensor([0.5 for _ in segmentation_overlaps])
+
         afs = batch.allele_frequencies()
-        het_probs = 2*afs*(1-afs)
-        hom_probs = afs*afs
-        het_proportion = het_probs/(het_probs + hom_probs)
-        hom_proportion = 1 - het_proportion
+        germline_ll = germline_log_likelihood(afs, mafs, batch.alt_counts(), batch.ref_counts())
+        normal_germline_ll = germline_log_likelihood(afs, normal_mafs, batch.normal_alt_counts(), batch.normal_ref_counts())
 
-        # the following should both be 1D tensors of length batch size
-        alt_minor_log_likelihoods = torch.log(het_proportion / 2) + batch.pd_tumor_alt_counts() * torch.log(mafs) + batch.pd_tumor_ref_counts() * torch.log(1 - mafs)
-        alt_major_log_likelihoods = torch.log(het_proportion / 2) + batch.pd_tumor_ref_counts() * torch.log(mafs) + batch.pd_tumor_alt_counts() * torch.log(1 - mafs)
-        hom_log_likelihoods = torch.log(hom_proportion) + utils.beta_binomial(batch.pd_tumor_depths(), batch.pd_tumor_alt_counts(), torch.Tensor([98.0]), torch.Tensor([2.0])) - log_combinatorial_factors
+        log_likelihoods[:, Call.GERMLINE] = germline_ll + normal_germline_ll
 
-        log_likelihoods[:, Call.GERMLINE] = torch.logsumexp(torch.vstack((alt_minor_log_likelihoods, alt_major_log_likelihoods, hom_log_likelihoods)), dim=0)
-        # TODO: include normal by giving it the same germline likelihood model and adding
         return log_priors + log_likelihoods
 
     def learn_priors_and_spectra(self, posterior_loader, num_iterations, ignored_to_non_ignored_ratio: float,
@@ -133,7 +151,7 @@ class PosteriorModel(torch.nn.Module):
 
         :return:
         """
-        spectra_and_prior_params = chain(self.variant_spectrum.parameters(), self.artifact_spectra.parameters(),
+        spectra_and_prior_params = chain(self.somatic_spectrum.parameters(), self.artifact_spectra.parameters(),
                                          self._unnormalized_priors.parameters())
         optimizer = torch.optim.Adam(spectra_and_prior_params)
 
@@ -167,7 +185,7 @@ class PosteriorModel(torch.nn.Module):
 
                 # plot AF spectra in 2x2 grid
                 spectra_fig, spectra_axs = plt.subplots(2, 2, sharex='all', sharey='all')
-                frac, dens = self.variant_spectrum.spectrum_density_vs_fraction()
+                frac, dens = self.somatic_spectrum.spectrum_density_vs_fraction()
                 spectra_axs[0, 0].plot(frac.numpy(), dens.numpy())
                 spectra_axs[0, 0].set_title("Variant AF Spectrum")
 
