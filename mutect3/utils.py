@@ -18,18 +18,18 @@ def chunk_sums(tensor: torch.Tensor, end_indices):
 def get_variant_type(alt_allele, ref_allele):
     variant_size = len(alt_allele) - len(ref_allele)
     if variant_size == 0:
-        return VariantType.SNV
+        return Variation.SNV
     else:
-        return VariantType.INSERTION if variant_size > 0 else VariantType.DELETION
+        return Variation.INSERTION if variant_size > 0 else Variation.DELETION
 
 
-class VariantType(enum.IntEnum):
+class Variation(enum.IntEnum):
     SNV = 0
     INSERTION = 1
     DELETION = 2
 
     def one_hot_tensor(self):
-        result = torch.zeros(len(VariantType))
+        result = torch.zeros(len(Variation))
         result[self.value] = 1
         return result
 
@@ -37,21 +37,36 @@ class VariantType(enum.IntEnum):
     def get_type(ref_allele: str, alt_allele: str):
         diff = len(alt_allele) - len(ref_allele)
         if diff == 0:
-            return VariantType.SNV
+            return Variation.SNV
         else:
-            return VariantType.INSERTION if diff > 0 else VariantType.DELETION
+            return Variation.INSERTION if diff > 0 else Variation.DELETION
 
 
-class CallType(enum.IntEnum):
-    VARIANT = 0
+class Call(enum.IntEnum):
+    SOMATIC = 0
     ARTIFACT = 1
     SEQ_ERROR = 2
+    GERMLINE = 3
 
 
-class EpochType(enum.Enum):
+class Epoch(enum.Enum):
     TRAIN = "train"
     VALID = "valid"
     TEST = "test"
+
+
+class Label(enum.Enum):
+    ARTIFACT = "ARTIFACT"
+    VARIANT = "VARIANT"
+    UNLABELED = "UNLABELED"
+
+    @staticmethod
+    def get_label(label_str: str):
+        for label in Label:
+            if label_str == label.value:
+                return label
+
+        raise ValueError('label is invalid: %s' % label)
 
 
 def split_dataset_into_train_and_valid(dataset, train_fraction=0.9):
@@ -79,6 +94,7 @@ def f_score(tp, fp, total_true):
 # the result is computed element-wise ie result[i,j. . .] = beta_binomial(n[i,j..], k[i,j..], alpha[i,j..], beta[i,j..)
 # often n, k will correspond to a batch dimension and alpha, beta correspond to a model, in which case
 # unsqueezing is necessary
+# NOTE: this excludes the nCk factor
 def beta_binomial(n, k, alpha, beta):
     return torch.lgamma(k + alpha) + torch.lgamma(n - k + beta) + torch.lgamma(alpha + beta) \
            - torch.lgamma(n + alpha + beta) - torch.lgamma(alpha) - torch.lgamma(beta)

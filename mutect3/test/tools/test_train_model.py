@@ -1,9 +1,9 @@
-from mutect3.tools import train_model
-from mutect3.architecture import artifact_model
+import tempfile
 
 from tensorboard.backend.event_processing.event_accumulator import EventAccumulator
-import tempfile
-from torch.utils.tensorboard import SummaryWriter
+
+from mutect3.architecture import artifact_model
+from mutect3.tools import train_model
 
 
 def test_training(dataset):
@@ -19,4 +19,4 @@ def test_training(dataset):
 
 
 def test_on_dream1():
-    test_training("/Users/davidben/mutect3/all_dream/small.dataset")
+    test_training("/Users/davidben/mutect3/just-dream-1/dream1-normal-small-training.dataset")

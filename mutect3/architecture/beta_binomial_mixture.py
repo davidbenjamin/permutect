@@ -4,16 +4,7 @@ from torch.nn.functional import softmax, log_softmax
 import torch
 
 from mutect3.metrics.plotting import simple_plot
-
-
-# note: this function works for n, k, alpha, beta tensors of the same shape
-# the result is computed element-wise ie result[i,j. . .] = beta_binomial(n[i,j..], k[i,j..], alpha[i,j..], beta[i,j..)
-# often n, k will correspond to a batch dimension and alpha, beta correspond to a model, in which case
-# unsqueezing is necessary
-def beta_binomial(n, k, alpha, beta):
-    return lgamma(k + alpha) + lgamma(n - k + beta) + lgamma(alpha + beta) \
-           - lgamma(n + alpha + beta) - lgamma(alpha) - lgamma(beta)
-
+from mutect3.utils import beta_binomial
 
 class BetaBinomialMixture(nn.Module):
     """
@@ -25,7 +16,7 @@ class BetaBinomialMixture(nn.Module):
     The computed likelihoods take in a 1D batch of total counts n and 1D batch of "success" counts k.
     """
 
-    def __init__(self, input_size, num_components):
+    def __init__(self, input_size: int, num_components: int):
         super(BetaBinomialMixture, self).__init__()
         self.num_components = num_components
         self.input_size = input_size
@@ -62,8 +53,12 @@ class BetaBinomialMixture(nn.Module):
     here x is a 2D tensor, 1st dimension batch, 2nd dimension being features that determine which Beta mixture to use
     n and k are 1D tensors, the only dimension being batch.
     '''
-
     def forward(self, x, n, k):
+        assert x.dim() == 2
+        assert n.size() == k.size()
+        assert len(x) == len(n)
+        assert x.size()[1] == self.input_size
+
         log_weights = log_softmax(self.weights_pre_softmax(x), dim=1)
 
         # 2D tensors -- 1st dim batch, 2nd dim mixture component
@@ -85,6 +80,8 @@ class BetaBinomialMixture(nn.Module):
 
     # given 1D input tensor, return 1D tensors of component alphas and betas
     def component_shapes(self, input_1d):
+        assert input_1d.dim() == 1
+
         input_2d = input_1d.unsqueeze(dim=0)
         means = torch.sigmoid(self.mean_pre_sigmoid(input_2d)).squeeze()
         concentrations = torch.exp(self.concentration_pre_exp(input_2d)).squeeze()
@@ -93,11 +90,13 @@ class BetaBinomialMixture(nn.Module):
         return alphas, betas
 
     def component_weights(self, input_1d):
+        assert input_1d.dim() == 1
         input_2d = input_1d.unsqueeze(dim=0)
         return softmax(self.weights_pre_softmax(input_2d), dim=1).squeeze()
 
     # given 1D input tensor, return the moments E[x], E[ln(x)], and E[x ln(x)] of the underlying beta mixture
     def moments_of_underlying_beta_mixture(self, input_1d):
+        assert input_1d.dim() == 1
         alphas, betas = self.component_shapes(input_1d)
         weights = self.component_weights(input_1d)
 
@@ -120,8 +119,12 @@ class BetaBinomialMixture(nn.Module):
     here x is a 2D tensor, 1st dimension batch, 2nd dimension being features that determine which Beta mixture to use
     n is a 1D tensor, the only dimension being batch, and we sample a 1D tensor of k's
     '''
-
     def sample(self, x, n):
+        assert x.dim() == 2
+        assert x.size()[1] == self.input_size
+        assert n.dim() == 1
+        assert len(x) == len(n)
+
         # compute weights and select one mixture component from the corresponding multinomial for each datum / row
         weights = softmax(self.weights_pre_softmax(x).detach(), dim=1)  # 2D tensor
         component_indices = torch.multinomial(weights, num_samples=1, replacement=True)  # 2D tensor with one column
@@ -139,6 +142,11 @@ class BetaBinomialMixture(nn.Module):
         return torch.distributions.binomial.Binomial(total_count=n, probs=fractions).sample()
 
     def fit(self, num_epochs, inputs_2d_tensor, depths_1d_tensor, alt_counts_1d_tensor, batch_size=64):
+        assert inputs_2d_tensor.dim() == 2
+        assert depths_1d_tensor.dim() == 1
+        assert alt_counts_1d_tensor.dim() == 1
+        assert len(depths_1d_tensor) == len(alt_counts_1d_tensor)
+
         optimizer = torch.optim.Adam(self.parameters())
         num_batches = math.ceil(len(alt_counts_1d_tensor) / batch_size)
 
@@ -157,7 +165,6 @@ class BetaBinomialMixture(nn.Module):
     get raw data for a spectrum plot of probability density vs allele fraction.  
     here x is a 1D tensor, a single datum/row of the 2D tensors as above
     '''
-
     def spectrum_density_vs_fraction(self, x):
         fractions = torch.arange(0.01, 0.99, 0.01)  # 1D tensor
 
@@ -195,16 +202,18 @@ class FeaturelessBetaBinomialMixture(nn.Module):
     '''
     n and k are 1D tensors, the only dimension being batch.
     '''
-
     def forward(self, n, k):
+        assert len(n) == len(k)
+        assert n.dim() == 1
+        assert k.dim() == 1
         dummy_features = torch.ones(len(n), 1)
         return self.beta_binomial_mixture.forward(dummy_features, n, k)
 
     '''
     n is a 1D tensor, the only dimension being batch, and we sample a 1D tensor of k's
     '''
-
     def sample(self, n):
+        assert n.dim() == 1
         dummy_features = torch.ones(len(n), 1)
         return self.beta_binomial_mixture.sample(dummy_features, n)
 
@@ -215,6 +224,7 @@ class FeaturelessBetaBinomialMixture(nn.Module):
     def spectrum_density_vs_fraction(self):
         dummy_feature_vector = torch.Tensor([1])
         return self.beta_binomial_mixture.spectrum_density_vs_fraction(dummy_feature_vector)
+
     '''
     here x is a 1D tensor, a single datum/row of the 2D tensors as above
     '''

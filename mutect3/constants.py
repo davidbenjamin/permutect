@@ -1,5 +1,6 @@
 STATE_DICT_NAME = 'model_state_dict'
 M3_PARAMS_NAME = 'm3_params'
+NUM_READ_FEATURES_NAME = 'num_read_features'
 HIDDEN_LAYERS_NAME = 'hidden_layers'
 
 INPUT_NAME = 'input'
@@ -25,5 +26,7 @@ INITIAL_LOG_VARIANT_PRIOR_NAME = 'initial_log_variant_prior'
 INITIAL_LOG_ARTIFACT_PRIOR_NAME = 'initial_log_artifact_prior'
 NUM_IGNORED_SITES_NAME = 'num_ignored_sites'
 MAF_SEGMENTS_NAME = 'maf_segments'
+NORMAL_MAF_SEGMENTS_NAME = 'normal_maf_segments'
+GERMLINE_MODE_NAME = 'germline_mode'
 
 M3_MODEL_NAME = 'm3_model'

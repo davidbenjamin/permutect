@@ -15,10 +15,8 @@ from mutect3.architecture.mlp import MLP
 from mutect3.data.read_set_batch import ReadSetBatch
 from mutect3.data import read_set
 from mutect3 import utils
-from mutect3.utils import CallType, VariantType
+from mutect3.utils import Call, Variation
 from mutect3.metrics import plotting
-
-from mutect3.architecture.beta_binomial_mixture import beta_binomial
 
 warnings.filterwarnings("ignore", message="Setting attributes on ParameterList is not supported.")
 
@@ -83,13 +81,14 @@ class ArtifactModel(nn.Module):
     because we have different output layers for each variant type.
     """
 
-    def __init__(self, params: ArtifactModelParameters, device=torch.device("cpu")):
+    def __init__(self, params: ArtifactModelParameters, num_read_features: int, device=torch.device("cpu")):
         super(ArtifactModel, self).__init__()
 
         self._device = device
+        self._num_read_features = num_read_features
 
         # phi is the read embedding
-        read_layers = [read_set.NUM_READ_FEATURES] + params.read_layers
+        read_layers = [self._num_read_features] + params.read_layers
         self.phi = MLP(read_layers, batch_normalize=params.batch_normalize, dropout_p=params.dropout_p)
         self.phi.to(self._device)
 
@@ -109,6 +108,9 @@ class ArtifactModel(nn.Module):
         self.calibration = Calibration()
         self.calibration.to(self._device)
 
+    def num_read_features(self) -> int:
+        return self._num_read_features
+
     def training_parameters(self):
         return chain(self.phi.parameters(), self.omega.parameters(), self.rho.parameters(), [self.calibration.max_logit])
 
@@ -118,8 +120,8 @@ class ArtifactModel(nn.Module):
     def freeze_all(self):
         utils.freeze(self.parameters())
 
-    def set_epoch_type(self, epoch_type: utils.EpochType):
-        if epoch_type == utils.EpochType.TRAIN:
+    def set_epoch_type(self, epoch_type: utils.Epoch):
+        if epoch_type == utils.Epoch.TRAIN:
             self.train(True)
             utils.freeze(self.parameters())
             utils.unfreeze(self.training_parameters())
@@ -215,9 +217,9 @@ class ArtifactModel(nn.Module):
         labeled_to_unlabeled_ratio = None if total_unlabeled == 0 else total_labeled / total_unlabeled
 
         for epoch in trange(1, num_epochs + 1, desc="Epoch"):
-            for epoch_type in [utils.EpochType.TRAIN, utils.EpochType.VALID]:
+            for epoch_type in [utils.Epoch.TRAIN, utils.Epoch.VALID]:
                 self.set_epoch_type(epoch_type)
-                loader = train_loader if epoch_type == utils.EpochType.TRAIN else valid_loader
+                loader = train_loader if epoch_type == utils.Epoch.TRAIN else valid_loader
                 labeled_loss = utils.StreamingAverage(device=self._device)
                 unlabeled_loss = utils.StreamingAverage(device=self._device)
 
@@ -243,7 +245,9 @@ class ArtifactModel(nn.Module):
                         loss = (loss1 + loss2 + loss3) * labeled_to_unlabeled_ratio
                         unlabeled_loss.record_sum(loss.detach(), batch.size())
 
-                    if epoch_type == utils.EpochType.TRAIN:
+                    assert not loss.isnan().item()  # all sorts of errors produce a nan here.  This is a good place to spot it
+
+                    if epoch_type == utils.Epoch.TRAIN:
                         train_optimizer.zero_grad(set_to_none=True)
                         loss.backward()
                         train_optimizer.step()
@@ -259,8 +263,7 @@ class ArtifactModel(nn.Module):
     # the beta shape parameters are for primitive posterior probability estimation and are pairs of floats
     # representing beta distributions of allele fractions for both true variants and artifacts
     # loaders by name is eg {"train": train_loader, "valid": valid_loader}
-    def evaluate_model_after_training(self, loaders_by_name, summary_writer: SummaryWriter, prefix: str = "", num_worst: int = 100,
-                                      artifact_beta_shape=None, variant_beta_shape=None):
+    def evaluate_model_after_training(self, loaders_by_name, summary_writer: SummaryWriter, prefix: str = ""):
         self.freeze_all()
         self.cpu()
         self._device = "cpu"
@@ -274,18 +277,15 @@ class ArtifactModel(nn.Module):
 
         # grid of figures -- rows are loaders, columns are variant types
         # each subplot is a bar chart grouped by call type (variant vs artifact)
-        sens_fig, sens_axs = plt.subplots(len(loaders_by_name), len(VariantType), sharex='all', sharey='all')
+        sens_fig, sens_axs = plt.subplots(len(loaders_by_name), len(Variation), sharex='all', sharey='all', squeeze=False)
 
         # accuracy is indexed by loader only
-        acc_fig, acc_axs = plt.subplots(1, len(loaders_by_name), sharex='all', sharey='all')
+        acc_fig, acc_axs = plt.subplots(1, len(loaders_by_name), sharex='all', sharey='all', squeeze=False)
 
         for loader_idx, (loader_name, loader) in enumerate(loaders_by_name.items()):
             accuracy = defaultdict(utils.StreamingAverage)
             # indexed by variant type, then call type (artifact vs variant), then count bin
-            sensitivity = {var_type: defaultdict(lambda: defaultdict(utils.StreamingAverage)) for var_type in VariantType}
-
-            worst_missed_artifacts = PriorityQueue(num_worst)
-            worst_false_artifacts = PriorityQueue(num_worst)
+            sensitivity = {var_type: defaultdict(lambda: defaultdict(utils.StreamingAverage)) for var_type in Variation}
 
             pbar = tqdm(enumerate(loader), mininterval=10)
             for n, batch in pbar:
@@ -294,13 +294,6 @@ class ArtifactModel(nn.Module):
 
                 pred = self.forward(batch)
 
-                # experiment with approximate posterior to see what kind of accuracy to expect when
-                if artifact_beta_shape is not None and variant_beta_shape is not None:
-                    variant_count_log_likelihood = beta_binomial(batch.pd_tumor_depths(), batch.pd_tumor_alt_counts(),
-                                                                 variant_beta_shape[0], variant_beta_shape[1])
-                    artifact_count_log_likelihood = beta_binomial(batch.pd_tumor_depths(), batch.pd_tumor_alt_counts(),
-                                                                  artifact_beta_shape[0], artifact_beta_shape[1])
-                    pred = pred + artifact_count_log_likelihood - variant_count_log_likelihood
                 labels = batch.labels()
                 correct = ((pred > 0) == (batch.labels() > 0.5))
                 alt_counts = batch.alt_counts()
@@ -308,22 +301,22 @@ class ArtifactModel(nn.Module):
                 for l_bin in logit_bins:
                     accuracy[l_bin].record_with_mask(correct, (pred > l_bin[0]) & (pred < l_bin[1]))
 
-                for var_type in VariantType:
+                for var_type in Variation:
                     variant_mask = batch.variant_type_mask(var_type)
                     for c_bin in count_bins:
                         count_mask = (c_bin[0] <= alt_counts) & (c_bin[1] >= alt_counts)
                         count_and_variant_mask = count_mask & variant_mask
-                        sensitivity[var_type][CallType.VARIANT][c_bin].record_with_mask(correct, (labels < 0.5) & count_and_variant_mask)
-                        sensitivity[var_type][CallType.ARTIFACT][c_bin].record_with_mask(correct, (labels > 0.5) & count_and_variant_mask)
+                        sensitivity[var_type][Call.SOMATIC][c_bin].record_with_mask(correct, (labels < 0.5) & count_and_variant_mask)
+                        sensitivity[var_type][Call.ARTIFACT][c_bin].record_with_mask(correct, (labels > 0.5) & count_and_variant_mask)
             # done collecting data for this particular loader, now fill in subplots for this loader's row
-            for var_type in VariantType:
+            for var_type in Variation:
                 # data for one particular subplot
                 sens_bar_plot_data = {label.name: [sensitivity[var_type][label][c_bin].get().item() for c_bin in count_bins] for label in sensitivity[var_type].keys()}
                 plotting.grouped_bar_plot_on_axis(sens_axs[loader_idx, var_type], sens_bar_plot_data, count_bin_labels, loader_name)
                 sens_axs[loader_idx, var_type].set_title(var_type.name)
 
-            plotting.simple_bar_plot_on_axis(acc_axs[loader_idx], [accuracy[l_bin].get() for l_bin in logit_bins], logit_bin_labels, "accuracy")
-            acc_axs[loader_idx].set_title(loader_name)
+            plotting.simple_bar_plot_on_axis(acc_axs[0, loader_idx], [accuracy[l_bin].get() for l_bin in logit_bins], logit_bin_labels, "accuracy")
+            acc_axs[0, loader_idx].set_title(loader_name)
 
         # done collecting stats for all loaders and filling in subplots
         for ax in sens_fig.get_axes():

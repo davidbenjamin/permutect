@@ -1,4 +1,4 @@
-torch~=1.10.0
+torch >= 1.10.0
 tensorboard~=2.8.0
 numpy >= 1.16.5, < 1.23.0
 tqdm~=4.62.3
@@ -12,3 +12,6 @@ cyvcf2~=0.30.15
 # See: https://github.com/protocolbuffers/protobuf/issues/9954#issuecomment-1128283911
 # See: https://cs.opensource.google/tensorflow/tensorflow/+/master:tensorflow/tools/pip_package/setup.py?q=protobuf
 protobuf >= 3.9.2, < 3.20
+
+intervaltree~=3.1.0
+psutil >= 5.9.2
