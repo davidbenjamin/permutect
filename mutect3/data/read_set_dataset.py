@@ -1,5 +1,8 @@
 import random
 from typing import Iterable
+import psutil
+import os
+import pickle
 
 import torch
 from torch.utils.data import Dataset, DataLoader
@@ -19,7 +22,7 @@ MAX_VALUE = 10000  # clamp inputs to this range
 
 
 class ReadSetDataset(Dataset):
-    def __init__(self, files=[], data: Iterable[ReadSet] = [], shuffle: bool = True):
+    def __init__(self, files=[], data: Iterable[ReadSet] = [], shuffle: bool = True, normalize: bool = True):
         self.data = []
         for table_file in files:
             self.data.extend(read_data(table_file))
@@ -35,16 +38,16 @@ class ReadSetDataset(Dataset):
         ref = torch.cat([self.data[n].ref_tensor() for n in random_indices], dim=0)
         gatk_info = torch.stack([self.data[n].gatk_info() for n in random_indices], dim=0)
 
-        self.read_medians, self.read_iqrs = medians_and_iqrs(ref)
-        self.gatk_info_medians, self.gatk_info_iqrs = medians_and_iqrs(gatk_info)
+        if normalize:
+            read_medians, read_iqrs = medians_and_iqrs(ref)
+            gatk_info_medians, gatk_info_iqrs = medians_and_iqrs(gatk_info)
 
-        # normalize data
-        for n in range(len(self.data)):
-            raw = self.data[n]
-            normalized_ref = (raw.ref_tensor() - self.read_medians) / self.read_iqrs
-            normalized_alt = (raw.alt_tensor() - self.read_medians) / self.read_iqrs
-            normalized_gatk_info = (raw.gatk_info() - self.gatk_info_medians) / self.gatk_info_iqrs
-            self.data[n] = ReadSet(raw.variant_type(), normalized_ref, normalized_alt, normalized_gatk_info, raw.label())
+            for n in range(len(self.data)):
+                raw = self.data[n]
+                normalized_ref = (raw.ref_tensor() - read_medians) / read_iqrs
+                normalized_alt = (raw.alt_tensor() - read_medians) / read_iqrs
+                normalized_gatk_info = (raw.gatk_info() - gatk_info_medians) / gatk_info_iqrs
+                self.data[n] = ReadSet(raw.variant_type(), normalized_ref, normalized_alt, normalized_gatk_info, raw.label())
 
     def __len__(self):
         return len(self.data)
@@ -116,6 +119,41 @@ def read_data(dataset_file, posterior: bool = False):
                     yield datum, posterior_datum
                 else:
                     yield datum
+
+
+def generate_datasets(dataset_file, chunk_size: int):
+    full_buffer = []
+    growing_buffer = []
+
+    for read_set in read_data(dataset_file, posterior=False):
+        first_chunk = len(full_buffer) < chunk_size
+        (full_buffer if first_chunk else growing_buffer).append(read_set)
+        if len(growing_buffer) == chunk_size:
+            print("memory usage percent: " + str(psutil.virtual_memory().percent))
+            yield ReadSetDataset(data=full_buffer, shuffle=True, normalize=True)
+            full_buffer = growing_buffer
+            growing_buffer = []
+    yield ReadSetDataset(data=full_buffer + growing_buffer, shuffle=True, normalize=True)
+
+
+# TODO: there is some code duplication between this and filter_variants.py
+def process_data_into_pickled_chunks_for_training_artifact_model(dataset_file, pickle_dir, chunk_size: int = 100000):
+    for idx, dataset in enumerate(generate_datasets(dataset_file, chunk_size)):
+        list_to_pickle = [datum for datum in dataset]
+        file_name = os.path.join(pickle_dir, "pickle" + str(idx) + ".data")
+        with open(file_name, 'wb') as file:
+            pickle.dump(list_to_pickle, file)
+
+
+# TODO: there is some code duplication between this and filter_variants.py
+def generate_datasets_from_pickled_chunks(pickle_dir, chunk_size: int = 100000):
+    for idx, dataset in enumerate(generate_datasets(dataset_file, chunk_size)):
+        list_to_pickle = [datum for datum in dataset]
+        file_name = os.path.join(pickle_dir, "pickle" + str(idx) + ".data")
+        with open(file_name, 'wb') as file:
+            pickle.dump(list_to_pickle, file)
+
+
 
 
 def medians_and_iqrs(tensor_2d: torch.Tensor):
