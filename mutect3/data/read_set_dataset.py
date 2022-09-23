@@ -123,6 +123,8 @@ def read_data(dataset_file, posterior: bool = False):
                     yield datum
 
 
+# TODO: there is some code duplication between this and filter_variants.py
+# TODO: also, the buffer approach here is cleaner
 def generate_datasets(dataset_file, chunk_size: int):
     full_buffer = []
     growing_buffer = []
@@ -138,16 +140,18 @@ def generate_datasets(dataset_file, chunk_size: int):
     yield ReadSetDataset(data=full_buffer + growing_buffer, shuffle=True, normalize=True)
 
 
-# TODO: there is some code duplication between this and filter_variants.py
-def process_data_into_pickled_chunks_for_training_artifact_model(dataset_file, pickle_dir, chunk_size: int = 100000):
-    for idx, dataset in enumerate(generate_datasets(dataset_file, chunk_size)):
-        list_to_pickle = [datum for datum in dataset]
-        file_name = os.path.join(pickle_dir, "pickle" + str(idx) + PICKLE_EXTENSION)
-        with open(file_name, 'wb') as file:
-            pickle.dump(list_to_pickle, file)
+def pickle_training_data(dataset_files, pickle_dir, chunk_size: int = 100000):
+    idx = 0
+    for dataset_file in dataset_files:
+        for dataset in generate_datasets(dataset_file, chunk_size):
+            list_to_pickle = [datum for datum in dataset]
+            file_name = os.path.join(pickle_dir, "pickle" + str(idx) + PICKLE_EXTENSION)
+            with open(file_name, 'wb') as file:
+                pickle.dump(list_to_pickle, file)
+            idx += 1
 
 
-def generate_datasets_from_pickled_chunks(pickle_dir):
+def read_training_pickles(pickle_dir):
     pickle_files = [os.path.join(pickle_dir, f) for f in os.listdir(pickle_dir) if f.endswith(PICKLE_EXTENSION)]
     for file_name in pickle_files:
         with open(file_name, 'rb') as file:
