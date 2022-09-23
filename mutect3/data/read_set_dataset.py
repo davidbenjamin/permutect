@@ -20,6 +20,8 @@ QUANTILE_DATA_COUNT = 10000
 # TODO: in order to handle very large fragments (and chimeric reads), we may eventually prefer to log-scale fragment sizes
 MAX_VALUE = 10000  # clamp inputs to this range
 
+PICKLE_EXTENSION = ".pickle"
+
 
 class ReadSetDataset(Dataset):
     def __init__(self, files=[], data: Iterable[ReadSet] = [], shuffle: bool = True, normalize: bool = True):
@@ -140,20 +142,17 @@ def generate_datasets(dataset_file, chunk_size: int):
 def process_data_into_pickled_chunks_for_training_artifact_model(dataset_file, pickle_dir, chunk_size: int = 100000):
     for idx, dataset in enumerate(generate_datasets(dataset_file, chunk_size)):
         list_to_pickle = [datum for datum in dataset]
-        file_name = os.path.join(pickle_dir, "pickle" + str(idx) + ".data")
+        file_name = os.path.join(pickle_dir, "pickle" + str(idx) + PICKLE_EXTENSION)
         with open(file_name, 'wb') as file:
             pickle.dump(list_to_pickle, file)
 
 
-# TODO: there is some code duplication between this and filter_variants.py
-def generate_datasets_from_pickled_chunks(pickle_dir, chunk_size: int = 100000):
-    for idx, dataset in enumerate(generate_datasets(dataset_file, chunk_size)):
-        list_to_pickle = [datum for datum in dataset]
-        file_name = os.path.join(pickle_dir, "pickle" + str(idx) + ".data")
-        with open(file_name, 'wb') as file:
-            pickle.dump(list_to_pickle, file)
-
-
+def generate_datasets_from_pickled_chunks(pickle_dir):
+    pickle_files = [os.path.join(pickle_dir, f) for f in os.listdir(pickle_dir) if f.endswith(PICKLE_EXTENSION)]
+    for file_name in pickle_files:
+        with open(file_name, 'rb') as file:
+            data = pickle.load(file)
+            yield ReadSetDataset(data=data, shuffle=False, normalize=False)
 
 
 def medians_and_iqrs(tensor_2d: torch.Tensor):
