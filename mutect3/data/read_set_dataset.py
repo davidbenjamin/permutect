@@ -3,6 +3,7 @@ from typing import Iterable
 import psutil
 import os
 import pickle
+import tempfile
 
 import torch
 from torch.utils.data import Dataset, DataLoader
@@ -12,6 +13,7 @@ from mutect3.data.read_set import ReadSet
 from mutect3.data.posterior_datum import PosteriorDatum
 from mutect3.data.read_set_batch import ReadSetBatch
 from mutect3.utils import Variation, Label
+from mutect3 import utils
 
 MIN_REF = 5
 EPSILON = 0.00001
@@ -157,6 +159,83 @@ def read_training_pickles(pickle_dir):
         with open(file_name, 'rb') as file:
             data = pickle.load(file)
             yield ReadSetDataset(data=data, shuffle=False, normalize=False)
+
+
+class BigReadSetDataset:
+
+    def __init__(self, batch_size: int = 64, chunk_size: int = 100000, dataset: ReadSetDataset = None, dataset_files=None):
+        assert dataset is None or dataset_files is None, "Initialize either with dataset or files, not both"
+        assert dataset is not None or dataset_files is not None, "Must initialize with a dataset or files, not nothing"
+        self.use_gpu = torch.cuda.is_available()
+        self.batch_size = batch_size
+
+        # TODO: make this class autocloseable and clean up the temp dirs when closing
+        self.train_pickles = []
+        self.valid_pickles = []
+
+        if dataset is not None:
+            self.fits_in_ram = True
+            train, valid = utils.split_dataset_into_train_and_valid(dataset, 0.9)
+            self.train_loader = make_semisupervised_data_loader(train, batch_size, pin_memory=self.use_gpu)
+            self.valid_loader = make_semisupervised_data_loader(valid, batch_size, pin_memory=self.use_gpu)
+
+        else:
+            validation_data = []
+            for dataset_file in dataset_files:
+                for dataset_from_file in generate_datasets(dataset_file, chunk_size):
+                    train, valid = utils.split_dataset_into_train_and_valid(dataset_from_file, 0.9)
+
+                    train_pickle = tempfile.TemporaryFile()
+                    pickle.dump([datum for datum in train], train_pickle)
+                    self.train_pickles.append(train_pickle)
+
+                    # extend the validation data and pickle if it has gotten big enough
+                    validation_data.extend(valid)
+                    if len(validation_data) > chunk_size:
+                        valid_pickle = tempfile.TemporaryFile()
+                        pickle.dump(validation_data, valid_pickle)
+                        self.valid_pickles.append(valid_pickle)
+                        validation_data = []
+
+            # pickle any remaining validation data
+            valid_pickle = tempfile.TemporaryFile()
+            pickle.dump(validation_data, valid_pickle)
+            self.valid_pickles.append(valid_pickle)
+
+            # check if there is only one pickled dataset, in which case we can fit it in RAM
+            # note that we already normalized and shuffled
+            if len(self.train_pickles) == 1:
+                self.fits_in_ram = True
+                training_data = pickle.load(self.train_pickles[0])
+                validation_data = pickle.load(self.train_pickles[0])
+                train = ReadSetDataset(data=training_data, shuffle=False, normalize=False)
+                valid = ReadSetDataset(data=validation_data, shuffle=False, normalize=False)
+                self.train_loader = make_semisupervised_data_loader(train, batch_size, pin_memory=use_gpu)
+                self.valid_loader = make_semisupervised_data_loader(valid, batch_size, pin_memory=use_gpu)
+            else:
+                self.fits_in_ram = False
+                self.train_loader = None
+                self.valid_loader = None
+
+        assert self.fits_in_ram == (self.train_loader is not None)
+        assert self.fits_in_ram == (self.valid_loader is not None)
+        assert self.fits_in_ram == (len(self.train_pickles) <= 1)
+        assert self.fits_in_ram == (len(self.valid_pickles) <= 1)
+
+    # TODO: need to generalize this to validation as well
+    def generate_batches(self):
+        if self.fits_in_ram:
+            for batch in self.train_loader:
+                yield batch
+        else:
+            for file in self.train_pickles:
+                training_data = pickle.load(file)
+                train = ReadSetDataset(data=training_data, shuffle=False, normalize=False)
+                train_loader = make_semisupervised_data_loader(train, self.batch_size, pin_memory=self.use_gpu)
+                for batch in train_loader:
+                    yield batch
+
+
 
 
 def medians_and_iqrs(tensor_2d: torch.Tensor):

@@ -1,4 +1,5 @@
 import argparse
+import tempfile
 
 import torch
 from torch.utils.tensorboard import SummaryWriter
@@ -17,21 +18,24 @@ class TrainingParameters:
 
 
 def train_artifact_model(m3_params: ArtifactModelParameters, training_datasets, params: TrainingParameters, tensorboard_dir):
-    print("Loading datasets")
-    train_and_valid = read_set_dataset.ReadSetDataset(files=training_datasets)
-    training, valid = utils.split_dataset_into_train_and_valid(train_and_valid, 0.9)
+    print("Parsing, normalizing, and pickling data")
+    pickle_dir = tempfile.TemporaryDirectory()
+    read_set_dataset.pickle_training_data(training_datasets, pickle_dir.name)
 
-    unlabeled_count = sum([1 for datum in train_and_valid if datum.label() == Label.UNLABELED])
-    print("Unlabeled data: " + str(unlabeled_count) + ", labeled data: " + str(len(train_and_valid) - unlabeled_count))
-    print("Dataset sizes -- training: " + str(len(training)) + ", validation: " + str(len(valid)))
+    num_read_features = 0
+    for dataset in read_set_dataset.read_training_pickles(pickle_dir.name):
+        num_read_features = dataset.num_read_features()
+        break
 
     use_gpu = torch.cuda.is_available()
     device = torch.device('cuda' if use_gpu else 'cpu')
 
-    train_loader = read_set_dataset.make_semisupervised_data_loader(training, params.batch_size, pin_memory=use_gpu)
-    valid_loader = read_set_dataset.make_semisupervised_data_loader(valid, params.batch_size, pin_memory=use_gpu)
+    # train_and_valid = read_set_dataset.ReadSetDataset(files=training_datasets)
+    # training, valid = utils.split_dataset_into_train_and_valid(train_and_valid, 0.9, fixed_seed=True)
+    # train_loader = read_set_dataset.make_semisupervised_data_loader(training, params.batch_size, pin_memory=use_gpu)
+    # valid_loader = read_set_dataset.make_semisupervised_data_loader(valid, params.batch_size, pin_memory=use_gpu)
 
-    model = ArtifactModel(params=m3_params, num_read_features=train_and_valid.num_read_features(), device=device).float()
+    model = ArtifactModel(params=m3_params, num_read_features=num_read_features, device=device).float()
 
     print("Training model. . .")
     summary_writer = SummaryWriter(tensorboard_dir)
