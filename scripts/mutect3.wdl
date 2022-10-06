@@ -28,7 +28,7 @@ workflow Mutect3 {
         String? split_intervals_extra_args
         Int batch_size
 
-
+        String? m3_filtering_extra_args
         String gatk_docker
         File? gatk_override
         String mutect3_docker
@@ -75,6 +75,7 @@ workflow Mutect3 {
             maf_segments = Mutect2.maf_segments,
             mutect_stats = Mutect2.mutect_stats,
             batch_size = batch_size,
+            m3_filtering_extra_args = m3_filtering_extra_args,
             mutect3_docker = mutect3_docker,
     }
 
@@ -104,6 +105,7 @@ task Mutect3Filtering {
         File? normal_maf_segments
         File mutect_stats
         Int batch_size
+        String? m3_filtering_extra_args
 
         String mutect3_docker
         Int? preemptible
@@ -123,7 +125,7 @@ task Mutect3Filtering {
         num_ignored=`grep "callable" ~{mutect_stats} | while read name value; do echo $value; done`
 
         filter_variants --input ~{mutect2_vcf} --test_dataset ~{test_dataset} --m3_model ~{mutect3_model} --output mutect3-filtered.vcf \
-            --batch_size ~{batch_size} ~{"--maf_segments " + maf_segments} ~{"--normal_maf_segments " + normal_maf_segments} --num_ignored_sites $num_ignored
+            --batch_size ~{batch_size} ~{"--maf_segments " + maf_segments} ~{"--normal_maf_segments " + normal_maf_segments} --num_ignored_sites $num_ignored ~{m3_filtering_extra_args}
     >>>
 
     runtime {
