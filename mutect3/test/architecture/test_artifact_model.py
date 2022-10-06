@@ -11,7 +11,7 @@ import tempfile
 from torch.utils.tensorboard import SummaryWriter
 
 BATCH_SIZE = 64
-NUM_EPOCHS = 100
+NUM_EPOCHS = 50
 NUM_SPECTRUM_ITERATIONS = 100
 TRAINING_PARAMS = TrainingParameters(batch_size=BATCH_SIZE, num_epochs=NUM_EPOCHS, reweighting_range=0.3)
 
@@ -34,8 +34,8 @@ def train_model_and_write_summary(m3_params: ArtifactModelParameters, training_p
 
 
 def test_big_data():
-    training_dataset_file = "/Users/davidben/mutect3/just-dream-1/dream1-normal-small-training.dataset"
-    big_dataset = BigReadSetDataset(batch_size=64, chunk_size=100000, dataset_files=[training_dataset_file])
+    training_dataset_file = "/Users/davidben/mutect3/just-dream-1/dream1-normal-medium-training.dataset"
+    big_dataset = BigReadSetDataset(batch_size=64, chunk_size=10000, dataset_files=[training_dataset_file])
     params = SMALL_MODEL_PARAMS
     training_params = TRAINING_PARAMS
 

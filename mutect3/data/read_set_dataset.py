@@ -214,7 +214,6 @@ class BigReadSetDataset:
         assert self.fits_in_ram == (self.train_loader is not None)
         assert self.fits_in_ram == (self.valid_loader is not None)
         assert self.fits_in_ram == (len(self.train_pickles) <= 1)
-        assert self.fits_in_ram == (len(self.valid_pickles) <= 1)
         assert self.num_read_features is not None
 
     def generate_batches(self, epoch_type: utils.Epoch):

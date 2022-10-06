@@ -20,7 +20,7 @@ class TrainingParameters:
 def train_artifact_model(m3_params: ArtifactModelParameters, training_datasets, params: TrainingParameters, tensorboard_dir):
     use_gpu = torch.cuda.is_available()
     device = torch.device('cuda' if use_gpu else 'cpu')
-    big_dataset = read_set_dataset.BigReadSetDataset(batch_size=params.batch_size, dataset_files=training_datasets)
+    big_dataset = read_set_dataset.BigReadSetDataset(batch_size=params.batch_size, chunk_size=100000, dataset_files=training_datasets)
     model = ArtifactModel(params=m3_params, num_read_features=big_dataset.num_read_features, device=device).float()
 
     print("Training. . .")
