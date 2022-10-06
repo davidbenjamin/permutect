@@ -1,5 +1,9 @@
 import random
 from typing import Iterable
+import psutil
+import os
+import pickle
+import tempfile
 
 import torch
 from torch.utils.data import Dataset, DataLoader
@@ -9,6 +13,7 @@ from mutect3.data.read_set import ReadSet
 from mutect3.data.posterior_datum import PosteriorDatum
 from mutect3.data.read_set_batch import ReadSetBatch
 from mutect3.utils import Variation, Label
+from mutect3 import utils
 
 MIN_REF = 5
 EPSILON = 0.00001
@@ -17,9 +22,11 @@ QUANTILE_DATA_COUNT = 10000
 # TODO: in order to handle very large fragments (and chimeric reads), we may eventually prefer to log-scale fragment sizes
 MAX_VALUE = 10000  # clamp inputs to this range
 
+PICKLE_EXTENSION = ".pickle"
+
 
 class ReadSetDataset(Dataset):
-    def __init__(self, files=[], data: Iterable[ReadSet] = [], shuffle: bool = True):
+    def __init__(self, files=[], data: Iterable[ReadSet] = [], shuffle: bool = True, normalize: bool = True):
         self.data = []
         for table_file in files:
             self.data.extend(read_data(table_file))
@@ -27,24 +34,25 @@ class ReadSetDataset(Dataset):
         if shuffle:
             random.shuffle(self.data)
 
-        # concatenate a bunch of ref tensors and take element-by-element quantiles
-        # for simplicity we do sampling with replacement
-        N = len(self.data)
-        random_indices = range(N) if N <= QUANTILE_DATA_COUNT else torch.randint(0, N, (QUANTILE_DATA_COUNT,)).tolist()
+        if normalize:
+            # concatenate a bunch of ref tensors and take element-by-element quantiles
+            # for simplicity we do sampling with replacement
+            N = len(self.data)
+            random_indices = range(N) if N <= QUANTILE_DATA_COUNT else torch.randint(0, N,
+                                                                                     (QUANTILE_DATA_COUNT,)).tolist()
 
-        ref = torch.cat([self.data[n].ref_tensor() for n in random_indices], dim=0)
-        gatk_info = torch.stack([self.data[n].gatk_info() for n in random_indices], dim=0)
+            ref = torch.cat([self.data[n].ref_tensor() for n in random_indices], dim=0)
+            gatk_info = torch.stack([self.data[n].gatk_info() for n in random_indices], dim=0)
 
-        self.read_medians, self.read_iqrs = medians_and_iqrs(ref)
-        self.gatk_info_medians, self.gatk_info_iqrs = medians_and_iqrs(gatk_info)
+            read_medians, read_iqrs = medians_and_iqrs(ref)
+            gatk_info_medians, gatk_info_iqrs = medians_and_iqrs(gatk_info)
 
-        # normalize data
-        for n in range(len(self.data)):
-            raw = self.data[n]
-            normalized_ref = (raw.ref_tensor() - self.read_medians) / self.read_iqrs
-            normalized_alt = (raw.alt_tensor() - self.read_medians) / self.read_iqrs
-            normalized_gatk_info = (raw.gatk_info() - self.gatk_info_medians) / self.gatk_info_iqrs
-            self.data[n] = ReadSet(raw.variant_type(), normalized_ref, normalized_alt, normalized_gatk_info, raw.label())
+            for n in range(len(self.data)):
+                raw = self.data[n]
+                normalized_ref = (raw.ref_tensor() - read_medians) / read_iqrs
+                normalized_alt = (raw.alt_tensor() - read_medians) / read_iqrs
+                normalized_gatk_info = (raw.gatk_info() - gatk_info_medians) / gatk_info_iqrs
+                self.data[n] = ReadSet(raw.variant_type(), normalized_ref, normalized_alt, normalized_gatk_info, raw.label())
 
     def __len__(self):
         return len(self.data)
@@ -116,6 +124,114 @@ def read_data(dataset_file, posterior: bool = False):
                     yield datum, posterior_datum
                 else:
                     yield datum
+
+
+# TODO: there is some code duplication between this and filter_variants.py
+# TODO: also, the buffer approach here is cleaner
+def generate_datasets(dataset_file, chunk_size: int):
+    full_buffer = []
+    growing_buffer = []
+
+    for read_set in read_data(dataset_file, posterior=False):
+        first_chunk = len(full_buffer) < chunk_size
+        (full_buffer if first_chunk else growing_buffer).append(read_set)
+        if len(growing_buffer) == chunk_size:
+            print("memory usage percent: " + str(psutil.virtual_memory().percent))
+            yield ReadSetDataset(data=full_buffer, shuffle=True, normalize=True)
+            full_buffer = growing_buffer
+            growing_buffer = []
+    yield ReadSetDataset(data=full_buffer + growing_buffer, shuffle=True, normalize=True)
+
+
+class BigReadSetDataset:
+
+    # TODO: we need to record number of read features in the constructor
+    # TODO: probably also record the labeled to unlabeled ratio
+
+    def __init__(self, batch_size: int = 64, chunk_size: int = 100000, dataset: ReadSetDataset = None, dataset_files=None):
+        assert dataset is None or dataset_files is None, "Initialize either with dataset or files, not both"
+        assert dataset is not None or dataset_files is not None, "Must initialize with a dataset or files, not nothing"
+        self.use_gpu = torch.cuda.is_available()
+        self.batch_size = batch_size
+
+        # TODO: make this class autocloseable and clean up the temp dirs when closing
+        self.train_pickles = []
+        self.valid_pickles = []
+        self.num_read_features = None
+
+        if dataset is not None:
+            self.fits_in_ram = True
+            train, valid = utils.split_dataset_into_train_and_valid(dataset, 0.9)
+            self.train_loader = make_semisupervised_data_loader(train, batch_size, pin_memory=self.use_gpu)
+            self.valid_loader = make_semisupervised_data_loader(valid, batch_size, pin_memory=self.use_gpu)
+            self.num_read_features = dataset.num_read_features()
+
+        else:
+            validation_data = []
+            for dataset_file in dataset_files:
+                for dataset_from_file in generate_datasets(dataset_file, chunk_size):
+                    if self.num_read_features is None:
+                        self.num_read_features = dataset_from_file.num_read_features()
+                    else:
+                        assert self.num_read_features == dataset_from_file.num_read_features(), "inconsistent number of read features between files"
+                    train, valid = utils.split_dataset_into_train_and_valid(dataset_from_file, 0.9)
+
+                    with tempfile.NamedTemporaryFile(delete=False) as train_pickle:
+                        pickle.dump([datum for datum in train], train_pickle)
+                        self.train_pickles.append(train_pickle.name)
+                        train_pickle.flush()    # is this really necessary?
+
+                    # extend the validation data and pickle if it has gotten big enough
+                    validation_data.extend(valid)
+                    if len(validation_data) > chunk_size:
+                        with tempfile.NamedTemporaryFile(delete=False) as valid_pickle:
+                            pickle.dump(validation_data, valid_pickle)
+                            self.valid_pickles.append(valid_pickle.name)
+                            valid_pickle.flush()  # is this really necessary?
+                        validation_data = []
+
+            # pickle any remaining validation data
+            with tempfile.NamedTemporaryFile(delete=False) as valid_pickle:
+                pickle.dump(validation_data, valid_pickle)
+                self.valid_pickles.append(valid_pickle.name)
+                valid_pickle.flush()  # is this really necessary?
+
+            # check if there is only one pickled dataset, in which case we can fit it in RAM
+            # note that we already normalized and shuffled
+            if len(self.train_pickles) == 1:
+                self.fits_in_ram = True
+                with open(self.train_pickles[0], 'rb') as train_pickle, open(self.valid_pickles[0], 'rb') as valid_pickle:
+                    training_data = pickle.load(train_pickle)
+                    validation_data = pickle.load(valid_pickle)
+                    train = ReadSetDataset(data=training_data, shuffle=False, normalize=False)
+                    valid = ReadSetDataset(data=validation_data, shuffle=False, normalize=False)
+                    self.train_loader = make_semisupervised_data_loader(train, batch_size, pin_memory=self.use_gpu)
+                    self.valid_loader = make_semisupervised_data_loader(valid, batch_size, pin_memory=self.use_gpu)
+            else:
+                self.fits_in_ram = False
+                self.train_loader = None
+                self.valid_loader = None
+
+        assert self.fits_in_ram == (self.train_loader is not None)
+        assert self.fits_in_ram == (self.valid_loader is not None)
+        assert self.fits_in_ram == (len(self.train_pickles) <= 1)
+        assert self.num_read_features is not None
+
+    def generate_batches(self, epoch_type: utils.Epoch):
+        assert epoch_type != utils.Epoch.TEST, "test epochs not supported yet"
+        if self.fits_in_ram:
+            loader = self.train_loader if epoch_type == utils.Epoch.TRAIN else self.valid_loader
+            for batch in loader:
+                yield batch
+        else:
+            pickles = self.train_pickles if epoch_type == utils.Epoch.TRAIN else self.valid_pickles
+            for file in pickles:
+                with open(file, 'rb') as pickle_file:
+                    data = pickle.load(pickle_file)
+                    dataset = ReadSetDataset(data=data, shuffle=False, normalize=False)
+                    loader = make_semisupervised_data_loader(dataset, self.batch_size, pin_memory=self.use_gpu)
+                    for batch in loader:
+                        yield batch
 
 
 def medians_and_iqrs(tensor_2d: torch.Tensor):

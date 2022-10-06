@@ -1,4 +1,5 @@
 import argparse
+import tempfile
 
 import torch
 from torch.utils.tensorboard import SummaryWriter
@@ -17,30 +18,20 @@ class TrainingParameters:
 
 
 def train_artifact_model(m3_params: ArtifactModelParameters, training_datasets, params: TrainingParameters, tensorboard_dir):
-    print("Loading datasets")
-    train_and_valid = read_set_dataset.ReadSetDataset(files=training_datasets)
-    training, valid = utils.split_dataset_into_train_and_valid(train_and_valid, 0.9)
-
-    unlabeled_count = sum([1 for datum in train_and_valid if datum.label() == Label.UNLABELED])
-    print("Unlabeled data: " + str(unlabeled_count) + ", labeled data: " + str(len(train_and_valid) - unlabeled_count))
-    print("Dataset sizes -- training: " + str(len(training)) + ", validation: " + str(len(valid)))
-
     use_gpu = torch.cuda.is_available()
     device = torch.device('cuda' if use_gpu else 'cpu')
+    big_dataset = read_set_dataset.BigReadSetDataset(batch_size=params.batch_size, chunk_size=100000, dataset_files=training_datasets)
+    model = ArtifactModel(params=m3_params, num_read_features=big_dataset.num_read_features, device=device).float()
 
-    train_loader = read_set_dataset.make_semisupervised_data_loader(training, params.batch_size, pin_memory=use_gpu)
-    valid_loader = read_set_dataset.make_semisupervised_data_loader(valid, params.batch_size, pin_memory=use_gpu)
-
-    model = ArtifactModel(params=m3_params, num_read_features=train_and_valid.num_read_features(), device=device).float()
-
-    print("Training model. . .")
+    print("Training. . .")
     summary_writer = SummaryWriter(tensorboard_dir)
-    model.train_model(train_loader, valid_loader, params.num_epochs, summary_writer=summary_writer,
-                      reweighting_range=params.reweighting_range, m3_params=m3_params)
-    print("Training complete.  Calibrating. . .")
-    model.learn_calibration(valid_loader, num_epochs=50)
-    print("Calibration complete.  Evaluating trained model. . .")
-    model.evaluate_model_after_training({"training": train_loader, "validation": valid_loader}, summary_writer)
+    model.train_model(big_dataset, params.num_epochs, summary_writer=summary_writer, reweighting_range=params.reweighting_range, m3_params=m3_params)
+
+    print("Calibrating. . .")
+    model.learn_calibration(big_dataset.generate_batches(utils.Epoch.VALID), num_epochs=50)
+
+    print("Evaluating trained model. . .")
+    model.evaluate_model_after_training({"training": big_dataset.generate_batches(utils.Epoch.TRAIN), "validation": big_dataset.generate_batches(utils.Epoch.VALID)}, summary_writer)
     # model.evaluate_model_after_training(valid_loader, summary_writer, "validation data for (1,25) and (50,50): ",
     #                                    artifact_beta_shape=torch.Tensor((1, 25)), variant_beta_shape=torch.Tensor((50, 50)))
     # model.evaluate_model_after_training(valid_loader, summary_writer, "validation data for (1,25) and (25,25): ",

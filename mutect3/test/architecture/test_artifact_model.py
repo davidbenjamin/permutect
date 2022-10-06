@@ -1,5 +1,5 @@
 from mutect3.test.test_utils import artificial_data
-from mutect3.data.read_set_dataset import ReadSetDataset, make_semisupervised_data_loader, make_test_data_loader
+from mutect3.data.read_set_dataset import ReadSetDataset, BigReadSetDataset, make_semisupervised_data_loader, make_test_data_loader
 from mutect3.data.read_set import ReadSet
 from typing import Iterable
 from mutect3.architecture.artifact_model import ArtifactModel, ArtifactModelParameters
@@ -11,7 +11,7 @@ import tempfile
 from torch.utils.tensorboard import SummaryWriter
 
 BATCH_SIZE = 64
-NUM_EPOCHS = 100
+NUM_EPOCHS = 50
 NUM_SPECTRUM_ITERATIONS = 100
 TRAINING_PARAMS = TrainingParameters(batch_size=BATCH_SIZE, num_epochs=NUM_EPOCHS, reweighting_range=0.3)
 
@@ -23,17 +23,32 @@ SMALL_MODEL_PARAMS = ArtifactModelParameters(read_layers=[5, 5], info_layers=[5,
 def train_model_and_write_summary(m3_params: ArtifactModelParameters, training_params: TrainingParameters,
                                   data: Iterable[ReadSet], summary_writer: SummaryWriter = None):
     dataset = ReadSetDataset(data=data)
-    training, valid = utils.split_dataset_into_train_and_valid(dataset, 0.9)
-
-    train_loader = make_semisupervised_data_loader(training, training_params.batch_size)
-    valid_loader = make_semisupervised_data_loader(valid, training_params.batch_size)
+    big_dataset = BigReadSetDataset(batch_size=training_params.batch_size, dataset=dataset)
     model = ArtifactModel(params=m3_params, num_read_features=dataset.num_read_features()).float()
 
-    model.train_model(train_loader, valid_loader, training_params.num_epochs, summary_writer=summary_writer,
+    model.train_model(big_dataset, training_params.num_epochs, summary_writer=summary_writer,
                       reweighting_range=training_params.reweighting_range, m3_params=m3_params)
-    model.learn_calibration(valid_loader, num_epochs=50)
-    model.evaluate_model_after_training({"training": train_loader}, summary_writer, "training data: ")
+    model.learn_calibration(big_dataset.generate_batches(utils.Epoch.VALID), num_epochs=50)
+    model.evaluate_model_after_training({"training": big_dataset.generate_batches(utils.Epoch.TRAIN)}, summary_writer, "training data: ")
     return model
+
+
+def test_big_data():
+    training_dataset_file = "/Users/davidben/mutect3/just-dream-1/dream1-normal-medium-training.dataset"
+    big_dataset = BigReadSetDataset(batch_size=64, chunk_size=10000, dataset_files=[training_dataset_file])
+    params = SMALL_MODEL_PARAMS
+    training_params = TRAINING_PARAMS
+
+    with tempfile.TemporaryDirectory() as tensorboard_dir:
+        summary_writer = SummaryWriter(tensorboard_dir)
+        model = ArtifactModel(params=params, num_read_features=big_dataset.num_read_features).float()
+        model.train_model(big_dataset, training_params.num_epochs, summary_writer=summary_writer,
+                          reweighting_range=training_params.reweighting_range, m3_params=params)
+        model.learn_calibration(big_dataset.generate_batches(utils.Epoch.VALID), num_epochs=50)
+        model.evaluate_model_after_training({"training": big_dataset.generate_batches(utils.Epoch.TRAIN)}, summary_writer, "training data: ")
+
+        events = EventAccumulator(tensorboard_dir)
+        events.Reload()
 
 
 def test_separate_gaussian_data():
