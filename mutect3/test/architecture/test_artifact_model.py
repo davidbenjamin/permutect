@@ -51,9 +51,6 @@ def test_big_data():
         events.Reload()
 
 
-
-
-
 def test_separate_gaussian_data():
     # in the test for alt count agnostic, we make training data where variant alt counts are much larger than artifact
     # alt counts and test data with a low alt allele fraction

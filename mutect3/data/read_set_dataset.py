@@ -34,15 +34,16 @@ class ReadSetDataset(Dataset):
         if shuffle:
             random.shuffle(self.data)
 
-        # concatenate a bunch of ref tensors and take element-by-element quantiles
-        # for simplicity we do sampling with replacement
-        N = len(self.data)
-        random_indices = range(N) if N <= QUANTILE_DATA_COUNT else torch.randint(0, N, (QUANTILE_DATA_COUNT,)).tolist()
-
-        ref = torch.cat([self.data[n].ref_tensor() for n in random_indices], dim=0)
-        gatk_info = torch.stack([self.data[n].gatk_info() for n in random_indices], dim=0)
-
         if normalize:
+            # concatenate a bunch of ref tensors and take element-by-element quantiles
+            # for simplicity we do sampling with replacement
+            N = len(self.data)
+            random_indices = range(N) if N <= QUANTILE_DATA_COUNT else torch.randint(0, N,
+                                                                                     (QUANTILE_DATA_COUNT,)).tolist()
+
+            ref = torch.cat([self.data[n].ref_tensor() for n in random_indices], dim=0)
+            gatk_info = torch.stack([self.data[n].gatk_info() for n in random_indices], dim=0)
+
             read_medians, read_iqrs = medians_and_iqrs(ref)
             gatk_info_medians, gatk_info_iqrs = medians_and_iqrs(gatk_info)
 
