@@ -41,7 +41,7 @@ def test_big_data():
 
     with tempfile.TemporaryDirectory() as tensorboard_dir:
         summary_writer = SummaryWriter(tensorboard_dir)
-        model = ArtifactModel(params=params, num_read_features=big_dataset.num_read_features()).float()
+        model = ArtifactModel(params=params, num_read_features=big_dataset.num_read_features).float()
         model.train_model(big_dataset, training_params.num_epochs, summary_writer=summary_writer,
                           reweighting_range=training_params.reweighting_range, m3_params=params)
         model.learn_calibration(big_dataset.generate_batches(utils.Epoch.VALID), num_epochs=50)
