@@ -216,19 +216,24 @@ class ArtifactModel(nn.Module):
         bce = torch.nn.BCEWithLogitsLoss(reduction='sum')
         train_optimizer = torch.optim.AdamW(self.training_parameters(), lr=m3_params.learning_rate)
 
+        total_labeled, total_unlabeled = 0, 0
+        for batch in big_read_set_dataset.generate_batches(utils.Epoch.TRAIN):
+            if batch.is_labeled():
+                total_labeled += batch.size()
+            else:
+                total_unlabeled += batch.size()
+
         # balance training by weighting the loss function
-        total_labeled = sum(batch.size() for batch in train_loader if batch.is_labeled())
-        total_unlabeled = sum(batch.size() for batch in train_loader if not batch.is_labeled())
         labeled_to_unlabeled_ratio = None if total_unlabeled == 0 else total_labeled / total_unlabeled
 
         for epoch in trange(1, num_epochs + 1, desc="Epoch"):
             for epoch_type in [utils.Epoch.TRAIN, utils.Epoch.VALID]:
                 self.set_epoch_type(epoch_type)
-                loader = train_loader if epoch_type == utils.Epoch.TRAIN else valid_loader
+                generator = big_read_set_dataset.generate_batches(epoch_type)
                 labeled_loss = utils.StreamingAverage(device=self._device)
                 unlabeled_loss = utils.StreamingAverage(device=self._device)
 
-                pbar = tqdm(enumerate(loader), mininterval=10)
+                pbar = tqdm(enumerate(generator), mininterval=10)
                 for n, batch in pbar:
                     phi_reads = self.apply_phi_to_reads(batch)
 
