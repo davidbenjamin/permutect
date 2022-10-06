@@ -18,33 +18,20 @@ class TrainingParameters:
 
 
 def train_artifact_model(m3_params: ArtifactModelParameters, training_datasets, params: TrainingParameters, tensorboard_dir):
-    print("Parsing, normalizing, and pickling data")
-    pickle_dir = tempfile.TemporaryDirectory()
-    read_set_dataset.pickle_training_data(training_datasets, pickle_dir.name)
-
-    num_read_features = 0
-    for dataset in read_set_dataset.read_training_pickles(pickle_dir.name):
-        num_read_features = dataset.num_read_features()
-        break
-
     use_gpu = torch.cuda.is_available()
     device = torch.device('cuda' if use_gpu else 'cpu')
+    big_dataset = read_set_dataset.BigReadSetDataset(batch_size=params.batch_size, dataset_files=training_datasets)
+    model = ArtifactModel(params=m3_params, num_read_features=big_dataset.num_read_features, device=device).float()
 
-    # train_and_valid = read_set_dataset.ReadSetDataset(files=training_datasets)
-    # training, valid = utils.split_dataset_into_train_and_valid(train_and_valid, 0.9, fixed_seed=True)
-    # train_loader = read_set_dataset.make_semisupervised_data_loader(training, params.batch_size, pin_memory=use_gpu)
-    # valid_loader = read_set_dataset.make_semisupervised_data_loader(valid, params.batch_size, pin_memory=use_gpu)
-
-    model = ArtifactModel(params=m3_params, num_read_features=num_read_features, device=device).float()
-
-    print("Training model. . .")
+    print("Training. . .")
     summary_writer = SummaryWriter(tensorboard_dir)
-    model.train_model(train_loader, valid_loader, params.num_epochs, summary_writer=summary_writer,
-                      reweighting_range=params.reweighting_range, m3_params=m3_params)
-    print("Training complete.  Calibrating. . .")
-    model.learn_calibration(valid_loader, num_epochs=50)
-    print("Calibration complete.  Evaluating trained model. . .")
-    model.evaluate_model_after_training({"training": train_loader, "validation": valid_loader}, summary_writer)
+    model.train_model(big_dataset, params.num_epochs, summary_writer=summary_writer, reweighting_range=params.reweighting_range, m3_params=m3_params)
+
+    print("Calibrating. . .")
+    model.learn_calibration(big_dataset.generate_batches(utils.Epoch.VALID), num_epochs=50)
+
+    print("Evaluating trained model. . .")
+    model.evaluate_model_after_training({"training": big_dataset.generate_batches(utils.Epoch.TRAIN), "validation": big_dataset.generate_batches(utils.Epoch.VALID)}, summary_writer)
     # model.evaluate_model_after_training(valid_loader, summary_writer, "validation data for (1,25) and (50,50): ",
     #                                    artifact_beta_shape=torch.Tensor((1, 25)), variant_beta_shape=torch.Tensor((50, 50)))
     # model.evaluate_model_after_training(valid_loader, summary_writer, "validation data for (1,25) and (25,25): ",

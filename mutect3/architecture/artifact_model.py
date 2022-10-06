@@ -14,6 +14,7 @@ from matplotlib import pyplot as plt
 from mutect3.architecture.mlp import MLP
 from mutect3.data.read_set_batch import ReadSetBatch
 from mutect3.data import read_set
+from mutect3.data import read_set_dataset
 from mutect3 import utils
 from mutect3.utils import Call, Variation
 from mutect3.metrics import plotting
@@ -173,7 +174,11 @@ class ArtifactModel(nn.Module):
         logits, effective_ref_counts, effective_alt_counts = self.forward_from_phi_reads_to_calibration(phi_reads, batch, weight_range)
         return self.calibration.forward(logits, effective_ref_counts, effective_alt_counts)
 
-    def learn_calibration(self, loader, num_epochs):
+    def learn_calibration(self, read_set_batch_generator, num_epochs):
+        """
+        :param read_set_batch_generator: some iterable (like a Dataloader) or generator of read set batches
+        :param num_epochs:  number of calibration epochs
+        """
         self.train(False)
         utils.freeze(self.parameters())
         utils.unfreeze(self.calibration_parameters())
@@ -182,7 +187,7 @@ class ArtifactModel(nn.Module):
         # do forward and backward passes on the calibration submodule
         print("Computing uncalibrated part of model. . .")
         uncalibrated_logits_ref_alt_counts_labels = []
-        pbar = tqdm(enumerate(loader), mininterval=10)
+        pbar = tqdm(enumerate(read_set_batch_generator), mininterval=10)
         for n, batch in pbar:
             if not batch.is_labeled():
                 continue
@@ -207,7 +212,7 @@ class ArtifactModel(nn.Module):
 
                 nll_loss.record_sum(loss.detach(), len(logits))
 
-    def train_model(self, train_loader, valid_loader, num_epochs, summary_writer: SummaryWriter, reweighting_range: float, m3_params: ArtifactModelParameters):
+    def train_model(self, big_read_set_dataset: read_set_dataset.BigReadSetDataset, num_epochs, summary_writer: SummaryWriter, reweighting_range: float, m3_params: ArtifactModelParameters):
         bce = torch.nn.BCEWithLogitsLoss(reduction='sum')
         train_optimizer = torch.optim.AdamW(self.training_parameters(), lr=m3_params.learning_rate)
 
@@ -260,10 +265,8 @@ class ArtifactModel(nn.Module):
             # note that we have not learned the AF spectrum yet
         # done with training
 
-    # the beta shape parameters are for primitive posterior probability estimation and are pairs of floats
-    # representing beta distributions of allele fractions for both true variants and artifacts
-    # loaders by name is eg {"train": train_loader, "valid": valid_loader}
-    def evaluate_model_after_training(self, loaders_by_name, summary_writer: SummaryWriter, prefix: str = ""):
+    # generators by name is eg {"train": train_generator, "valid": valid_generator}
+    def evaluate_model_after_training(self, batch_generators_by_name, summary_writer: SummaryWriter, prefix: str = ""):
         self.freeze_all()
         self.cpu()
         self._device = "cpu"
@@ -277,12 +280,12 @@ class ArtifactModel(nn.Module):
 
         # grid of figures -- rows are loaders, columns are variant types
         # each subplot is a bar chart grouped by call type (variant vs artifact)
-        sens_fig, sens_axs = plt.subplots(len(loaders_by_name), len(Variation), sharex='all', sharey='all', squeeze=False)
+        sens_fig, sens_axs = plt.subplots(len(batch_generators_by_name), len(Variation), sharex='all', sharey='all', squeeze=False)
 
         # accuracy is indexed by loader only
-        acc_fig, acc_axs = plt.subplots(1, len(loaders_by_name), sharex='all', sharey='all', squeeze=False)
+        acc_fig, acc_axs = plt.subplots(1, len(batch_generators_by_name), sharex='all', sharey='all', squeeze=False)
 
-        for loader_idx, (loader_name, loader) in enumerate(loaders_by_name.items()):
+        for loader_idx, (loader_name, loader) in enumerate(batch_generators_by_name.items()):
             accuracy = defaultdict(utils.StreamingAverage)
             # indexed by variant type, then call type (artifact vs variant), then count bin
             sensitivity = {var_type: defaultdict(lambda: defaultdict(utils.StreamingAverage)) for var_type in Variation}

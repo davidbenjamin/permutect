@@ -142,26 +142,10 @@ def generate_datasets(dataset_file, chunk_size: int):
     yield ReadSetDataset(data=full_buffer + growing_buffer, shuffle=True, normalize=True)
 
 
-def pickle_training_data(dataset_files, pickle_dir, chunk_size: int = 100000):
-    idx = 0
-    for dataset_file in dataset_files:
-        for dataset in generate_datasets(dataset_file, chunk_size):
-            list_to_pickle = [datum for datum in dataset]
-            file_name = os.path.join(pickle_dir, "pickle" + str(idx) + PICKLE_EXTENSION)
-            with open(file_name, 'wb') as file:
-                pickle.dump(list_to_pickle, file)
-            idx += 1
-
-
-def read_training_pickles(pickle_dir):
-    pickle_files = [os.path.join(pickle_dir, f) for f in os.listdir(pickle_dir) if f.endswith(PICKLE_EXTENSION)]
-    for file_name in pickle_files:
-        with open(file_name, 'rb') as file:
-            data = pickle.load(file)
-            yield ReadSetDataset(data=data, shuffle=False, normalize=False)
-
-
 class BigReadSetDataset:
+
+    # TODO: we need to record number of read features in the constructor
+    # TODO: probably also record the labeled to unlabeled ratio
 
     def __init__(self, batch_size: int = 64, chunk_size: int = 100000, dataset: ReadSetDataset = None, dataset_files=None):
         assert dataset is None or dataset_files is None, "Initialize either with dataset or files, not both"
@@ -172,17 +156,23 @@ class BigReadSetDataset:
         # TODO: make this class autocloseable and clean up the temp dirs when closing
         self.train_pickles = []
         self.valid_pickles = []
+        self.num_read_features = None
 
         if dataset is not None:
             self.fits_in_ram = True
             train, valid = utils.split_dataset_into_train_and_valid(dataset, 0.9)
             self.train_loader = make_semisupervised_data_loader(train, batch_size, pin_memory=self.use_gpu)
             self.valid_loader = make_semisupervised_data_loader(valid, batch_size, pin_memory=self.use_gpu)
+            self.num_read_features = dataset.num_read_features()
 
         else:
             validation_data = []
             for dataset_file in dataset_files:
                 for dataset_from_file in generate_datasets(dataset_file, chunk_size):
+                    if self.num_read_features is None:
+                        self.num_read_features = dataset_from_file.num_read_features()
+                    else:
+                        assert self.num_read_features == dataset_from_file.num_read_features(), "inconsistent number of read features between files"
                     train, valid = utils.split_dataset_into_train_and_valid(dataset_from_file, 0.9)
 
                     train_pickle = tempfile.TemporaryFile()
@@ -221,21 +211,22 @@ class BigReadSetDataset:
         assert self.fits_in_ram == (self.valid_loader is not None)
         assert self.fits_in_ram == (len(self.train_pickles) <= 1)
         assert self.fits_in_ram == (len(self.valid_pickles) <= 1)
+        assert self.num_read_features is not None
 
-    # TODO: need to generalize this to validation as well
-    def generate_batches(self):
+    def generate_batches(self, epoch_type: utils.Epoch):
+        assert epoch_type != utils.Epoch.TEST, "test epochs not supported yet"
         if self.fits_in_ram:
-            for batch in self.train_loader:
+            loader = self.train_loader if epoch_type == utils.Epoch.TRAIN else self.valid_loader
+            for batch in loader:
                 yield batch
         else:
-            for file in self.train_pickles:
-                training_data = pickle.load(file)
-                train = ReadSetDataset(data=training_data, shuffle=False, normalize=False)
-                train_loader = make_semisupervised_data_loader(train, self.batch_size, pin_memory=self.use_gpu)
-                for batch in train_loader:
+            pickles = self.train_pickles if epoch_type == utils.Epoch.TRAIN else self.valid_pickles
+            for file in pickles:
+                data = pickle.load(file)
+                dataset = ReadSetDataset(data=data, shuffle=False, normalize=False)
+                loader = make_semisupervised_data_loader(dataset, self.batch_size, pin_memory=self.use_gpu)
+                for batch in loader:
                     yield batch
-
-
 
 
 def medians_and_iqrs(tensor_2d: torch.Tensor):
