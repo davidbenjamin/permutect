@@ -33,6 +33,27 @@ def train_model_and_write_summary(m3_params: ArtifactModelParameters, training_p
     return model
 
 
+def test_big_data():
+    training_dataset_file = "/Users/davidben/mutect3/just-dream-1/dream1-normal-small-training.dataset"
+    big_dataset = BigReadSetDataset(batch_size=64, chunk_size=100000, dataset_files=[training_dataset_file])
+    params = SMALL_MODEL_PARAMS
+    training_params = TRAINING_PARAMS
+
+    with tempfile.TemporaryDirectory() as tensorboard_dir:
+        summary_writer = SummaryWriter(tensorboard_dir)
+        model = ArtifactModel(params=params, num_read_features=big_dataset.num_read_features()).float()
+        model.train_model(big_dataset, training_params.num_epochs, summary_writer=summary_writer,
+                          reweighting_range=training_params.reweighting_range, m3_params=params)
+        model.learn_calibration(big_dataset.generate_batches(utils.Epoch.VALID), num_epochs=50)
+        model.evaluate_model_after_training({"training": big_dataset.generate_batches(utils.Epoch.TRAIN)}, summary_writer, "training data: ")
+
+        events = EventAccumulator(tensorboard_dir)
+        events.Reload()
+
+
+
+
+
 def test_separate_gaussian_data():
     # in the test for alt count agnostic, we make training data where variant alt counts are much larger than artifact
     # alt counts and test data with a low alt allele fraction
