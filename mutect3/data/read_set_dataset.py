@@ -160,7 +160,8 @@ class BigReadSetDataset:
         self.num_read_features = None
 
         if dataset is not None:
-            self.fits_in_ram = True
+            self.train_fits_in_ram = True
+            self.valid_fits_in_ram = True
             train, valid = utils.split_dataset_into_train_and_valid(dataset, 0.9)
             self.train_loader = make_semisupervised_data_loader(train, batch_size, pin_memory=self.use_gpu)
             self.valid_loader = make_semisupervised_data_loader(valid, batch_size, pin_memory=self.use_gpu)
@@ -199,29 +200,39 @@ class BigReadSetDataset:
             # check if there is only one pickled dataset, in which case we can fit it in RAM
             # note that we already normalized and shuffled
             if len(self.train_pickles) == 1:
-                self.fits_in_ram = True
-                with open(self.train_pickles[0], 'rb') as train_pickle, open(self.valid_pickles[0], 'rb') as valid_pickle:
+                self.train_fits_in_ram = True
+                with open(self.train_pickles[0], 'rb') as train_pickle:
                     training_data = pickle.load(train_pickle)
-                    validation_data = pickle.load(valid_pickle)
                     train = ReadSetDataset(data=training_data, shuffle=False, normalize=False)
-                    valid = ReadSetDataset(data=validation_data, shuffle=False, normalize=False)
                     self.train_loader = make_semisupervised_data_loader(train, batch_size, pin_memory=self.use_gpu)
+            else:
+                self.train_fits_in_ram = False
+                self.train_loader = None
+
+            if len(self.valid_pickles) == 1:
+                self.valid_fits_in_ram = True
+                with open(self.valid_pickles[0], 'rb') as valid_pickle:
+                    validation_data = pickle.load(valid_pickle)
+                    valid = ReadSetDataset(data=validation_data, shuffle=False, normalize=False)
                     self.valid_loader = make_semisupervised_data_loader(valid, batch_size, pin_memory=self.use_gpu)
             else:
-                self.fits_in_ram = False
-                self.train_loader = None
+                self.valid_fits_in_ram = False
                 self.valid_loader = None
 
-        assert self.fits_in_ram == (self.train_loader is not None)
-        assert self.fits_in_ram == (self.valid_loader is not None)
-        assert self.fits_in_ram == (len(self.train_pickles) <= 1)
+        assert self.train_fits_in_ram == (self.train_loader is not None)
+        assert self.valid_fits_in_ram == (self.valid_loader is not None)
+        assert self.train_fits_in_ram == (len(self.train_pickles) <= 1)
+        assert self.valid_fits_in_ram == (len(self.valid_pickles) <= 1)
         assert self.num_read_features is not None
 
     def generate_batches(self, epoch_type: utils.Epoch):
         assert epoch_type != utils.Epoch.TEST, "test epochs not supported yet"
-        if self.fits_in_ram:
-            loader = self.train_loader if epoch_type == utils.Epoch.TRAIN else self.valid_loader
-            for batch in loader:
+
+        if epoch_type == utils.Epoch.TRAIN and self.train_fits_in_ram:
+            for batch in self.train_loader:
+                yield batch
+        elif epoch_type == utils.Epoch.VALID and self.valid_fits_in_ram:
+            for batch in self.valid_loader:
                 yield batch
         else:
             pickles = self.train_pickles if epoch_type == utils.Epoch.TRAIN else self.valid_pickles
