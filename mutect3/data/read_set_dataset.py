@@ -1,4 +1,5 @@
 import random
+import math
 from typing import Iterable
 import psutil
 import os
@@ -74,6 +75,15 @@ def make_test_data_loader(dataset: ReadSetDataset, batch_size: int):
     return DataLoader(dataset=dataset, batch_size=batch_size, collate_fn=ReadSetBatch)
 
 
+def count_data(dataset_file):
+    n = 0
+    with open(dataset_file) as file:
+        for line in file:
+            if Label.is_label(line.strip()):
+                n += 1
+    return n
+
+
 # generator that reads a plain text dataset file and yields data
 # in posterior model, yield a tuple of ReadSet and PosteriorDatum
 def read_data(dataset_file, posterior: bool = False):
@@ -127,20 +137,19 @@ def read_data(dataset_file, posterior: bool = False):
 
 
 # TODO: there is some code duplication between this and filter_variants.py
-# TODO: also, the buffer approach here is cleaner
+# TODO: also, the approach here is cleaner
 def generate_datasets(dataset_file, chunk_size: int):
-    full_buffer = []
-    growing_buffer = []
+    num_data = count_data(dataset_file)
+    num_chunks = math.ceil(num_data / chunk_size)
+    actual_chunk_size = num_data // num_chunks
 
+    buffer = []
     for read_set in read_data(dataset_file, posterior=False):
-        first_chunk = len(full_buffer) < chunk_size
-        (full_buffer if first_chunk else growing_buffer).append(read_set)
-        if len(growing_buffer) == chunk_size:
+        buffer.append(read_set)
+        if len(buffer) == actual_chunk_size:
             print("memory usage percent: " + str(psutil.virtual_memory().percent))
-            yield ReadSetDataset(data=full_buffer, shuffle=True, normalize=True)
-            full_buffer = growing_buffer
-            growing_buffer = []
-    yield ReadSetDataset(data=full_buffer + growing_buffer, shuffle=True, normalize=True)
+            yield ReadSetDataset(data=buffer, shuffle=True, normalize=True)
+            buffer = []
 
 
 class BigReadSetDataset:
@@ -163,12 +172,13 @@ class BigReadSetDataset:
             self.train_fits_in_ram = True
             self.valid_fits_in_ram = True
             train, valid = utils.split_dataset_into_train_and_valid(dataset, 0.9)
-            self.train_loader = make_semisupervised_data_loader(train, batch_size, pin_memory=self.use_gpu)
-            self.valid_loader = make_semisupervised_data_loader(valid, batch_size, pin_memory=self.use_gpu)
+
+            self.train_batches = [batch for batch in make_semisupervised_data_loader(train, batch_size, pin_memory=self.use_gpu)]
+            self.valid_batches = [batch for batch in make_semisupervised_data_loader(valid, batch_size, pin_memory=self.use_gpu)]
             self.num_read_features = dataset.num_read_features()
 
         else:
-            validation_data = []
+            validation_batches = []
             for dataset_file in dataset_files:
                 for dataset_from_file in generate_datasets(dataset_file, chunk_size):
                     if self.num_read_features is None:
@@ -176,51 +186,50 @@ class BigReadSetDataset:
                     else:
                         assert self.num_read_features == dataset_from_file.num_read_features(), "inconsistent number of read features between files"
                     train, valid = utils.split_dataset_into_train_and_valid(dataset_from_file, 0.9)
+                    train_loader = make_semisupervised_data_loader(train, self.batch_size, pin_memory=self.use_gpu)
+                    valid_loader = make_semisupervised_data_loader(valid, self.batch_size, pin_memory=self.use_gpu)
 
                     with tempfile.NamedTemporaryFile(delete=False) as train_pickle:
-                        pickle.dump([datum for datum in train], train_pickle)
+                        pickle.dump([batch for batch in train_loader], train_pickle)
                         self.train_pickles.append(train_pickle.name)
                         train_pickle.flush()    # is this really necessary?
 
                     # extend the validation data and pickle if it has gotten big enough
-                    validation_data.extend(valid)
-                    if len(validation_data) > chunk_size:
+                    validation_batches.extend(valid_loader)
+                    if batch_size * len(validation_batches) > chunk_size:
                         with tempfile.NamedTemporaryFile(delete=False) as valid_pickle:
-                            pickle.dump(validation_data, valid_pickle)
+                            pickle.dump(validation_batches, valid_pickle)
                             self.valid_pickles.append(valid_pickle.name)
                             valid_pickle.flush()  # is this really necessary?
-                        validation_data = []
+                        validation_batches = []
 
             # pickle any remaining validation data
-            with tempfile.NamedTemporaryFile(delete=False) as valid_pickle:
-                pickle.dump(validation_data, valid_pickle)
-                self.valid_pickles.append(valid_pickle.name)
-                valid_pickle.flush()  # is this really necessary?
+            if validation_batches:
+                with tempfile.NamedTemporaryFile(delete=False) as valid_pickle:
+                    pickle.dump(validation_batches, valid_pickle)
+                    self.valid_pickles.append(valid_pickle.name)
+                    valid_pickle.flush()  # is this really necessary?
 
             # check if there is only one pickled dataset, in which case we can fit it in RAM
             # note that we already normalized and shuffled
             if len(self.train_pickles) == 1:
                 self.train_fits_in_ram = True
                 with open(self.train_pickles[0], 'rb') as train_pickle:
-                    training_data = pickle.load(train_pickle)
-                    train = ReadSetDataset(data=training_data, shuffle=False, normalize=False)
-                    self.train_loader = make_semisupervised_data_loader(train, batch_size, pin_memory=self.use_gpu)
+                    self.train_batches = pickle.load(train_pickle)
             else:
                 self.train_fits_in_ram = False
-                self.train_loader = None
+                self.train_batches = None
 
             if len(self.valid_pickles) == 1:
                 self.valid_fits_in_ram = True
                 with open(self.valid_pickles[0], 'rb') as valid_pickle:
-                    validation_data = pickle.load(valid_pickle)
-                    valid = ReadSetDataset(data=validation_data, shuffle=False, normalize=False)
-                    self.valid_loader = make_semisupervised_data_loader(valid, batch_size, pin_memory=self.use_gpu)
+                    self.valid_batches = pickle.load(valid_pickle)
             else:
                 self.valid_fits_in_ram = False
-                self.valid_loader = None
+                self.valid_batches = None
 
-        assert self.train_fits_in_ram == (self.train_loader is not None)
-        assert self.valid_fits_in_ram == (self.valid_loader is not None)
+        assert self.train_fits_in_ram == (self.train_batches is not None)
+        assert self.valid_fits_in_ram == (self.valid_batches is not None)
         assert self.train_fits_in_ram == (len(self.train_pickles) <= 1)
         assert self.valid_fits_in_ram == (len(self.valid_pickles) <= 1)
         assert self.num_read_features is not None
@@ -229,19 +238,17 @@ class BigReadSetDataset:
         assert epoch_type != utils.Epoch.TEST, "test epochs not supported yet"
 
         if epoch_type == utils.Epoch.TRAIN and self.train_fits_in_ram:
-            for batch in self.train_loader:
+            for batch in self.train_batches:
                 yield batch
         elif epoch_type == utils.Epoch.VALID and self.valid_fits_in_ram:
-            for batch in self.valid_loader:
+            for batch in self.valid_batches:
                 yield batch
         else:
             pickles = self.train_pickles if epoch_type == utils.Epoch.TRAIN else self.valid_pickles
             for file in pickles:
                 with open(file, 'rb') as pickle_file:
-                    data = pickle.load(pickle_file)
-                    dataset = ReadSetDataset(data=data, shuffle=False, normalize=False)
-                    loader = make_semisupervised_data_loader(dataset, self.batch_size, pin_memory=self.use_gpu)
-                    for batch in loader:
+                    batches = pickle.load(pickle_file)
+                    for batch in batches:
                         yield batch
 
 
