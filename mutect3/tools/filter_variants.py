@@ -233,7 +233,7 @@ def apply_filtering_to_vcf(input_vcf, output_vcf, error_probability_threshold, p
         encoding = encode_variant(v, zero_based=True)  # cyvcf2 is zero-based
         if encoding in encoding_to_post_prob_dict:
             post_probs = encoding_to_post_prob_dict[encoding]
-            v.INFO[POST_PROB_INFO_KEY] = ','.join(map(str, post_probs))
+            v.INFO[POST_PROB_INFO_KEY] = ','.join(map(lambda prob: "{:.4f}".format(prob), post_probs))
 
             error_prob = 1 - post_probs[passing_call_type]
             if error_prob > error_probability_threshold:
