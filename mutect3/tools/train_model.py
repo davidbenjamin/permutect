@@ -11,16 +11,17 @@ from mutect3.utils import Label
 
 
 class TrainingParameters:
-    def __init__(self, batch_size, num_epochs, reweighting_range: float):
+    def __init__(self, batch_size, chunk_size, num_epochs, reweighting_range: float):
         self.batch_size = batch_size
         self.num_epochs = num_epochs
         self.reweighting_range = reweighting_range
+        self.chunk_size = chunk_size
 
 
 def train_artifact_model(m3_params: ArtifactModelParameters, training_datasets, params: TrainingParameters, tensorboard_dir):
     use_gpu = torch.cuda.is_available()
     device = torch.device('cuda' if use_gpu else 'cpu')
-    big_dataset = read_set_dataset.BigReadSetDataset(batch_size=params.batch_size, chunk_size=100000, dataset_files=training_datasets)
+    big_dataset = read_set_dataset.BigReadSetDataset(batch_size=params.batch_size, chunk_size=params.chunk_size, dataset_files=training_datasets)
     model = ArtifactModel(params=m3_params, num_read_features=big_dataset.num_read_features, device=device).float()
 
     print("Training. . .")
@@ -54,8 +55,9 @@ def save_artifact_model(model, m3_params, path):
 def parse_training_params(args) -> TrainingParameters:
     reweighting_range = getattr(args, constants.REWEIGHTING_RANGE_NAME)
     batch_size = getattr(args, constants.BATCH_SIZE_NAME)
+    chunk_size = getattr(args, constants.CHUNK_SIZE_NAME)
     num_epochs = getattr(args, constants.NUM_EPOCHS_NAME)
-    return TrainingParameters(batch_size, num_epochs, reweighting_range)
+    return TrainingParameters(batch_size, chunk_size, num_epochs, reweighting_range)
 
 
 def parse_mutect3_params(args) -> ArtifactModelParameters:
@@ -85,6 +87,7 @@ def parse_arguments():
     # training hyperparameters
     parser.add_argument('--' + constants.REWEIGHTING_RANGE_NAME, type=float, default=0.3, required=False)
     parser.add_argument('--' + constants.BATCH_SIZE_NAME, type=int, default=64, required=False)
+    parser.add_argument('--' + constants.CHUNK_SIZE_NAME, type=int, default=1000000, required=False)
     parser.add_argument('--' + constants.NUM_EPOCHS_NAME, type=int, required=True)
 
     # path to saved model

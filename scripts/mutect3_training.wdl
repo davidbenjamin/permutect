@@ -6,6 +6,7 @@ workflow TrainMutect3 {
         Array[File] training_datasets
         Int num_epochs
         Int batch_size
+        Int chunk_size
         Float dropout_p
         Float reweighting_range
         Array[Int] read_layers
@@ -26,6 +27,7 @@ workflow TrainMutect3 {
             max_retries = max_retries,
             num_epochs = num_epochs,
             batch_size = batch_size,
+            chunk_size = chunk_size,
             dropout_p = dropout_p,
             reweighting_range = reweighting_range,
             read_layers = read_layers,
@@ -47,6 +49,7 @@ task TrainMutect3 {
 
         Int num_epochs
         Int batch_size
+        Int chunk_size
         Float dropout_p
         Float reweighting_range
         Array[Int] read_layers
@@ -78,6 +81,7 @@ task TrainMutect3 {
             --dropout_p ~{dropout_p} \
             --reweighting_range ~{reweighting_range} \
             --batch_size ~{batch_size} \
+            --chunk_size ~{chunk_size} \
             --num_epochs ~{num_epochs} \
             --output mutect3.pt \
             --tensorboard_dir tensorboard \

@@ -157,7 +157,7 @@ class BigReadSetDataset:
     # TODO: we need to record number of read features in the constructor
     # TODO: probably also record the labeled to unlabeled ratio
 
-    def __init__(self, batch_size: int = 64, chunk_size: int = 100000, dataset: ReadSetDataset = None, dataset_files=None):
+    def __init__(self, batch_size: int = 64, chunk_size: int = 1000000, dataset: ReadSetDataset = None, dataset_files=None):
         assert dataset is None or dataset_files is None, "Initialize either with dataset or files, not both"
         assert dataset is not None or dataset_files is not None, "Must initialize with a dataset or files, not nothing"
         self.use_gpu = torch.cuda.is_available()

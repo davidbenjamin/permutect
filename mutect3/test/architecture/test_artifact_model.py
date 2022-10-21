@@ -11,9 +11,10 @@ import tempfile
 from torch.utils.tensorboard import SummaryWriter
 
 BATCH_SIZE = 64
+CHUNK_SIZE = 100000
 NUM_EPOCHS = 50
 NUM_SPECTRUM_ITERATIONS = 100
-TRAINING_PARAMS = TrainingParameters(batch_size=BATCH_SIZE, num_epochs=NUM_EPOCHS, reweighting_range=0.3)
+TRAINING_PARAMS = TrainingParameters(batch_size=BATCH_SIZE, chunk_size=CHUNK_SIZE, num_epochs=NUM_EPOCHS, reweighting_range=0.3)
 
 SMALL_MODEL_PARAMS = ArtifactModelParameters(read_layers=[5, 5], info_layers=[5, 5], aggregation_layers=[5, 5, 5, 5],
                                              dropout_p=0.2, batch_normalize=False, learning_rate=0.001)

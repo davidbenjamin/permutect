@@ -17,6 +17,7 @@ TEST_DATASET_NAME = 'test_dataset'
 NORMAL_ARTIFACT_DATASETS_NAME = 'normal_artifact_datasets'
 REWEIGHTING_RANGE_NAME = 'reweighting_range'
 BATCH_SIZE_NAME = 'batch_size'
+CHUNK_SIZE_NAME = 'chunk_size'
 NUM_EPOCHS_NAME = 'num_epochs'
 NUM_SPECTRUM_ITERATIONS = 'num_spectrum_iterations'
 
