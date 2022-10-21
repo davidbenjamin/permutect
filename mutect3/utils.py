@@ -68,6 +68,14 @@ class Label(enum.Enum):
 
         raise ValueError('label is invalid: %s' % label)
 
+    @staticmethod
+    def is_label(label_str: str):
+        for label in Label:
+            if label_str == label.value:
+                return True
+
+        return False
+
 
 def split_dataset_into_train_and_valid(dataset, train_fraction=0.9, fixed_seed: bool = True):
     train_len = int(train_fraction * len(dataset))
