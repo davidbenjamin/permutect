@@ -1,5 +1,6 @@
 import random
 import math
+import time
 from typing import Iterable
 import psutil
 import os
@@ -247,7 +248,10 @@ class BigReadSetDataset:
             pickles = self.train_pickles if epoch_type == utils.Epoch.TRAIN else self.valid_pickles
             for file in pickles:
                 with open(file, 'rb') as pickle_file:
+                    start = time.time()
                     batches = pickle.load(pickle_file)
+                    end = time.time()
+                    print("{} batches loaded from disk in {} seconds.".format(len(batches), end - start))
                     for batch in batches:
                         yield batch
 
