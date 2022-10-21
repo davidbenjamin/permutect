@@ -316,21 +316,23 @@ def chunk(indices, chunk_size):
 # the model handles balancing the losses between supervised and unsupervised in training, so we don't need to worry
 # it's convenient to have equal numbers of labeled and unlabeled batches, so we adjust the unlabeled batch size
 class SemiSupervisedBatchSampler(Sampler):
-    def __init__(self, dataset: ReadSetDataset, batch_size):
+    def __init__(self, dataset: ReadSetDataset, batch_size, balance: bool = False):
         self.artifact_indices = [n for n in range(len(dataset)) if dataset[n].label() == Label.ARTIFACT]
         self.non_artifact_indices = [n for n in range(len(dataset)) if dataset[n].label() == Label.VARIANT]
         self.unlabeled_indices = [n for n in range(len(dataset)) if dataset[n].label() == Label.UNLABELED]
         self.batch_size = batch_size
+        self.balance = balance
 
-    # randomly sample non-artifact indices to get a balanced training set
     def __iter__(self):
         random.shuffle(self.artifact_indices)
         random.shuffle(self.non_artifact_indices)
         random.shuffle(self.unlabeled_indices)
         artifact_count = min(len(self.artifact_indices), len(self.non_artifact_indices))
 
-        # balanced dataset in each epoch -- labeled vs unlabeled and artifact vs non-artifact
-        labeled_indices = self.artifact_indices[:artifact_count] + self.non_artifact_indices[:artifact_count]
+        # optionally create a random new balanced dataset in each epoch -- artifact vs non-artifact -- otherwise use all data
+        labeled_indices = (self.artifact_indices[:artifact_count] + self.non_artifact_indices[:artifact_count]) if self.balance else \
+            self.artifact_indices + self.non_artifact_indices
+
         random.shuffle(labeled_indices)
 
         all_labeled = len(self.unlabeled_indices) == 0
