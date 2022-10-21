@@ -225,7 +225,7 @@ class BigReadSetDataset:
             if len(self.train_pickles) == 1:
                 self.train_fits_in_ram = True
                 with open(self.train_pickles[0], 'rb') as train_pickle:
-                    self.train_batches = pickle.load(train_pickle, protocol=pickle.HIGHEST_PROTOCOL)
+                    self.train_batches = pickle.load(train_pickle)
             else:
                 self.train_fits_in_ram = False
                 self.train_batches = None
@@ -233,7 +233,7 @@ class BigReadSetDataset:
             if len(self.valid_pickles) == 1:
                 self.valid_fits_in_ram = True
                 with open(self.valid_pickles[0], 'rb') as valid_pickle:
-                    self.valid_batches = pickle.load(valid_pickle, protocol=pickle.HIGHEST_PROTOCOL)
+                    self.valid_batches = pickle.load(valid_pickle)
             else:
                 self.valid_fits_in_ram = False
                 self.valid_batches = None
@@ -258,7 +258,7 @@ class BigReadSetDataset:
             for file in pickles:
                 with open(file, 'rb') as pickle_file:
                     start = time.time()
-                    batches = pickle.load(pickle_file, protocol=pickle.HIGHEST_PROTOCOL)
+                    batches = pickle.load(pickle_file)
                     end = time.time()
                     print("{} batches loaded from disk in {} seconds.".format(len(batches), end - start))
                     for batch in batches:
