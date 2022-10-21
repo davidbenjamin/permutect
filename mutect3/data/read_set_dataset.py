@@ -87,7 +87,7 @@ def count_data(dataset_file):
 
 # generator that reads a plain text dataset file and yields data
 # in posterior model, yield a tuple of ReadSet and PosteriorDatum
-def read_data(dataset_file, posterior: bool = False):
+def read_data(dataset_file, posterior: bool = False, yield_nones: bool = False):
     with open(dataset_file) as file:
         n = 0
         while label_str := file.readline().strip():
@@ -135,6 +135,11 @@ def read_data(dataset_file, posterior: bool = False):
                     yield datum, posterior_datum
                 else:
                     yield datum
+            elif yield_nones:
+                if posterior:
+                    yield None, None
+                else:
+                    yield None
 
 
 # TODO: there is some code duplication between this and filter_variants.py
@@ -145,12 +150,16 @@ def generate_datasets(dataset_file, chunk_size: int):
     actual_chunk_size = num_data // num_chunks
 
     buffer = []
-    for read_set in read_data(dataset_file, posterior=False):
-        buffer.append(read_set)
-        if len(buffer) == actual_chunk_size:
+    data_count = 0
+    for read_set in read_data(dataset_file, posterior=False, yield_nones=True):
+        data_count += 1
+        if read_set is not None:
+            buffer.append(read_set)
+        if data_count == actual_chunk_size:
             print("memory usage percent: " + str(psutil.virtual_memory().percent))
             yield ReadSetDataset(data=buffer, shuffle=True, normalize=True)
             buffer = []
+            data_count = 0
 
 
 class BigReadSetDataset:

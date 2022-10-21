@@ -3,6 +3,7 @@ import warnings
 from collections import defaultdict
 
 import torch
+import time
 from torch.utils.tensorboard import SummaryWriter
 
 from torch import nn
@@ -213,18 +214,41 @@ class ArtifactModel(nn.Module):
                 nll_loss.record_sum(loss.detach(), len(logits))
 
     def train_model(self, big_read_set_dataset: read_set_dataset.BigReadSetDataset, num_epochs, summary_writer: SummaryWriter, reweighting_range: float, m3_params: ArtifactModelParameters):
-        bce = torch.nn.BCEWithLogitsLoss(reduction='sum')
+        bce = torch.nn.BCEWithLogitsLoss(reduction='none')  # no reduction because we may want to first multiply by weights for unbalanced data
         train_optimizer = torch.optim.AdamW(self.training_parameters(), lr=m3_params.learning_rate)
 
         total_labeled, total_unlabeled = 0, 0
+        artifact_totals = torch.zeros(len(utils.Variation))
+        non_artifact_totals = torch.zeros(len(utils.Variation))
+
+        print("counting labeled/non-labeled and artifact/non-artifact balance")
+        start = time.time()
         for batch in big_read_set_dataset.generate_batches(utils.Epoch.TRAIN):
             if batch.is_labeled():
                 total_labeled += batch.size()
+
+                labels = batch.labels()     # 1D tensor.  recall that 1 = artifact, 0 = non-artifact
+                variant_type_one_hot = batch.variant_type_one_hot() # 2D tensor; rows are batch index, columns are variant type
+
+                artifact_totals += torch.sum(labels.unsqueeze(dim=1)*variant_type_one_hot, dim=0)    # yields 1D tensor of artifact counts for each type
+                non_artifact_totals += torch.sum((1 - labels).unsqueeze(dim=1) * variant_type_one_hot, dim=0)
             else:
                 total_unlabeled += batch.size()
+        end = time.time()
+
+        labeled_artifact_to_non_artifact_ratios = artifact_totals / non_artifact_totals
+        labeled_artifact_weights_by_type = 1 / torch.sqrt(labeled_artifact_to_non_artifact_ratios)
+        labeled_non_artifact_weights_by_type = torch.sqrt(labeled_artifact_to_non_artifact_ratios)
 
         # balance training by weighting the loss function
         labeled_to_unlabeled_ratio = None if total_unlabeled == 0 else total_labeled / total_unlabeled
+
+        print("passed through data in {} seconds".format(end - start))
+        print("Training data contains {} labeled examples and {} unlabeled examples".format(total_labeled, total_unlabeled))
+        for variation_type in utils.Variation:
+            idx = variation_type.value
+            print("For variation type {}, there are {} labeled artifact examples and {} labeled non-artifact examples"
+                  .format(variation_type.name, artifact_totals[idx].item(), non_artifact_totals[idx].item()))
 
         for epoch in trange(1, num_epochs + 1, desc="Epoch"):
             for epoch_type in [utils.Epoch.TRAIN, utils.Epoch.VALID]:
@@ -245,14 +269,27 @@ class ArtifactModel(nn.Module):
                     if batch.is_labeled():
                         labels = batch.labels()
                         # labeled loss: cross entropy for original and both augmented copies
-                        loss = bce(orig_pred, labels) + bce(aug1_pred, labels) + bce(aug2_pred, labels)
+
+                        # the variant-dependent weights multiply the (unreduced) bces inside the torch.sum below
+                        # how does this work? Well the weights buy type vectors are 1D row vectors eg [SNV weight, INS weight, DEL weight]
+                        # and if we broadcast multiply them by the 1-hot variant vectors we get eg
+                        # [[SNV weight, 0, 0],
+                        #   [0, 0, DEL weight],
+                        #   [0, INS weight, 0]]
+                        # taking the sum over each row then gives the weights
+
+                        types_one_hot = batch.variant_type_one_hot()
+                        loss_balancing_factors = labels * torch.sum(labeled_artifact_weights_by_type * types_one_hot, dim=1) + \
+                            (1 - labels) * torch.sum(labeled_non_artifact_weights_by_type * types_one_hot, dim=1)
+
+                        loss = torch.sum(loss_balancing_factors * (bce(orig_pred, labels) + bce(aug1_pred, labels) + bce(aug2_pred, labels)))
                         labeled_loss.record_sum(loss.detach(), batch.size())
                     else:
                         # unlabeled loss: consistency cross entropy between original and both augmented copies
                         loss1 = bce(aug1_pred, torch.sigmoid(orig_pred.detach()))
                         loss2 = bce(aug2_pred, torch.sigmoid(orig_pred.detach()))
                         loss3 = bce(aug1_pred, torch.sigmoid(aug2_pred.detach()))
-                        loss = (loss1 + loss2 + loss3) * labeled_to_unlabeled_ratio
+                        loss = torch.sum(loss1 + loss2 + loss3) * labeled_to_unlabeled_ratio
                         unlabeled_loss.record_sum(loss.detach(), batch.size())
 
                     assert not loss.isnan().item()  # all sorts of errors produce a nan here.  This is a good place to spot it
