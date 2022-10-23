@@ -34,6 +34,7 @@ workflow Mutect3 {
         String mutect3_docker
         Int? preemptible
         Int? max_retries
+        File? obscene_hack_leave_unset
     }
 
     call m2.Mutect2 {
@@ -46,8 +47,8 @@ workflow Mutect3 {
             ref_dict = ref_dict,
             tumor_reads = primary_bam,
             tumor_reads_index = primary_bai,
-            normal_reads = control_bam,
-            normal_reads_index = control_bai,
+            normal_reads = if control_bam == "" then obscene_hack_leave_unset else control_bam,
+            normal_reads_index = if control_bam == "" then obscene_hack_leave_unset else control_bai,
 
             scatter_count = scatter_count,
             gnomad = gnomad,
