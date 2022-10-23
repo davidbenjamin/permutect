@@ -241,7 +241,8 @@ class ArtifactModel(nn.Module):
         labeled_non_artifact_weights_by_type = torch.sqrt(labeled_artifact_to_non_artifact_ratios)
 
         # balance training by weighting the loss function
-        labeled_to_unlabeled_ratio = None if total_unlabeled == 0 else total_labeled / total_unlabeled
+        # if total unlabeled is less than total labeled, we do not compensate, since labeled data are more informative
+        labeled_to_unlabeled_ratio = 1 if total_unlabeled < total_labeled else total_labeled / total_unlabeled
 
         print("passed through data in {} seconds".format(end - start))
         print("Training data contains {} labeled examples and {} unlabeled examples".format(total_labeled, total_unlabeled))
