@@ -1,4 +1,5 @@
 import argparse
+import math
 from typing import Set
 from intervaltree import IntervalTree
 from collections import defaultdict
@@ -69,6 +70,7 @@ def parse_arguments():
     parser.add_argument('--' + constants.OUTPUT_NAME, help='output filtered vcf', required=True)
     parser.add_argument('--' + constants.TENSORBOARD_DIR_NAME, type=str, default='tensorboard', required=False)
     parser.add_argument('--' + constants.BATCH_SIZE_NAME, type=int, default=64, required=False)
+    parser.add_argument('--' + constants.CHUNK_SIZE_NAME, type=int, default=100000, required=False)
     parser.add_argument('--' + constants.NUM_SPECTRUM_ITERATIONS, type=int, default=10, required=False)
     parser.add_argument('--' + constants.INITIAL_LOG_VARIANT_PRIOR_NAME, type=float, default=-10.0, required=False)
     parser.add_argument('--' + constants.INITIAL_LOG_ARTIFACT_PRIOR_NAME, type=float, default=-10.0, required=False)
@@ -107,6 +109,7 @@ def main():
                       input_vcf=getattr(args, constants.INPUT_NAME),
                       output_vcf=getattr(args, constants.OUTPUT_NAME),
                       batch_size=getattr(args, constants.BATCH_SIZE_NAME),
+                      chunk_size=getattr(args, constants.CHUNK_SIZE_NAME),
                       num_spectrum_iterations=getattr(args, constants.NUM_SPECTRUM_ITERATIONS),
                       tensorboard_dir=getattr(args, constants.TENSORBOARD_DIR_NAME),
                       num_ignored_sites=getattr(args, constants.NUM_IGNORED_SITES_NAME),
@@ -116,13 +119,13 @@ def main():
 
 
 def make_filtered_vcf(saved_artifact_model, initial_log_variant_prior: float, initial_log_artifact_prior: float,
-                      test_dataset_file, input_vcf, output_vcf, batch_size: int, num_spectrum_iterations: int, tensorboard_dir,
+                      test_dataset_file, input_vcf, output_vcf, batch_size: int, chunk_size: int, num_spectrum_iterations: int, tensorboard_dir,
                       num_ignored_sites: int, germline_mode: bool = False, segmentation=defaultdict(IntervalTree),
                       normal_segmentation=defaultdict(IntervalTree)):
     print("Loading artifact model and test dataset")
     artifact_model = load_artifact_model(saved_artifact_model)
     posterior_model = PosteriorModel(initial_log_variant_prior, initial_log_artifact_prior, segmentation=segmentation, normal_segmentation=normal_segmentation)
-    posterior_data_loader = make_posterior_data_loader(test_dataset_file, input_vcf, artifact_model, batch_size)
+    posterior_data_loader = make_posterior_data_loader(test_dataset_file, input_vcf, artifact_model, batch_size, chunk_size=chunk_size)
 
     print("Learning AF spectra")
     summary_writer = SummaryWriter(tensorboard_dir)
@@ -137,7 +140,7 @@ def make_filtered_vcf(saved_artifact_model, initial_log_variant_prior: float, in
     apply_filtering_to_vcf(input_vcf, output_vcf, error_probability_threshold, posterior_data_loader, posterior_model, germline_mode=germline_mode)
 
 
-def make_posterior_data_loader(dataset_file, input_vcf, artifact_model: ArtifactModel, batch_size: int):
+def make_posterior_data_loader(dataset_file, input_vcf, artifact_model: ArtifactModel, batch_size: int, chunk_size: int):
     print("Reading test dataset")
 
     m2_filtering_to_keep = set()
@@ -152,12 +155,21 @@ def make_posterior_data_loader(dataset_file, input_vcf, artifact_model: Artifact
 
         allele_frequencies[encoding] = 10 ** (-get_first_numeric_element(v, "POPAF"))
 
+    # TODO chunk size should be command line argument
+    num_data = read_set_dataset.count_data(dataset_file)
+    num_chunks = math.ceil(num_data / chunk_size)
+    actual_chunk_size = num_data // num_chunks
+
     print("preparing dataset to pass to Mutect3 posterior probability model")
     read_sets_buffer = []
     posterior_buffer = []
     posterior_data = []
 
-    for read_set, posterior_datum in read_set_dataset.read_data(dataset_file, posterior=True):
+    data_count = 0
+    for read_set, posterior_datum in read_set_dataset.read_data(dataset_file, posterior=True, yield_nones=True):
+        data_count += 1
+        if read_set is None:
+            continue
 
         encoding = encode_datum(posterior_datum)
         if encoding not in m2_filtering_to_keep:
@@ -165,41 +177,27 @@ def make_posterior_data_loader(dataset_file, input_vcf, artifact_model: Artifact
             posterior_buffer.append(posterior_datum)
             read_sets_buffer.append(read_set)
 
-        # this logic ensures that after for loop buffers are full enough to normalize read sets data
-        if len(read_sets_buffer) == 2 * CHUNK_SIZE:
+        if data_count == actual_chunk_size:
             print("memory usage percent: " + str(psutil.virtual_memory().percent))
-            print("processing " + str(CHUNK_SIZE) + " read sets for posterior model.")
+            print("processing " + str(actual_chunk_size) + " read sets for posterior model.")
             print(posterior_datum.contig() + ":" + str(posterior_datum.position()))
 
-            buffer_len_before = len(read_sets_buffer)
-            cum_len_before = len(posterior_data)
-            process_buffers(artifact_model, batch_size, read_sets_buffer, posterior_buffer, posterior_data, CHUNK_SIZE)
+            artifact_dataset = read_set_dataset.ReadSetDataset(data=read_sets_buffer, shuffle=False)
+            logits = []
+            for artifact_batch in read_set_dataset.make_test_data_loader(artifact_dataset, batch_size):
+                logits.extend(artifact_model.forward(batch=artifact_batch).detach().tolist())
+            for logit, posterior in zip(logits, posterior_buffer):
+                posterior.set_artifact_logit(logit)
+            posterior_data.extend(posterior_buffer)
 
-            # make sure memory clearing was done correctly, because there are pitfalls
-            assert len(read_sets_buffer) == buffer_len_before - CHUNK_SIZE
-            assert len(read_sets_buffer) == len(posterior_buffer)
-            assert len(posterior_data) == cum_len_before + CHUNK_SIZE
+            read_sets_buffer = []
+            posterior_buffer = []
+            data_count = 0
 
-    # flush the remaining buffered data, after which posterior data should include everything and the buffers should be empty
-    process_buffers(artifact_model, batch_size, read_sets_buffer, posterior_buffer, posterior_data, len(posterior_buffer))
-
+    assert data_count == 0 and len(read_sets_buffer) == 0 and len(posterior_buffer) == 0        # nothing left over
     print("Size of filtering dataset: " + str(len(posterior_data)))
     posterior_dataset = PosteriorDataset(posterior_data)
     return posterior_dataset.make_data_loader(batch_size)
-
-
-def process_buffers(artifact_model, batch_size, read_sets_buffer, posterior_buffer, posterior_data, chunk_size):
-    artifact_dataset = read_set_dataset.ReadSetDataset(data=read_sets_buffer[-chunk_size:], shuffle=False)
-    logits = []
-    for artifact_batch in read_set_dataset.make_test_data_loader(artifact_dataset, batch_size):
-        logits.extend(artifact_model.forward(batch=artifact_batch).detach().tolist())
-    for logit, posterior in zip(logits, posterior_buffer[-chunk_size:]):
-        posterior.set_artifact_logit(logit)
-    posterior_data.extend(posterior_buffer[-chunk_size:])
-
-    # clear space in the buffers
-    del read_sets_buffer[-chunk_size:]
-    del posterior_buffer[-chunk_size:]
 
 
 def apply_filtering_to_vcf(input_vcf, output_vcf, error_probability_threshold, posterior_loader, posterior_model, germline_mode: bool = False):

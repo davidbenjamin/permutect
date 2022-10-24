@@ -143,7 +143,6 @@ def read_data(dataset_file, posterior: bool = False, yield_nones: bool = False):
 
 
 # TODO: there is some code duplication between this and filter_variants.py
-# TODO: also, the approach here is cleaner
 def generate_datasets(dataset_files, chunk_size: int):
     num_data = sum([count_data(dataset_file) for dataset_file in dataset_files])
     num_chunks = math.ceil(num_data / chunk_size)
@@ -162,12 +161,12 @@ def generate_datasets(dataset_files, chunk_size: int):
                 buffer = []
                 data_count = 0
 
+    assert data_count == 0 and len(buffer) == 0     # should be nothing left over
+
 
 class BigReadSetDataset:
 
     # TODO: we need to record number of read features in the constructor
-    # TODO: probably also record the labeled to unlabeled ratio
-
     def __init__(self, batch_size: int = 64, chunk_size: int = 1000000, dataset: ReadSetDataset = None, dataset_files=None):
         assert dataset is None or dataset_files is None, "Initialize either with dataset or files, not both"
         assert dataset is not None or dataset_files is not None, "Must initialize with a dataset or files, not nothing"
