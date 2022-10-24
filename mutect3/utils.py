@@ -49,21 +49,21 @@ class Call(enum.IntEnum):
     GERMLINE = 3
 
 
-class Epoch(enum.Enum):
-    TRAIN = "train"
-    VALID = "valid"
-    TEST = "test"
+class Epoch(enum.IntEnum):
+    TRAIN = 0
+    VALID = 1
+    TEST = 2
 
 
-class Label(enum.Enum):
-    ARTIFACT = "ARTIFACT"
-    VARIANT = "VARIANT"
-    UNLABELED = "UNLABELED"
+class Label(enum.IntEnum):
+    ARTIFACT = 0
+    VARIANT = 1
+    UNLABELED = 2
 
     @staticmethod
     def get_label(label_str: str):
         for label in Label:
-            if label_str == label.value:
+            if label_str == label.name:
                 return label
 
         raise ValueError('label is invalid: %s' % label)
@@ -71,7 +71,7 @@ class Label(enum.Enum):
     @staticmethod
     def is_label(label_str: str):
         for label in Label:
-            if label_str == label.value:
+            if label_str == label.name:
                 return True
 
         return False

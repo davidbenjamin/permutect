@@ -3,15 +3,13 @@ import math
 import time
 from typing import Iterable
 import psutil
-import os
-import pickle
 import tempfile
 
 import torch
 from torch.utils.data import Dataset, DataLoader
 from torch.utils.data.sampler import Sampler
 
-from mutect3.data.read_set import ReadSet
+from mutect3.data.read_set import ReadSet, save_list_of_read_sets, load_list_of_read_sets
 from mutect3.data.posterior_datum import PosteriorDatum
 from mutect3.data.read_set_batch import ReadSetBatch
 from mutect3.utils import Variation, Label
@@ -146,27 +144,27 @@ def read_data(dataset_file, posterior: bool = False, yield_nones: bool = False):
 def generate_datasets(dataset_files, chunk_size: int):
     num_data = sum([count_data(dataset_file) for dataset_file in dataset_files])
     num_chunks = math.ceil(num_data / chunk_size)
-    actual_chunk_size = num_data // num_chunks
 
     buffer = []
     data_count = 0
+    chunk_count = 0
     for dataset_file in dataset_files:
         for read_set in read_data(dataset_file, posterior=False, yield_nones=True):
             data_count += 1
             if read_set is not None:
                 buffer.append(read_set)
-            if data_count == actual_chunk_size:
+            if data_count == math.ceil(num_data * (chunk_count+1) / num_chunks):
                 print("memory usage percent: " + str(psutil.virtual_memory().percent))
-                yield ReadSetDataset(data=buffer, shuffle=True, normalize=True)
+                chunk_count += 1
+                is_last_chunk = (chunk_count == num_chunks)
+                yield ReadSetDataset(data=buffer, shuffle=True, normalize=True), is_last_chunk
                 buffer = []
-                data_count = 0
 
-    assert data_count == 0 and len(buffer) == 0     # should be nothing left over
+    assert data_count == num_data and chunk_count == num_chunks and len(buffer) == 0     # should be nothing left over
 
 
 class BigReadSetDataset:
 
-    # TODO: we need to record number of read features in the constructor
     def __init__(self, batch_size: int = 64, chunk_size: int = 1000000, dataset: ReadSetDataset = None, dataset_files=None):
         assert dataset is None or dataset_files is None, "Initialize either with dataset or files, not both"
         assert dataset is not None or dataset_files is not None, "Must initialize with a dataset or files, not nothing"
@@ -174,8 +172,8 @@ class BigReadSetDataset:
         self.batch_size = batch_size
 
         # TODO: make this class autocloseable and clean up the temp dirs when closing
-        self.train_pickles = []
-        self.valid_pickles = []
+        self.train_data_files = []
+        self.valid_data_files = []
         self.num_read_features = None
 
         if dataset is not None:
@@ -183,84 +181,82 @@ class BigReadSetDataset:
             self.valid_fits_in_ram = True
             train, valid = utils.split_dataset_into_train_and_valid(dataset, 0.9)
 
-            self.train_batches = [batch for batch in make_semisupervised_data_loader(train, batch_size, pin_memory=self.use_gpu)]
-            self.valid_batches = [batch for batch in make_semisupervised_data_loader(valid, batch_size, pin_memory=self.use_gpu)]
+            self.train_loader = make_semisupervised_data_loader(train, batch_size, pin_memory=self.use_gpu)
+            self.valid_loader = make_semisupervised_data_loader(valid, batch_size, pin_memory=self.use_gpu)
             self.num_read_features = dataset.num_read_features()
 
         else:
-            validation_batches = []
-            for dataset_from_files in generate_datasets(dataset_files, chunk_size):
+            validation_data = []
+            for dataset_from_files, is_last_chunk in generate_datasets(dataset_files, chunk_size):
                 if self.num_read_features is None:
                     self.num_read_features = dataset_from_files.num_read_features()
                 else:
                     assert self.num_read_features == dataset_from_files.num_read_features(), "inconsistent number of read features between files"
                 train, valid = utils.split_dataset_into_train_and_valid(dataset_from_files, 0.9)
-                train_loader = make_semisupervised_data_loader(train, self.batch_size, pin_memory=self.use_gpu)
-                valid_loader = make_semisupervised_data_loader(valid, self.batch_size, pin_memory=self.use_gpu)
 
-                with tempfile.NamedTemporaryFile(delete=False) as train_pickle:
-                    pickle.dump([batch for batch in train_loader], train_pickle, protocol=pickle.HIGHEST_PROTOCOL)
-                    self.train_pickles.append(train_pickle.name)
-                    train_pickle.flush()    # is this really necessary?
+                with tempfile.NamedTemporaryFile(delete=False) as train_data_file:
+                    save_list_of_read_sets([datum for datum in train], train_data_file)
+                    self.train_data_files.append(train_data_file.name)
 
-                # extend the validation data and pickle if it has gotten big enough
-                validation_batches.extend(valid_loader)
-                if batch_size * len(validation_batches) > chunk_size:
-                    with tempfile.NamedTemporaryFile(delete=False) as valid_pickle:
-                        pickle.dump(validation_batches, valid_pickle, protocol=pickle.HIGHEST_PROTOCOL)
-                        self.valid_pickles.append(valid_pickle.name)
-                        valid_pickle.flush()  # is this really necessary?
-                    validation_batches = []
+                # extend the validation data and save to disk if it has gotten big enough or if there is no more data
+                validation_data.extend((datum for datum in valid))
+                if is_last_chunk or len(validation_data) > chunk_size:
+                    with tempfile.NamedTemporaryFile(delete=False) as valid_data_file:
+                        save_list_of_read_sets(validation_data, valid_data_file)
+                        self.valid_data_files.append(valid_data_file.name)
+                    validation_data = []
 
-            # pickle any remaining validation data
-            if validation_batches:
-                with tempfile.NamedTemporaryFile(delete=False) as valid_pickle:
-                    pickle.dump(validation_batches, valid_pickle, protocol=pickle.HIGHEST_PROTOCOL)
-                    self.valid_pickles.append(valid_pickle.name)
-                    valid_pickle.flush()  # is this really necessary?
+            # ht to be no validation data leftover because we wrote to disk on last chunk
+            assert len(validation_data) == 0
 
             # check if there is only one pickled dataset, in which case we can fit it in RAM
             # note that we already normalized and shuffled
-            if len(self.train_pickles) == 1:
+            if len(self.train_data_files) == 1:
                 self.train_fits_in_ram = True
-                with open(self.train_pickles[0], 'rb') as train_pickle:
-                    self.train_batches = pickle.load(train_pickle)
+                with open(self.train_data_files[0], 'rb') as train_data_file:
+                    training_data = load_list_of_read_sets(train_data_file)
+                    training_dataset = ReadSetDataset(data=training_data, shuffle=False, normalize=False)   # data has already been normalized
+                    self.train_loader = make_semisupervised_data_loader(training_dataset, batch_size, pin_memory=self.use_gpu)
             else:
                 self.train_fits_in_ram = False
-                self.train_batches = None
+                self.train_loader = None
 
-            if len(self.valid_pickles) == 1:
+            if len(self.valid_data_files) == 1:
                 self.valid_fits_in_ram = True
-                with open(self.valid_pickles[0], 'rb') as valid_pickle:
-                    self.valid_batches = pickle.load(valid_pickle)
+                with open(self.valid_data_files[0], 'rb') as valid_data_file:
+                    valid_data = load_list_of_read_sets(valid_data_file)
+                    valid_dataset = ReadSetDataset(data=valid_data, shuffle=False, normalize=False)  # data has already been normalized
+                    self.valid_loader = make_semisupervised_data_loader(valid_dataset, batch_size, pin_memory=self.use_gpu)
             else:
                 self.valid_fits_in_ram = False
-                self.valid_batches = None
+                self.valid_loader = None
 
-        assert self.train_fits_in_ram == (self.train_batches is not None)
-        assert self.valid_fits_in_ram == (self.valid_batches is not None)
-        assert self.train_fits_in_ram == (len(self.train_pickles) <= 1)
-        assert self.valid_fits_in_ram == (len(self.valid_pickles) <= 1)
+        assert self.train_fits_in_ram == (self.train_loader is not None)
+        assert self.valid_fits_in_ram == (self.valid_loader is not None)
+        assert self.train_fits_in_ram == (len(self.train_data_files) <= 1)
+        assert self.valid_fits_in_ram == (len(self.valid_data_files) <= 1)
         assert self.num_read_features is not None
 
     def generate_batches(self, epoch_type: utils.Epoch):
         assert epoch_type != utils.Epoch.TEST, "test epochs not supported yet"
 
         if epoch_type == utils.Epoch.TRAIN and self.train_fits_in_ram:
-            for batch in self.train_batches:
+            for batch in self.train_loader:
                 yield batch
         elif epoch_type == utils.Epoch.VALID and self.valid_fits_in_ram:
-            for batch in self.valid_batches:
+            for batch in self.valid_loader:
                 yield batch
         else:
-            pickles = self.train_pickles if epoch_type == utils.Epoch.TRAIN else self.valid_pickles
-            for file in pickles:
-                with open(file, 'rb') as pickle_file:
+            data_files = self.train_data_files if epoch_type == utils.Epoch.TRAIN else self.valid_data_files
+            for data_file in data_files:
+                with open(data_file, 'rb') as file:
                     start = time.time()
-                    batches = pickle.load(pickle_file)
+                    data = load_list_of_read_sets(file)
+                    dataset = ReadSetDataset(data=data, shuffle=False, normalize=False)  # data has already been normalized
+                    loader = make_semisupervised_data_loader(dataset, self.batch_size, pin_memory=self.use_gpu)
                     end = time.time()
-                    print("{} batches loaded from disk in {} seconds.".format(len(batches), end - start))
-                    for batch in batches:
+                    print("{} data loaded from disk in {} seconds.".format(len(data), end - start))
+                    for batch in loader:
                         yield batch
 
 
