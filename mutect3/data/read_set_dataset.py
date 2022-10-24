@@ -144,22 +144,23 @@ def read_data(dataset_file, posterior: bool = False, yield_nones: bool = False):
 
 # TODO: there is some code duplication between this and filter_variants.py
 # TODO: also, the approach here is cleaner
-def generate_datasets(dataset_file, chunk_size: int):
-    num_data = count_data(dataset_file)
+def generate_datasets(dataset_files, chunk_size: int):
+    num_data = sum([count_data(dataset_file) for dataset_file in dataset_files])
     num_chunks = math.ceil(num_data / chunk_size)
     actual_chunk_size = num_data // num_chunks
 
     buffer = []
     data_count = 0
-    for read_set in read_data(dataset_file, posterior=False, yield_nones=True):
-        data_count += 1
-        if read_set is not None:
-            buffer.append(read_set)
-        if data_count == actual_chunk_size:
-            print("memory usage percent: " + str(psutil.virtual_memory().percent))
-            yield ReadSetDataset(data=buffer, shuffle=True, normalize=True)
-            buffer = []
-            data_count = 0
+    for dataset_file in dataset_files:
+        for read_set in read_data(dataset_file, posterior=False, yield_nones=True):
+            data_count += 1
+            if read_set is not None:
+                buffer.append(read_set)
+            if data_count == actual_chunk_size:
+                print("memory usage percent: " + str(psutil.virtual_memory().percent))
+                yield ReadSetDataset(data=buffer, shuffle=True, normalize=True)
+                buffer = []
+                data_count = 0
 
 
 class BigReadSetDataset:
@@ -189,29 +190,28 @@ class BigReadSetDataset:
 
         else:
             validation_batches = []
-            for dataset_file in dataset_files:
-                for dataset_from_file in generate_datasets(dataset_file, chunk_size):
-                    if self.num_read_features is None:
-                        self.num_read_features = dataset_from_file.num_read_features()
-                    else:
-                        assert self.num_read_features == dataset_from_file.num_read_features(), "inconsistent number of read features between files"
-                    train, valid = utils.split_dataset_into_train_and_valid(dataset_from_file, 0.9)
-                    train_loader = make_semisupervised_data_loader(train, self.batch_size, pin_memory=self.use_gpu)
-                    valid_loader = make_semisupervised_data_loader(valid, self.batch_size, pin_memory=self.use_gpu)
+            for dataset_from_files in generate_datasets(dataset_files, chunk_size):
+                if self.num_read_features is None:
+                    self.num_read_features = dataset_from_files.num_read_features()
+                else:
+                    assert self.num_read_features == dataset_from_files.num_read_features(), "inconsistent number of read features between files"
+                train, valid = utils.split_dataset_into_train_and_valid(dataset_from_files, 0.9)
+                train_loader = make_semisupervised_data_loader(train, self.batch_size, pin_memory=self.use_gpu)
+                valid_loader = make_semisupervised_data_loader(valid, self.batch_size, pin_memory=self.use_gpu)
 
-                    with tempfile.NamedTemporaryFile(delete=False) as train_pickle:
-                        pickle.dump([batch for batch in train_loader], train_pickle, protocol=pickle.HIGHEST_PROTOCOL)
-                        self.train_pickles.append(train_pickle.name)
-                        train_pickle.flush()    # is this really necessary?
+                with tempfile.NamedTemporaryFile(delete=False) as train_pickle:
+                    pickle.dump([batch for batch in train_loader], train_pickle, protocol=pickle.HIGHEST_PROTOCOL)
+                    self.train_pickles.append(train_pickle.name)
+                    train_pickle.flush()    # is this really necessary?
 
-                    # extend the validation data and pickle if it has gotten big enough
-                    validation_batches.extend(valid_loader)
-                    if batch_size * len(validation_batches) > chunk_size:
-                        with tempfile.NamedTemporaryFile(delete=False) as valid_pickle:
-                            pickle.dump(validation_batches, valid_pickle, protocol=pickle.HIGHEST_PROTOCOL)
-                            self.valid_pickles.append(valid_pickle.name)
-                            valid_pickle.flush()  # is this really necessary?
-                        validation_batches = []
+                # extend the validation data and pickle if it has gotten big enough
+                validation_batches.extend(valid_loader)
+                if batch_size * len(validation_batches) > chunk_size:
+                    with tempfile.NamedTemporaryFile(delete=False) as valid_pickle:
+                        pickle.dump(validation_batches, valid_pickle, protocol=pickle.HIGHEST_PROTOCOL)
+                        self.valid_pickles.append(valid_pickle.name)
+                        valid_pickle.flush()  # is this really necessary?
+                    validation_batches = []
 
             # pickle any remaining validation data
             if validation_batches:
