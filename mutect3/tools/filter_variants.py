@@ -168,14 +168,13 @@ def make_posterior_data_loader(dataset_file, input_vcf, artifact_model: Artifact
     chunk_count = 0
     for read_set, posterior_datum in read_set_dataset.read_data(dataset_file, posterior=True, yield_nones=True):
         data_count += 1
-        if read_set is None:
-            continue
 
-        encoding = encode_datum(posterior_datum)
-        if encoding not in m2_filtering_to_keep:
-            posterior_datum.set_allele_frequency(allele_frequencies[encoding])
-            posterior_buffer.append(posterior_datum)
-            read_sets_buffer.append(read_set)
+        if read_set is not None:
+            encoding = encode_datum(posterior_datum)
+            if encoding not in m2_filtering_to_keep:
+                posterior_datum.set_allele_frequency(allele_frequencies[encoding])
+                posterior_buffer.append(posterior_datum)
+                read_sets_buffer.append(read_set)
 
         if data_count == math.ceil(num_data * (chunk_count + 1) / num_chunks):
             print("memory usage percent: " + str(psutil.virtual_memory().percent))

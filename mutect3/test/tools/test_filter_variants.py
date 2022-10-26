@@ -21,7 +21,7 @@ def test_filtering():
                                           input_vcf=unfiltered_vcf,
                                           output_vcf=output_vcf,
                                           batch_size=64,
-                                          chunk_size=100000,
+                                          chunk_size=100002,
                                           num_spectrum_iterations=10,
                                           tensorboard_dir=tensorboard_dir,
                                           num_ignored_sites=float("2.0E9"),
