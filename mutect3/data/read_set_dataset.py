@@ -4,6 +4,7 @@ import time
 from typing import Iterable
 import psutil
 import tempfile
+from threading import Thread
 
 import torch
 from torch.utils.data import Dataset, DataLoader
@@ -163,6 +164,30 @@ def generate_datasets(dataset_files, chunk_size: int):
     assert data_count == num_data and chunk_count == num_chunks and len(buffer) == 0     # should be nothing left over
 
 
+def make_loader_from_file(dataset_file, batch_size, use_gpu: bool):
+    with open(dataset_file, 'rb') as file:
+        data = load_list_of_read_sets(file)
+        dataset = ReadSetDataset(data=data, shuffle=False, normalize=False)  # data has already been normalized
+        return make_semisupervised_data_loader(dataset, batch_size, pin_memory=use_gpu)
+
+
+class DataFetchingThread(Thread):
+    def __init__(self, dataset_file, batch_size, use_gpu):
+        # execute the base constructor
+        Thread.__init__(self)
+        # set a default value
+        self.fetched_data_loader = None
+        self.dataset_file = dataset_file
+        self.batch_size = batch_size
+        self.use_gpu = use_gpu
+
+    def run(self):
+        self.fetched_data_loader = make_loader_from_file(self.dataset_file, self.batch_size, self.use_gpu)
+
+    def get_loader(self):
+        return self.fetched_data_loader
+
+
 class BigReadSetDataset:
 
     def __init__(self, batch_size: int = 64, chunk_size: int = 1000000, dataset: ReadSetDataset = None, dataset_files=None):
@@ -213,20 +238,14 @@ class BigReadSetDataset:
             # note that we already normalized and shuffled
             if len(self.train_data_files) == 1:
                 self.train_fits_in_ram = True
-                with open(self.train_data_files[0], 'rb') as train_data_file:
-                    training_data = load_list_of_read_sets(train_data_file)
-                    training_dataset = ReadSetDataset(data=training_data, shuffle=False, normalize=False)   # data has already been normalized
-                    self.train_loader = make_semisupervised_data_loader(training_dataset, batch_size, pin_memory=self.use_gpu)
+                self.train_loader = make_loader_from_file(self.train_data_files[0], batch_size, self.use_gpu)
             else:
                 self.train_fits_in_ram = False
                 self.train_loader = None
 
             if len(self.valid_data_files) == 1:
                 self.valid_fits_in_ram = True
-                with open(self.valid_data_files[0], 'rb') as valid_data_file:
-                    valid_data = load_list_of_read_sets(valid_data_file)
-                    valid_dataset = ReadSetDataset(data=valid_data, shuffle=False, normalize=False)  # data has already been normalized
-                    self.valid_loader = make_semisupervised_data_loader(valid_dataset, batch_size, pin_memory=self.use_gpu)
+                self.valid_loader = make_loader_from_file(self.valid_data_files[0], batch_size, self.use_gpu)
             else:
                 self.valid_fits_in_ram = False
                 self.valid_loader = None
@@ -248,16 +267,25 @@ class BigReadSetDataset:
                 yield batch
         else:
             data_files = self.train_data_files if epoch_type == utils.Epoch.TRAIN else self.valid_data_files
-            for data_file in data_files:
-                with open(data_file, 'rb') as file:
-                    start = time.time()
-                    data = load_list_of_read_sets(file)
-                    dataset = ReadSetDataset(data=data, shuffle=False, normalize=False)  # data has already been normalized
-                    loader = make_semisupervised_data_loader(dataset, self.batch_size, pin_memory=self.use_gpu)
-                    end = time.time()
-                    print("{} data loaded from disk in {} seconds.".format(len(data), end - start))
-                    for batch in loader:
-                        yield batch
+
+            data_fetching_thread = DataFetchingThread(data_files[0], self.batch_size, self.use_gpu)
+            data_fetching_thread.start()
+
+            for n in range(len(data_files)):
+                start = time.time()
+                data_fetching_thread.join()
+                loader = data_fetching_thread.get_loader()
+                wait_time = time.time() - start
+
+                print("Data fetched in background, with {} seconds of additional CPU wait time.".format(wait_time))
+
+                # start new thread to fetch next file in background before yielding from the current file
+                if n < len(data_files) - 1:
+                    data_fetching_thread = DataFetchingThread(data_files[n+1], self.batch_size, self.use_gpu)
+                    data_fetching_thread.start()
+
+                for batch in loader:
+                    yield batch
 
 
 def medians_and_iqrs(tensor_2d: torch.Tensor):
