@@ -158,7 +158,6 @@ def make_posterior_data_loader(dataset_file, input_vcf, artifact_model: Artifact
     # TODO chunk size should be command line argument
     num_data = read_set_dataset.count_data(dataset_file)
     num_chunks = math.ceil(num_data / chunk_size)
-    actual_chunk_size = num_data // num_chunks
 
     print("preparing dataset to pass to Mutect3 posterior probability model")
     read_sets_buffer = []
@@ -166,6 +165,7 @@ def make_posterior_data_loader(dataset_file, input_vcf, artifact_model: Artifact
     posterior_data = []
 
     data_count = 0
+    chunk_count = 0
     for read_set, posterior_datum in read_set_dataset.read_data(dataset_file, posterior=True, yield_nones=True):
         data_count += 1
         if read_set is None:
@@ -177,9 +177,8 @@ def make_posterior_data_loader(dataset_file, input_vcf, artifact_model: Artifact
             posterior_buffer.append(posterior_datum)
             read_sets_buffer.append(read_set)
 
-        if data_count == actual_chunk_size:
+        if data_count == math.ceil(num_data * (chunk_count + 1) / num_chunks):
             print("memory usage percent: " + str(psutil.virtual_memory().percent))
-            print("processing " + str(actual_chunk_size) + " read sets for posterior model.")
             print(posterior_datum.contig() + ":" + str(posterior_datum.position()))
 
             artifact_dataset = read_set_dataset.ReadSetDataset(data=read_sets_buffer, shuffle=False)
@@ -190,11 +189,11 @@ def make_posterior_data_loader(dataset_file, input_vcf, artifact_model: Artifact
                 posterior.set_artifact_logit(logit)
             posterior_data.extend(posterior_buffer)
 
+            chunk_count += 1
             read_sets_buffer = []
             posterior_buffer = []
-            data_count = 0
 
-    assert data_count == 0 and len(read_sets_buffer) == 0 and len(posterior_buffer) == 0        # nothing left over
+    assert data_count == num_data and chunk_count == num_chunks and len(read_sets_buffer) == 0  # should be nothing left over
     print("Size of filtering dataset: " + str(len(posterior_data)))
     posterior_dataset = PosteriorDataset(posterior_data)
     return posterior_dataset.make_data_loader(batch_size)
