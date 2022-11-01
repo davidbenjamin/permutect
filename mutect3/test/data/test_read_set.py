@@ -8,13 +8,14 @@ def test_read_set_datum():
     num_ref_reads = 6
     num_alt_reads = 8
     num_read_features = 11
+    num_info_features = 9
 
     ref_tensor = torch.rand(num_ref_reads, num_read_features)
     alt_tensor = torch.rand(num_alt_reads, num_read_features)
-    gatk_info_tensor = torch.rand(read_set.NUM_GATK_INFO_FEATURES)
+    gatk_info_tensor = torch.rand(num_info_features)
     label = Label.ARTIFACT
 
-    snv_datum = read_set.ReadSet(Variation.SNV, ref_tensor, alt_tensor, gatk_info_tensor, label)
+    snv_datum = read_set.ReadSet.from_gatk(Variation.SNV, ref_tensor, alt_tensor, gatk_info_tensor, label)
 
     assert torch.equal(snv_datum.ref_tensor(), ref_tensor)
     assert torch.equal(snv_datum.alt_tensor(), alt_tensor)

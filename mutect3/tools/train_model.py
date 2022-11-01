@@ -22,7 +22,8 @@ def train_artifact_model(m3_params: ArtifactModelParameters, training_datasets, 
     use_gpu = torch.cuda.is_available()
     device = torch.device('cuda' if use_gpu else 'cpu')
     big_dataset = read_set_dataset.BigReadSetDataset(batch_size=params.batch_size, chunk_size=params.chunk_size, dataset_files=training_datasets)
-    model = ArtifactModel(params=m3_params, num_read_features=big_dataset.num_read_features, device=device).float()
+    model = ArtifactModel(params=m3_params, num_read_features=big_dataset.num_read_features,
+                          num_info_features=big_dataset.num_info_features, device=device).float()
 
     print("Training. . .")
     summary_writer = SummaryWriter(tensorboard_dir)
@@ -48,7 +49,8 @@ def save_artifact_model(model, m3_params, path):
     torch.save({
         constants.STATE_DICT_NAME: model.state_dict(),
         constants.M3_PARAMS_NAME: m3_params,
-        constants.NUM_READ_FEATURES_NAME: model.num_read_features()
+        constants.NUM_READ_FEATURES_NAME: model.num_read_features(),
+        constants.NUM_INFO_FEATURES_NAME: model.num_info_features()
     }, path)
 
 

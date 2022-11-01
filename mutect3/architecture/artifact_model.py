@@ -83,11 +83,12 @@ class ArtifactModel(nn.Module):
     because we have different output layers for each variant type.
     """
 
-    def __init__(self, params: ArtifactModelParameters, num_read_features: int, device=torch.device("cpu")):
+    def __init__(self, params: ArtifactModelParameters, num_read_features: int, num_info_features: int, device=torch.device("cpu")):
         super(ArtifactModel, self).__init__()
 
         self._device = device
         self._num_read_features = num_read_features
+        self._num_info_features = num_info_features
 
         # phi is the read embedding
         read_layers = [self._num_read_features] + params.read_layers
@@ -95,7 +96,7 @@ class ArtifactModel(nn.Module):
         self.phi.to(self._device)
 
         # omega is the universal embedding of info field variant-level data
-        info_layers = [read_set.NUM_INFO_FEATURES] + params.info_layers
+        info_layers = [self._num_info_features] + params.info_layers
         self.omega = MLP(info_layers, batch_normalize=params.batch_normalize, dropout_p=params.dropout_p)
         self.omega.to(self._device)
 
