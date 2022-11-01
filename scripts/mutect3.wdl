@@ -27,6 +27,7 @@ workflow Mutect3 {
         String? m2_extra_args
         String? split_intervals_extra_args
         Int batch_size
+        Int chunk_size
 
         String? m3_filtering_extra_args
         String gatk_docker
@@ -34,6 +35,7 @@ workflow Mutect3 {
         String mutect3_docker
         Int? preemptible
         Int? max_retries
+        File? obscene_hack_leave_unset
     }
 
     call m2.Mutect2 {
@@ -46,8 +48,8 @@ workflow Mutect3 {
             ref_dict = ref_dict,
             tumor_reads = primary_bam,
             tumor_reads_index = primary_bai,
-            normal_reads = control_bam,
-            normal_reads_index = control_bai,
+            normal_reads = if control_bam == "" then obscene_hack_leave_unset else control_bam,
+            normal_reads_index = if control_bam == "" then obscene_hack_leave_unset else control_bai,
 
             scatter_count = scatter_count,
             gnomad = gnomad,
@@ -75,6 +77,7 @@ workflow Mutect3 {
             maf_segments = Mutect2.maf_segments,
             mutect_stats = Mutect2.mutect_stats,
             batch_size = batch_size,
+            chunk_size = chunk_size,
             m3_filtering_extra_args = m3_filtering_extra_args,
             mutect3_docker = mutect3_docker,
     }
@@ -105,6 +108,7 @@ task Mutect3Filtering {
         File? normal_maf_segments
         File mutect_stats
         Int batch_size
+        Int chunk_size
         String? m3_filtering_extra_args
 
         String mutect3_docker
@@ -125,7 +129,7 @@ task Mutect3Filtering {
         num_ignored=`grep "callable" ~{mutect_stats} | while read name value; do echo $value; done`
 
         filter_variants --input ~{mutect2_vcf} --test_dataset ~{test_dataset} --m3_model ~{mutect3_model} --output mutect3-filtered.vcf \
-            --batch_size ~{batch_size} ~{"--maf_segments " + maf_segments} ~{"--normal_maf_segments " + normal_maf_segments} --num_ignored_sites $num_ignored ~{m3_filtering_extra_args}
+            --batch_size ~{batch_size} --chunk_size ~{chunk_size} ~{"--maf_segments " + maf_segments} ~{"--normal_maf_segments " + normal_maf_segments} --num_ignored_sites $num_ignored ~{m3_filtering_extra_args}
     >>>
 
     runtime {

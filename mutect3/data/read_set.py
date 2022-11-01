@@ -1,5 +1,5 @@
 import torch
-from torch.distributions import Beta
+from typing import List
 
 from mutect3 import utils
 
@@ -38,5 +38,24 @@ class ReadSet:
 
     def label(self) -> utils.Label:
         return self._label
+
+
+def save_list_of_read_sets(read_sets: List[ReadSet], file):
+    ref_tensors = [datum.ref_tensor() for datum in read_sets]
+    alt_tensors = [datum.alt_tensor() for datum in read_sets]
+    gatk_info_tensors = [datum.gatk_info() for datum in read_sets]
+    labels = torch.IntTensor([datum.label().value for datum in read_sets])
+    variant_types = torch.IntTensor([datum.variant_type().value for datum in read_sets])
+
+    torch.save([ref_tensors, alt_tensors, gatk_info_tensors, labels, variant_types], file)
+
+
+def load_list_of_read_sets(file) -> List[ReadSet]:
+    ref_tensors, alt_tensors, gatk_info_tensors, labels, variant_types = torch.load(file)
+    return [ReadSet(utils.Variation(var_type), ref, alt, gatk, utils.Label(label)) for ref, alt, gatk, label, var_type in
+            zip(ref_tensors, alt_tensors, gatk_info_tensors, labels.tolist(), variant_types.tolist())]
+
+
+
 
 
