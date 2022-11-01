@@ -5,13 +5,13 @@ from mutect3 import utils
 
 
 class ReadSet:
-    # info tensor comes from GATK and does not include one-hot encoding of variant type
     def __init__(self, ref_tensor: torch.Tensor, alt_tensor: torch.Tensor, info_tensor: torch.Tensor, label: utils.Label):
         self._ref_tensor = ref_tensor
         self._alt_tensor = alt_tensor
         self._info_tensor = info_tensor
         self._label = label
 
+    # gatk_info tensor comes from GATK and does not include one-hot encoding of variant type
     @classmethod
     def from_gatk(cls, variant_type: utils.Variation, ref_tensor: torch.Tensor, alt_tensor: torch.Tensor,
                  gatk_info_tensor: torch.Tensor, label: utils.Label):
