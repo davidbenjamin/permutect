@@ -19,12 +19,16 @@ def test_read_set_datum():
 
     assert torch.equal(snv_datum.ref_tensor(), ref_tensor)
     assert torch.equal(snv_datum.alt_tensor(), alt_tensor)
-    assert torch.equal(snv_datum.info_tensor(), gatk_info_tensor)
+    assert torch.equal(snv_datum.info_tensor()[:-len(Variation)], gatk_info_tensor)
     assert snv_datum.label() == label
-    assert snv_datum.variant_type() == Variation.SNV
 
-    insertion_datum = read_set.ReadSet(Variation.INSERTION, ref_tensor, alt_tensor, gatk_info_tensor, label)
-    assert insertion_datum.variant_type() == Variation.INSERTION
+    insertion_datum = read_set.ReadSet.from_gatk(Variation.INSERTION, ref_tensor, alt_tensor, gatk_info_tensor, label)
+    deletion_datum = read_set.ReadSet.from_gatk(Variation.DELETION, ref_tensor, alt_tensor, gatk_info_tensor, label)
 
-    deletion_datum = read_set.ReadSet(Variation.DELETION, ref_tensor, alt_tensor, gatk_info_tensor, label)
-    assert deletion_datum.variant_type() == Variation.DELETION
+    assert insertion_datum.info_tensor()[-len(Variation) + Variation.INSERTION.value] == 1
+    assert insertion_datum.info_tensor()[-len(Variation) + Variation.DELETION.value] == 0
+    assert insertion_datum.info_tensor()[-len(Variation) + Variation.SNV.value] == 0
+
+    assert deletion_datum.info_tensor()[-len(Variation) + Variation.INSERTION.value] == 0
+    assert deletion_datum.info_tensor()[-len(Variation) + Variation.DELETION.value] == 1
+    assert deletion_datum.info_tensor()[-len(Variation) + Variation.SNV.value] == 0

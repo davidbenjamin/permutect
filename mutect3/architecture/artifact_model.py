@@ -9,7 +9,6 @@ from torch.utils.tensorboard import SummaryWriter
 from torch import nn
 from tqdm.autonotebook import trange, tqdm
 from itertools import chain
-from queue import PriorityQueue
 from matplotlib import pyplot as plt
 
 from mutect3.architecture.mlp import MLP

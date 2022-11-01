@@ -81,7 +81,7 @@ class ReadSetDataset(Dataset):
                 for idx in binary_info_features:
                     normalized_info[idx] = raw.info_tensor()[idx]
 
-                self.data[n] = ReadSet(raw.variant_type(), normalized_ref, normalized_alt, normalized_info, raw.label())
+                self.data[n] = ReadSet(normalized_ref, normalized_alt, normalized_info, raw.label())
 
     def __len__(self):
         return len(self.data)
