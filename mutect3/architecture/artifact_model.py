@@ -167,7 +167,7 @@ class ArtifactModel(nn.Module):
         # stack side-by-side to get 2D tensor, where each variant row is (ref mean, alt mean, info)
         omega_info = torch.sigmoid(self.omega(batch.info().to(self._device)))
         concatenated = torch.cat((ref_means, alt_means, omega_info), dim=1)
-        logits = torch.squeeze(self.rho(concatenated))
+        logits = self.rho(concatenated).squeeze(dim=1)  # specify dim so that in edge case of batch size 1 we get 1D tensor, not scalar
         return logits, effective_ref_counts, effective_alt_counts
 
     # beta is for downsampling data augmentation
