@@ -113,6 +113,9 @@ class ArtifactModel(nn.Module):
     def num_read_features(self) -> int:
         return self._num_read_features
 
+    def num_info_features(self) -> int:
+        return self._num_info_features
+
     def training_parameters(self):
         return chain(self.phi.parameters(), self.omega.parameters(), self.rho.parameters(), [self.calibration.max_logit])
 
