@@ -375,22 +375,21 @@ def chunk(lis, chunk_size):
 # thus the sampler is not responsible for balancing the data
 class SemiSupervisedBatchSampler(Sampler):
     def __init__(self, dataset: ReadSetDataset, batch_size):
-        self.artifact_indices = [n for n in range(len(dataset)) if dataset[n].label() == Label.ARTIFACT]
-        self.non_artifact_indices = [n for n in range(len(dataset)) if dataset[n].label() == Label.VARIANT]
+        self.labeled_indices = [n for n in range(len(dataset)) if dataset[n].label() != Label.UNLABELED]
         self.unlabeled_indices = [n for n in range(len(dataset)) if dataset[n].label() == Label.UNLABELED]
         self.batch_size = batch_size
+        self.num_batches = math.ceil(len(self.labeled_indices) // self.batch_size) + \
+                           math.ceil(len(self.unlabeled_indices) // self.batch_size)
 
     def __iter__(self):
         random.shuffle(self.unlabeled_indices)
+        random.shuffle(self.labeled_indices)
 
-        labeled_indices = self.artifact_indices + self.non_artifact_indices
-        random.shuffle(labeled_indices)
-
-        labeled_batches = chunk(labeled_indices, self.batch_size)   # list of lists
+        labeled_batches = chunk(self.labeled_indices, self.batch_size)   # list of lists
         unlabeled_batches = chunk(self.unlabeled_indices, self.batch_size)
         combined = labeled_batches + unlabeled_batches
         random.shuffle(combined)
         return iter(combined)
 
     def __len__(self):
-        return len(self.artifact_indices) * 2 // self.batch_size + len(self.artifact_indices) // self.batch_size
+        return self.num_batches
