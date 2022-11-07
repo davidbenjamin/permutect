@@ -265,7 +265,6 @@ class ArtifactModel(nn.Module):
                 for n, batch in pbar:
                     phi_reads = self.apply_phi_to_reads(batch)
 
-                    # beta is for downsampling data augmentation
                     orig_pred = self.forward_from_phi_reads(phi_reads, batch, weight_range=0)
                     aug1_pred = self.forward_from_phi_reads(phi_reads, batch, weight_range=reweighting_range)
                     aug2_pred = self.forward_from_phi_reads(phi_reads, batch, weight_range=reweighting_range)

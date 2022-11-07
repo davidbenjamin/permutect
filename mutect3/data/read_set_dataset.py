@@ -366,13 +366,12 @@ def read_float(line: str):
 
 
 def chunk(indices, chunk_size):
-    return torch.split(torch.tensor(indices), chunk_size)
+    return torch.split(torch.tensor(indices), chunk_size) if indices else []
 
 
 # make batches that are all supervised or all unsupervised
 # the artifact model handles weights the losses to compensate for class imbalance between supervised and unsupervised
 # thus the sampler is not responsible for balancing the data
-# it's convenient to have equal numbers of labeled and unlabeled batches, so we adjust the unlabeled batch size
 class SemiSupervisedBatchSampler(Sampler):
     def __init__(self, dataset: ReadSetDataset, batch_size):
         self.artifact_indices = [n for n in range(len(dataset)) if dataset[n].label() == Label.ARTIFACT]
@@ -381,22 +380,14 @@ class SemiSupervisedBatchSampler(Sampler):
         self.batch_size = batch_size
 
     def __iter__(self):
-        random.shuffle(self.artifact_indices)
-        random.shuffle(self.non_artifact_indices)
         random.shuffle(self.unlabeled_indices)
 
-        # optionally create a random new balanced dataset in each epoch -- artifact vs non-artifact -- otherwise use all data
         labeled_indices = self.artifact_indices + self.non_artifact_indices
-
         random.shuffle(labeled_indices)
 
-        all_labeled = len(self.unlabeled_indices) == 0
-        unlabeled_batch_size = None if all_labeled else \
-            round((len(labeled_indices) / len(self.unlabeled_indices)) * self.batch_size)
-
-        labeled_batches = chunk(labeled_indices, self.batch_size)
-        unlabeled_batches = None if all_labeled else chunk(self.unlabeled_indices, unlabeled_batch_size)
-        combined = [batch.tolist() for batch in list(labeled_batches if all_labeled else (labeled_batches + unlabeled_batches))]
+        labeled_batches = chunk(labeled_indices, self.batch_size)   # list of 1D tensors
+        unlabeled_batches = chunk(self.unlabeled_indices, self.batch_size)
+        combined = [batch.tolist() for batch in list(labeled_batches + unlabeled_batches)]
         random.shuffle(combined)
         return iter(combined)
 
