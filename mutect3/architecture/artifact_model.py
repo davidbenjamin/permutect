@@ -9,7 +9,6 @@ from torch.utils.tensorboard import SummaryWriter
 from torch import nn
 from tqdm.autonotebook import trange, tqdm
 from itertools import chain
-from queue import PriorityQueue
 from matplotlib import pyplot as plt
 
 from mutect3.architecture.mlp import MLP
@@ -83,11 +82,12 @@ class ArtifactModel(nn.Module):
     because we have different output layers for each variant type.
     """
 
-    def __init__(self, params: ArtifactModelParameters, num_read_features: int, device=torch.device("cpu")):
+    def __init__(self, params: ArtifactModelParameters, num_read_features: int, num_info_features: int, device=torch.device("cpu")):
         super(ArtifactModel, self).__init__()
 
         self._device = device
         self._num_read_features = num_read_features
+        self._num_info_features = num_info_features
 
         # phi is the read embedding
         read_layers = [self._num_read_features] + params.read_layers
@@ -95,7 +95,7 @@ class ArtifactModel(nn.Module):
         self.phi.to(self._device)
 
         # omega is the universal embedding of info field variant-level data
-        info_layers = [read_set.NUM_INFO_FEATURES] + params.info_layers
+        info_layers = [self._num_info_features] + params.info_layers
         self.omega = MLP(info_layers, batch_normalize=params.batch_normalize, dropout_p=params.dropout_p)
         self.omega.to(self._device)
 
@@ -112,6 +112,9 @@ class ArtifactModel(nn.Module):
 
     def num_read_features(self) -> int:
         return self._num_read_features
+
+    def num_info_features(self) -> int:
+        return self._num_info_features
 
     def training_parameters(self):
         return chain(self.phi.parameters(), self.omega.parameters(), self.rho.parameters(), [self.calibration.max_logit])
@@ -167,7 +170,7 @@ class ArtifactModel(nn.Module):
         # stack side-by-side to get 2D tensor, where each variant row is (ref mean, alt mean, info)
         omega_info = torch.sigmoid(self.omega(batch.info().to(self._device)))
         concatenated = torch.cat((ref_means, alt_means, omega_info), dim=1)
-        logits = torch.squeeze(self.rho(concatenated))
+        logits = self.rho(concatenated).squeeze(dim=1)  # specify dim so that in edge case of batch size 1 we get 1D tensor, not scalar
         return logits, effective_ref_counts, effective_alt_counts
 
     # beta is for downsampling data augmentation

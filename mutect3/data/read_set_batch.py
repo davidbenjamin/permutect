@@ -2,6 +2,7 @@ from typing import List
 
 import torch
 from mutect3.data.read_set import ReadSet
+from mutect3.utils import Variation
 
 
 # Read sets have different sizes so we can't form a batch by naively stacking tensors.  We need a custom way
@@ -70,7 +71,7 @@ class ReadSetBatch:
         return self._labels
 
     def variant_type_one_hot(self):
-        return torch.vstack([item.variant_type().one_hot_tensor() for item in self._original_list])
+        return self._info[:, -len(Variation):]
 
-    def variant_type_mask(self, variant_type):
-        return torch.BoolTensor([item.variant_type() == variant_type for item in self._original_list])
+    def variant_type_mask(self, variant_type: Variation):
+        return self._info[:, -len(Variation) + variant_type.value] == 1

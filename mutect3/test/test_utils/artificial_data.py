@@ -1,6 +1,6 @@
 import torch
 import random
-from mutect3.data.read_set import NUM_GATK_INFO_FEATURES, ReadSet
+from mutect3.data.read_set import ReadSet
 from mutect3.utils import Variation, Label
 from numpy.random import binomial
 
@@ -18,7 +18,6 @@ def make_random_tensor(mean: torch.Tensor, std: torch.Tensor) -> torch.Tensor:
 
 class RandomGATKInfoGenerator:
     def __init__(self, mean: torch.Tensor, std: torch.Tensor):
-        assert len(mean) == NUM_GATK_INFO_FEATURES
         assert len(mean) == len(std)
         self.mean = mean
         self.std = std
@@ -71,7 +70,7 @@ def make_random_data(art_gatk_info_gen: RandomGATKInfoGenerator, var_gatk_info_g
         ref_tensor = var_read_gen.generate(ref_count)
         alt_tensor = (art_read_gen if artifact else var_read_gen).generate(alt_count)
 
-        data.append(ReadSet(variant_type, ref_tensor, alt_tensor, gatk_info_tensor, label))
+        data.append(ReadSet.from_gatk(variant_type, ref_tensor, alt_tensor, gatk_info_tensor, label))
 
     return data
 
@@ -79,7 +78,7 @@ def make_random_data(art_gatk_info_gen: RandomGATKInfoGenerator, var_gatk_info_g
 # artifacts and variants are identical except 0th component of artifact read tensors all have the same sign, whereas
 # each non-artifact read is randomly + or -
 def make_random_strand_bias_data(num_data: int, artifact_fraction=0.5, unlabeled_fraction=0.1,
-                                 ref_downsampling=10, alt_downsampling=10, is_training_data=True, vaf=0.5):
+                                 ref_downsampling=10, alt_downsampling=10, is_training_data=True, vaf=0.5, num_gatk_info_features=5):
     data = []
     for _ in range(0, num_data):
         # generate label
@@ -97,7 +96,7 @@ def make_random_strand_bias_data(num_data: int, artifact_fraction=0.5, unlabeled
         if alt_count == 0:
             continue
 
-        gatk_info_tensor = torch.zeros(NUM_GATK_INFO_FEATURES)
+        gatk_info_tensor = torch.zeros(num_gatk_info_features)
 
         # before modifying the 0th element, it's all uniform Gaussian data
         ref_tensor = torch.randn(ref_downsampling, NUM_READ_FEATURES)
@@ -107,7 +106,7 @@ def make_random_strand_bias_data(num_data: int, artifact_fraction=0.5, unlabeled
             sign = 1 if random.uniform(0,1) < 0.5 else -1
             alt_tensor[:, 0] = sign * torch.abs(alt_tensor[:, 0])
 
-        data.append(ReadSet(Variation.SNV, ref_tensor, alt_tensor, gatk_info_tensor, label))
+        data.append(ReadSet.from_gatk(Variation.SNV, ref_tensor, alt_tensor, gatk_info_tensor, label))
 
     return data
 

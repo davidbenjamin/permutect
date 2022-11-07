@@ -9,6 +9,7 @@ from mutect3.utils import Variation, Label
 
 def test_read_set_batch():
     size = 3
+    num_gatk_info_features = 5
 
     variant_types = [Variation.SNV, Variation.SNV, Variation.INSERTION]
     num_read_features = 11
@@ -18,10 +19,10 @@ def test_read_set_batch():
     ref_tensors = [torch.rand(n, num_read_features) for n in ref_counts]
     alt_tensors = [torch.rand(n, num_read_features) for n in alt_counts]
 
-    gatk_info_tensors = [torch.rand(read_set.NUM_GATK_INFO_FEATURES) for _ in range(size)]
+    gatk_info_tensors = [torch.rand(num_gatk_info_features) for _ in range(size)]
     labels = [Label.ARTIFACT, Label.VARIANT, Label.ARTIFACT]
 
-    data = [ReadSet(variant_types[n], ref_tensors[n], alt_tensors[n], gatk_info_tensors[n], labels[n]) for n in range(size)]
+    data = [ReadSet.from_gatk(variant_types[n], ref_tensors[n], alt_tensors[n], gatk_info_tensors[n], labels[n]) for n in range(size)]
 
     batch = read_set_batch.ReadSetBatch(data)
 

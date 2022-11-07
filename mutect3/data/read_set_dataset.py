@@ -26,6 +26,17 @@ MAX_VALUE = 10000  # clamp inputs to this range
 PICKLE_EXTENSION = ".pickle"
 
 
+# check whether all elements are 0 or 1
+def is_binary(column_tensor_1d: torch.Tensor):
+    assert len(column_tensor_1d.shape) == 1
+    return all(el.item() == 0 or el.item() == 1 for el in column_tensor_1d)
+
+
+def binary_column_indices(tensor_2d: torch.Tensor):
+    assert len(tensor_2d.shape) == 2
+    return [n for n in range(tensor_2d.shape[1]) if is_binary(tensor_2d[:, n])]
+
+
 class ReadSetDataset(Dataset):
     def __init__(self, files=[], data: Iterable[ReadSet] = [], shuffle: bool = True, normalize: bool = True):
         self.data = []
@@ -43,17 +54,34 @@ class ReadSetDataset(Dataset):
                                                                                      (QUANTILE_DATA_COUNT,)).tolist()
 
             ref = torch.cat([self.data[n].ref_tensor() for n in random_indices], dim=0)
-            gatk_info = torch.stack([self.data[n].gatk_info() for n in random_indices], dim=0)
+            info = torch.stack([self.data[n].info_tensor() for n in random_indices], dim=0)
+
+            binary_read_features = binary_column_indices(ref)
+            binary_info_features = binary_column_indices(info)
+
+            # assert that the last columns of the info tensor are the one-hot encoding of variant type
+            num_info_features = info.shape[1]
+            for n in range(len(utils.Variation)):
+                assert binary_info_features[-(n+1)] == num_info_features - n - 1
 
             read_medians, read_iqrs = medians_and_iqrs(ref)
-            gatk_info_medians, gatk_info_iqrs = medians_and_iqrs(gatk_info)
+            info_medians, info_iqrs = medians_and_iqrs(info)
 
             for n in range(len(self.data)):
                 raw = self.data[n]
                 normalized_ref = (raw.ref_tensor() - read_medians) / read_iqrs
                 normalized_alt = (raw.alt_tensor() - read_medians) / read_iqrs
-                normalized_gatk_info = (raw.gatk_info() - gatk_info_medians) / gatk_info_iqrs
-                self.data[n] = ReadSet(raw.variant_type(), normalized_ref, normalized_alt, normalized_gatk_info, raw.label())
+                normalized_info = (raw.info_tensor() - info_medians) / info_iqrs
+
+                # restore binary features to their original values
+                for idx in binary_read_features:
+                    normalized_ref[:, idx] = raw.ref_tensor()[:, idx]
+                    normalized_alt[:, idx] = raw.alt_tensor()[:, idx]
+
+                for idx in binary_info_features:
+                    normalized_info[idx] = raw.info_tensor()[idx]
+
+                self.data[n] = ReadSet(normalized_ref, normalized_alt, normalized_info, raw.label())
 
     def __len__(self):
         return len(self.data)
@@ -63,6 +91,9 @@ class ReadSetDataset(Dataset):
 
     def num_read_features(self) -> int:
         return self.data[0].alt_tensor().size()[1]  # number of columns in (arbitrarily) the first alt read tensor of the dataset
+
+    def num_info_features(self) -> int:
+        return len(self.data[0].info_tensor()) # number of columns in (arbitrarily) the first alt read tensor of the dataset
 
 
 # this is used for training and validation but not deployment / testing
@@ -125,7 +156,7 @@ def read_data(dataset_file, posterior: bool = False, yield_nones: bool = False):
             assert alt_tensor is None or not torch.sum(alt_tensor).isnan().item(), contig + ":" + str(position)
             assert not torch.sum(gatk_info_tensor).isnan().item(), contig + ":" + str(position)
 
-            datum = ReadSet(Variation.get_type(ref, alt), ref_tensor, alt_tensor, gatk_info_tensor, label)
+            datum = ReadSet.from_gatk(Variation.get_type(ref, alt), ref_tensor, alt_tensor, gatk_info_tensor, label)
 
             if ref_tensor_size >= MIN_REF and alt_tensor_size > 0:
                 if posterior:
@@ -200,6 +231,7 @@ class BigReadSetDataset:
         self.train_data_files = []
         self.valid_data_files = []
         self.num_read_features = None
+        self.num_info_features = None
 
         if dataset is not None:
             self.train_fits_in_ram = True
@@ -209,14 +241,17 @@ class BigReadSetDataset:
             self.train_loader = make_semisupervised_data_loader(train, batch_size, pin_memory=self.use_gpu)
             self.valid_loader = make_semisupervised_data_loader(valid, batch_size, pin_memory=self.use_gpu)
             self.num_read_features = dataset.num_read_features()
+            self.num_info_features = dataset.num_info_features()
 
         else:
             validation_data = []
             for dataset_from_files, is_last_chunk in generate_datasets(dataset_files, chunk_size):
                 if self.num_read_features is None:
                     self.num_read_features = dataset_from_files.num_read_features()
+                    self.num_info_features = dataset_from_files.num_info_features()
                 else:
                     assert self.num_read_features == dataset_from_files.num_read_features(), "inconsistent number of read features between files"
+                    assert self.num_info_features == dataset_from_files.num_info_features(), "inconsistent number of info features between files"
                 train, valid = utils.split_dataset_into_train_and_valid(dataset_from_files, 0.9)
 
                 with tempfile.NamedTemporaryFile(delete=False) as train_data_file:

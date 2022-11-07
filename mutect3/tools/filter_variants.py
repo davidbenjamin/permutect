@@ -32,7 +32,8 @@ def load_artifact_model(path) -> ArtifactModel:
     saved = torch.load(path)
     m3_params = saved[constants.M3_PARAMS_NAME]
     num_read_features = saved[constants.NUM_READ_FEATURES_NAME]
-    model = ArtifactModel(m3_params, num_read_features=num_read_features)
+    num_info_features = saved[constants.NUM_INFO_FEATURES_NAME]
+    model = ArtifactModel(m3_params, num_read_features=num_read_features, num_info_features=num_info_features)
     model.load_state_dict(saved[constants.STATE_DICT_NAME])
     return model
 
