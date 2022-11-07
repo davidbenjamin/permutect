@@ -56,14 +56,6 @@ class ReadSetDataset(Dataset):
             ref = torch.cat([self.data[n].ref_tensor() for n in random_indices], dim=0)
             info = torch.stack([self.data[n].info_tensor() for n in random_indices], dim=0)
 
-            binary_read_features = binary_column_indices(ref)
-            binary_info_features = binary_column_indices(info)
-
-            # assert that the last columns of the info tensor are the one-hot encoding of variant type
-            num_info_features = info.shape[1]
-            for n in range(len(utils.Variation)):
-                assert binary_info_features[-(n+1)] == num_info_features - n - 1
-
             read_medians, read_iqrs = medians_and_iqrs(ref)
             info_medians, info_iqrs = medians_and_iqrs(info)
 
@@ -74,9 +66,16 @@ class ReadSetDataset(Dataset):
                 normalized_info = (raw.info_tensor() - info_medians) / info_iqrs
 
                 # restore binary features to their original values
-                for idx in binary_read_features:
+                for idx in binary_column_indices(ref):
                     normalized_ref[:, idx] = raw.ref_tensor()[:, idx]
                     normalized_alt[:, idx] = raw.alt_tensor()[:, idx]
+
+                binary_info_features = binary_column_indices(info)
+
+                # assert that the last columns of the info tensor are the one-hot encoding of variant type
+                num_info_features = info.shape[1]
+                for n in range(len(utils.Variation)):
+                    assert binary_info_features[-(n + 1)] == num_info_features - n - 1
 
                 for idx in binary_info_features:
                     normalized_info[idx] = raw.info_tensor()[idx]
@@ -371,25 +370,23 @@ def chunk(indices, chunk_size):
 
 
 # make batches that are all supervised or all unsupervised
-# the model handles balancing the losses between supervised and unsupervised in training, so we don't need to worry
+# the artifact model handles weights the losses to compensate for class imbalance between supervised and unsupervised
+# thus the sampler is not responsible for balancing the data
 # it's convenient to have equal numbers of labeled and unlabeled batches, so we adjust the unlabeled batch size
 class SemiSupervisedBatchSampler(Sampler):
-    def __init__(self, dataset: ReadSetDataset, batch_size, balance: bool = False):
+    def __init__(self, dataset: ReadSetDataset, batch_size):
         self.artifact_indices = [n for n in range(len(dataset)) if dataset[n].label() == Label.ARTIFACT]
         self.non_artifact_indices = [n for n in range(len(dataset)) if dataset[n].label() == Label.VARIANT]
         self.unlabeled_indices = [n for n in range(len(dataset)) if dataset[n].label() == Label.UNLABELED]
         self.batch_size = batch_size
-        self.balance = balance
 
     def __iter__(self):
         random.shuffle(self.artifact_indices)
         random.shuffle(self.non_artifact_indices)
         random.shuffle(self.unlabeled_indices)
-        artifact_count = min(len(self.artifact_indices), len(self.non_artifact_indices))
 
         # optionally create a random new balanced dataset in each epoch -- artifact vs non-artifact -- otherwise use all data
-        labeled_indices = (self.artifact_indices[:artifact_count] + self.non_artifact_indices[:artifact_count]) if self.balance else \
-            self.artifact_indices + self.non_artifact_indices
+        labeled_indices = self.artifact_indices + self.non_artifact_indices
 
         random.shuffle(labeled_indices)
 
