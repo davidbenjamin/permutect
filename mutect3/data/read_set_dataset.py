@@ -365,8 +365,9 @@ def read_float(line: str):
     return float(line.strip().split()[0])
 
 
-def chunk(indices, chunk_size):
-    return torch.split(torch.tensor(indices), chunk_size) if indices else []
+# ex: chunk([a,b,c,d,e], 3) = [[a,b,c], [d,e]]
+def chunk(lis, chunk_size):
+    return [lis[i:i + chunk_size] for i in range(0, len(lis), chunk_size)]
 
 
 # make batches that are all supervised or all unsupervised
@@ -385,9 +386,9 @@ class SemiSupervisedBatchSampler(Sampler):
         labeled_indices = self.artifact_indices + self.non_artifact_indices
         random.shuffle(labeled_indices)
 
-        labeled_batches = chunk(labeled_indices, self.batch_size)   # list of 1D tensors
+        labeled_batches = chunk(labeled_indices, self.batch_size)   # list of lists
         unlabeled_batches = chunk(self.unlabeled_indices, self.batch_size)
-        combined = [batch.tolist() for batch in list(labeled_batches + unlabeled_batches)]
+        combined = labeled_batches + unlabeled_batches
         random.shuffle(combined)
         return iter(combined)
 
