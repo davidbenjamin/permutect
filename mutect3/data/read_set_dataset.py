@@ -5,6 +5,7 @@ from typing import Iterable
 import psutil
 import tempfile
 from threading import Thread
+from collections import defaultdict
 
 import torch
 from torch.utils.data import Dataset, DataLoader
@@ -45,12 +46,21 @@ class ReadSetDataset(Dataset):
         self.data.extend(data)
         if shuffle:
             random.shuffle(self.data)
+        data_count = len(self.data)
+
+        # keys = (ref read count, alt read count) tuples; values = list of indices
+        # this is used in the batch sampler to make same-shape batches
+        self.labeled_indices_by_read_counts = defaultdict(list)
+        self.unlabeled_indices_by_read_counts = defaultdict(list)
+
+        for n, datum in enumerate(self.data):
+            counts = (len(datum.ref_tensor()), len(datum.alt_tensor()))
+            (self.unlabeled_indices_by_read_counts if datum.label() == Label.UNLABELED else self.labeled_indices_by_read_counts)[counts].append(n)
 
         if normalize:
             # concatenate a bunch of ref tensors and take element-by-element quantiles
             # for simplicity we do sampling with replacement
-            N = len(self.data)
-            random_indices = range(N) if N <= QUANTILE_DATA_COUNT else torch.randint(0, N,
+            random_indices = range(data_count) if data_count <= QUANTILE_DATA_COUNT else torch.randint(0, data_count,
                                                                                      (QUANTILE_DATA_COUNT,)).tolist()
 
             ref = torch.cat([self.data[n].ref_tensor() for n in random_indices], dim=0)
