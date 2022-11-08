@@ -248,6 +248,8 @@ class BigReadSetDataset:
             self.train_fits_in_ram = True
             self.valid_fits_in_ram = True
             train, valid = utils.split_dataset_into_train_and_valid(dataset, 0.9)
+            train = ReadSetDataset(data=train, shuffle = False, normalize=False)
+            valid = ReadSetDataset(data=valid, shuffle=False, normalize=False)
 
             self.train_loader = make_semisupervised_data_loader(train, batch_size, pin_memory=self.use_gpu)
             self.valid_loader = make_semisupervised_data_loader(valid, batch_size, pin_memory=self.use_gpu)
