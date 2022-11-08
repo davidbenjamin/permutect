@@ -6,6 +6,7 @@ import psutil
 import tempfile
 from threading import Thread
 from collections import defaultdict
+from itertools import chain
 
 import torch
 from torch.utils.data import Dataset, DataLoader
@@ -38,12 +39,10 @@ def binary_column_indices(tensor_2d: torch.Tensor):
     return [n for n in range(tensor_2d.shape[1]) if is_binary(tensor_2d[:, n])]
 
 
-# copy the unnormalized values if binary features (columns)
-# normalized is a sequence so that eg we can restore ref and alt tensors
-def restore_binary_columns(normalized, original):
-    for idx in binary_column_indices(original):
-        for tensor in normalized:
-            tensor[:, idx] = original[:, idx]
+# copy the unnormalized values of binary features (columns)
+def restore_binary_columns(normalized, original, binary_columns):
+    for idx in binary_columns:
+        normalized[:, idx] = original[:, idx]
 
 
 class ReadSetDataset(Dataset):
@@ -58,12 +57,12 @@ class ReadSetDataset(Dataset):
 
         # keys = (ref read count, alt read count) tuples; values = list of indices
         # this is used in the batch sampler to make same-shape batches
-        self.labeled_indices_by_read_counts = defaultdict(list)
-        self.unlabeled_indices_by_read_counts = defaultdict(list)
+        self.labeled_indices_by_count = defaultdict(list)
+        self.unlabeled_indices_by_count = defaultdict(list)
 
         for n, datum in enumerate(self.data):
             counts = (len(datum.ref_tensor()), len(datum.alt_tensor()))
-            (self.unlabeled_indices_by_read_counts if datum.label() == Label.UNLABELED else self.labeled_indices_by_read_counts)[counts].append(n)
+            (self.unlabeled_indices_by_count if datum.label() == Label.UNLABELED else self.labeled_indices_by_count)[counts].append(n)
 
         if normalize:
             # concatenate a bunch of ref tensors and take element-by-element quantiles
@@ -80,7 +79,8 @@ class ReadSetDataset(Dataset):
             info_medians, info_iqrs = medians_and_iqrs(info)
 
             normalized_info = (info - info_medians) / info_iqrs
-            restore_binary_columns(normalized=[normalized_info], original=info)
+            restore_binary_columns(normalized=normalized_info, original=info, binary_columns=binary_column_indices(info))
+            binary_read_columns = binary_column_indices(ref)
 
             # assert that the last columns of the info tensor are the one-hot encoding of variant type, hence binary
             for n in range(len(utils.Variation)):
@@ -90,7 +90,8 @@ class ReadSetDataset(Dataset):
                 raw = self.data[n]
                 normalized_ref = (raw.ref_tensor() - read_medians) / read_iqrs
                 normalized_alt = (raw.alt_tensor() - read_medians) / read_iqrs
-                restore_binary_columns(normalized=[normalized_ref, normalized_alt], original=ref)
+                restore_binary_columns(normalized=normalized_ref, original=raw.ref_tensor(), binary_columns=binary_read_columns)
+                restore_binary_columns(normalized=normalized_alt, original=raw.alt_tensor(), binary_columns=binary_read_columns)
                 self.data[n] = ReadSet(normalized_ref, normalized_alt, normalized_info[n], raw.label())
 
     def __len__(self):
@@ -386,21 +387,21 @@ def chunk(lis, chunk_size):
 # thus the sampler is not responsible for balancing the data
 class SemiSupervisedBatchSampler(Sampler):
     def __init__(self, dataset: ReadSetDataset, batch_size):
-        self.labeled_indices = [n for n in range(len(dataset)) if dataset[n].label() != Label.UNLABELED]
-        self.unlabeled_indices = [n for n in range(len(dataset)) if dataset[n].label() == Label.UNLABELED]
+        self.labeled_indices_by_count = dataset.labeled_indices_by_count
+        self.unlabeled_indices_by_count = dataset.labeled_indices_by_count
         self.batch_size = batch_size
-        self.num_batches = math.ceil(len(self.labeled_indices) // self.batch_size) + \
-                           math.ceil(len(self.unlabeled_indices) // self.batch_size)
+        self.num_batches = sum(math.ceil(len(indices) // self.batch_size) for indices in
+                            chain(self.labeled_indices_by_count.values(), self.unlabeled_indices_by_count.values()))
 
     def __iter__(self):
-        random.shuffle(self.unlabeled_indices)
-        random.shuffle(self.labeled_indices)
+        batches = []    # list of lists of indices -- each sublist is a batch
+        for index_list in chain(self.labeled_indices_by_count.values(), self.unlabeled_indices_by_count.values()):
+            random.shuffle(index_list)
+            batches.extend(chunk(index_list, self.batch_size))
+        random.shuffle(batches)
 
-        labeled_batches = chunk(self.labeled_indices, self.batch_size)   # list of lists
-        unlabeled_batches = chunk(self.unlabeled_indices, self.batch_size)
-        combined = labeled_batches + unlabeled_batches
-        random.shuffle(combined)
-        return iter(combined)
+        return iter(batches)
 
     def __len__(self):
         return self.num_batches
+

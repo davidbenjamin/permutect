@@ -26,6 +26,13 @@ def effective_count(weights: torch.Tensor):
     return (torch.square(torch.sum(weights)) / torch.sum(torch.square(weights))).item()
 
 
+# group rows into consecutive chunks to yield a 3D tensor, average over dim=1 to get
+# 2D tensor of sums within each chunk
+def sums_over_chunks(tensor2d: torch.Tensor, chunk_size: int):
+    assert len(tensor2d) % chunk_size == 0
+    return torch.sum(tensor2d.reshape([len(tensor2d) // chunk_size, chunk_size, -1]), dim=1)
+
+
 # note that read layers and info layers exclude the input dimension
 class ArtifactModelParameters:
     def __init__(self, read_layers, info_layers, aggregation_layers, dropout_p, batch_normalize, learning_rate):
@@ -150,22 +157,20 @@ class ArtifactModel(nn.Module):
         weights = torch.ones(len(phi_reads), 1, device=self._device) if weight_range == 0 else (1 + weight_range * (1 - 2 * torch.rand(len(phi_reads), 1, device=self._device)))
         weighted_phi_reads = weights * phi_reads
 
-        end_indices = batch.read_end_indices().to(self._device)
+        ref_count, alt_count = batch.ref_count, batch.alt_count
+        total_ref = ref_count * batch.size()
 
-        # 2D tensor of weighed sum of read embeddings within each datum -- all ref reads, then all alt reads
-        read_sums = utils.chunk_sums(weighted_phi_reads, end_indices)
-        weight_sums = utils.chunk_sums(weights, end_indices)
-        read_means = read_sums / weight_sums
+        ref_wts, alt_wts = weights[:total_ref], weights[total_ref:]
+        ref_wt_sums, alt_wt_sums = sums_over_chunks(ref_wts, ref_count), sums_over_chunks(alt_wts, alt_count)
+        ref_wt_sq_sums, alt_wt_sq_sums = sums_over_chunks(torch.square(ref_wts), ref_count), sums_over_chunks(torch.square(alt_wts), alt_count)
 
-        squared_weight_sums = utils.chunk_sums(torch.square(weights), end_indices)
-        effective_read_counts = torch.square(weight_sums) / squared_weight_sums
-
-        ref_means = read_means[:batch.size(), :]
-        alt_means = read_means[batch.size():, :]
+        # weighted mean is sum of reads in a chunk divided by sum of weights in same chunk
+        ref_means = sums_over_chunks(weighted_phi_reads[:total_ref], ref_count) / ref_wt_sums
+        alt_means = sums_over_chunks(weighted_phi_reads[total_ref:], alt_count) / alt_wt_sums
 
         # these are fed to the calibration, since reweighting effectively reduces the read counts
-        effective_ref_counts = effective_read_counts[:batch.size(), :]
-        effective_alt_counts = effective_read_counts[batch.size():, :]
+        effective_ref_counts = torch.square(ref_wt_sums) / ref_wt_sq_sums
+        effective_alt_counts = torch.square(alt_wt_sums) / alt_wt_sq_sums
 
         # stack side-by-side to get 2D tensor, where each variant row is (ref mean, alt mean, info)
         omega_info = torch.sigmoid(self.omega(batch.info().to(self._device)))
@@ -344,7 +349,6 @@ class ArtifactModel(nn.Module):
 
                 labels = batch.labels()
                 correct = ((pred > 0) == (batch.labels() > 0.5))
-                alt_counts = batch.alt_counts()
 
                 for l_bin in logit_bins:
                     accuracy[l_bin].record_with_mask(correct, (pred > l_bin[0]) & (pred < l_bin[1]))
@@ -352,7 +356,7 @@ class ArtifactModel(nn.Module):
                 for var_type in Variation:
                     variant_mask = batch.variant_type_mask(var_type)
                     for c_bin in count_bins:
-                        count_mask = (c_bin[0] <= alt_counts) & (c_bin[1] >= alt_counts)
+                        count_mask = (c_bin[0] <= batch.alt_count) & (c_bin[1] >= batch.alt_count)
                         count_and_variant_mask = count_mask & variant_mask
                         sensitivity[var_type][Call.SOMATIC][c_bin].record_with_mask(correct, (labels < 0.5) & count_and_variant_mask)
                         sensitivity[var_type][Call.ARTIFACT][c_bin].record_with_mask(correct, (labels > 0.5) & count_and_variant_mask)

@@ -6,15 +6,6 @@ import torch
 from torch.utils.data import random_split
 
 
-# sum rows (0th dimension) of tensor over non-overlapping slices
-# ex: chunk_sum([[1,1],[1,2],[1,3],[1,4],[1,5]], [1,4,5]) = [[1,1], [3,9], [1,5]]
-# end_indices are exclusive, hence the -1
-def chunk_sums(tensor: torch.Tensor, end_indices):
-    cumsums = torch.cumsum(tensor, dim=0)[end_indices-1, :]
-    cumsums0 = torch.cat([torch.zeros_like(cumsums[0]).unsqueeze(dim=0), cumsums[0:-1]])
-    return cumsums - cumsums0
-
-
 def get_variant_type(alt_allele, ref_allele):
     variant_size = len(alt_allele) - len(ref_allele)
     if variant_size == 0:

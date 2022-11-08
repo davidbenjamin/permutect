@@ -1,5 +1,5 @@
 import torch
-from mutect3.data import read_set, read_set_batch
+from mutect3.data import read_set, read_set_batch, read_set_dataset
 from mutect3.data.read_set import ReadSet
 
 
@@ -13,8 +13,10 @@ def test_read_set_batch():
 
     variant_types = [Variation.SNV, Variation.SNV, Variation.INSERTION]
     num_read_features = 11
-    ref_counts = [6, 11, 7]
-    alt_counts = [2, 15, 6]
+
+    # TODO: test different counts and also test that mixed counts fail
+    ref_counts = [11, 11, 11]
+    alt_counts = [6, 6, 6]
 
     ref_tensors = [torch.rand(n, num_read_features) for n in ref_counts]
     alt_tensors = [torch.rand(n, num_read_features) for n in alt_counts]
@@ -28,8 +30,6 @@ def test_read_set_batch():
 
     assert batch.is_labeled()
     assert batch.size() == 3
-
-    assert batch.original_list() == data
 
     assert batch.reads().shape[0] == sum(ref_counts) + sum(alt_counts)
     assert batch.reads().shape[1] == num_read_features
