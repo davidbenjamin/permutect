@@ -38,6 +38,14 @@ def binary_column_indices(tensor_2d: torch.Tensor):
     return [n for n in range(tensor_2d.shape[1]) if is_binary(tensor_2d[:, n])]
 
 
+# copy the unnormalized values if binary features (columns)
+# normalized is a sequence so that eg we can restore ref and alt tensors
+def restore_binary_columns(normalized, original):
+    for idx in binary_column_indices(original):
+        for tensor in normalized:
+            tensor[:, idx] = original[:, idx]
+
+
 class ReadSetDataset(Dataset):
     def __init__(self, files=[], data: Iterable[ReadSet] = [], shuffle: bool = True, normalize: bool = True):
         self.data = []
@@ -64,33 +72,26 @@ class ReadSetDataset(Dataset):
                                                                                      (QUANTILE_DATA_COUNT,)).tolist()
 
             ref = torch.cat([self.data[n].ref_tensor() for n in random_indices], dim=0)
-            info = torch.stack([self.data[n].info_tensor() for n in random_indices], dim=0)
+
+            # since info is just a 1D tensor, use all of it
+            info = torch.stack([datum.info_tensor() for datum in self.data], dim=0)
 
             read_medians, read_iqrs = medians_and_iqrs(ref)
             info_medians, info_iqrs = medians_and_iqrs(info)
+
+            normalized_info = (info - info_medians) / info_iqrs
+            restore_binary_columns(normalized=[normalized_info], original=info)
+
+            # assert that the last columns of the info tensor are the one-hot encoding of variant type, hence binary
+            for n in range(len(utils.Variation)):
+                assert is_binary(normalized_info[:, -(n + 1)])
 
             for n in range(len(self.data)):
                 raw = self.data[n]
                 normalized_ref = (raw.ref_tensor() - read_medians) / read_iqrs
                 normalized_alt = (raw.alt_tensor() - read_medians) / read_iqrs
-                normalized_info = (raw.info_tensor() - info_medians) / info_iqrs
-
-                # restore binary features to their original values
-                for idx in binary_column_indices(ref):
-                    normalized_ref[:, idx] = raw.ref_tensor()[:, idx]
-                    normalized_alt[:, idx] = raw.alt_tensor()[:, idx]
-
-                binary_info_features = binary_column_indices(info)
-
-                # assert that the last columns of the info tensor are the one-hot encoding of variant type
-                num_info_features = info.shape[1]
-                for n in range(len(utils.Variation)):
-                    assert binary_info_features[-(n + 1)] == num_info_features - n - 1
-
-                for idx in binary_info_features:
-                    normalized_info[idx] = raw.info_tensor()[idx]
-
-                self.data[n] = ReadSet(normalized_ref, normalized_alt, normalized_info, raw.label())
+                restore_binary_columns(normalized=[normalized_ref, normalized_alt], original=ref)
+                self.data[n] = ReadSet(normalized_ref, normalized_alt, normalized_info[n], raw.label())
 
     def __len__(self):
         return len(self.data)
