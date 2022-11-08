@@ -28,6 +28,34 @@ MAX_VALUE = 10000  # clamp inputs to this range
 PICKLE_EXTENSION = ".pickle"
 
 
+# ex: [0, 1, 3, 6, 7] -> [0, 1, 1, 3, 3, 3, 6, 7] -- 2 is rounded down to the nearest cutoff, 1 and likewise 4 and 5 are rounded to 3
+# assumes that cutoffs include 0 and are ascending
+def make_round_down_table(cutoffs):
+    table = []
+    n = 0
+    for idx, cutoff in enumerate(cutoffs[:-1]):
+        while n < cutoffs[idx + 1]:
+            table.append(cutoff)
+            n += 1
+    table.append(cutoffs[-1])
+    return table
+
+
+# arrays where array[n] is what n reads are rounded down to
+# this is important because we batch by equal ref and alt counts and we would like to reduce
+# the number of combinations in order to have big batches
+ALT_ROUNDING = make_round_down_table([0, 1, 2, 3, 4, 5, 7, 10, 13, 16, 20])
+REF_ROUNDING = make_round_down_table([0, 1, 5, 10])
+
+
+def round_down_ref(n: int):
+    return REF_ROUNDING[min(len(REF_ROUNDING) - 1, n)]
+
+
+def round_down_alt(n: int):
+    return ALT_ROUNDING[min(len(ALT_ROUNDING) - 1, n)]
+
+
 # check whether all elements are 0 or 1
 def is_binary(column_tensor_1d: torch.Tensor):
     assert len(column_tensor_1d.shape) == 1
@@ -128,7 +156,7 @@ def count_data(dataset_file):
 
 # generator that reads a plain text dataset file and yields data
 # in posterior model, yield a tuple of ReadSet and PosteriorDatum
-def read_data(dataset_file, posterior: bool = False, yield_nones: bool = False):
+def read_data(dataset_file, posterior: bool = False, yield_nones: bool = False, round_down: bool = True):
     with open(dataset_file) as file:
         n = 0
         while label_str := file.readline().strip():
@@ -155,8 +183,13 @@ def read_data(dataset_file, posterior: bool = False, yield_nones: bool = False):
             ref_tensor = read_2d_tensor(file, ref_tensor_size)
             alt_tensor = read_2d_tensor(file, alt_tensor_size)
 
+            if round_down:
+                ref_tensor = utils.downsample_tensor(ref_tensor, 0 if ref_tensor is None else round_down_ref(len(ref_tensor)))
+                alt_tensor = utils.downsample_tensor(alt_tensor, 0 if alt_tensor is None else round_down_alt(len(alt_tensor)))
+
             # normal_ref_tensor = read_2d_tensor(file, normal_ref_tensor_size)  # not currently used
             # normal_alt_tensor = read_2d_tensor(file, normal_alt_tensor_size)  # not currently used
+            # round down normal tensors as well
 
             depth, alt_count, normal_depth, normal_alt_count = read_integers(file.readline())
 

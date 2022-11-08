@@ -6,6 +6,13 @@ import torch
 from torch.utils.data import random_split
 
 
+def downsample_tensor(tensor2d: torch.Tensor, new_length: int):
+    if tensor2d is None or new_length >= len(tensor2d):
+        return tensor2d
+    perm = torch.randperm(len(tensor2d))
+    return tensor2d[perm[:new_length]]
+
+
 def get_variant_type(alt_allele, ref_allele):
     variant_size = len(alt_allele) - len(ref_allele)
     if variant_size == 0:
