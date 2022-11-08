@@ -44,8 +44,11 @@ def make_round_down_table(cutoffs):
 # arrays where array[n] is what n reads are rounded down to
 # this is important because we batch by equal ref and alt counts and we would like to reduce
 # the number of combinations in order to have big batches
-ALT_ROUNDING = make_round_down_table([0, 1, 2, 3, 4, 5, 7, 10, 13, 16, 20])
-REF_ROUNDING = make_round_down_table([0, 1, 5, 10])
+#ALT_ROUNDING = make_round_down_table([0, 1, 2, 3, 4, 5, 7, 10, 13, 16, 20])
+#REF_ROUNDING = make_round_down_table([0, 1, 5, 10])
+
+ALT_ROUNDING = make_round_down_table(list(range(21)))
+REF_ROUNDING = make_round_down_table(list(range(21)))
 
 
 def round_down_ref(n: int):
@@ -299,6 +302,8 @@ class BigReadSetDataset:
                     assert self.num_read_features == dataset_from_files.num_read_features(), "inconsistent number of read features between files"
                     assert self.num_info_features == dataset_from_files.num_info_features(), "inconsistent number of info features between files"
                 train, valid = utils.split_dataset_into_train_and_valid(dataset_from_files, 0.9)
+                train = ReadSetDataset(data=train, shuffle=False, normalize=False)
+                valid = ReadSetDataset(data=valid, shuffle=False, normalize=False)
 
                 with tempfile.NamedTemporaryFile(delete=False) as train_data_file:
                     save_list_of_read_sets([datum for datum in train], train_data_file)
