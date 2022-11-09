@@ -44,11 +44,11 @@ def make_round_down_table(cutoffs):
 # arrays where array[n] is what n reads are rounded down to
 # this is important because we batch by equal ref and alt counts and we would like to reduce
 # the number of combinations in order to have big batches
-#ALT_ROUNDING = make_round_down_table([0, 1, 2, 3, 4, 5, 7, 10, 13, 16, 20])
-#REF_ROUNDING = make_round_down_table([0, 1, 5, 10])
+# ALT_ROUNDING = make_round_down_table([0, 1, 2, 3, 4, 5, 7, 10, 13, 16, 20])
+REF_ROUNDING = make_round_down_table([0, 1, 5, 10])
 
 ALT_ROUNDING = make_round_down_table(list(range(21)))
-REF_ROUNDING = make_round_down_table(list(range(21)))
+# REF_ROUNDING = make_round_down_table(list(range(21)))
 
 
 def round_down_ref(n: int):
