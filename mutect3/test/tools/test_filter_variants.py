@@ -3,6 +3,7 @@ import tempfile
 from mutect3.tools import filter_variants
 
 
+# TODO: update the saved models in this test -- they are obsolete and incompatible
 def test_filtering():
     saved_artifact_model = "/Users/davidben/mutect3/just-dream-1/mutect3.pt"
     test_dataset_file = "/Users/davidben/mutect3/just-dream-1/small-test.dataset"

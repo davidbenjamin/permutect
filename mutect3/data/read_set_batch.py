@@ -24,14 +24,13 @@ from mutect3.utils import Label
 class ReadSetBatch:
 
     def __init__(self, data: List[ReadSet]):
-        self._original_list = data  # keep this for downsampling augmentation
         self.labeled = data[0].label() != Label.UNLABELED
+        self.ref_count = len(data[0].ref_tensor())
+        self.alt_count = len(data[0].alt_tensor())
         for datum in data:
-            if (datum.label() != Label.UNLABELED) != self.labeled:
-                raise Exception("Batch may not mix labeled and unlabeled")
-
-        # if ref read counts are 1, 2, 3 and alt read counts are 1, 2, 1, then end indices are 1, 3, 6, 7, 9, 10
-        self._read_end_indices = torch.cumsum(torch.LongTensor([len(item.ref_tensor()) for item in data] + [len(item.alt_tensor()) for item in data]), dim=0)
+            assert (datum.label() != Label.UNLABELED) == self.labeled, "Batch may not mix labeled and unlabeled"
+            assert len(datum.ref_tensor()) == self.ref_count, "batch may not mix different ref counts"
+            assert len(datum.alt_tensor()) == self.alt_count, "batch may not mix different alt counts"
 
         self._reads = torch.cat([item.ref_tensor() for item in data] + [item.alt_tensor() for item in data], dim=0)
         self._info = torch.stack([item.info_tensor() for item in data], dim=0)
@@ -43,11 +42,7 @@ class ReadSetBatch:
         self._reads = self._reads.pin_memory()
         self._info = self._info.pin_memory()
         self._labels = self._labels.pin_memory()
-        self._read_end_indices = self._read_end_indices.pin_memory()
         return self
-
-    def original_list(self) -> List[ReadSet]:
-        return self._original_list
 
     def is_labeled(self) -> bool:
         return self.labeled
@@ -55,14 +50,8 @@ class ReadSetBatch:
     def size(self) -> int:
         return self._size
 
-    def read_end_indices(self):
-        return self._read_end_indices
-
     def reads(self) -> torch.Tensor:
         return self._reads
-
-    def alt_counts(self) -> torch.IntTensor:
-        return torch.IntTensor([len(item.alt_tensor()) for item in self._original_list])
 
     def info(self) -> torch.Tensor:
         return self._info

@@ -5,6 +5,8 @@ from typing import Iterable
 import psutil
 import tempfile
 from threading import Thread
+from collections import defaultdict
+from itertools import chain
 
 import torch
 from torch.utils.data import Dataset, DataLoader
@@ -26,6 +28,38 @@ MAX_VALUE = 10000  # clamp inputs to this range
 PICKLE_EXTENSION = ".pickle"
 
 
+# ex: [0, 1, 3, 6, 7] -> [0, 1, 1, 3, 3, 3, 6, 7] -- 2 is rounded down to the nearest cutoff, 1 and likewise 4 and 5 are rounded to 3
+# assumes that cutoffs include 0 and are ascending
+def make_round_down_table(cutoffs):
+    table = []
+    n = 0
+    for idx, cutoff in enumerate(cutoffs[:-1]):
+        while n < cutoffs[idx + 1]:
+            table.append(cutoff)
+            n += 1
+    table.append(cutoffs[-1])
+    return table
+
+
+# arrays where array[n] is what n reads are rounded down to
+# this is important because we batch by equal ref and alt counts and we would like to reduce
+# the number of combinations in order to have big batches
+# ALT_ROUNDING = make_round_down_table([0, 1, 2, 3, 4, 5, 7, 10, 13, 16, 20])
+REF_ROUNDING = make_round_down_table([0, 1, 5, 10])
+
+ALT_ROUNDING = make_round_down_table(list(range(21)))
+# REF_ROUNDING = make_round_down_table(list(range(21)))
+
+
+def round_down_ref(n: int):
+    return n
+    #return REF_ROUNDING[min(len(REF_ROUNDING) - 1, n)]
+
+
+def round_down_alt(n: int):
+    return ALT_ROUNDING[min(len(ALT_ROUNDING) - 1, n)]
+
+
 # check whether all elements are 0 or 1
 def is_binary(column_tensor_1d: torch.Tensor):
     assert len(column_tensor_1d.shape) == 1
@@ -37,6 +71,12 @@ def binary_column_indices(tensor_2d: torch.Tensor):
     return [n for n in range(tensor_2d.shape[1]) if is_binary(tensor_2d[:, n])]
 
 
+# copy the unnormalized values of binary features (columns)
+def restore_binary_columns(normalized, original, binary_columns):
+    for idx in binary_columns:
+        normalized[:, idx] = original[:, idx]
+
+
 class ReadSetDataset(Dataset):
     def __init__(self, files=[], data: Iterable[ReadSet] = [], shuffle: bool = True, normalize: bool = True):
         self.data = []
@@ -45,43 +85,46 @@ class ReadSetDataset(Dataset):
         self.data.extend(data)
         if shuffle:
             random.shuffle(self.data)
+        data_count = len(self.data)
+
+        # keys = (ref read count, alt read count) tuples; values = list of indices
+        # this is used in the batch sampler to make same-shape batches
+        self.labeled_indices_by_count = defaultdict(list)
+        self.unlabeled_indices_by_count = defaultdict(list)
+
+        for n, datum in enumerate(self.data):
+            counts = (len(datum.ref_tensor()), len(datum.alt_tensor()))
+            (self.unlabeled_indices_by_count if datum.label() == Label.UNLABELED else self.labeled_indices_by_count)[counts].append(n)
 
         if normalize:
             # concatenate a bunch of ref tensors and take element-by-element quantiles
             # for simplicity we do sampling with replacement
-            N = len(self.data)
-            random_indices = range(N) if N <= QUANTILE_DATA_COUNT else torch.randint(0, N,
+            random_indices = range(data_count) if data_count <= QUANTILE_DATA_COUNT else torch.randint(0, data_count,
                                                                                      (QUANTILE_DATA_COUNT,)).tolist()
 
             ref = torch.cat([self.data[n].ref_tensor() for n in random_indices], dim=0)
-            info = torch.stack([self.data[n].info_tensor() for n in random_indices], dim=0)
 
-            binary_read_features = binary_column_indices(ref)
-            binary_info_features = binary_column_indices(info)
-
-            # assert that the last columns of the info tensor are the one-hot encoding of variant type
-            num_info_features = info.shape[1]
-            for n in range(len(utils.Variation)):
-                assert binary_info_features[-(n+1)] == num_info_features - n - 1
+            # since info is just a 1D tensor, use all of it
+            info = torch.stack([datum.info_tensor() for datum in self.data], dim=0)
 
             read_medians, read_iqrs = medians_and_iqrs(ref)
             info_medians, info_iqrs = medians_and_iqrs(info)
+
+            normalized_info = (info - info_medians) / info_iqrs
+            restore_binary_columns(normalized=normalized_info, original=info, binary_columns=binary_column_indices(info))
+            binary_read_columns = binary_column_indices(ref)
+
+            # assert that the last columns of the info tensor are the one-hot encoding of variant type, hence binary
+            for n in range(len(utils.Variation)):
+                assert is_binary(normalized_info[:, -(n + 1)])
 
             for n in range(len(self.data)):
                 raw = self.data[n]
                 normalized_ref = (raw.ref_tensor() - read_medians) / read_iqrs
                 normalized_alt = (raw.alt_tensor() - read_medians) / read_iqrs
-                normalized_info = (raw.info_tensor() - info_medians) / info_iqrs
-
-                # restore binary features to their original values
-                for idx in binary_read_features:
-                    normalized_ref[:, idx] = raw.ref_tensor()[:, idx]
-                    normalized_alt[:, idx] = raw.alt_tensor()[:, idx]
-
-                for idx in binary_info_features:
-                    normalized_info[idx] = raw.info_tensor()[idx]
-
-                self.data[n] = ReadSet(normalized_ref, normalized_alt, normalized_info, raw.label())
+                restore_binary_columns(normalized=normalized_ref, original=raw.ref_tensor(), binary_columns=binary_read_columns)
+                restore_binary_columns(normalized=normalized_alt, original=raw.alt_tensor(), binary_columns=binary_read_columns)
+                self.data[n] = ReadSet(normalized_ref, normalized_alt, normalized_info[n], raw.label())
 
     def __len__(self):
         return len(self.data)
@@ -117,7 +160,7 @@ def count_data(dataset_file):
 
 # generator that reads a plain text dataset file and yields data
 # in posterior model, yield a tuple of ReadSet and PosteriorDatum
-def read_data(dataset_file, posterior: bool = False, yield_nones: bool = False):
+def read_data(dataset_file, posterior: bool = False, yield_nones: bool = False, round_down: bool = True):
     with open(dataset_file) as file:
         n = 0
         while label_str := file.readline().strip():
@@ -144,8 +187,13 @@ def read_data(dataset_file, posterior: bool = False, yield_nones: bool = False):
             ref_tensor = read_2d_tensor(file, ref_tensor_size)
             alt_tensor = read_2d_tensor(file, alt_tensor_size)
 
+            if round_down:
+                ref_tensor = utils.downsample_tensor(ref_tensor, 0 if ref_tensor is None else round_down_ref(len(ref_tensor)))
+                alt_tensor = utils.downsample_tensor(alt_tensor, 0 if alt_tensor is None else round_down_alt(len(alt_tensor)))
+
             # normal_ref_tensor = read_2d_tensor(file, normal_ref_tensor_size)  # not currently used
             # normal_alt_tensor = read_2d_tensor(file, normal_alt_tensor_size)  # not currently used
+            # round down normal tensors as well
 
             depth, alt_count, normal_depth, normal_alt_count = read_integers(file.readline())
 
@@ -237,6 +285,8 @@ class BigReadSetDataset:
             self.train_fits_in_ram = True
             self.valid_fits_in_ram = True
             train, valid = utils.split_dataset_into_train_and_valid(dataset, 0.9)
+            train = ReadSetDataset(data=train, shuffle = False, normalize=False)
+            valid = ReadSetDataset(data=valid, shuffle=False, normalize=False)
 
             self.train_loader = make_semisupervised_data_loader(train, batch_size, pin_memory=self.use_gpu)
             self.valid_loader = make_semisupervised_data_loader(valid, batch_size, pin_memory=self.use_gpu)
@@ -253,6 +303,8 @@ class BigReadSetDataset:
                     assert self.num_read_features == dataset_from_files.num_read_features(), "inconsistent number of read features between files"
                     assert self.num_info_features == dataset_from_files.num_info_features(), "inconsistent number of info features between files"
                 train, valid = utils.split_dataset_into_train_and_valid(dataset_from_files, 0.9)
+                train = ReadSetDataset(data=train, shuffle=False, normalize=False)
+                valid = ReadSetDataset(data=valid, shuffle=False, normalize=False)
 
                 with tempfile.NamedTemporaryFile(delete=False) as train_data_file:
                     save_list_of_read_sets([datum for datum in train], train_data_file)
@@ -366,42 +418,31 @@ def read_float(line: str):
     return float(line.strip().split()[0])
 
 
-def chunk(indices, chunk_size):
-    return torch.split(torch.tensor(indices), chunk_size)
+# ex: chunk([a,b,c,d,e], 3) = [[a,b,c], [d,e]]
+def chunk(lis, chunk_size):
+    return [lis[i:i + chunk_size] for i in range(0, len(lis), chunk_size)]
 
 
 # make batches that are all supervised or all unsupervised
-# the model handles balancing the losses between supervised and unsupervised in training, so we don't need to worry
-# it's convenient to have equal numbers of labeled and unlabeled batches, so we adjust the unlabeled batch size
+# the artifact model handles weights the losses to compensate for class imbalance between supervised and unsupervised
+# thus the sampler is not responsible for balancing the data
 class SemiSupervisedBatchSampler(Sampler):
-    def __init__(self, dataset: ReadSetDataset, batch_size, balance: bool = False):
-        self.artifact_indices = [n for n in range(len(dataset)) if dataset[n].label() == Label.ARTIFACT]
-        self.non_artifact_indices = [n for n in range(len(dataset)) if dataset[n].label() == Label.VARIANT]
-        self.unlabeled_indices = [n for n in range(len(dataset)) if dataset[n].label() == Label.UNLABELED]
+    def __init__(self, dataset: ReadSetDataset, batch_size):
+        self.labeled_indices_by_count = dataset.labeled_indices_by_count
+        self.unlabeled_indices_by_count = dataset.labeled_indices_by_count
         self.batch_size = batch_size
-        self.balance = balance
+        self.num_batches = sum(math.ceil(len(indices) // self.batch_size) for indices in
+                            chain(self.labeled_indices_by_count.values(), self.unlabeled_indices_by_count.values()))
 
     def __iter__(self):
-        random.shuffle(self.artifact_indices)
-        random.shuffle(self.non_artifact_indices)
-        random.shuffle(self.unlabeled_indices)
-        artifact_count = min(len(self.artifact_indices), len(self.non_artifact_indices))
+        batches = []    # list of lists of indices -- each sublist is a batch
+        for index_list in chain(self.labeled_indices_by_count.values(), self.unlabeled_indices_by_count.values()):
+            random.shuffle(index_list)
+            batches.extend(chunk(index_list, self.batch_size))
+        random.shuffle(batches)
 
-        # optionally create a random new balanced dataset in each epoch -- artifact vs non-artifact -- otherwise use all data
-        labeled_indices = (self.artifact_indices[:artifact_count] + self.non_artifact_indices[:artifact_count]) if self.balance else \
-            self.artifact_indices + self.non_artifact_indices
-
-        random.shuffle(labeled_indices)
-
-        all_labeled = len(self.unlabeled_indices) == 0
-        unlabeled_batch_size = None if all_labeled else \
-            round((len(labeled_indices) / len(self.unlabeled_indices)) * self.batch_size)
-
-        labeled_batches = chunk(labeled_indices, self.batch_size)
-        unlabeled_batches = None if all_labeled else chunk(self.unlabeled_indices, unlabeled_batch_size)
-        combined = [batch.tolist() for batch in list(labeled_batches if all_labeled else (labeled_batches + unlabeled_batches))]
-        random.shuffle(combined)
-        return iter(combined)
+        return iter(batches)
 
     def __len__(self):
-        return len(self.artifact_indices) * 2 // self.batch_size + len(self.artifact_indices) // self.batch_size
+        return self.num_batches
+
