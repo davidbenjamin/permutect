@@ -225,24 +225,10 @@ class ArtifactModel(nn.Module):
         bce = torch.nn.BCEWithLogitsLoss(reduction='none')  # no reduction because we may want to first multiply by weights for unbalanced data
         train_optimizer = torch.optim.AdamW(self.training_parameters(), lr=m3_params.learning_rate)
 
-        total_labeled, total_unlabeled = 0, 0
-        artifact_totals = torch.zeros(len(utils.Variation))
-        non_artifact_totals = torch.zeros(len(utils.Variation))
-
-        print("counting labeled/non-labeled and artifact/non-artifact balance")
-        start = time.time()
-        for batch in big_read_set_dataset.generate_batches(utils.Epoch.TRAIN):
-            if batch.is_labeled():
-                total_labeled += batch.size()
-
-                labels = batch.labels()     # 1D tensor.  recall that 1 = artifact, 0 = non-artifact
-                variant_type_one_hot = batch.variant_type_one_hot() # 2D tensor; rows are batch index, columns are variant type
-
-                artifact_totals += torch.sum(labels.unsqueeze(dim=1)*variant_type_one_hot, dim=0)    # yields 1D tensor of artifact counts for each type
-                non_artifact_totals += torch.sum((1 - labels).unsqueeze(dim=1) * variant_type_one_hot, dim=0)
-            else:
-                total_unlabeled += batch.size()
-        end = time.time()
+        artifact_totals = big_read_set_dataset.training_artifact_totals
+        non_artifact_totals = big_read_set_dataset.training_non_artifact_totals
+        total_labeled = torch.sum(artifact_totals + non_artifact_totals).item()
+        total_unlabeled = big_read_set_dataset.num_training_data - total_labeled
 
         labeled_artifact_to_non_artifact_ratios = artifact_totals / non_artifact_totals
         labeled_artifact_weights_by_type = 1 / torch.sqrt(labeled_artifact_to_non_artifact_ratios)
@@ -252,7 +238,6 @@ class ArtifactModel(nn.Module):
         # if total unlabeled is less than total labeled, we do not compensate, since labeled data are more informative
         labeled_to_unlabeled_ratio = 1 if total_unlabeled < total_labeled else total_labeled / total_unlabeled
 
-        print("passed through data in {} seconds".format(end - start))
         print("Training data contains {} labeled examples and {} unlabeled examples".format(total_labeled, total_unlabeled))
         for variation_type in utils.Variation:
             idx = variation_type.value

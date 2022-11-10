@@ -281,6 +281,12 @@ class BigReadSetDataset:
         self.num_read_features = None
         self.num_info_features = None
 
+        # compute total counts of labeled/unlabeled, artifact/non-artifact, different variant types
+        # during initialization.  These are used for balancing training weights
+        self.num_training_data
+        self.training_artifact_totals = torch.zeros(len(utils.Variation))        # 1D tensor
+        self.training_non_artifact_totals = torch.zeros(len(utils.Variation))    # 1D tensor
+
         if dataset is not None:
             self.train_fits_in_ram = True
             self.valid_fits_in_ram = True
@@ -292,6 +298,7 @@ class BigReadSetDataset:
             self.valid_loader = make_semisupervised_data_loader(valid, batch_size, pin_memory=self.use_gpu)
             self.num_read_features = dataset.num_read_features()
             self.num_info_features = dataset.num_info_features()
+            self.accumulate_totals(self.train_loader)
 
         else:
             validation_data = []
@@ -305,6 +312,7 @@ class BigReadSetDataset:
                 train, valid = utils.split_dataset_into_train_and_valid(dataset_from_files, 0.9)
                 train = ReadSetDataset(data=train, shuffle=False, normalize=False)
                 valid = ReadSetDataset(data=valid, shuffle=False, normalize=False)
+                self.accumulate_totals(make_semisupervised_data_loader(train, batch_size, pin_memory=self.use_gpu))
 
                 with tempfile.NamedTemporaryFile(delete=False) as train_data_file:
                     save_list_of_read_sets([datum for datum in train], train_data_file)
@@ -342,6 +350,20 @@ class BigReadSetDataset:
         assert self.train_fits_in_ram == (len(self.train_data_files) <= 1)
         assert self.valid_fits_in_ram == (len(self.valid_data_files) <= 1)
         assert self.num_read_features is not None
+
+    # used only in initialization
+    def accumulate_totals(self, training_loader):
+        for batch in training_loader:
+            self.num_training_data += batch.size()
+            if batch.is_labeled():
+                self.total_labeled += batch.size()
+
+                labels = batch.labels()  # 1D tensor.  recall that 1 = artifact, 0 = non-artifact
+                variant_type_one_hot = batch.variant_type_one_hot()  # 2D tensor; rows are batch index, columns are variant type
+
+                self.training_artifact_totals += torch.sum(labels.unsqueeze(dim=1) * variant_type_one_hot,
+                                             dim=0)  # yields 1D tensor of artifact counts for each type
+                self.training_non_artifact_totals += torch.sum((1 - labels).unsqueeze(dim=1) * variant_type_one_hot, dim=0)
 
     def generate_batches(self, epoch_type: utils.Epoch):
         assert epoch_type != utils.Epoch.TEST, "test epochs not supported yet"
