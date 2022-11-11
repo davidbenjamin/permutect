@@ -283,7 +283,7 @@ class BigReadSetDataset:
 
         # compute total counts of labeled/unlabeled, artifact/non-artifact, different variant types
         # during initialization.  These are used for balancing training weights
-        self.num_training_data
+        self.num_training_data = 0
         self.training_artifact_totals = torch.zeros(len(utils.Variation))        # 1D tensor
         self.training_non_artifact_totals = torch.zeros(len(utils.Variation))    # 1D tensor
 
@@ -291,7 +291,7 @@ class BigReadSetDataset:
             self.train_fits_in_ram = True
             self.valid_fits_in_ram = True
             train, valid = utils.split_dataset_into_train_and_valid(dataset, 0.9)
-            train = ReadSetDataset(data=train, shuffle = False, normalize=False)
+            train = ReadSetDataset(data=train, shuffle=False, normalize=False)
             valid = ReadSetDataset(data=valid, shuffle=False, normalize=False)
 
             self.train_loader = make_semisupervised_data_loader(train, batch_size, pin_memory=self.use_gpu)
@@ -356,8 +356,6 @@ class BigReadSetDataset:
         for batch in training_loader:
             self.num_training_data += batch.size()
             if batch.is_labeled():
-                self.total_labeled += batch.size()
-
                 labels = batch.labels()  # 1D tensor.  recall that 1 = artifact, 0 = non-artifact
                 variant_type_one_hot = batch.variant_type_one_hot()  # 2D tensor; rows are batch index, columns are variant type
 
