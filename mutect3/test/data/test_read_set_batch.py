@@ -29,7 +29,13 @@ def test_read_set_batch():
 
     batch = read_set_batch.ReadSetBatch(data)
 
-    # TODO: assert for the batch ref tensor
+    assert torch.equal(batch.ref_sequences(),
+                       torch.Tensor([
+                           [[1,0,0],[0,1,1],[0,0,0],[0,0,0]],
+                           [[0,0,0],[0,0,0],[1,0,1],[0,1,0]],
+                           [[0,1,1],[0,0,0],[0,0,0],[1,0,0]]
+                           ])
+                       )
     assert batch.is_labeled()
     assert batch.size() == 3
 

@@ -32,6 +32,7 @@ class ReadSetBatch:
             assert len(datum.ref_tensor()) == self.ref_count, "batch may not mix different ref counts"
             assert len(datum.alt_tensor()) == self.alt_count, "batch may not mix different alt counts"
 
+        self._ref_sequences = torch.stack([item.ref_sequence_tensor for item in data])
         self._reads = torch.cat([item.ref_tensor() for item in data] + [item.alt_tensor() for item in data], dim=0)
         self._info = torch.stack([item.info_tensor() for item in data], dim=0)
         self._labels = torch.FloatTensor([1.0 if item.label() == Label.ARTIFACT else 0.0 for item in data]) if self.labeled else None
@@ -39,6 +40,7 @@ class ReadSetBatch:
 
     # pin memory for all tensors that are sent to the GPU
     def pin_memory(self):
+        self._ref_sequences = self._ref_sequences.pin_memory()
         self._reads = self._reads.pin_memory()
         self._info = self._info.pin_memory()
         self._labels = self._labels.pin_memory()
@@ -49,6 +51,9 @@ class ReadSetBatch:
 
     def size(self) -> int:
         return self._size
+
+    def ref_sequences(self) -> torch.Tensor:
+        return self._ref_sequences
 
     def reads(self) -> torch.Tensor:
         return self._reads

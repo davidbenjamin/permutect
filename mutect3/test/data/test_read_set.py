@@ -4,7 +4,7 @@ from mutect3.data import read_set
 from mutect3.utils import Variation, Label
 
 
-def test_read_set_datum():
+def test_read_set():
     num_ref_reads = 6
     num_alt_reads = 8
     num_read_features = 11
