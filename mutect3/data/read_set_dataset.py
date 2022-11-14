@@ -124,7 +124,7 @@ class ReadSetDataset(Dataset):
                 normalized_alt = (raw.alt_tensor() - read_medians) / read_iqrs
                 restore_binary_columns(normalized=normalized_ref, original=raw.ref_tensor(), binary_columns=binary_read_columns)
                 restore_binary_columns(normalized=normalized_alt, original=raw.alt_tensor(), binary_columns=binary_read_columns)
-                self.data[n] = ReadSet(normalized_ref, normalized_alt, normalized_info[n], raw.label())
+                self.data[n] = ReadSet(raw.ref_sequence_tensor, normalized_ref, normalized_alt, normalized_info[n], raw.label())
 
     def __len__(self):
         return len(self.data)
@@ -176,7 +176,7 @@ def read_data(dataset_file, posterior: bool = False, yield_nones: bool = False, 
             ref, alt = mutation.strip().split("->")
 
             # ref base string
-            ref_bases = file.readline().strip()  # not currently used
+            ref_sequence_string = file.readline().strip()
 
             gatk_info_tensor = line_to_tensor(file.readline())
 
@@ -204,7 +204,7 @@ def read_data(dataset_file, posterior: bool = False, yield_nones: bool = False, 
             assert alt_tensor is None or not torch.sum(alt_tensor).isnan().item(), contig + ":" + str(position)
             assert not torch.sum(gatk_info_tensor).isnan().item(), contig + ":" + str(position)
 
-            datum = ReadSet.from_gatk(Variation.get_type(ref, alt), ref_tensor, alt_tensor, gatk_info_tensor, label)
+            datum = ReadSet.from_gatk(ref_sequence_string, Variation.get_type(ref, alt), ref_tensor, alt_tensor, gatk_info_tensor, label)
 
             if ref_tensor_size >= MIN_REF and alt_tensor_size > 0:
                 if posterior:
