@@ -66,10 +66,11 @@ def parse_mutect3_params(args) -> ArtifactModelParameters:
     read_layers = getattr(args, constants.READ_LAYERS_NAME)
     info_layers = getattr(args, constants.INFO_LAYERS_NAME)
     aggregation_layers = getattr(args, constants.AGGREGATION_LAYERS_NAME)
+    ref_seq_layer_strings = getattr(args, constants.REF_SEQ_LAYER_STRINGS_NAME)
     dropout_p = getattr(args, constants.DROPOUT_P_NAME)
     batch_normalize = getattr(args, constants.BATCH_NORMALIZE_NAME)
     learning_rate = getattr(args, constants.LEARNING_RATE_NAME)
-    return ArtifactModelParameters(read_layers, info_layers, aggregation_layers, dropout_p, batch_normalize, learning_rate)
+    return ArtifactModelParameters(read_layers, info_layers, aggregation_layers, ref_seq_layer_strings, dropout_p, batch_normalize, learning_rate)
 
 
 def parse_arguments():
@@ -79,6 +80,7 @@ def parse_arguments():
     parser.add_argument('--' + constants.READ_LAYERS_NAME, nargs='+', type=int, required=True)
     parser.add_argument('--' + constants.INFO_LAYERS_NAME, nargs='+', type=int, required=True)
     parser.add_argument('--' + constants.AGGREGATION_LAYERS_NAME, nargs='+', type=int, required=True)
+    parser.add_argument('--' + constants.REF_SEQ_LAYER_STRINGS_NAME, nargs='+', type=str, required=True)
     parser.add_argument('--' + constants.DROPOUT_P_NAME, type=float, default=0.0, required=False)
     parser.add_argument('--' + constants.LEARNING_RATE_NAME, type=float, default=0.001, required=False)
     parser.add_argument('--' + constants.BATCH_NORMALIZE_NAME, action='store_true')

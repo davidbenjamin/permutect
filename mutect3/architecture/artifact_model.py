@@ -12,6 +12,7 @@ from itertools import chain
 from matplotlib import pyplot as plt
 
 from mutect3.architecture.mlp import MLP
+from mutect3.architecture.dna_sequence_convolution import DNASequenceConvolution
 from mutect3.data.read_set_batch import ReadSetBatch
 from mutect3.data import read_set
 from mutect3.data import read_set_dataset
@@ -35,10 +36,11 @@ def sums_over_chunks(tensor2d: torch.Tensor, chunk_size: int):
 
 # note that read layers and info layers exclude the input dimension
 class ArtifactModelParameters:
-    def __init__(self, read_layers, info_layers, aggregation_layers, dropout_p, batch_normalize, learning_rate):
+    def __init__(self, read_layers, info_layers, aggregation_layers, ref_seq_layers_strings, dropout_p, batch_normalize, learning_rate):
         self.read_layers = read_layers
         self.info_layers = info_layers
         self.aggregation_layers = aggregation_layers
+        self.ref_seq_layer_strings = ref_seq_layers_strings
         self.dropout_p = dropout_p
         self.batch_normalize = batch_normalize
         self.learning_rate = learning_rate
@@ -105,6 +107,10 @@ class ArtifactModel(nn.Module):
         info_layers = [self._num_info_features] + params.info_layers
         self.omega = MLP(info_layers, batch_normalize=params.batch_normalize, dropout_p=params.dropout_p)
         self.omega.to(self._device)
+
+        # TODO: left off here: need to pass sequence length to constructor, which means recording sequence length earlier.
+        # TODO: also the WDL hasn't been hooked up yet, though the caommand line tool has
+        self.ref_seq_cnn = DNASequenceConvolution(params.ref_seq_layer_strings)
 
         # rho is the universal aggregation function
         ref_alt_info_embedding_dimension = 2 * read_layers[-1] + info_layers[-1]

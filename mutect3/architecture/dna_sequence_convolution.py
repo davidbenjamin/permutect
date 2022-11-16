@@ -28,6 +28,15 @@ class DNASequenceConvolution(nn.Module):
     as a sub-network.  It is parameterized by the dimensions of its layers, starting with
     the input layer and ending with the output.  Output is logits and as such no non-linearity
     is applied after the last linear transformation.
+
+    Layer strings have the format, for example:
+                    ['convolution/kernel_size=3/out_channels=64',
+                     'pool/kernel_size=2',
+                     'leaky_relu',
+                     'convolution/kernel_size=3/dilation=2/out_channels=5',
+                     'leaky_relu',
+                     'flatten',
+                     'linear/out_features=10']
     """
 
     def __init__(self, layer_strings, sequence_length):
