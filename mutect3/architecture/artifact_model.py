@@ -109,7 +109,6 @@ class ArtifactModel(nn.Module):
         self.omega.to(self._device)
 
         # TODO: left off here: need to pass sequence length to constructor, which means recording sequence length earlier.
-        # TODO: also the WDL hasn't been hooked up yet, though the caommand line tool has
         self.ref_seq_cnn = DNASequenceConvolution(params.ref_seq_layer_strings)
 
         # rho is the universal aggregation function
