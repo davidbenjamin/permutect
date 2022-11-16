@@ -1,3 +1,5 @@
+import torch
+
 from mutect3.architecture.dna_sequence_convolution import DNASequenceConvolution
 
 
@@ -11,3 +13,6 @@ def test_constructor():
                      'flatten',
                      'linear/out_features=10']
     model = DNASequenceConvolution(layer_strings, input_length)
+
+    data = torch.randn(8, 4, input_length)
+    output = model(data)

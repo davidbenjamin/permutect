@@ -4,9 +4,17 @@ from math import floor
 
 def conv_output_length(input_length, kernel_size=1, stride=1, pad=0, dilation=1, **kwargs):
     """
-    Output length of 1D convolution or pooling given input length and various options.  Copied from PyTorch docs
+    Output length of 1D convolution given input length and various options.  Copied from PyTorch docs
     """
-    return floor( ((input_length + (2 * pad) - ( dilation * (kernel_size - 1) ) - 1 )/ stride) + 1)
+    return floor(((input_length + (2 * pad) - (dilation * (kernel_size - 1)) - 1) / stride) + 1)
+
+
+def pool_output_length(input_length, kernel_size=1, stride=None, pad=0, dilation=1, **kwargs):
+    """
+    Output length of 1D pooling given input length and various options.  Copied from PyTorch docs.
+    Differs from convolution in that stride equals kernel_size by default.
+    """
+    return floor(((input_length + (2 * pad) - (dilation * (kernel_size - 1)) - 1) / (kernel_size if stride is None else stride)) + 1)
 
 
 INITIAL_NUM_CHANNELS = 4    # one channel for each DNA base
@@ -45,7 +53,7 @@ class DNASequenceConvolution(nn.Module):
                 case "pool":
                     assert last_layer_shape[1] > 1, "You are trying to pool a length-1 sequence, which, while defined, is silly"
                     layers.append(nn.MaxPool1d(**kwargs))
-                    last_layer_shape = (last_layer_shape[0], conv_output_length(last_layer_shape[1], **kwargs))
+                    last_layer_shape = (last_layer_shape[0], pool_output_length(last_layer_shape[1], **kwargs))
                 case "leaky_relu":
                     layers.append(nn.LeakyReLU())
                 case "flatten":
