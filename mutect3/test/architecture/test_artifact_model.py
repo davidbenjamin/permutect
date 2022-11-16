@@ -16,7 +16,15 @@ NUM_EPOCHS = 50
 NUM_SPECTRUM_ITERATIONS = 100
 TRAINING_PARAMS = TrainingParameters(batch_size=BATCH_SIZE, chunk_size=CHUNK_SIZE, num_epochs=NUM_EPOCHS, reweighting_range=0.3)
 
+REF_SEQ_LAYER_STRINGS = ['convolution/kernel_size=3/out_channels=64',
+                     'pool/kernel_size=3',
+                     'leaky_relu',
+                     'convolution/kernel_size=3/dilation=1/out_channels=5',
+                     'leaky_relu',
+                     'flatten',
+                     'linear/out_features=10']
 SMALL_MODEL_PARAMS = ArtifactModelParameters(read_layers=[5, 5], info_layers=[5, 5], aggregation_layers=[5, 5, 5, 5],
+                                             ref_seq_layers_strings=REF_SEQ_LAYER_STRINGS,
                                              dropout_p=0.2, batch_normalize=False, learning_rate=0.001)
 
 
@@ -25,7 +33,7 @@ def train_model_and_write_summary(m3_params: ArtifactModelParameters, training_p
                                   data: Iterable[ReadSet], summary_writer: SummaryWriter = None):
     dataset = ReadSetDataset(data=data)
     big_dataset = BigReadSetDataset(batch_size=training_params.batch_size, dataset=dataset)
-    model = ArtifactModel(params=m3_params, num_read_features=dataset.num_read_features(), num_info_features=dataset.num_info_features()).float()
+    model = ArtifactModel(params=m3_params, num_read_features=dataset.num_read_features(), num_info_features=dataset.num_info_features(), ref_sequence_length=dataset.ref_sequence_length()).float()
 
     model.train_model(big_dataset, training_params.num_epochs, summary_writer=summary_writer,
                       reweighting_range=training_params.reweighting_range, m3_params=m3_params)
@@ -42,7 +50,7 @@ def test_big_data():
 
     with tempfile.TemporaryDirectory() as tensorboard_dir:
         summary_writer = SummaryWriter(tensorboard_dir)
-        model = ArtifactModel(params=params, num_read_features=big_dataset.num_read_features, num_info_features=big_dataset.num_info_features).float()
+        model = ArtifactModel(params=params, num_read_features=big_dataset.num_read_features, num_info_features=big_dataset.num_info_features, ref_sequence_length=big_dataset.ref_sequence_length).float()
         model.train_model(big_dataset, training_params.num_epochs, summary_writer=summary_writer,
                           reweighting_range=training_params.reweighting_range, m3_params=params)
         model.learn_calibration(big_dataset.generate_batches(utils.Epoch.VALID), num_epochs=50)

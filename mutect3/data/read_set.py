@@ -62,7 +62,7 @@ def save_list_of_read_sets(read_sets: List[ReadSet], file):
     info_tensors = [datum.info_tensor() for datum in read_sets]
     labels = torch.IntTensor([datum.label().value for datum in read_sets])
 
-    torch.save([ref_tensors, alt_tensors, info_tensors, labels], file)
+    torch.save([ref_sequence_tensors, ref_tensors, alt_tensors, info_tensors, labels], file)
 
 
 def load_list_of_read_sets(file) -> List[ReadSet]:

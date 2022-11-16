@@ -75,11 +75,11 @@ class DNASequenceConvolution(nn.Module):
                     last_layer_shape = (kwargs["out_features"], 1)
 
         assert last_layer_shape[1] == 1, "dagta have not been flattened"
-        self.output_dimension = last_layer_shape[0]
+        self._output_dimension = last_layer_shape[0]
         self._model = nn.Sequential(*layers)
 
     def output_dimension(self):
-        return self.output_dimension()
+        return self._output_dimension
 
     def forward(self, x):
         """

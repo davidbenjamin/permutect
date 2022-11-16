@@ -138,6 +138,9 @@ class ReadSetDataset(Dataset):
     def num_info_features(self) -> int:
         return len(self.data[0].info_tensor()) # number of columns in (arbitrarily) the first alt read tensor of the dataset
 
+    def ref_sequence_length(self) -> int:
+        return self.data[0].ref_sequence_tensor.shape[-1]
+
 
 # this is used for training and validation but not deployment / testing
 def make_semisupervised_data_loader(dataset: ReadSetDataset, batch_size: int, pin_memory=False):
@@ -298,6 +301,7 @@ class BigReadSetDataset:
             self.valid_loader = make_semisupervised_data_loader(valid, batch_size, pin_memory=self.use_gpu)
             self.num_read_features = dataset.num_read_features()
             self.num_info_features = dataset.num_info_features()
+            self.ref_sequence_length = dataset.ref_sequence_length()
             self.accumulate_totals(self.train_loader)
 
         else:
@@ -306,9 +310,11 @@ class BigReadSetDataset:
                 if self.num_read_features is None:
                     self.num_read_features = dataset_from_files.num_read_features()
                     self.num_info_features = dataset_from_files.num_info_features()
+                    self.ref_sequence_length = dataset_from_files.ref_sequence_length()
                 else:
                     assert self.num_read_features == dataset_from_files.num_read_features(), "inconsistent number of read features between files"
                     assert self.num_info_features == dataset_from_files.num_info_features(), "inconsistent number of info features between files"
+                    assert self.ref_sequence_length == dataset_from_files.ref_sequence_length(), "inconsistent ref sequence lengths between files"
                 train, valid = utils.split_dataset_into_train_and_valid(dataset_from_files, 0.9)
                 train = ReadSetDataset(data=train, shuffle=False, normalize=False)
                 valid = ReadSetDataset(data=valid, shuffle=False, normalize=False)

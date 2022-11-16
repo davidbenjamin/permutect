@@ -91,12 +91,14 @@ class ArtifactModel(nn.Module):
     because we have different output layers for each variant type.
     """
 
+    # TODO: left off here: need to make sure that ref_Sequence_length gets passed to constructor, as it should be
     def __init__(self, params: ArtifactModelParameters, num_read_features: int, num_info_features: int, ref_sequence_length: int, device=torch.device("cpu")):
         super(ArtifactModel, self).__init__()
 
         self._device = device
         self._num_read_features = num_read_features
         self._num_info_features = num_info_features
+        self._ref_sequence_length = ref_sequence_length
 
         # phi is the read embedding
         read_layers = [self._num_read_features] + params.read_layers
@@ -108,7 +110,6 @@ class ArtifactModel(nn.Module):
         self.omega = MLP(info_layers, batch_normalize=params.batch_normalize, dropout_p=params.dropout_p)
         self.omega.to(self._device)
 
-        # TODO: left off here: need to pass sequence length to constructor, which means recording sequence length earlier.
         self.ref_seq_cnn = DNASequenceConvolution(params.ref_seq_layer_strings, ref_sequence_length)
         self.ref_seq_cnn.to(self._device)
 
@@ -128,6 +129,9 @@ class ArtifactModel(nn.Module):
 
     def num_info_features(self) -> int:
         return self._num_info_features
+
+    def ref_sequence_length(self) -> int:
+        return self._ref_sequence_length
 
     def training_parameters(self):
         return chain(self.phi.parameters(), self.omega.parameters(), self.rho.parameters(), [self.calibration.max_logit])
