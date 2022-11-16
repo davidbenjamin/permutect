@@ -91,7 +91,7 @@ class ArtifactModel(nn.Module):
     because we have different output layers for each variant type.
     """
 
-    def __init__(self, params: ArtifactModelParameters, num_read_features: int, num_info_features: int, device=torch.device("cpu")):
+    def __init__(self, params: ArtifactModelParameters, num_read_features: int, num_info_features: int, ref_sequence_length: int, device=torch.device("cpu")):
         super(ArtifactModel, self).__init__()
 
         self._device = device
@@ -109,13 +109,14 @@ class ArtifactModel(nn.Module):
         self.omega.to(self._device)
 
         # TODO: left off here: need to pass sequence length to constructor, which means recording sequence length earlier.
-        self.ref_seq_cnn = DNASequenceConvolution(params.ref_seq_layer_strings)
+        self.ref_seq_cnn = DNASequenceConvolution(params.ref_seq_layer_strings, ref_sequence_length)
+        self.ref_seq_cnn.to(self._device)
 
         # rho is the universal aggregation function
-        ref_alt_info_embedding_dimension = 2 * read_layers[-1] + info_layers[-1]
+        ref_alt_info_ref_seq_embedding_dimension = 2 * read_layers[-1] + info_layers[-1] + self.ref_seq_cnn.output_dimension()
 
         # The [1] is for the output of binary classification, represented as a single artifact/non-artifact logit
-        self.rho = MLP([ref_alt_info_embedding_dimension] + params.aggregation_layers + [1], batch_normalize=params.batch_normalize,
+        self.rho = MLP([ref_alt_info_ref_seq_embedding_dimension] + params.aggregation_layers + [1], batch_normalize=params.batch_normalize,
                        dropout_p=params.dropout_p)
         self.rho.to(self._device)
 
@@ -179,7 +180,9 @@ class ArtifactModel(nn.Module):
 
         # stack side-by-side to get 2D tensor, where each variant row is (ref mean, alt mean, info)
         omega_info = torch.sigmoid(self.omega(batch.info().to(self._device)))
-        concatenated = torch.cat((ref_means, alt_means, omega_info), dim=1)
+
+        ref_seq_embedding = self.ref_seq_cnn(batch.ref_sequences())
+        concatenated = torch.cat((ref_means, alt_means, omega_info, ref_seq_embedding), dim=1)
         logits = self.rho(concatenated).squeeze(dim=1)  # specify dim so that in edge case of batch size 1 we get 1D tensor, not scalar
         return logits, effective_ref_counts, effective_alt_counts
 
