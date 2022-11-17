@@ -54,25 +54,26 @@ class DNASequenceConvolution(nn.Module):
                 key, value = tuple(key_value_token.split(KEY_VALUE_SEPARATOR))
                 kwargs[key] = int(value)    # we're assuming all params are integers
 
-            match layer_type_token:
-                case "convolution":
-                    kwargs["in_channels"] = last_layer_shape[0]
-                    layers.append(nn.Conv1d(**kwargs))
-                    last_layer_shape = (kwargs["out_channels"], conv_output_length(last_layer_shape[1], **kwargs))
-                case "pool":
-                    assert last_layer_shape[1] > 1, "You are trying to pool a length-1 sequence, which, while defined, is silly"
-                    layers.append(nn.MaxPool1d(**kwargs))
-                    last_layer_shape = (last_layer_shape[0], pool_output_length(last_layer_shape[1], **kwargs))
-                case "leaky_relu":
-                    layers.append(nn.LeakyReLU())
-                case "flatten":
-                    layers.append(nn.Flatten()) # by default, batch dimension is not flattened
-                    last_layer_shape = (last_layer_shape[0] * last_layer_shape[1], 1)   # no position left, everything is a "channel"
-                case "linear":
-                    assert last_layer_shape[1] == 1, "Trying to use fully-connected layer before data have been flattened"
-                    kwargs["in_features"] = last_layer_shape[0]
-                    layers.append(nn.Linear(**kwargs))
-                    last_layer_shape = (kwargs["out_features"], 1)
+            if layer_type_token == "convolution":
+                kwargs["in_channels"] = last_layer_shape[0]
+                layers.append(nn.Conv1d(**kwargs))
+                last_layer_shape = (kwargs["out_channels"], conv_output_length(last_layer_shape[1], **kwargs))
+            elif layer_type_token == "pool":
+                assert last_layer_shape[1] > 1, "You are trying to pool a length-1 sequence, which, while defined, is silly"
+                layers.append(nn.MaxPool1d(**kwargs))
+                last_layer_shape = (last_layer_shape[0], pool_output_length(last_layer_shape[1], **kwargs))
+            elif layer_type_token == "leaky_relu":
+                layers.append(nn.LeakyReLU())
+            elif layer_type_token == "flatten":
+                layers.append(nn.Flatten()) # by default, batch dimension is not flattened
+                last_layer_shape = (last_layer_shape[0] * last_layer_shape[1], 1)   # no position left, everything is a "channel"
+            elif layer_type_token == "linear":
+                assert last_layer_shape[1] == 1, "Trying to use fully-connected layer before data have been flattened"
+                kwargs["in_features"] = last_layer_shape[0]
+                layers.append(nn.Linear(**kwargs))
+                last_layer_shape = (kwargs["out_features"], 1)
+            else:
+                raise Exception("unsupported layer_type: " + layer_type_token)
 
         assert last_layer_shape[1] == 1, "dagta have not been flattened"
         self._output_dimension = last_layer_shape[0]
