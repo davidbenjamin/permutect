@@ -11,17 +11,18 @@ from mutect3.utils import Label
 
 
 class TrainingParameters:
-    def __init__(self, batch_size, chunk_size, num_epochs, reweighting_range: float):
+    def __init__(self, batch_size, chunk_size, num_epochs, reweighting_range: float, num_workers: int=0):
         self.batch_size = batch_size
         self.num_epochs = num_epochs
         self.reweighting_range = reweighting_range
         self.chunk_size = chunk_size
+        self.num_workers = num_workers
 
 
 def train_artifact_model(m3_params: ArtifactModelParameters, training_datasets, params: TrainingParameters, tensorboard_dir):
     use_gpu = torch.cuda.is_available()
     device = torch.device('cuda' if use_gpu else 'cpu')
-    big_dataset = read_set_dataset.BigReadSetDataset(batch_size=params.batch_size, chunk_size=params.chunk_size, dataset_files=training_datasets)
+    big_dataset = read_set_dataset.BigReadSetDataset(batch_size=params.batch_size, chunk_size=params.chunk_size, dataset_files=training_datasets, num_workers=params.num_workers)
     model = ArtifactModel(params=m3_params, num_read_features=big_dataset.num_read_features,
                           num_info_features=big_dataset.num_info_features, ref_sequence_length=big_dataset.ref_sequence_length, device=device).float()
 
@@ -60,7 +61,8 @@ def parse_training_params(args) -> TrainingParameters:
     batch_size = getattr(args, constants.BATCH_SIZE_NAME)
     chunk_size = getattr(args, constants.CHUNK_SIZE_NAME)
     num_epochs = getattr(args, constants.NUM_EPOCHS_NAME)
-    return TrainingParameters(batch_size, chunk_size, num_epochs, reweighting_range)
+    num_workers = getattr(args, constants.NUM_WORKERS_NAME)
+    return TrainingParameters(batch_size, chunk_size, num_epochs, reweighting_range, num_workers=num_workers)
 
 
 def parse_mutect3_params(args) -> ArtifactModelParameters:
@@ -92,6 +94,7 @@ def parse_arguments():
     # training hyperparameters
     parser.add_argument('--' + constants.REWEIGHTING_RANGE_NAME, type=float, default=0.3, required=False)
     parser.add_argument('--' + constants.BATCH_SIZE_NAME, type=int, default=64, required=False)
+    parser.add_argument('--' + constants.NUM_WORKERS_NAME, type=int, default=0, required=False)
     parser.add_argument('--' + constants.CHUNK_SIZE_NAME, type=int, default=1000000, required=False)
     parser.add_argument('--' + constants.NUM_EPOCHS_NAME, type=int, required=True)
 

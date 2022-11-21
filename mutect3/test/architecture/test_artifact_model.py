@@ -32,7 +32,7 @@ SMALL_MODEL_PARAMS = ArtifactModelParameters(read_layers=[5, 5], info_layers=[5,
 def train_model_and_write_summary(m3_params: ArtifactModelParameters, training_params: TrainingParameters,
                                   data: Iterable[ReadSet], summary_writer: SummaryWriter = None):
     dataset = ReadSetDataset(data=data)
-    big_dataset = BigReadSetDataset(batch_size=training_params.batch_size, dataset=dataset)
+    big_dataset = BigReadSetDataset(batch_size=training_params.batch_size, dataset=dataset, num_workers=2)
     model = ArtifactModel(params=m3_params, num_read_features=dataset.num_read_features(), num_info_features=dataset.num_info_features(), ref_sequence_length=dataset.ref_sequence_length()).float()
 
     model.train_model(big_dataset, training_params.num_epochs, summary_writer=summary_writer,
@@ -44,7 +44,7 @@ def train_model_and_write_summary(m3_params: ArtifactModelParameters, training_p
 
 def test_big_data():
     training_dataset_file = "/Users/davidben/mutect3/just-dream-1/dream1-normal-medium-training.dataset"
-    big_dataset = BigReadSetDataset(batch_size=64, chunk_size=10000, dataset_files=[training_dataset_file])
+    big_dataset = BigReadSetDataset(batch_size=64, chunk_size=10000, dataset_files=[training_dataset_file], num_workers=2)
     params = SMALL_MODEL_PARAMS
     training_params = TRAINING_PARAMS
 

@@ -143,9 +143,9 @@ class ReadSetDataset(Dataset):
 
 
 # this is used for training and validation but not deployment / testing
-def make_semisupervised_data_loader(dataset: ReadSetDataset, batch_size: int, pin_memory=False):
+def make_semisupervised_data_loader(dataset: ReadSetDataset, batch_size: int, pin_memory=False, num_workers: int=0):
     sampler = SemiSupervisedBatchSampler(dataset, batch_size)
-    return DataLoader(dataset=dataset, batch_sampler=sampler, collate_fn=ReadSetBatch, pin_memory=pin_memory)
+    return DataLoader(dataset=dataset, batch_sampler=sampler, collate_fn=ReadSetBatch, pin_memory=pin_memory, num_workers=num_workers)
 
 
 def make_test_data_loader(dataset: ReadSetDataset, batch_size: int):
@@ -246,15 +246,15 @@ def generate_datasets(dataset_files, chunk_size: int):
     assert data_count == num_data and chunk_count == num_chunks and len(buffer) == 0     # should be nothing left over
 
 
-def make_loader_from_file(dataset_file, batch_size, use_gpu: bool):
+def make_loader_from_file(dataset_file, batch_size, use_gpu: bool, num_workers: int = 0):
     with open(dataset_file, 'rb') as file:
         data = load_list_of_read_sets(file)
         dataset = ReadSetDataset(data=data, shuffle=False, normalize=False)  # data has already been normalized
-        return make_semisupervised_data_loader(dataset, batch_size, pin_memory=use_gpu)
+        return make_semisupervised_data_loader(dataset, batch_size, pin_memory=use_gpu, num_workers=num_workers)
 
 
 class DataFetchingThread(Thread):
-    def __init__(self, dataset_file, batch_size, use_gpu):
+    def __init__(self, dataset_file, batch_size, use_gpu, num_workers: int=0):
         # execute the base constructor
         Thread.__init__(self)
         # set a default value
@@ -262,9 +262,10 @@ class DataFetchingThread(Thread):
         self.dataset_file = dataset_file
         self.batch_size = batch_size
         self.use_gpu = use_gpu
+        self.num_workers = num_workers
 
     def run(self):
-        self.fetched_data_loader = make_loader_from_file(self.dataset_file, self.batch_size, self.use_gpu)
+        self.fetched_data_loader = make_loader_from_file(self.dataset_file, self.batch_size, self.use_gpu, num_workers=self.num_workers)
 
     def get_loader(self):
         return self.fetched_data_loader
@@ -272,11 +273,12 @@ class DataFetchingThread(Thread):
 
 class BigReadSetDataset:
 
-    def __init__(self, batch_size: int = 64, chunk_size: int = 1000000, dataset: ReadSetDataset = None, dataset_files=None):
+    def __init__(self, batch_size: int = 64, chunk_size: int = 1000000, dataset: ReadSetDataset = None, dataset_files=None, num_workers: int=0):
         assert dataset is None or dataset_files is None, "Initialize either with dataset or files, not both"
         assert dataset is not None or dataset_files is not None, "Must initialize with a dataset or files, not nothing"
         self.use_gpu = torch.cuda.is_available()
         self.batch_size = batch_size
+        self.num_workers = num_workers
 
         # TODO: make this class autocloseable and clean up the temp dirs when closing
         self.train_data_files = []
@@ -297,8 +299,8 @@ class BigReadSetDataset:
             train = ReadSetDataset(data=train, shuffle=False, normalize=False)
             valid = ReadSetDataset(data=valid, shuffle=False, normalize=False)
 
-            self.train_loader = make_semisupervised_data_loader(train, batch_size, pin_memory=self.use_gpu)
-            self.valid_loader = make_semisupervised_data_loader(valid, batch_size, pin_memory=self.use_gpu)
+            self.train_loader = make_semisupervised_data_loader(train, batch_size, pin_memory=self.use_gpu, num_workers=num_workers)
+            self.valid_loader = make_semisupervised_data_loader(valid, batch_size, pin_memory=self.use_gpu, num_workers=num_workers)
             self.num_read_features = dataset.num_read_features()
             self.num_info_features = dataset.num_info_features()
             self.ref_sequence_length = dataset.ref_sequence_length()
@@ -318,7 +320,7 @@ class BigReadSetDataset:
                 train, valid = utils.split_dataset_into_train_and_valid(dataset_from_files, 0.9)
                 train = ReadSetDataset(data=train, shuffle=False, normalize=False)
                 valid = ReadSetDataset(data=valid, shuffle=False, normalize=False)
-                self.accumulate_totals(make_semisupervised_data_loader(train, batch_size, pin_memory=self.use_gpu))
+                self.accumulate_totals(make_semisupervised_data_loader(train, batch_size, pin_memory=self.use_gpu, num_workers=num_workers))
 
                 with tempfile.NamedTemporaryFile(delete=False) as train_data_file:
                     save_list_of_read_sets([datum for datum in train], train_data_file)
@@ -339,14 +341,14 @@ class BigReadSetDataset:
             # note that we already normalized and shuffled
             if len(self.train_data_files) == 1:
                 self.train_fits_in_ram = True
-                self.train_loader = make_loader_from_file(self.train_data_files[0], batch_size, self.use_gpu)
+                self.train_loader = make_loader_from_file(self.train_data_files[0], batch_size, self.use_gpu, num_workers=self.num_workers)
             else:
                 self.train_fits_in_ram = False
                 self.train_loader = None
 
             if len(self.valid_data_files) == 1:
                 self.valid_fits_in_ram = True
-                self.valid_loader = make_loader_from_file(self.valid_data_files[0], batch_size, self.use_gpu)
+                self.valid_loader = make_loader_from_file(self.valid_data_files[0], batch_size, self.use_gpu, num_workers=self.num_workers)
             else:
                 self.valid_fits_in_ram = False
                 self.valid_loader = None
@@ -381,7 +383,7 @@ class BigReadSetDataset:
         else:
             data_files = self.train_data_files if epoch_type == utils.Epoch.TRAIN else self.valid_data_files
 
-            data_fetching_thread = DataFetchingThread(data_files[0], self.batch_size, self.use_gpu)
+            data_fetching_thread = DataFetchingThread(data_files[0], self.batch_size, self.use_gpu, num_workers=self.num_workers)
             data_fetching_thread.start()
 
             for n in range(len(data_files)):
@@ -394,7 +396,7 @@ class BigReadSetDataset:
 
                 # start new thread to fetch next file in background before yielding from the current file
                 if n < len(data_files) - 1:
-                    data_fetching_thread = DataFetchingThread(data_files[n+1], self.batch_size, self.use_gpu)
+                    data_fetching_thread = DataFetchingThread(data_files[n+1], self.batch_size, self.use_gpu, num_workers=self.num_workers)
                     data_fetching_thread.start()
 
                 for batch in loader:
