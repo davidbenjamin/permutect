@@ -4,7 +4,7 @@ from torch import nn
 class DenseSkipBlock(nn.Module):
     """
     computes x + f(x) where f(x) has some given number of linear layers, each with input and output dimension equal
-    to that of the input x.  As suggested in arxiv:1603.05027, nonlinearities come before each linear transformation
+    to that of the input x.  As suggested in arxiv:1603.05027, Identity Maps in Deep Residual Networks, nonlinearities come before each linear transformation
     """
     def __init__(self, input_size: int, num_layers: int, batch_normalize: bool = False, dropout_p=None):
         super(DenseSkipBlock, self).__init__()
