@@ -48,7 +48,11 @@ class MLP(nn.Module):
 
             input_dim = output_dim  # note that this does not happen for a residual skip connection
 
+        self._output_dim = input_dim
         self._model = nn.Sequential(*layers)
+
+    def output_dimension(self):
+        return self._output_dim
 
     def forward(self, x):
         return self._model.forward(x)

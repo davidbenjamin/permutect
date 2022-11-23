@@ -114,7 +114,7 @@ class ArtifactModel(nn.Module):
         self.ref_seq_cnn.to(self._device)
 
         # rho is the universal aggregation function
-        ref_alt_info_ref_seq_embedding_dimension = 2 * read_layers[-1] + info_layers[-1] + self.ref_seq_cnn.output_dimension()
+        ref_alt_info_ref_seq_embedding_dimension = 2 * self.phi.output_dimension() + self.omega.output_dimension() + self.ref_seq_cnn.output_dimension()
 
         # The [1] is for the output of binary classification, represented as a single artifact/non-artifact logit
         self.rho = MLP([ref_alt_info_ref_seq_embedding_dimension] + params.aggregation_layers + [1], batch_normalize=params.batch_normalize,
