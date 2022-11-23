@@ -124,7 +124,7 @@ class ReadSetDataset(Dataset):
                 normalized_alt = (raw.alt_tensor() - read_medians) / read_iqrs
                 restore_binary_columns(normalized=normalized_ref, original=raw.ref_tensor(), binary_columns=binary_read_columns)
                 restore_binary_columns(normalized=normalized_alt, original=raw.alt_tensor(), binary_columns=binary_read_columns)
-                self.data[n] = ReadSet(normalized_ref, normalized_alt, normalized_info[n], raw.label())
+                self.data[n] = ReadSet(raw.ref_sequence_tensor, normalized_ref, normalized_alt, normalized_info[n], raw.label())
 
     def __len__(self):
         return len(self.data)
@@ -138,11 +138,14 @@ class ReadSetDataset(Dataset):
     def num_info_features(self) -> int:
         return len(self.data[0].info_tensor()) # number of columns in (arbitrarily) the first alt read tensor of the dataset
 
+    def ref_sequence_length(self) -> int:
+        return self.data[0].ref_sequence_tensor.shape[-1]
+
 
 # this is used for training and validation but not deployment / testing
-def make_semisupervised_data_loader(dataset: ReadSetDataset, batch_size: int, pin_memory=False):
+def make_semisupervised_data_loader(dataset: ReadSetDataset, batch_size: int, pin_memory=False, num_workers: int=0):
     sampler = SemiSupervisedBatchSampler(dataset, batch_size)
-    return DataLoader(dataset=dataset, batch_sampler=sampler, collate_fn=ReadSetBatch, pin_memory=pin_memory)
+    return DataLoader(dataset=dataset, batch_sampler=sampler, collate_fn=ReadSetBatch, pin_memory=pin_memory, num_workers=num_workers)
 
 
 def make_test_data_loader(dataset: ReadSetDataset, batch_size: int):
@@ -176,7 +179,7 @@ def read_data(dataset_file, posterior: bool = False, yield_nones: bool = False, 
             ref, alt = mutation.strip().split("->")
 
             # ref base string
-            ref_bases = file.readline().strip()  # not currently used
+            ref_sequence_string = file.readline().strip()
 
             gatk_info_tensor = line_to_tensor(file.readline())
 
@@ -204,7 +207,7 @@ def read_data(dataset_file, posterior: bool = False, yield_nones: bool = False, 
             assert alt_tensor is None or not torch.sum(alt_tensor).isnan().item(), contig + ":" + str(position)
             assert not torch.sum(gatk_info_tensor).isnan().item(), contig + ":" + str(position)
 
-            datum = ReadSet.from_gatk(Variation.get_type(ref, alt), ref_tensor, alt_tensor, gatk_info_tensor, label)
+            datum = ReadSet.from_gatk(ref_sequence_string, Variation.get_type(ref, alt), ref_tensor, alt_tensor, gatk_info_tensor, label)
 
             if ref_tensor_size >= MIN_REF and alt_tensor_size > 0:
                 if posterior:
@@ -243,15 +246,15 @@ def generate_datasets(dataset_files, chunk_size: int):
     assert data_count == num_data and chunk_count == num_chunks and len(buffer) == 0     # should be nothing left over
 
 
-def make_loader_from_file(dataset_file, batch_size, use_gpu: bool):
+def make_loader_from_file(dataset_file, batch_size, use_gpu: bool, num_workers: int = 0):
     with open(dataset_file, 'rb') as file:
         data = load_list_of_read_sets(file)
         dataset = ReadSetDataset(data=data, shuffle=False, normalize=False)  # data has already been normalized
-        return make_semisupervised_data_loader(dataset, batch_size, pin_memory=use_gpu)
+        return make_semisupervised_data_loader(dataset, batch_size, pin_memory=use_gpu, num_workers=num_workers)
 
 
 class DataFetchingThread(Thread):
-    def __init__(self, dataset_file, batch_size, use_gpu):
+    def __init__(self, dataset_file, batch_size, use_gpu, num_workers: int=0):
         # execute the base constructor
         Thread.__init__(self)
         # set a default value
@@ -259,9 +262,10 @@ class DataFetchingThread(Thread):
         self.dataset_file = dataset_file
         self.batch_size = batch_size
         self.use_gpu = use_gpu
+        self.num_workers = num_workers
 
     def run(self):
-        self.fetched_data_loader = make_loader_from_file(self.dataset_file, self.batch_size, self.use_gpu)
+        self.fetched_data_loader = make_loader_from_file(self.dataset_file, self.batch_size, self.use_gpu, num_workers=self.num_workers)
 
     def get_loader(self):
         return self.fetched_data_loader
@@ -269,11 +273,12 @@ class DataFetchingThread(Thread):
 
 class BigReadSetDataset:
 
-    def __init__(self, batch_size: int = 64, chunk_size: int = 1000000, dataset: ReadSetDataset = None, dataset_files=None):
+    def __init__(self, batch_size: int = 64, chunk_size: int = 1000000, dataset: ReadSetDataset = None, dataset_files=None, num_workers: int=0):
         assert dataset is None or dataset_files is None, "Initialize either with dataset or files, not both"
         assert dataset is not None or dataset_files is not None, "Must initialize with a dataset or files, not nothing"
         self.use_gpu = torch.cuda.is_available()
         self.batch_size = batch_size
+        self.num_workers = num_workers
 
         # TODO: make this class autocloseable and clean up the temp dirs when closing
         self.train_data_files = []
@@ -294,10 +299,11 @@ class BigReadSetDataset:
             train = ReadSetDataset(data=train, shuffle=False, normalize=False)
             valid = ReadSetDataset(data=valid, shuffle=False, normalize=False)
 
-            self.train_loader = make_semisupervised_data_loader(train, batch_size, pin_memory=self.use_gpu)
-            self.valid_loader = make_semisupervised_data_loader(valid, batch_size, pin_memory=self.use_gpu)
+            self.train_loader = make_semisupervised_data_loader(train, batch_size, pin_memory=self.use_gpu, num_workers=num_workers)
+            self.valid_loader = make_semisupervised_data_loader(valid, batch_size, pin_memory=self.use_gpu, num_workers=num_workers)
             self.num_read_features = dataset.num_read_features()
             self.num_info_features = dataset.num_info_features()
+            self.ref_sequence_length = dataset.ref_sequence_length()
             self.accumulate_totals(self.train_loader)
 
         else:
@@ -306,13 +312,15 @@ class BigReadSetDataset:
                 if self.num_read_features is None:
                     self.num_read_features = dataset_from_files.num_read_features()
                     self.num_info_features = dataset_from_files.num_info_features()
+                    self.ref_sequence_length = dataset_from_files.ref_sequence_length()
                 else:
                     assert self.num_read_features == dataset_from_files.num_read_features(), "inconsistent number of read features between files"
                     assert self.num_info_features == dataset_from_files.num_info_features(), "inconsistent number of info features between files"
+                    assert self.ref_sequence_length == dataset_from_files.ref_sequence_length(), "inconsistent ref sequence lengths between files"
                 train, valid = utils.split_dataset_into_train_and_valid(dataset_from_files, 0.9)
                 train = ReadSetDataset(data=train, shuffle=False, normalize=False)
                 valid = ReadSetDataset(data=valid, shuffle=False, normalize=False)
-                self.accumulate_totals(make_semisupervised_data_loader(train, batch_size, pin_memory=self.use_gpu))
+                self.accumulate_totals(make_semisupervised_data_loader(train, batch_size, pin_memory=self.use_gpu, num_workers=num_workers))
 
                 with tempfile.NamedTemporaryFile(delete=False) as train_data_file:
                     save_list_of_read_sets([datum for datum in train], train_data_file)
@@ -333,14 +341,14 @@ class BigReadSetDataset:
             # note that we already normalized and shuffled
             if len(self.train_data_files) == 1:
                 self.train_fits_in_ram = True
-                self.train_loader = make_loader_from_file(self.train_data_files[0], batch_size, self.use_gpu)
+                self.train_loader = make_loader_from_file(self.train_data_files[0], batch_size, self.use_gpu, num_workers=self.num_workers)
             else:
                 self.train_fits_in_ram = False
                 self.train_loader = None
 
             if len(self.valid_data_files) == 1:
                 self.valid_fits_in_ram = True
-                self.valid_loader = make_loader_from_file(self.valid_data_files[0], batch_size, self.use_gpu)
+                self.valid_loader = make_loader_from_file(self.valid_data_files[0], batch_size, self.use_gpu, num_workers=self.num_workers)
             else:
                 self.valid_fits_in_ram = False
                 self.valid_loader = None
@@ -375,7 +383,7 @@ class BigReadSetDataset:
         else:
             data_files = self.train_data_files if epoch_type == utils.Epoch.TRAIN else self.valid_data_files
 
-            data_fetching_thread = DataFetchingThread(data_files[0], self.batch_size, self.use_gpu)
+            data_fetching_thread = DataFetchingThread(data_files[0], self.batch_size, self.use_gpu, num_workers=self.num_workers)
             data_fetching_thread.start()
 
             for n in range(len(data_files)):
@@ -388,7 +396,7 @@ class BigReadSetDataset:
 
                 # start new thread to fetch next file in background before yielding from the current file
                 if n < len(data_files) - 1:
-                    data_fetching_thread = DataFetchingThread(data_files[n+1], self.batch_size, self.use_gpu)
+                    data_fetching_thread = DataFetchingThread(data_files[n+1], self.batch_size, self.use_gpu, num_workers=self.num_workers)
                     data_fetching_thread.start()
 
                 for batch in loader:

@@ -12,6 +12,7 @@ from itertools import chain
 from matplotlib import pyplot as plt
 
 from mutect3.architecture.mlp import MLP
+from mutect3.architecture.dna_sequence_convolution import DNASequenceConvolution
 from mutect3.data.read_set_batch import ReadSetBatch
 from mutect3.data import read_set
 from mutect3.data import read_set_dataset
@@ -35,10 +36,11 @@ def sums_over_chunks(tensor2d: torch.Tensor, chunk_size: int):
 
 # note that read layers and info layers exclude the input dimension
 class ArtifactModelParameters:
-    def __init__(self, read_layers, info_layers, aggregation_layers, dropout_p, batch_normalize, learning_rate):
+    def __init__(self, read_layers, info_layers, aggregation_layers, ref_seq_layers_strings, dropout_p, batch_normalize, learning_rate):
         self.read_layers = read_layers
         self.info_layers = info_layers
         self.aggregation_layers = aggregation_layers
+        self.ref_seq_layer_strings = ref_seq_layers_strings
         self.dropout_p = dropout_p
         self.batch_normalize = batch_normalize
         self.learning_rate = learning_rate
@@ -89,12 +91,14 @@ class ArtifactModel(nn.Module):
     because we have different output layers for each variant type.
     """
 
-    def __init__(self, params: ArtifactModelParameters, num_read_features: int, num_info_features: int, device=torch.device("cpu")):
+    # TODO: left off here: need to make sure that ref_Sequence_length gets passed to constructor, as it should be
+    def __init__(self, params: ArtifactModelParameters, num_read_features: int, num_info_features: int, ref_sequence_length: int, device=torch.device("cpu")):
         super(ArtifactModel, self).__init__()
 
         self._device = device
         self._num_read_features = num_read_features
         self._num_info_features = num_info_features
+        self._ref_sequence_length = ref_sequence_length
 
         # phi is the read embedding
         read_layers = [self._num_read_features] + params.read_layers
@@ -106,11 +110,14 @@ class ArtifactModel(nn.Module):
         self.omega = MLP(info_layers, batch_normalize=params.batch_normalize, dropout_p=params.dropout_p)
         self.omega.to(self._device)
 
+        self.ref_seq_cnn = DNASequenceConvolution(params.ref_seq_layer_strings, ref_sequence_length)
+        self.ref_seq_cnn.to(self._device)
+
         # rho is the universal aggregation function
-        ref_alt_info_embedding_dimension = 2 * read_layers[-1] + info_layers[-1]
+        ref_alt_info_ref_seq_embedding_dimension = 2 * read_layers[-1] + info_layers[-1] + self.ref_seq_cnn.output_dimension()
 
         # The [1] is for the output of binary classification, represented as a single artifact/non-artifact logit
-        self.rho = MLP([ref_alt_info_embedding_dimension] + params.aggregation_layers + [1], batch_normalize=params.batch_normalize,
+        self.rho = MLP([ref_alt_info_ref_seq_embedding_dimension] + params.aggregation_layers + [1], batch_normalize=params.batch_normalize,
                        dropout_p=params.dropout_p)
         self.rho.to(self._device)
 
@@ -122,6 +129,9 @@ class ArtifactModel(nn.Module):
 
     def num_info_features(self) -> int:
         return self._num_info_features
+
+    def ref_sequence_length(self) -> int:
+        return self._ref_sequence_length
 
     def training_parameters(self):
         return chain(self.phi.parameters(), self.omega.parameters(), self.rho.parameters(), [self.calibration.max_logit])
@@ -174,7 +184,9 @@ class ArtifactModel(nn.Module):
 
         # stack side-by-side to get 2D tensor, where each variant row is (ref mean, alt mean, info)
         omega_info = torch.sigmoid(self.omega(batch.info().to(self._device)))
-        concatenated = torch.cat((ref_means, alt_means, omega_info), dim=1)
+
+        ref_seq_embedding = self.ref_seq_cnn(batch.ref_sequences())
+        concatenated = torch.cat((ref_means, alt_means, omega_info, ref_seq_embedding), dim=1)
         logits = self.rho(concatenated).squeeze(dim=1)  # specify dim so that in edge case of batch size 1 we get 1D tensor, not scalar
         return logits, effective_ref_counts, effective_alt_counts
 

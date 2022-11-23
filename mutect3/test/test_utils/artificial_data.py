@@ -70,7 +70,8 @@ def make_random_data(art_gatk_info_gen: RandomGATKInfoGenerator, var_gatk_info_g
         ref_tensor = var_read_gen.generate(ref_count)
         alt_tensor = (art_read_gen if artifact else var_read_gen).generate(alt_count)
 
-        data.append(ReadSet.from_gatk(variant_type, ref_tensor, alt_tensor, gatk_info_tensor, label))
+        # TODO: vary the reference sequence string?
+        data.append(ReadSet.from_gatk("GTAAAGT", variant_type, ref_tensor, alt_tensor, gatk_info_tensor, label))
 
     return data
 
@@ -106,7 +107,8 @@ def make_random_strand_bias_data(num_data: int, artifact_fraction=0.5, unlabeled
             sign = 1 if random.uniform(0,1) < 0.5 else -1
             alt_tensor[:, 0] = sign * torch.abs(alt_tensor[:, 0])
 
-        data.append(ReadSet.from_gatk(Variation.SNV, ref_tensor, alt_tensor, gatk_info_tensor, label))
+        # TODO: vary the reference sequence string?
+        data.append(ReadSet.from_gatk("TGGGAATG", Variation.SNV, ref_tensor, alt_tensor, gatk_info_tensor, label))
 
     return data
 

@@ -6,12 +6,14 @@ workflow TrainMutect3 {
         Array[File] training_datasets
         Int num_epochs
         Int batch_size
+        Int? num_workers
         Int chunk_size
         Float dropout_p
         Float reweighting_range
         Array[Int] read_layers
         Array[Int] info_layers
         Array[Int] aggregation_layers
+        Array[String] ref_seq_layer_strings
         String? train_m3_extra_args
         Boolean use_gpu
 
@@ -29,12 +31,14 @@ workflow TrainMutect3 {
                 max_retries = max_retries,
                 num_epochs = num_epochs,
                 batch_size = batch_size,
+                num_workers = num_workers,
                 chunk_size = chunk_size,
                 dropout_p = dropout_p,
                 reweighting_range = reweighting_range,
                 read_layers = read_layers,
                 info_layers = info_layers,
                 aggregation_layers = aggregation_layers,
+                ref_seq_layer_strings = ref_seq_layer_strings,
                 extra_args = train_m3_extra_args
         }
     }
@@ -48,12 +52,14 @@ workflow TrainMutect3 {
                 max_retries = max_retries,
                 num_epochs = num_epochs,
                 batch_size = batch_size,
+                num_workers = num_workers,
                 chunk_size = chunk_size,
                 dropout_p = dropout_p,
                 reweighting_range = reweighting_range,
                 read_layers = read_layers,
                 info_layers = info_layers,
                 aggregation_layers = aggregation_layers,
+                ref_seq_layer_strings = ref_seq_layer_strings,
                 extra_args = train_m3_extra_args
         }
     }
@@ -73,12 +79,15 @@ task TrainMutect3GPU {
 
         Int num_epochs
         Int batch_size
+        Int? num_workers
         Int chunk_size
         Float dropout_p
         Float reweighting_range
         Array[Int] read_layers
         Array[Int] info_layers
         Array[Int] aggregation_layers
+        Array[String] ref_seq_layer_strings
+
         String? extra_args
 
         String mutect3_docker
@@ -102,9 +111,11 @@ task TrainMutect3GPU {
             --read_layers ~{sep=' ' read_layers} \
             --info_layers ~{sep=' ' info_layers} \
             --aggregation_layers ~{sep=' ' aggregation_layers} \
+            --ref_seq_layer_strings ~{sep=' ' ref_seq_layer_strings} \
             --dropout_p ~{dropout_p} \
             --reweighting_range ~{reweighting_range} \
             --batch_size ~{batch_size} \
+            ~{"--num_workers " + num_workers} \
             --chunk_size ~{chunk_size} \
             --num_epochs ~{num_epochs} \
             --output mutect3.pt \
@@ -137,11 +148,13 @@ task TrainMutect3CPU {
         Int num_epochs
         Int batch_size
         Int chunk_size
+        Int? num_workers
         Float dropout_p
         Float reweighting_range
         Array[Int] read_layers
         Array[Int] info_layers
         Array[Int] aggregation_layers
+        Array[String] ref_seq_layer_strings
         String? extra_args
 
         String mutect3_docker
@@ -165,9 +178,11 @@ task TrainMutect3CPU {
             --read_layers ~{sep=' ' read_layers} \
             --info_layers ~{sep=' ' info_layers} \
             --aggregation_layers ~{sep=' ' aggregation_layers} \
+            --ref_seq_layer_strings ~{sep=' ' ref_seq_layer_strings} \
             --dropout_p ~{dropout_p} \
             --reweighting_range ~{reweighting_range} \
             --batch_size ~{batch_size} \
+            ~{"--num_workers " + num_workers} \
             --chunk_size ~{chunk_size} \
             --num_epochs ~{num_epochs} \
             --output mutect3.pt \

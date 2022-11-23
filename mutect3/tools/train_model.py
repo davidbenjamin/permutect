@@ -11,19 +11,20 @@ from mutect3.utils import Label
 
 
 class TrainingParameters:
-    def __init__(self, batch_size, chunk_size, num_epochs, reweighting_range: float):
+    def __init__(self, batch_size, chunk_size, num_epochs, reweighting_range: float, num_workers: int=0):
         self.batch_size = batch_size
         self.num_epochs = num_epochs
         self.reweighting_range = reweighting_range
         self.chunk_size = chunk_size
+        self.num_workers = num_workers
 
 
 def train_artifact_model(m3_params: ArtifactModelParameters, training_datasets, params: TrainingParameters, tensorboard_dir):
     use_gpu = torch.cuda.is_available()
     device = torch.device('cuda' if use_gpu else 'cpu')
-    big_dataset = read_set_dataset.BigReadSetDataset(batch_size=params.batch_size, chunk_size=params.chunk_size, dataset_files=training_datasets)
+    big_dataset = read_set_dataset.BigReadSetDataset(batch_size=params.batch_size, chunk_size=params.chunk_size, dataset_files=training_datasets, num_workers=params.num_workers)
     model = ArtifactModel(params=m3_params, num_read_features=big_dataset.num_read_features,
-                          num_info_features=big_dataset.num_info_features, device=device).float()
+                          num_info_features=big_dataset.num_info_features, ref_sequence_length=big_dataset.ref_sequence_length, device=device).float()
 
     print("Training. . .")
     summary_writer = SummaryWriter(tensorboard_dir)
@@ -50,7 +51,8 @@ def save_artifact_model(model, m3_params, path):
         constants.STATE_DICT_NAME: model.state_dict(),
         constants.M3_PARAMS_NAME: m3_params,
         constants.NUM_READ_FEATURES_NAME: model.num_read_features(),
-        constants.NUM_INFO_FEATURES_NAME: model.num_info_features()
+        constants.NUM_INFO_FEATURES_NAME: model.num_info_features(),
+        constants.REF_SEQUENCE_LENGTH_NAME: model.ref_sequence_length()
     }, path)
 
 
@@ -59,17 +61,19 @@ def parse_training_params(args) -> TrainingParameters:
     batch_size = getattr(args, constants.BATCH_SIZE_NAME)
     chunk_size = getattr(args, constants.CHUNK_SIZE_NAME)
     num_epochs = getattr(args, constants.NUM_EPOCHS_NAME)
-    return TrainingParameters(batch_size, chunk_size, num_epochs, reweighting_range)
+    num_workers = getattr(args, constants.NUM_WORKERS_NAME)
+    return TrainingParameters(batch_size, chunk_size, num_epochs, reweighting_range, num_workers=num_workers)
 
 
 def parse_mutect3_params(args) -> ArtifactModelParameters:
     read_layers = getattr(args, constants.READ_LAYERS_NAME)
     info_layers = getattr(args, constants.INFO_LAYERS_NAME)
     aggregation_layers = getattr(args, constants.AGGREGATION_LAYERS_NAME)
+    ref_seq_layer_strings = getattr(args, constants.REF_SEQ_LAYER_STRINGS_NAME)
     dropout_p = getattr(args, constants.DROPOUT_P_NAME)
     batch_normalize = getattr(args, constants.BATCH_NORMALIZE_NAME)
     learning_rate = getattr(args, constants.LEARNING_RATE_NAME)
-    return ArtifactModelParameters(read_layers, info_layers, aggregation_layers, dropout_p, batch_normalize, learning_rate)
+    return ArtifactModelParameters(read_layers, info_layers, aggregation_layers, ref_seq_layer_strings, dropout_p, batch_normalize, learning_rate)
 
 
 def parse_arguments():
@@ -79,6 +83,7 @@ def parse_arguments():
     parser.add_argument('--' + constants.READ_LAYERS_NAME, nargs='+', type=int, required=True)
     parser.add_argument('--' + constants.INFO_LAYERS_NAME, nargs='+', type=int, required=True)
     parser.add_argument('--' + constants.AGGREGATION_LAYERS_NAME, nargs='+', type=int, required=True)
+    parser.add_argument('--' + constants.REF_SEQ_LAYER_STRINGS_NAME, nargs='+', type=str, required=True)
     parser.add_argument('--' + constants.DROPOUT_P_NAME, type=float, default=0.0, required=False)
     parser.add_argument('--' + constants.LEARNING_RATE_NAME, type=float, default=0.001, required=False)
     parser.add_argument('--' + constants.BATCH_NORMALIZE_NAME, action='store_true')
@@ -89,6 +94,7 @@ def parse_arguments():
     # training hyperparameters
     parser.add_argument('--' + constants.REWEIGHTING_RANGE_NAME, type=float, default=0.3, required=False)
     parser.add_argument('--' + constants.BATCH_SIZE_NAME, type=int, default=64, required=False)
+    parser.add_argument('--' + constants.NUM_WORKERS_NAME, type=int, default=0, required=False)
     parser.add_argument('--' + constants.CHUNK_SIZE_NAME, type=int, default=1000000, required=False)
     parser.add_argument('--' + constants.NUM_EPOCHS_NAME, type=int, required=True)
 
