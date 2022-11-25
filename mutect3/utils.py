@@ -25,6 +25,8 @@ class Variation(enum.IntEnum):
     SNV = 0
     INSERTION = 1
     DELETION = 2
+    BIG_INSERTION = 3
+    BIG_DELETION = 4
 
     def one_hot_tensor(self):
         result = torch.zeros(len(Variation))
@@ -36,8 +38,10 @@ class Variation(enum.IntEnum):
         diff = len(alt_allele) - len(ref_allele)
         if diff == 0:
             return Variation.SNV
+        elif diff > 0:
+            return Variation.BIG_INSERTION if diff > 1 else Variation.INSERTION
         else:
-            return Variation.INSERTION if diff > 0 else Variation.DELETION
+            return Variation.BIG_DELETION if diff < -1 else Variation.DELETION
 
 
 class Call(enum.IntEnum):
