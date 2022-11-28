@@ -116,7 +116,7 @@ def main():
     training_params = parse_training_params(args)
 
     train_valid_meta_tuple = (getattr(args, constants.TRAIN_TAR_NAME), getattr(args, constants.VALID_TAR_NAME), getattr(args, constants.METADATA_NAME))
-    model = train_artifact_model(m3_params=m3_params, training_datasets=getattr(args, constants.TRAINING_DATASETS_NAME),
+    model = train_artifact_model(m3_params=m3_params, train_valid_meta_tuple=train_valid_meta_tuple,
                                  params=training_params, tensorboard_dir=getattr(args, constants.TENSORBOARD_DIR_NAME))
     save_artifact_model(model, m3_params, getattr(args, constants.OUTPUT_NAME))
 
