@@ -22,9 +22,9 @@ def train_artifact_model(m3_params: ArtifactModelParameters, params: TrainingPar
     device = torch.device('cuda' if use_gpu else 'cpu')
 
     if training_datasets is not None:
-        big_dataset = read_set_dataset.BigReadSetDataset(batch_size=params.batch_size, chunk_size=params.chunk_size, dataset_files=training_datasets, num_workers=params.num_workers)
+        big_dataset = read_set_dataset.BigReadSetDataset(batch_size=params.batch_size, max_bytes_per_chunk=params.chunk_size, dataset_files=training_datasets, num_workers=params.num_workers)
     else:
-        big_dataset = read_set_dataset.BigReadSetDataset(batch_size=params.batch_size, chunk_size=params.chunk_size, train_valid_meta_tuple=train_valid_meta_tuple, num_workers=params.num_workers)
+        big_dataset = read_set_dataset.BigReadSetDataset(batch_size=params.batch_size, max_bytes_per_chunk=params.chunk_size, train_valid_meta_tuple=train_valid_meta_tuple, num_workers=params.num_workers)
 
     model = ArtifactModel(params=m3_params, num_read_features=big_dataset.num_read_features,
                           num_info_features=big_dataset.num_info_features, ref_sequence_length=big_dataset.ref_sequence_length, device=device).float()

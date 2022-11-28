@@ -44,7 +44,7 @@ def train_model_and_write_summary(m3_params: ArtifactModelParameters, training_p
 
 def test_big_data():
     training_dataset_file = "/Users/davidben/mutect3/just-dream-1/dream1-normal-medium-training.dataset"
-    big_dataset = BigReadSetDataset(batch_size=64, chunk_size=10000, dataset_files=[training_dataset_file], num_workers=2)
+    big_dataset = BigReadSetDataset(batch_size=64, max_bytes_per_chunk=int(100*1e6), dataset_files=[training_dataset_file], num_workers=2)
     params = SMALL_MODEL_PARAMS
     training_params = TRAINING_PARAMS
 

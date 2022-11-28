@@ -1,5 +1,6 @@
 import torch
 from typing import List
+import sys
 
 from mutect3 import utils
 
@@ -29,6 +30,7 @@ class ReadSet:
     :param label        an object of the Label enum artifact, non-artifact, unlabeled
     """
     def __init__(self, ref_sequence_tensor: torch.Tensor, ref_tensor: torch.Tensor, alt_tensor: torch.Tensor, info_tensor: torch.Tensor, label: utils.Label):
+        # Note: if changing any of the data fields below, make sure to modify the size_in_bytes() method below accordingly!
         self.ref_sequence_tensor = ref_sequence_tensor
         self._ref_tensor = ref_tensor
         self._alt_tensor = alt_tensor
@@ -53,6 +55,10 @@ class ReadSet:
 
     def label(self) -> utils.Label:
         return self._label
+
+    def size_in_bytes(self):
+        return sys.getsizeof(self._ref_tensor.storage()) + sys.getsizeof(self._alt_tensor.storage()) + \
+               sys.getsizeof(self._info_tensor.storage()) + sys.getsizeof(self._label)
 
 
 def save_list_of_read_sets(read_sets: List[ReadSet], file):

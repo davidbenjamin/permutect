@@ -226,26 +226,47 @@ def read_data(dataset_file, posterior: bool = False, yield_nones: bool = False, 
 
 
 # TODO: there is some code duplication between this and filter_variants.py
-def generate_datasets(dataset_files, chunk_size: int):
-    num_data = sum([count_data(dataset_file) for dataset_file in dataset_files])
-    num_chunks = math.ceil(num_data / chunk_size)
+def generate_datasets(dataset_files, max_bytes_per_chunk: int):
+    buffers = [[], []]  # a previous and a current buffer
+    buffer_idx = 0  # first fill the "previous" buffer
+    bytes_in_buffer = 0
 
-    buffer = []
-    data_count = 0
-    chunk_count = 0
     for dataset_file in dataset_files:
         for read_set in read_data(dataset_file, posterior=False, yield_nones=True):
-            data_count += 1
             if read_set is not None:
-                buffer.append(read_set)
-            if data_count == math.ceil(num_data * (chunk_count+1) / num_chunks):
+                buffers[buffer_idx].append(read_set)
+                bytes_in_buffer += read_set.size_in_bytes()
+            if bytes_in_buffer > max_bytes_per_chunk:
                 print("memory usage percent: " + str(psutil.virtual_memory().percent))
-                chunk_count += 1
-                is_last_chunk = (chunk_count == num_chunks)
-                yield ReadSetDataset(data=buffer, shuffle=True, normalize=True), is_last_chunk
-                buffer = []
+                print("bytes in chunk: " + str(bytes_in_buffer))
+                bytes_in_buffer = 0
 
-    assert data_count == num_data and chunk_count == num_chunks and len(buffer) == 0     # should be nothing left over
+                if buffer_idx == 0:
+                    # start filling the next buffer but don't yield anything yet
+                    buffer_idx = 1
+                else:
+                    # we have now filled the second buffer, so we can yield the first
+                    yield ReadSetDataset(data=buffers[0], shuffle=True, normalize=True), False
+                    buffers[0] = buffers[1]
+                    buffers[1] = []
+
+    assert buffers[0], "There seems to have been no data"
+
+    # Possibility 1: buffers[0] is full and buffers[1] is partially full: split buffers[0] and buffers[1] into two equal dataset
+    if buffers[1]:
+        num_elements = len(buffers[0]) + len(buffers[1])
+        split_el = min(num_elements//2, len(buffers[0]))
+        yield ReadSetDataset(data=buffers[0][:split_el], shuffle=True, normalize=True), False
+        yield ReadSetDataset(data=buffers[0][split_el:] + buffers[1], shuffle=True, normalize=True), True
+    # Possibility 2: buffers[1] is empty: yield just buffers[0]
+    else:
+        yield ReadSetDataset(data=buffers[0], shuffle=True, normalize=True), True
+
+
+
+
+
+
 
 
 def make_loader_from_file(dataset_file, batch_size, use_gpu: bool, num_workers: int = 0):
@@ -275,8 +296,8 @@ class DataFetchingThread(Thread):
 
 class BigReadSetDataset:
 
-    def __init__(self, batch_size: int = 64, chunk_size: int = 1000000, dataset: ReadSetDataset = None, dataset_files=None,
-                 train_valid_metadata_tar_tuple=None, num_workers: int=0):
+    def __init__(self, batch_size: int = 64, max_bytes_per_chunk: int = int(2e9), dataset: ReadSetDataset = None, dataset_files=None,
+                 train_valid_metadata_tar_tuple=None, num_workers: int = 0):
 
         self.use_gpu = torch.cuda.is_available()
         self.batch_size = batch_size
@@ -333,7 +354,8 @@ class BigReadSetDataset:
 
         elif dataset_files is not None:
             validation_data = []
-            for dataset_from_files, is_last_chunk in generate_datasets(dataset_files, chunk_size):
+            validation_size_in_bytes = 0
+            for dataset_from_files, is_last_chunk in generate_datasets(dataset_files, max_bytes_per_chunk):
                 if self.num_read_features is None:
                     self.num_read_features = dataset_from_files.num_read_features()
                     self.num_info_features = dataset_from_files.num_info_features()
@@ -354,11 +376,13 @@ class BigReadSetDataset:
 
                 # extend the validation data and save to disk if it has gotten big enough or if there is no more data
                 validation_data.extend((datum for datum in valid))
-                if is_last_chunk or len(validation_data) > chunk_size:
+                validation_size_in_bytes += sum((datum.size_in_bytes() for datum in valid))
+                if is_last_chunk or validation_size_in_bytes > max_bytes_per_chunk:
                     with tempfile.NamedTemporaryFile(delete=False) as valid_data_file:
                         save_list_of_read_sets(validation_data, valid_data_file)
                         self.valid_data_files.append(valid_data_file.name)
                     validation_data = []
+                    validation_size_in_bytes = 0
 
             # ht to be no validation data leftover because we wrote to disk on last chunk
             assert len(validation_data) == 0
