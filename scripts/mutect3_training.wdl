@@ -3,7 +3,9 @@ version 1.0
 
 workflow TrainMutect3 {
     input {
-        Array[File] training_datasets
+        File train_tar
+        File valid_tar
+        File metadata
         Int num_epochs
         Int batch_size
         Int? num_workers
@@ -25,7 +27,9 @@ workflow TrainMutect3 {
     if (use_gpu) {
         call TrainMutect3GPU {
             input:
-                training_datasets = training_datasets,
+                train_tar = train_tar,
+                valid_tar = valid_tar,
+                metadata = metadata,
                 mutect3_docker = mutect3_docker,
                 preemptible = preemptible,
                 max_retries = max_retries,
@@ -46,7 +50,9 @@ workflow TrainMutect3 {
         if (!use_gpu) {
         call TrainMutect3CPU {
             input:
-                training_datasets = training_datasets,
+                train_tar = train_tar,
+                valid_tar = valid_tar,
+                metadata = metadata,
                 mutect3_docker = mutect3_docker,
                 preemptible = preemptible,
                 max_retries = max_retries,
@@ -75,7 +81,9 @@ workflow TrainMutect3 {
 ## two nearly-identical tasks, one for CPU and one for GPU.  See https://github.com/broadinstitute/cromwell/issues/6679
 task TrainMutect3GPU {
     input {
-        Array[File] training_datasets
+        File train_tar
+        File valid_tar
+        File metadata
 
         Int num_epochs
         Int batch_size
@@ -107,7 +115,9 @@ task TrainMutect3GPU {
         set -e
 
         train_model \
-            --training_datasets ~{sep=' ' training_datasets} \
+            --train_tar ~{train_tar} \
+            --valid_tar ~{valid_tar} \
+            --metadata ~{metadata} \
             --read_layers ~{sep=' ' read_layers} \
             --info_layers ~{sep=' ' info_layers} \
             --aggregation_layers ~{sep=' ' aggregation_layers} \
@@ -143,7 +153,9 @@ task TrainMutect3GPU {
 
 task TrainMutect3CPU {
     input {
-        Array[File] training_datasets
+        File train_tar
+        File valid_tar
+        File metadata
 
         Int num_epochs
         Int batch_size
@@ -174,7 +186,9 @@ task TrainMutect3CPU {
         set -e
 
         train_model \
-            --training_datasets ~{sep=' ' training_datasets} \
+            --train_tar ~{train_tar} \
+            --valid_tar ~{valid_tar} \
+            --metadata ~{metadata} \
             --read_layers ~{sep=' ' read_layers} \
             --info_layers ~{sep=' ' info_layers} \
             --aggregation_layers ~{sep=' ' aggregation_layers} \
