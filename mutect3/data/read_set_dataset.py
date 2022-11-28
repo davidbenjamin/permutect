@@ -4,6 +4,7 @@ import time
 from typing import Iterable
 import psutil
 import tempfile
+import tarfile
 from threading import Thread
 from collections import defaultdict
 from itertools import chain
@@ -273,18 +274,41 @@ class DataFetchingThread(Thread):
 
 class BigReadSetDataset:
 
-    def __init__(self, batch_size: int = 64, chunk_size: int = 1000000, dataset: ReadSetDataset = None, dataset_files=None, num_workers: int=0):
-        assert dataset is None or dataset_files is None, "Initialize either with dataset or files, not both"
-        assert dataset is not None or dataset_files is not None, "Must initialize with a dataset or files, not nothing"
+    def __init__(self, batch_size: int = 64, chunk_size: int = 1000000, dataset: ReadSetDataset = None, dataset_files=None,
+                 train_valid_metadata_tar_tuple=None, num_workers: int=0):
+
         self.use_gpu = torch.cuda.is_available()
         self.batch_size = batch_size
         self.num_workers = num_workers
 
+        # load from previously processed and saved tar files
+        if train_valid_metadata_tar_tuple is not None:
+            train_tar, valid_tar, metadata_file = train_valid_metadata_tar_tuple
+            assert dataset is None, "can't specify a dataset when loading from tar"
+            assert dataset_files is None, "can't specify text dataset files when loading from tar"
+
+            # this parallels the order given in the save method below
+            self.num_read_features, self.num_info_features, self.ref_sequence_length, self.num_training_data,\
+                self.training_artifact_totals, self.training_non_artifact_totals = torch.load(metadata_file)
+
+
+                with tarfile.open(train_tar_file, "w") as train_tar:
+                    for train_file in self.train_data_files:
+                        train_tar.add(train_file)
+
+                with tarfile.open(valid_tar_file, "w") as valid_tar:
+                    for valid_file in self.valid_data_files:
+                        valid_tar.add(valid_file)
+
+
+
+        assert dataset is None or dataset_files is None, "Initialize either with dataset or files, not both"
+        assert dataset is not None or dataset_files is not None, "Must initialize with a dataset or files, not nothing"
+
+
         # TODO: make this class autocloseable and clean up the temp dirs when closing
-        self.train_data_files = []
-        self.valid_data_files = []
-        self.num_read_features = None
-        self.num_info_features = None
+        self.train_data_files, self.valid_data_files = [], []
+        self.num_read_features, self.num_info_features = None, None
 
         # compute total counts of labeled/unlabeled, artifact/non-artifact, different variant types
         # during initialization.  These are used for balancing training weights
@@ -401,6 +425,20 @@ class BigReadSetDataset:
 
                 for batch in loader:
                     yield batch
+
+    def save_data(self, train_tar_file, valid_tar_file, metadata_file):
+        assert self.train_data_files and self.valid_data_files, "we only save when data was loaded from text file"
+
+        with tarfile.open(train_tar_file, "w") as train_tar:
+            for train_file in self.train_data_files:
+                train_tar.add(train_file)
+
+        with tarfile.open(valid_tar_file, "w") as valid_tar:
+            for valid_file in self.valid_data_files:
+                valid_tar.add(valid_file)
+
+        torch.save([self.num_read_features, self.num_info_features, self.ref_sequence_length, self.num_training_data,
+                    self.training_artifact_totals, self.training_non_artifact_totals], metadata_file)
 
 
 def medians_and_iqrs(tensor_2d: torch.Tensor):
