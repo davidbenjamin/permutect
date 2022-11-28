@@ -3,6 +3,7 @@ import math
 import time
 from typing import Iterable
 import psutil
+import os
 import tempfile
 import tarfile
 from threading import Thread
@@ -281,6 +282,16 @@ class BigReadSetDataset:
         self.batch_size = batch_size
         self.num_workers = num_workers
 
+        # TODO: make this class autocloseable and clean up the temp dirs when closing
+        self.train_data_files, self.valid_data_files = [], []
+        self.num_read_features, self.num_info_features = None, None
+
+        # compute total counts of labeled/unlabeled, artifact/non-artifact, different variant types
+        # during initialization.  These are used for balancing training weights
+        self.num_training_data = 0
+        self.training_artifact_totals = torch.zeros(len(utils.Variation))  # 1D tensor
+        self.training_non_artifact_totals = torch.zeros(len(utils.Variation))  # 1D tensor
+
         # load from previously processed and saved tar files
         if train_valid_metadata_tar_tuple is not None:
             train_tar, valid_tar, metadata_file = train_valid_metadata_tar_tuple
@@ -291,32 +302,22 @@ class BigReadSetDataset:
             self.num_read_features, self.num_info_features, self.ref_sequence_length, self.num_training_data,\
                 self.training_artifact_totals, self.training_non_artifact_totals = torch.load(metadata_file)
 
+            # these will be cleaned up when the program ends, or maybe when the object goes out of scope
+            self.train_temp_dir = tempfile.TemporaryDirectory()
+            tar = tarfile.open(train_tar)
+            tar.extractall(self.train_temp_dir)
+            tar.close()
+            self.train_data_files = os.listdir(self.train_temp_dir)
 
-                with tarfile.open(train_tar_file, "w") as train_tar:
-                    for train_file in self.train_data_files:
-                        train_tar.add(train_file)
+            self.valid_temp_dir = tempfile.TemporaryDirectory()
+            tar = tarfile.open(valid_tar)
+            tar.extractall(self.valid_temp_dir)
+            tar.close()
+            self.valid_data_files = os.listdir(self.valid_temp_dir)
 
-                with tarfile.open(valid_tar_file, "w") as valid_tar:
-                    for valid_file in self.valid_data_files:
-                        valid_tar.add(valid_file)
-
-
-
-        assert dataset is None or dataset_files is None, "Initialize either with dataset or files, not both"
-        assert dataset is not None or dataset_files is not None, "Must initialize with a dataset or files, not nothing"
-
-
-        # TODO: make this class autocloseable and clean up the temp dirs when closing
-        self.train_data_files, self.valid_data_files = [], []
-        self.num_read_features, self.num_info_features = None, None
-
-        # compute total counts of labeled/unlabeled, artifact/non-artifact, different variant types
-        # during initialization.  These are used for balancing training weights
-        self.num_training_data = 0
-        self.training_artifact_totals = torch.zeros(len(utils.Variation))        # 1D tensor
-        self.training_non_artifact_totals = torch.zeros(len(utils.Variation))    # 1D tensor
-
-        if dataset is not None:
+            # almost done with the tar files case except we need to pre-load in RAM if there is only one train or valid file
+        elif dataset is not None:
+            assert dataset_files is None, "can't specify text dataset file when initializing from dataset"
             self.train_fits_in_ram = True
             self.valid_fits_in_ram = True
             train, valid = utils.split_dataset_into_train_and_valid(dataset, 0.9)
@@ -330,7 +331,7 @@ class BigReadSetDataset:
             self.ref_sequence_length = dataset.ref_sequence_length()
             self.accumulate_totals(self.train_loader)
 
-        else:
+        elif dataset_files is not None:
             validation_data = []
             for dataset_from_files, is_last_chunk in generate_datasets(dataset_files, chunk_size):
                 if self.num_read_features is None:
@@ -344,7 +345,8 @@ class BigReadSetDataset:
                 train, valid = utils.split_dataset_into_train_and_valid(dataset_from_files, 0.9)
                 train = ReadSetDataset(data=train, shuffle=False, normalize=False)
                 valid = ReadSetDataset(data=valid, shuffle=False, normalize=False)
-                self.accumulate_totals(make_semisupervised_data_loader(train, batch_size, pin_memory=self.use_gpu, num_workers=num_workers))
+                self.accumulate_totals(make_semisupervised_data_loader(train, batch_size, pin_memory=self.use_gpu,
+                                                                       num_workers=num_workers))
 
                 with tempfile.NamedTemporaryFile(delete=False) as train_data_file:
                     save_list_of_read_sets([datum for datum in train], train_data_file)
@@ -360,19 +362,25 @@ class BigReadSetDataset:
 
             # ht to be no validation data leftover because we wrote to disk on last chunk
             assert len(validation_data) == 0
+        else:
+            raise Exception("must input either a dataset, a dataset text file, or a dataset tarfile")
 
+        # when initializing from files, it's possible we only got one datset's worth of data, in which case it all fits in RAM
+        if dataset is None:
             # check if there is only one pickled dataset, in which case we can fit it in RAM
             # note that we already normalized and shuffled
             if len(self.train_data_files) == 1:
                 self.train_fits_in_ram = True
-                self.train_loader = make_loader_from_file(self.train_data_files[0], batch_size, self.use_gpu, num_workers=self.num_workers)
+                self.train_loader = make_loader_from_file(self.train_data_files[0], batch_size, self.use_gpu,
+                                                          num_workers=self.num_workers)
             else:
                 self.train_fits_in_ram = False
                 self.train_loader = None
 
             if len(self.valid_data_files) == 1:
                 self.valid_fits_in_ram = True
-                self.valid_loader = make_loader_from_file(self.valid_data_files[0], batch_size, self.use_gpu, num_workers=self.num_workers)
+                self.valid_loader = make_loader_from_file(self.valid_data_files[0], batch_size, self.use_gpu,
+                                                          num_workers=self.num_workers)
             else:
                 self.valid_fits_in_ram = False
                 self.valid_loader = None
