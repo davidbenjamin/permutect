@@ -7,6 +7,7 @@ HIDDEN_LAYERS_NAME = 'hidden_layers'
 
 INPUT_NAME = 'input'
 OUTPUT_NAME = 'output'
+OUTPUT_DIR_NAME = 'output_dir'
 READ_LAYERS_NAME = 'read_layers'
 INFO_LAYERS_NAME = 'info_layers'
 AGGREGATION_LAYERS_NAME = 'aggregation_layers'
