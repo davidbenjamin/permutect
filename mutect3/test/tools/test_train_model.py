@@ -12,7 +12,7 @@ def test_training(dataset):
     training_params = train_model.TrainingParameters(batch_size=64, chunk_size=10000, num_epochs=5, reweighting_range=0.3)
 
     with tempfile.TemporaryDirectory() as tensorboard_dir:
-        train_model.train_artifact_model(m3_params, [dataset], training_params, tensorboard_dir)
+        train_model.train_artifact_model(m3_params=m3_params, training_datasets=[dataset], params=training_params, tensorboard_dir=tensorboard_dir)
         events = EventAccumulator(tensorboard_dir)
         events.Reload()
         h = 99

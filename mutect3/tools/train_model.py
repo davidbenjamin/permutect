@@ -1,5 +1,4 @@
 import argparse
-import tempfile
 
 import torch
 from torch.utils.tensorboard import SummaryWriter
@@ -7,7 +6,6 @@ from torch.utils.tensorboard import SummaryWriter
 from mutect3.architecture.artifact_model import ArtifactModelParameters, ArtifactModel
 from mutect3 import utils, constants
 from mutect3.data import read_set_dataset
-from mutect3.utils import Label
 
 
 class TrainingParameters:
@@ -19,10 +17,15 @@ class TrainingParameters:
         self.num_workers = num_workers
 
 
-def train_artifact_model(m3_params: ArtifactModelParameters, training_datasets, params: TrainingParameters, tensorboard_dir):
+def train_artifact_model(m3_params: ArtifactModelParameters, params: TrainingParameters, tensorboard_dir, training_datasets=None, train_valid_meta_tuple=None):
     use_gpu = torch.cuda.is_available()
     device = torch.device('cuda' if use_gpu else 'cpu')
-    big_dataset = read_set_dataset.BigReadSetDataset(batch_size=params.batch_size, chunk_size=params.chunk_size, dataset_files=training_datasets, num_workers=params.num_workers)
+
+    if training_datasets is not None:
+        big_dataset = read_set_dataset.BigReadSetDataset(batch_size=params.batch_size, chunk_size=params.chunk_size, dataset_files=training_datasets, num_workers=params.num_workers)
+    else:
+        big_dataset = read_set_dataset.BigReadSetDataset(batch_size=params.batch_size, chunk_size=params.chunk_size, train_valid_meta_tuple=train_valid_meta_tuple, num_workers=params.num_workers)
+
     model = ArtifactModel(params=m3_params, num_read_features=big_dataset.num_read_features,
                           num_info_features=big_dataset.num_info_features, ref_sequence_length=big_dataset.ref_sequence_length, device=device).float()
 
@@ -89,7 +92,9 @@ def parse_arguments():
     parser.add_argument('--' + constants.BATCH_NORMALIZE_NAME, action='store_true')
 
     # Training data inputs
-    parser.add_argument('--' + constants.TRAINING_DATASETS_NAME, nargs='+', type=str, required=True)
+    parser.add_argument('--' + constants.TRAIN_TAR_NAME, type=str, required=True)
+    parser.add_argument('--' + constants.VALID_TAR_NAME, type=str, required=True)
+    parser.add_argument('--' + constants.METADATA_NAME, type=str, required=True)
 
     # training hyperparameters
     parser.add_argument('--' + constants.REWEIGHTING_RANGE_NAME, type=float, default=0.3, required=False)
@@ -109,8 +114,10 @@ def main():
     args = parse_arguments()
     m3_params = parse_mutect3_params(args)
     training_params = parse_training_params(args)
-    model = train_artifact_model(m3_params, getattr(args, constants.TRAINING_DATASETS_NAME), training_params,
-                                 getattr(args, constants.TENSORBOARD_DIR_NAME))
+
+    train_valid_meta_tuple = (getattr(args, constants.TRAIN_TAR_NAME), getattr(args, constants.VALID_TAR_NAME), getattr(args, constants.METADATA_NAME))
+    model = train_artifact_model(m3_params=m3_params, training_datasets=getattr(args, constants.TRAINING_DATASETS_NAME),
+                                 params=training_params, tensorboard_dir=getattr(args, constants.TENSORBOARD_DIR_NAME))
     save_artifact_model(model, m3_params, getattr(args, constants.OUTPUT_NAME))
 
 
