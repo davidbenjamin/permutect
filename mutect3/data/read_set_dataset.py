@@ -326,15 +326,15 @@ class BigReadSetDataset:
             # these will be cleaned up when the program ends, or maybe when the object goes out of scope
             self.train_temp_dir = tempfile.TemporaryDirectory()
             tar = tarfile.open(train_tar)
-            tar.extractall(self.train_temp_dir)
+            tar.extractall(self.train_temp_dir.name)
             tar.close()
-            self.train_data_files = os.listdir(self.train_temp_dir)
+            self.train_data_files = os.listdir(self.train_temp_dir.name)
 
             self.valid_temp_dir = tempfile.TemporaryDirectory()
             tar = tarfile.open(valid_tar)
-            tar.extractall(self.valid_temp_dir)
+            tar.extractall(self.valid_temp_dir.name)
             tar.close()
-            self.valid_data_files = os.listdir(self.valid_temp_dir)
+            self.valid_data_files = os.listdir(self.valid_temp_dir.name)
 
             # almost done with the tar files case except we need to pre-load in RAM if there is only one train or valid file
         elif dataset is not None:
