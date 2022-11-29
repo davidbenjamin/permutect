@@ -31,6 +31,7 @@ workflow Mutect3 {
 
         String? m3_filtering_extra_args
         String gatk_docker
+        String bcftools_docker
         File? gatk_override
         String mutect3_docker
         Int? preemptible
@@ -68,10 +69,26 @@ workflow Mutect3 {
             max_retries = max_retries
     }
 
+    call SplitMultiallelics {
+        input:
+            input_vcf = Mutect2.filtered_vcf,
+            input_vcf_idx = Mutect2.filtered_vcf_idx,
+            ref_fasta = ref_fasta,
+            ref_fai = ref_fai,
+            ref_dict = ref_dict,
+            bcftools_docker = bcftools_docker
+    }
+
+    call IndexVCF as IndexAfterSplitting {
+        input:
+            unindexed_vcf = SplitMultiallelics.output_vcf,
+            gatk_docker = gatk_docker
+    }
+
     call Mutect3Filtering {
         input:
-            mutect2_vcf = Mutect2.filtered_vcf,
-            mutect2_vcf_idx = Mutect2.filtered_vcf_idx,
+            mutect2_vcf = IndexAfterSplitting.vcf,
+            mutect2_vcf_idx = IndexAfterSplitting.vcf_index,
             mutect3_model = mutect3_model,
             test_dataset = select_first([Mutect2.m3_dataset]),
             maf_segments = Mutect2.maf_segments,
@@ -82,15 +99,15 @@ workflow Mutect3 {
             mutect3_docker = mutect3_docker,
     }
 
-    call IndexVCF {
+    call IndexVCF as IndexAfterFiltering {
         input:
             unindexed_vcf = Mutect3Filtering.output_vcf,
             gatk_docker = gatk_docker
     }
 
     output {
-        File output_vcf = IndexVCF.vcf
-        File output_vcf_idx = IndexVCF.vcf_index
+        File output_vcf = IndexAfterFiltering.vcf
+        File output_vcf_idx = IndexAfterFiltering.vcf_index
         File tensorboard_report = Mutect3Filtering.tensorboard_report
         File test_dataset = select_first([Mutect2.m3_dataset])
         File mutect2_vcf = Mutect2.filtered_vcf
@@ -145,6 +162,47 @@ task Mutect3Filtering {
     output {
         File output_vcf = "mutect3-filtered.vcf"
         File tensorboard_report = glob("tensorboard/*tfevents*")[0]
+    }
+}
+
+task SplitMultiallelics {
+    input {
+        File input_vcf
+        File input_vcf_idx
+        File ref_fasta
+        File ref_fai
+        File ref_dict
+        String bcftools_docker
+        Int? preemptible
+        Int? max_retries
+        Int? disk_space
+        Int? cpu
+        Int? mem
+        Boolean use_ssd = false
+    }
+
+    # Mem is in units of GB but our command and memory runtime values are in MB
+    Int machine_mem = if defined(mem) then mem * 1000 else 4000
+    Int command_mem = machine_mem - 500
+
+    command <<<
+
+        bcftools norm -m -any -f ~{ref_fasta} ~{input_vcf} > output.vcf
+
+    >>>
+
+    runtime {
+        docker: bcftools_docker
+        bootDiskSizeGb: 12
+        memory: machine_mem + " MB"
+        disks: "local-disk " + select_first([disk_space, 100]) + if use_ssd then " SSD" else " HDD"
+        preemptible: select_first([preemptible, 3])
+        maxRetries: select_first([max_retries, 1])
+        cpu: select_first([cpu, 2])
+    }
+
+    output {
+        File output_vcf = "output.vcf"
     }
 }
 
