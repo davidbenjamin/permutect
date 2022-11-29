@@ -335,6 +335,9 @@ class BigReadSetDataset:
             tar.extractall(self.valid_temp_dir.name)
             tar.close()
             self.valid_data_files = os.listdir(self.valid_temp_dir.name)
+            print("Here are train and valid files for debugging")
+            print(self.train_data_files)
+            print(self.valid_data_files)
 
             # almost done with the tar files case except we need to pre-load in RAM if there is only one train or valid file
         elif dataset is not None:
