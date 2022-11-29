@@ -297,7 +297,7 @@ class DataFetchingThread(Thread):
 class BigReadSetDataset:
 
     def __init__(self, batch_size: int = 64, max_bytes_per_chunk: int = int(2e9), dataset: ReadSetDataset = None, dataset_files=None,
-                 train_valid_metadata_tar_tuple=None, num_workers: int = 0):
+                 train_valid_meta_tuple=None, num_workers: int = 0):
 
         self.use_gpu = torch.cuda.is_available()
         self.batch_size = batch_size
@@ -314,8 +314,8 @@ class BigReadSetDataset:
         self.training_non_artifact_totals = torch.zeros(len(utils.Variation))  # 1D tensor
 
         # load from previously processed and saved tar files
-        if train_valid_metadata_tar_tuple is not None:
-            train_tar, valid_tar, metadata_file = train_valid_metadata_tar_tuple
+        if train_valid_meta_tuple is not None:
+            train_tar, valid_tar, metadata_file = train_valid_meta_tuple
             assert dataset is None, "can't specify a dataset when loading from tar"
             assert dataset_files is None, "can't specify text dataset files when loading from tar"
 
