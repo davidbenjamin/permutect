@@ -263,12 +263,6 @@ def generate_datasets(dataset_files, max_bytes_per_chunk: int):
         yield ReadSetDataset(data=buffers[0], shuffle=True, normalize=True), True
 
 
-
-
-
-
-
-
 def make_loader_from_file(dataset_file, batch_size, use_gpu: bool, num_workers: int = 0):
     with open(dataset_file, 'rb') as file:
         data = load_list_of_read_sets(file)
@@ -328,13 +322,13 @@ class BigReadSetDataset:
             tar = tarfile.open(train_tar)
             tar.extractall(self.train_temp_dir.name)
             tar.close()
-            self.train_data_files = os.listdir(self.train_temp_dir.name)
+            self.train_data_files = [os.path.abspath(os.path.join(self.train_temp_dir.name, p)) for p in os.listdir(self.train_temp_dir.name)]
 
             self.valid_temp_dir = tempfile.TemporaryDirectory()
             tar = tarfile.open(valid_tar)
             tar.extractall(self.valid_temp_dir.name)
             tar.close()
-            self.valid_data_files = os.listdir(self.valid_temp_dir.name)
+            self.valid_data_files = [os.path.abspath(os.path.join(self.valid_temp_dir.name, p)) for p in os.listdir(self.valid_temp_dir.name)]
             print("Here are train and valid files for debugging")
             print(self.train_data_files)
             print(self.valid_data_files)
@@ -466,11 +460,11 @@ class BigReadSetDataset:
 
         with tarfile.open(train_tar_file, "w") as train_tar:
             for train_file in self.train_data_files:
-                train_tar.add(train_file)
+                train_tar.add(train_file, arcname=os.path.basename(train_file))
 
         with tarfile.open(valid_tar_file, "w") as valid_tar:
             for valid_file in self.valid_data_files:
-                valid_tar.add(valid_file)
+                valid_tar.add(valid_file, arcname=os.path.basename(valid_file))
 
         torch.save([self.num_read_features, self.num_info_features, self.ref_sequence_length, self.num_training_data,
                     self.training_artifact_totals, self.training_non_artifact_totals], metadata_file)
