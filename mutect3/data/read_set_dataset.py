@@ -282,7 +282,8 @@ class DataFetchingThread(Thread):
         self.num_workers = num_workers
 
     def run(self):
-        self.fetched_data_loader = make_loader_from_file(self.dataset_file, self.batch_size, self.use_gpu, num_workers=self.num_workers)
+        self.fetched_data_loader = make_loader_from_file(self.dataset_file, self.batch_size, self.use_gpu,
+                                                        num_workers=self.num_workers)
 
     def get_loader(self):
         return self.fetched_data_loader
