@@ -525,7 +525,7 @@ def chunk(lis, chunk_size):
 class SemiSupervisedBatchSampler(Sampler):
     def __init__(self, dataset: ReadSetDataset, batch_size):
         self.labeled_indices_by_count = dataset.labeled_indices_by_count
-        self.unlabeled_indices_by_count = dataset.labeled_indices_by_count
+        self.unlabeled_indices_by_count = dataset.unlabeled_indices_by_count
         self.batch_size = batch_size
         self.num_batches = sum(math.ceil(len(indices) // self.batch_size) for indices in
                             chain(self.labeled_indices_by_count.values(), self.unlabeled_indices_by_count.values()))
