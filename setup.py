@@ -11,6 +11,7 @@ setup(
     entry_points={
         'console_scripts': ['train_model=mutect3.tools.train_model:main',
                             'filter_variants=mutect3.tools.filter_variants:main',
+                            'preprocess_dataset=mutect3.tools.preprocess_dataset:main',
                             'compare_to_mutect2=mutect3.tools.compare_to_mutect2:main'
                             ]
     }

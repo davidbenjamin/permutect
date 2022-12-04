@@ -3,7 +3,9 @@ import math
 import time
 from typing import Iterable
 import psutil
+import os
 import tempfile
+import tarfile
 from threading import Thread
 from collections import defaultdict
 from itertools import chain
@@ -224,26 +226,41 @@ def read_data(dataset_file, posterior: bool = False, yield_nones: bool = False, 
 
 
 # TODO: there is some code duplication between this and filter_variants.py
-def generate_datasets(dataset_files, chunk_size: int):
-    num_data = sum([count_data(dataset_file) for dataset_file in dataset_files])
-    num_chunks = math.ceil(num_data / chunk_size)
+def generate_datasets(dataset_files, max_bytes_per_chunk: int):
+    buffers = [[], []]  # a previous and a current buffer
+    buffer_idx = 0  # first fill the "previous" buffer
+    bytes_in_buffer = 0
 
-    buffer = []
-    data_count = 0
-    chunk_count = 0
     for dataset_file in dataset_files:
         for read_set in read_data(dataset_file, posterior=False, yield_nones=True):
-            data_count += 1
             if read_set is not None:
-                buffer.append(read_set)
-            if data_count == math.ceil(num_data * (chunk_count+1) / num_chunks):
+                buffers[buffer_idx].append(read_set)
+                bytes_in_buffer += read_set.size_in_bytes()
+            if bytes_in_buffer > max_bytes_per_chunk:
                 print("memory usage percent: " + str(psutil.virtual_memory().percent))
-                chunk_count += 1
-                is_last_chunk = (chunk_count == num_chunks)
-                yield ReadSetDataset(data=buffer, shuffle=True, normalize=True), is_last_chunk
-                buffer = []
+                print("bytes in chunk: " + str(bytes_in_buffer))
+                bytes_in_buffer = 0
 
-    assert data_count == num_data and chunk_count == num_chunks and len(buffer) == 0     # should be nothing left over
+                if buffer_idx == 0:
+                    # start filling the next buffer but don't yield anything yet
+                    buffer_idx = 1
+                else:
+                    # we have now filled the second buffer, so we can yield the first
+                    yield ReadSetDataset(data=buffers[0], shuffle=True, normalize=True), False
+                    buffers[0] = buffers[1]
+                    buffers[1] = []
+
+    assert buffers[0], "There seems to have been no data"
+
+    # Possibility 1: buffers[0] is full and buffers[1] is partially full: split buffers[0] and buffers[1] into two equal dataset
+    if buffers[1]:
+        num_elements = len(buffers[0]) + len(buffers[1])
+        split_el = min(num_elements//2, len(buffers[0]))
+        yield ReadSetDataset(data=buffers[0][:split_el], shuffle=True, normalize=True), False
+        yield ReadSetDataset(data=buffers[0][split_el:] + buffers[1], shuffle=True, normalize=True), True
+    # Possibility 2: buffers[1] is empty: yield just buffers[0]
+    else:
+        yield ReadSetDataset(data=buffers[0], shuffle=True, normalize=True), True
 
 
 def make_loader_from_file(dataset_file, batch_size, use_gpu: bool, num_workers: int = 0):
@@ -265,7 +282,8 @@ class DataFetchingThread(Thread):
         self.num_workers = num_workers
 
     def run(self):
-        self.fetched_data_loader = make_loader_from_file(self.dataset_file, self.batch_size, self.use_gpu, num_workers=self.num_workers)
+        self.fetched_data_loader = make_loader_from_file(self.dataset_file, self.batch_size, self.use_gpu,
+                                                        num_workers=self.num_workers)
 
     def get_loader(self):
         return self.fetched_data_loader
@@ -273,26 +291,52 @@ class DataFetchingThread(Thread):
 
 class BigReadSetDataset:
 
-    def __init__(self, batch_size: int = 64, chunk_size: int = 1000000, dataset: ReadSetDataset = None, dataset_files=None, num_workers: int=0):
-        assert dataset is None or dataset_files is None, "Initialize either with dataset or files, not both"
-        assert dataset is not None or dataset_files is not None, "Must initialize with a dataset or files, not nothing"
+    def __init__(self, batch_size: int = 64, max_bytes_per_chunk: int = int(2e9), dataset: ReadSetDataset = None, dataset_files=None,
+                 train_valid_meta_tuple=None, num_workers: int = 0):
+
         self.use_gpu = torch.cuda.is_available()
         self.batch_size = batch_size
         self.num_workers = num_workers
 
         # TODO: make this class autocloseable and clean up the temp dirs when closing
-        self.train_data_files = []
-        self.valid_data_files = []
-        self.num_read_features = None
-        self.num_info_features = None
+        self.train_data_files, self.valid_data_files = [], []
+        self.num_read_features, self.num_info_features = None, None
 
         # compute total counts of labeled/unlabeled, artifact/non-artifact, different variant types
         # during initialization.  These are used for balancing training weights
         self.num_training_data = 0
-        self.training_artifact_totals = torch.zeros(len(utils.Variation))        # 1D tensor
-        self.training_non_artifact_totals = torch.zeros(len(utils.Variation))    # 1D tensor
+        self.training_artifact_totals = torch.zeros(len(utils.Variation))  # 1D tensor
+        self.training_non_artifact_totals = torch.zeros(len(utils.Variation))  # 1D tensor
 
-        if dataset is not None:
+        # load from previously processed and saved tar files
+        if train_valid_meta_tuple is not None:
+            train_tar, valid_tar, metadata_file = train_valid_meta_tuple
+            assert dataset is None, "can't specify a dataset when loading from tar"
+            assert dataset_files is None, "can't specify text dataset files when loading from tar"
+
+            # this parallels the order given in the save method below
+            self.num_read_features, self.num_info_features, self.ref_sequence_length, self.num_training_data,\
+                self.training_artifact_totals, self.training_non_artifact_totals = torch.load(metadata_file)
+
+            # these will be cleaned up when the program ends, or maybe when the object goes out of scope
+            self.train_temp_dir = tempfile.TemporaryDirectory()
+            tar = tarfile.open(train_tar)
+            tar.extractall(self.train_temp_dir.name)
+            tar.close()
+            self.train_data_files = [os.path.abspath(os.path.join(self.train_temp_dir.name, p)) for p in os.listdir(self.train_temp_dir.name)]
+
+            self.valid_temp_dir = tempfile.TemporaryDirectory()
+            tar = tarfile.open(valid_tar)
+            tar.extractall(self.valid_temp_dir.name)
+            tar.close()
+            self.valid_data_files = [os.path.abspath(os.path.join(self.valid_temp_dir.name, p)) for p in os.listdir(self.valid_temp_dir.name)]
+            print("Here are train and valid files for debugging")
+            print(self.train_data_files)
+            print(self.valid_data_files)
+
+            # almost done with the tar files case except we need to pre-load in RAM if there is only one train or valid file
+        elif dataset is not None:
+            assert dataset_files is None, "can't specify text dataset file when initializing from dataset"
             self.train_fits_in_ram = True
             self.valid_fits_in_ram = True
             train, valid = utils.split_dataset_into_train_and_valid(dataset, 0.9)
@@ -306,9 +350,10 @@ class BigReadSetDataset:
             self.ref_sequence_length = dataset.ref_sequence_length()
             self.accumulate_totals(self.train_loader)
 
-        else:
+        elif dataset_files is not None:
             validation_data = []
-            for dataset_from_files, is_last_chunk in generate_datasets(dataset_files, chunk_size):
+            validation_size_in_bytes = 0
+            for dataset_from_files, is_last_chunk in generate_datasets(dataset_files, max_bytes_per_chunk):
                 if self.num_read_features is None:
                     self.num_read_features = dataset_from_files.num_read_features()
                     self.num_info_features = dataset_from_files.num_info_features()
@@ -320,7 +365,8 @@ class BigReadSetDataset:
                 train, valid = utils.split_dataset_into_train_and_valid(dataset_from_files, 0.9)
                 train = ReadSetDataset(data=train, shuffle=False, normalize=False)
                 valid = ReadSetDataset(data=valid, shuffle=False, normalize=False)
-                self.accumulate_totals(make_semisupervised_data_loader(train, batch_size, pin_memory=self.use_gpu, num_workers=num_workers))
+                self.accumulate_totals(make_semisupervised_data_loader(train, batch_size, pin_memory=self.use_gpu,
+                                                                       num_workers=num_workers))
 
                 with tempfile.NamedTemporaryFile(delete=False) as train_data_file:
                     save_list_of_read_sets([datum for datum in train], train_data_file)
@@ -328,27 +374,35 @@ class BigReadSetDataset:
 
                 # extend the validation data and save to disk if it has gotten big enough or if there is no more data
                 validation_data.extend((datum for datum in valid))
-                if is_last_chunk or len(validation_data) > chunk_size:
+                validation_size_in_bytes += sum((datum.size_in_bytes() for datum in valid))
+                if is_last_chunk or validation_size_in_bytes > max_bytes_per_chunk:
                     with tempfile.NamedTemporaryFile(delete=False) as valid_data_file:
                         save_list_of_read_sets(validation_data, valid_data_file)
                         self.valid_data_files.append(valid_data_file.name)
                     validation_data = []
+                    validation_size_in_bytes = 0
 
             # ht to be no validation data leftover because we wrote to disk on last chunk
             assert len(validation_data) == 0
+        else:
+            raise Exception("must input either a dataset, a dataset text file, or a dataset tarfile")
 
+        # when initializing from files, it's possible we only got one datset's worth of data, in which case it all fits in RAM
+        if dataset is None:
             # check if there is only one pickled dataset, in which case we can fit it in RAM
             # note that we already normalized and shuffled
             if len(self.train_data_files) == 1:
                 self.train_fits_in_ram = True
-                self.train_loader = make_loader_from_file(self.train_data_files[0], batch_size, self.use_gpu, num_workers=self.num_workers)
+                self.train_loader = make_loader_from_file(self.train_data_files[0], batch_size, self.use_gpu,
+                                                          num_workers=self.num_workers)
             else:
                 self.train_fits_in_ram = False
                 self.train_loader = None
 
             if len(self.valid_data_files) == 1:
                 self.valid_fits_in_ram = True
-                self.valid_loader = make_loader_from_file(self.valid_data_files[0], batch_size, self.use_gpu, num_workers=self.num_workers)
+                self.valid_loader = make_loader_from_file(self.valid_data_files[0], batch_size, self.use_gpu,
+                                                          num_workers=self.num_workers)
             else:
                 self.valid_fits_in_ram = False
                 self.valid_loader = None
@@ -401,6 +455,20 @@ class BigReadSetDataset:
 
                 for batch in loader:
                     yield batch
+
+    def save_data(self, train_tar_file, valid_tar_file, metadata_file):
+        assert self.train_data_files and self.valid_data_files, "we only save when data was loaded from text file"
+
+        with tarfile.open(train_tar_file, "w") as train_tar:
+            for train_file in self.train_data_files:
+                train_tar.add(train_file, arcname=os.path.basename(train_file))
+
+        with tarfile.open(valid_tar_file, "w") as valid_tar:
+            for valid_file in self.valid_data_files:
+                valid_tar.add(valid_file, arcname=os.path.basename(valid_file))
+
+        torch.save([self.num_read_features, self.num_info_features, self.ref_sequence_length, self.num_training_data,
+                    self.training_artifact_totals, self.training_non_artifact_totals], metadata_file)
 
 
 def medians_and_iqrs(tensor_2d: torch.Tensor):
@@ -457,7 +525,7 @@ def chunk(lis, chunk_size):
 class SemiSupervisedBatchSampler(Sampler):
     def __init__(self, dataset: ReadSetDataset, batch_size):
         self.labeled_indices_by_count = dataset.labeled_indices_by_count
-        self.unlabeled_indices_by_count = dataset.labeled_indices_by_count
+        self.unlabeled_indices_by_count = dataset.unlabeled_indices_by_count
         self.batch_size = batch_size
         self.num_batches = sum(math.ceil(len(indices) // self.batch_size) for indices in
                             chain(self.labeled_indices_by_count.values(), self.unlabeled_indices_by_count.values()))

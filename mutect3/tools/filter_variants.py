@@ -18,8 +18,7 @@ from mutect3.data.posterior_dataset import PosteriorDataset
 from mutect3.data.posterior_datum import PosteriorDatum
 from mutect3.utils import Call
 
-# TODO: eventually M3 can handle multiallelics
-TRUSTED_M2_FILTERS = {'contamination', 'multiallelic'}
+TRUSTED_M2_FILTERS = {'contamination'}
 
 POST_PROB_INFO_KEY = 'POST'
 FILTER_NAMES = [call_type.name.lower() for call_type in Call]
