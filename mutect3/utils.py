@@ -1,4 +1,5 @@
 import enum
+import numpy as np
 
 
 # variant size is alt - ref length
@@ -6,10 +7,10 @@ import torch
 from torch.utils.data import random_split
 
 
-def downsample_tensor(tensor2d: torch.Tensor, new_length: int):
+def downsample_tensor(tensor2d: np.ndarray, new_length: int):
     if tensor2d is None or new_length >= len(tensor2d):
         return tensor2d
-    perm = torch.randperm(len(tensor2d))
+    perm = np.random.permutation(len(tensor2d))
     return tensor2d[perm[:new_length]]
 
 

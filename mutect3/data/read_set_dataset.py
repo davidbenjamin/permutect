@@ -9,7 +9,7 @@ import tarfile
 from threading import Thread
 from collections import defaultdict
 from itertools import chain
-
+import numpy as np
 import torch
 from torch.utils.data import Dataset, DataLoader
 from torch.utils.data.sampler import Sampler
@@ -205,9 +205,9 @@ def read_data(dataset_file, posterior: bool = False, yield_nones: bool = False, 
             seq_error_log_likelihood = read_float(file.readline())
             normal_seq_error_log_likelihood = read_float(file.readline())
 
-            assert ref_tensor is None or not torch.sum(ref_tensor).isnan().item(), contig + ":" + str(position)
-            assert alt_tensor is None or not torch.sum(alt_tensor).isnan().item(), contig + ":" + str(position)
-            assert not torch.sum(gatk_info_tensor).isnan().item(), contig + ":" + str(position)
+            assert ref_tensor is None or not np.isnan(np.sum(ref_tensor)), contig + ":" + str(position)
+            assert alt_tensor is None or not np.isnan(np.sum(alt_tensor)), contig + ":" + str(position)
+            assert not np.isnan(np.sum(gatk_info_tensor)), contig + ":" + str(position)
 
             datum = ReadSet.from_gatk(ref_sequence_string, Variation.get_type(ref, alt), ref_tensor, alt_tensor, gatk_info_tensor, label)
 
@@ -471,39 +471,26 @@ class BigReadSetDataset:
                     self.training_artifact_totals, self.training_non_artifact_totals], metadata_file)
 
 
-def medians_and_iqrs(tensor_2d: torch.Tensor):
+def medians_and_iqrs(tensor_2d: np.ndarray):
     # column medians etc
-    medians = torch.quantile(tensor_2d.float(), 0.5, dim=0, keepdim=False)
-    vals = [0.05, 0.01, 0.0]
-    iqrs = [torch.quantile(tensor_2d.float(), 1 - x, dim=0, keepdim=False) - torch.quantile(tensor_2d.float(), x, dim=0, keepdim=False)
-            for x in vals]
+    medians = np.quantile(tensor_2d, q=0.5, axis=0)
+    val = 0.05
+    iqrs = (np.quantile(tensor_2d, 1 - val, axis=0) - np.quantile(tensor_2d, val, axis=0)) + EPSILON
 
-    # for each element, try first the IQR, but if it's zero try successively larger ranges
-    adjusted_iqrs = []
-    for n in range(len(medians)):
-        # if all zero, add 1 for no scaling
-        value_to_append = 1.0
-        for iqr in iqrs:
-            # add the first non-zero scale
-            if iqr[n] > EPSILON:
-                value_to_append = iqr[n]
-                break
-        adjusted_iqrs.append(value_to_append)
-    return medians, torch.FloatTensor(adjusted_iqrs)
+    return medians, iqrs
 
 
-def line_to_tensor(line: str) -> torch.Tensor:
+def line_to_tensor(line: str) -> np.ndarray:
     tokens = line.strip().split()
     floats = [float(token) for token in tokens]
-    return torch.clamp(torch.FloatTensor(floats), -MAX_VALUE, MAX_VALUE).half()
+    return np.clip(np.array(floats), -MAX_VALUE, MAX_VALUE)
 
 
-def read_2d_tensor(file, num_lines: int) -> torch.Tensor:
+def read_2d_tensor(file, num_lines: int) -> np.ndarray:
     if num_lines == 0:
         return None
     lines = [file.readline() for _ in range(num_lines)]
-    tensors_1d = [line_to_tensor(line) for line in lines]
-    return torch.vstack(tensors_1d)
+    return np.vstack([line_to_tensor(line) for line in lines])
 
 
 def read_integers(line: str):

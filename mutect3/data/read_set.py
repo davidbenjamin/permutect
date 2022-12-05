@@ -1,3 +1,4 @@
+import numpy as np
 import torch
 from typing import List
 import sys
@@ -5,7 +6,7 @@ import sys
 from mutect3 import utils
 
 
-def make_sequence_tensor(sequence_string: str):
+def make_sequence_tensor(sequence_string: str) -> np.ndarray:
     """
     convert string of form ACCGTA into 4-channel one-hot tensor
     [ [1, 0, 0, 0, 0, 1],   # A channel
@@ -13,7 +14,7 @@ def make_sequence_tensor(sequence_string: str):
       [0, 0, 0, 1, 0, 0],   # G channel
       [0, 0, 0, 0, 1, 0] ]  # T channel
     """
-    result = torch.zeros(4, len(sequence_string))
+    result = np.zeros([4, len(sequence_string)])
     for n, char in enumerate(sequence_string):
         channel = 0 if char == 'A' else (1 if char == 'C' else (2 if char == 'G' else 3))
         result[channel, n] = 1
@@ -29,7 +30,7 @@ class ReadSet:
     :param info_tensor  1D tensor of information about the variant as a whole
     :param label        an object of the Label enum artifact, non-artifact, unlabeled
     """
-    def __init__(self, ref_sequence_tensor: torch.Tensor, ref_tensor: torch.Tensor, alt_tensor: torch.Tensor, info_tensor: torch.Tensor, label: utils.Label):
+    def __init__(self, ref_sequence_tensor: np.ndarray, ref_tensor: np.ndarray, alt_tensor: np.ndarray, info_tensor: np.ndarray, label: utils.Label):
         # Note: if changing any of the data fields below, make sure to modify the size_in_bytes() method below accordingly!
         self.ref_sequence_tensor = ref_sequence_tensor
         self._ref_tensor = ref_tensor
