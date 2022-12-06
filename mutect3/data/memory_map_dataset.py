@@ -14,13 +14,13 @@ def make_flattened_tensor_generator(read_set_generator):
     for read_set in read_set_generator:
         # TODO: these need to be numpy tensors.  Perhaps easiest is to make them numpy tensors from the beginning
         # TODO: and only switch to PyTorch once we actually create a batch
-        yield read_set.ref_tensor()
-        yield read_set.alt_tensor()
+        yield read_set.ref_tensor
+        yield read_set.alt_tensor
         yield read_set.ref_sequence_tensor
-        yield read_set.info_tensor()
+        yield read_set.info_tensor
 
         # TODO: this is currently not a tensor of any sort, let a lone a numpy tensor!!!
-        yield read_set.label()
+        yield read_set.label
 
 
 class MemoryMapDataset(Dataset):

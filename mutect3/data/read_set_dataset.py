@@ -95,7 +95,7 @@ class ReadSetDataset(Dataset):
         self.unlabeled_indices_by_count = defaultdict(list)
 
         for n, datum in enumerate(self.data):
-            counts = (len(datum.ref_tensor()), len(datum.alt_tensor()))
+            counts = (len(datum.ref_tensor), len(datum.alt_tensor))
             (self.unlabeled_indices_by_count if datum.label() == Label.UNLABELED else self.labeled_indices_by_count)[counts].append(n)
 
         if normalize:
@@ -104,7 +104,7 @@ class ReadSetDataset(Dataset):
             random_indices = range(data_count) if data_count <= QUANTILE_DATA_COUNT else torch.randint(0, data_count,
                                                                                      (QUANTILE_DATA_COUNT,)).tolist()
 
-            ref = torch.cat([self.data[n].ref_tensor() for n in random_indices], dim=0)
+            ref = torch.cat([self.data[n].ref_tensor for n in random_indices], dim=0)
 
             # since info is just a 1D tensor, use all of it
             info = torch.stack([datum.info_tensor() for datum in self.data], dim=0)
@@ -122,10 +122,10 @@ class ReadSetDataset(Dataset):
 
             for n in range(len(self.data)):
                 raw = self.data[n]
-                normalized_ref = (raw.ref_tensor() - read_medians) / read_iqrs
-                normalized_alt = (raw.alt_tensor() - read_medians) / read_iqrs
-                restore_binary_columns(normalized=normalized_ref, original=raw.ref_tensor(), binary_columns=binary_read_columns)
-                restore_binary_columns(normalized=normalized_alt, original=raw.alt_tensor(), binary_columns=binary_read_columns)
+                normalized_ref = (raw.ref_tensor - read_medians) / read_iqrs
+                normalized_alt = (raw.alt_tensor - read_medians) / read_iqrs
+                restore_binary_columns(normalized=normalized_ref, original=raw.ref_tensor, binary_columns=binary_read_columns)
+                restore_binary_columns(normalized=normalized_alt, original=raw.alt_tensor, binary_columns=binary_read_columns)
                 self.data[n] = ReadSet(raw.ref_sequence_tensor, normalized_ref, normalized_alt, normalized_info[n], raw.label())
 
     def __len__(self):

@@ -25,17 +25,17 @@ class ReadSetBatch:
 
     def __init__(self, data: List[ReadSet]):
         self.labeled = data[0].label() != Label.UNLABELED
-        self.ref_count = len(data[0].ref_tensor())
-        self.alt_count = len(data[0].alt_tensor())
+        self.ref_count = len(data[0].ref_tensor)
+        self.alt_count = len(data[0].alt_tensor)
         for datum in data:
             assert (datum.label() != Label.UNLABELED) == self.labeled, "Batch may not mix labeled and unlabeled"
-            assert len(datum.ref_tensor()) == self.ref_count, "batch may not mix different ref counts"
-            assert len(datum.alt_tensor()) == self.alt_count, "batch may not mix different alt counts"
+            assert len(datum.ref_tensor) == self.ref_count, "batch may not mix different ref counts"
+            assert len(datum.alt_tensor) == self.alt_count, "batch may not mix different alt counts"
 
         self._ref_sequences = torch.stack([item.ref_sequence_tensor for item in data])
-        self._reads = torch.cat([item.ref_tensor() for item in data] + [item.alt_tensor() for item in data], dim=0)
-        self._info = torch.stack([item.info_tensor() for item in data], dim=0)
-        self._labels = torch.FloatTensor([1.0 if item.label() == Label.ARTIFACT else 0.0 for item in data]) if self.labeled else None
+        self._reads = torch.cat([item.ref_tensor for item in data] + [item.alt_tensor for item in data], dim=0)
+        self._info = torch.stack([item.info_tensor for item in data], dim=0)
+        self._labels = torch.FloatTensor([1.0 if item.label == Label.ARTIFACT else 0.0 for item in data]) if self.labeled else None
         self._size = len(data)
 
     # pin memory for all tensors that are sent to the GPU
