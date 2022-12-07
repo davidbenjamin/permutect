@@ -1,8 +1,16 @@
 import argparse
 import os
+import tempfile
+import tarfile
 
 from mutect3 import constants
-from mutect3.data import read_set_dataset
+from mutect3.data import read_set
+from mutect3.data.plain_text_data import generate_normalized_data
+
+"""
+This tool takes as input a list of text file Mutect3 training datasets, reads them in chunks that fit in memory,
+normalizes each chunk, outputs each chunk as a binary PyTorch file, and bundles the output as a tarfile.
+"""
 
 
 TRAIN_TAR_NAME = "train.tar"
@@ -19,13 +27,30 @@ def parse_arguments():
 
 
 def do_work(training_datasets, output_dir, chunk_size):
-    big_dataset = read_set_dataset.BigReadSetDataset(max_bytes_per_chunk=chunk_size, dataset_files=training_datasets)
+    data_files = []
+    # TODO: need to accumulate the metadata here
 
+    # save all the lists of read sets to tempfiles
+    for read_set_list in generate_normalized_data(training_datasets, max_bytes_per_chunk=chunk_size):
+        with tempfile.NamedTemporaryFile(delete=False) as train_data_file:
+            read_set.save_list_of_read_sets(read_set_list, train_data_file)
+            data_files.append(train_data_file.name)
+
+        tempfile.NamedTemporaryFile()
+
+    # and bundle them in a tarfile
     train_tar = output_dir + '/' + TRAIN_TAR_NAME
-    valid_tar = output_dir + '/' + VALID_TAR_NAME
+    with tarfile.open(train_tar, "w") as train_tar:
+        for train_file in data_files:
+            train_tar.add(train_file, arcname=os.path.basename(train_file))
+
+
+
     metadata = output_dir + '/' + METADATA_NAME
 
-    big_dataset.save_data(train_tar_file=train_tar, valid_tar_file=valid_tar, metadata_file=metadata)
+    torch.save([self.num_read_features, self.num_info_features, self.ref_sequence_length, self.num_training_data,
+                self.training_artifact_totals, self.training_non_artifact_totals], metadata_file)
+
 
 
 def main():
@@ -36,6 +61,7 @@ def main():
     output_dir = output_dir if output_dir is not None else os.getcwd()
 
     do_work(training_datasets, output_dir, chunk_size)
+
 
 
 

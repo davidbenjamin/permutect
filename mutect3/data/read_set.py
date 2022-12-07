@@ -51,7 +51,12 @@ class ReadSet:
 
 
 def save_list_of_read_sets(read_sets: List[ReadSet], file):
-    # convert to torch because the save method is more flexible
+    """
+    input is numpy, file is torch because its save method is more flexible
+    :param read_sets:
+    :param file:
+    :return:
+    """
     ref_sequence_tensors = [torch.from_numpy(datum.ref_sequence_tensor) for datum in read_sets]
     ref_tensors = [torch.from_numpy(datum.ref_tensor) for datum in read_sets]
     alt_tensors = [torch.from_numpy(datum.alt_tensor) for datum in read_sets]
@@ -62,7 +67,11 @@ def save_list_of_read_sets(read_sets: List[ReadSet], file):
 
 
 def load_list_of_read_sets(file) -> List[ReadSet]:
-    # convert back to numpy
+    """
+    file is torch, output is converted back to numpy
+    :param file:
+    :return:
+    """
     ref_sequence_tensors, ref_tensors, alt_tensors, info_tensors, labels = torch.load(file)
     return [ReadSet(ref_sequence_tensor.numpy(), ref.numpy(), alt.numpy(), info.numpy(), utils.Label(label)) for ref_sequence_tensor, ref, alt, info, label in
             zip(ref_sequence_tensors, ref_tensors, alt_tensors, info_tensors, labels.tolist())]
