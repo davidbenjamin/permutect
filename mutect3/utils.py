@@ -7,6 +7,12 @@ import torch
 from torch.utils.data import random_split
 
 
+def assert_same_or_was_none(old, new):
+    if old is not None:
+        assert new is not None, "setting to None"
+        assert new == old, "new is different from old"
+
+
 def downsample_tensor(tensor2d: np.ndarray, new_length: int):
     if tensor2d is None or new_length >= len(tensor2d):
         return tensor2d

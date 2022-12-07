@@ -2,10 +2,13 @@ import argparse
 import os
 import tempfile
 import tarfile
+import torch
+import numpy as np
 
-from mutect3 import constants
+from mutect3 import constants, utils
 from mutect3.data import read_set
 from mutect3.data.plain_text_data import generate_normalized_data
+from mutect3.utils import Label
 
 """
 This tool takes as input a list of text file Mutect3 training datasets, reads them in chunks that fit in memory,
@@ -28,29 +31,48 @@ def parse_arguments():
 
 def do_work(training_datasets, output_dir, chunk_size):
     data_files = []
-    # TODO: need to accumulate the metadata here
 
-    # save all the lists of read sets to tempfiles
+    num_read_features, num_info_features, ref_sequence_length = None, None, None
+    num_training_data = 0
+    artifact_totals = np.zeros(len(utils.Variation))  # 1D tensor
+    non_artifact_totals = np.zeros(len(utils.Variation))  # 1D tensor
+
+    # save all the lists of read sets to tempfiles. . .
     for read_set_list in generate_normalized_data(training_datasets, max_bytes_per_chunk=chunk_size):
+        num_training_data += len(read_set_list)
+
+        utils.assert_same_or_was_none(old=num_read_features, new=read_set_list[0].ref_tensor.shape[1])
+        num_read_features = read_set_list[0].ref_tensor.shape[1]
+
+        utils.assert_same_or_was_none(old=num_info_features, new=read_set_list[0].info_tensor.shape[0])
+        num_info_features = read_set_list[0].info_tensor.shape[0]
+
+        utils.assert_same_or_was_none(old=ref_sequence_length, new=read_set_list[0].ref_sequence_tensor.shape[-1])
+        ref_sequence_length = read_set_list[0].ref_sequence_tensor.shape[-1]
+
+        for datum in read_set_list:
+            if datum.label == Label.ARTIFACT:
+                artifact_totals += datum.variant_type_one_hot()
+            elif datum.label != Label.UNLABELED:
+                non_artifact_totals += datum.variant_type_one_hot()
+
         with tempfile.NamedTemporaryFile(delete=False) as train_data_file:
             read_set.save_list_of_read_sets(read_set_list, train_data_file)
             data_files.append(train_data_file.name)
 
         tempfile.NamedTemporaryFile()
 
-    # and bundle them in a tarfile
+    # . . . and bundle them in a tarfile
     train_tar = output_dir + '/' + TRAIN_TAR_NAME
     with tarfile.open(train_tar, "w") as train_tar:
         for train_file in data_files:
             train_tar.add(train_file, arcname=os.path.basename(train_file))
 
-
-
     metadata = output_dir + '/' + METADATA_NAME
 
-    torch.save([self.num_read_features, self.num_info_features, self.ref_sequence_length, self.num_training_data,
-                self.training_artifact_totals, self.training_non_artifact_totals], metadata_file)
-
+    # TODO: can you do torch.save on numpy array -- if so, check out the save/load in read_set.py
+    torch.save([num_read_features, num_info_features, ref_sequence_length, num_training_data,
+                artifact_totals, non_artifact_totals], metadata)
 
 
 def main():
@@ -61,9 +83,6 @@ def main():
     output_dir = output_dir if output_dir is not None else os.getcwd()
 
     do_work(training_datasets, output_dir, chunk_size)
-
-
-
 
 
 if __name__ == '__main__':

@@ -4,6 +4,7 @@ from typing import List
 import sys
 
 from mutect3 import utils
+from mutect3.utils import Variation
 
 
 def make_sequence_tensor(sequence_string: str) -> np.ndarray:
@@ -48,6 +49,9 @@ class ReadSet:
     def size_in_bytes(self):
         return sys.getsizeof(self.ref_tensor.storage()) + sys.getsizeof(self.alt_tensor.storage()) + \
                sys.getsizeof(self.info_tensor.storage()) + sys.getsizeof(self.label)
+
+    def variant_type_one_hot(self):
+        return self.info_tensor[-len(Variation):]
 
 
 def save_list_of_read_sets(read_sets: List[ReadSet], file):
