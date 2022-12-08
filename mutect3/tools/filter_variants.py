@@ -181,7 +181,7 @@ def make_posterior_data_loader(dataset_file, input_vcf, artifact_model: Artifact
             print("memory usage percent: " + str(psutil.virtual_memory().percent))
             print(posterior_buffer[-1].contig() + ":" + str(posterior_buffer[-1].position()))
 
-            artifact_dataset = read_set_dataset.ReadSetDataset(data=read_sets_buffer, shuffle=False)
+            artifact_dataset = read_set_dataset.ReadSetDataset(data=read_sets_buffer)
             logits = []
             for artifact_batch in read_set_dataset.make_test_data_loader(artifact_dataset, batch_size):
                 logits.extend(artifact_model.forward(batch=artifact_batch).detach().tolist())
