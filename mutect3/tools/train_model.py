@@ -17,33 +17,28 @@ class TrainingParameters:
         self.num_workers = num_workers
 
 
-def train_artifact_model(m3_params: ArtifactModelParameters, params: TrainingParameters, tensorboard_dir, training_datasets=None, train_valid_meta_tuple=None):
+def train_artifact_model(m3_params: ArtifactModelParameters, params: TrainingParameters, tensorboard_dir, data_tarfile):
     use_gpu = torch.cuda.is_available()
     device = torch.device('cuda' if use_gpu else 'cpu')
 
-    if training_datasets is not None:
-        big_dataset = read_set_dataset.BigReadSetDataset(batch_size=params.batch_size, max_bytes_per_chunk=params.chunk_size, dataset_files=training_datasets, num_workers=params.num_workers)
-    else:
-        big_dataset = read_set_dataset.BigReadSetDataset(batch_size=params.batch_size, max_bytes_per_chunk=params.chunk_size, train_valid_meta_tuple=train_valid_meta_tuple, num_workers=params.num_workers)
+    # TODO: at some point need to split into train and valid
+    dataset = read_set_dataset.ReadSetDataset(data_tarfile=data_tarfile)
 
-    model = ArtifactModel(params=m3_params, num_read_features=big_dataset.num_read_features,
-                          num_info_features=big_dataset.num_info_features, ref_sequence_length=big_dataset.ref_sequence_length, device=device).float()
+    model = ArtifactModel(params=m3_params, num_read_features=dataset.num_read_features,
+                          num_info_features=dataset.num_info_features, ref_sequence_length=dataset.ref_sequence_length, device=device).float()
 
     print("Training. . .")
     summary_writer = SummaryWriter(tensorboard_dir)
-    model.train_model(big_dataset, params.num_epochs, summary_writer=summary_writer, reweighting_range=params.reweighting_range, m3_params=m3_params)
+    model.train_model(dataset, params.num_epochs, summary_writer=summary_writer, reweighting_range=params.reweighting_range, m3_params=m3_params)
 
+    # TODO: generate batches no longer exists.  Use a DataLoader
     print("Calibrating. . .")
-    model.learn_calibration(big_dataset.generate_batches(utils.Epoch.VALID), num_epochs=50)
+    model.learn_calibration(dataset.generate_batches(utils.Epoch.VALID), num_epochs=50)
 
+    # TODO: generate batches no longer exists.  Use a DataLoader
     print("Evaluating trained model. . .")
-    model.evaluate_model_after_training({"training": big_dataset.generate_batches(utils.Epoch.TRAIN), "validation": big_dataset.generate_batches(utils.Epoch.VALID)}, summary_writer)
-    # model.evaluate_model_after_training(valid_loader, summary_writer, "validation data for (1,25) and (50,50): ",
-    #                                    artifact_beta_shape=torch.Tensor((1, 25)), variant_beta_shape=torch.Tensor((50, 50)))
-    # model.evaluate_model_after_training(valid_loader, summary_writer, "validation data for (1,25) and (25,25): ",
-    #                                    artifact_beta_shape=torch.Tensor((1, 25)), variant_beta_shape=torch.Tensor((25, 25)))
-    # model.evaluate_model_after_training(valid_loader, summary_writer, "validation data for (1,50) and (50,50): ",
-    #                                    artifact_beta_shape=torch.Tensor((1, 50)), variant_beta_shape=torch.Tensor((50, 50)))
+    model.evaluate_model_after_training({"training": dataset.generate_batches(utils.Epoch.TRAIN), "validation": dataset.generate_batches(utils.Epoch.VALID)}, summary_writer)
+
     summary_writer.close()
 
     return model
@@ -93,8 +88,6 @@ def parse_arguments():
 
     # Training data inputs
     parser.add_argument('--' + constants.TRAIN_TAR_NAME, type=str, required=True)
-    parser.add_argument('--' + constants.VALID_TAR_NAME, type=str, required=True)
-    parser.add_argument('--' + constants.METADATA_NAME, type=str, required=True)
 
     # training hyperparameters
     parser.add_argument('--' + constants.REWEIGHTING_RANGE_NAME, type=float, default=0.3, required=False)
@@ -115,8 +108,8 @@ def main():
     m3_params = parse_mutect3_params(args)
     training_params = parse_training_params(args)
 
-    train_valid_meta_tuple = (getattr(args, constants.TRAIN_TAR_NAME), getattr(args, constants.VALID_TAR_NAME), getattr(args, constants.METADATA_NAME))
-    model = train_artifact_model(m3_params=m3_params, train_valid_meta_tuple=train_valid_meta_tuple,
+    tarfile_data = getattr(args, constants.TRAIN_TAR_NAME)
+    model = train_artifact_model(m3_params=m3_params, data_tarfile=tarfile_data,
                                  params=training_params, tensorboard_dir=getattr(args, constants.TENSORBOARD_DIR_NAME))
     save_artifact_model(model, m3_params, getattr(args, constants.OUTPUT_NAME))
 
