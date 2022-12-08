@@ -65,7 +65,7 @@ class ReadSetDataset(Dataset):
         self.ref_sequence_length = self[0].ref_sequence_tensor.shape[-1]
 
     def __len__(self):
-        return len(self._data) / TENSORS_PER_READ_SET if self._memory_map_mode else Tlen(self.data)
+        return len(self._data) / TENSORS_PER_READ_SET if self._memory_map_mode else len(self.data)
 
     def __getitem__(self, index):
         if self._memory_map_mode:
@@ -76,7 +76,7 @@ class ReadSetDataset(Dataset):
                            ref_tensor=self.memory_map[bottom_index],
                            alt_tensor=self.memory_map[bottom_index + 1],
                            info_tensor=self.memory_map[bottom_index + 3],
-                           label=self.memory_map[bottom_index + 4])
+                           label=utils.Label(self.memory_map[bottom_index + 4][0]))
         else:
             return self.data[index]
 
@@ -89,9 +89,7 @@ def make_flattened_tensor_generator(read_set_generator):
         yield read_set.alt_tensor
         yield read_set.ref_sequence_tensor
         yield read_set.info_tensor
-
-        # TODO: this is currently not a tensor of any sort, let a lone a numpy tensor!!!
-        yield read_set.label
+        yield np.array([read_set.label.value])  # single-element tensor of the Label enum
 
 
 def make_read_set_generator_from_tarfile(data_tarfile):
@@ -110,11 +108,12 @@ def make_read_set_generator_from_tarfile(data_tarfile):
 
 
 # this is used for training and validation but not deployment / testing
-def make_semisupervised_data_loader(dataset: ReadSetDataset, batch_size: int, pin_memory=False, num_workers: int=0):
+def make_semisupervised_data_loader(dataset: ReadSetDataset, batch_size: int, pin_memory=False, num_workers: int = 0):
     sampler = SemiSupervisedBatchSampler(dataset, batch_size)
     return DataLoader(dataset=dataset, batch_sampler=sampler, collate_fn=ReadSetBatch, pin_memory=pin_memory, num_workers=num_workers)
 
 
+# TODO: batches have a single ref, alt count so this will have to be done with batch sampler somehow
 def make_test_data_loader(dataset: ReadSetDataset, batch_size: int):
     return DataLoader(dataset=dataset, batch_size=batch_size, collate_fn=ReadSetBatch)
 
