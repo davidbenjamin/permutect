@@ -21,8 +21,6 @@ workflow PreprocessMutect3 {
 
     output {
         File train_tar = Preprocess.train_tar
-        File valid_tar = Preprocess.valid_tar
-        File metadata = Preprocess.metadata
     }
 }
 
@@ -63,7 +61,5 @@ task Preprocess {
 
     output {
         File train_tar = "train.tar"
-        File valid_tar = "valid.tar"
-        File metadata = "metadata.pt"
     }
 }

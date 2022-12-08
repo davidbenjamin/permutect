@@ -6,8 +6,10 @@ import os
 from collections import defaultdict
 from itertools import chain
 from typing import Iterable
+import numpy as np
 
 from mmap_ninja.ragged import RaggedMmap
+from mutect3 import utils
 
 from mutect3.data.read_set import ReadSet, load_list_of_read_sets
 import torch
@@ -46,19 +48,21 @@ class ReadSetDataset(Dataset):
         # this is used in the batch sampler to make same-shape batches
         self.labeled_indices_by_count = defaultdict(list)
         self.unlabeled_indices_by_count = defaultdict(list)
+        self.artifact_totals = np.zeros(len(utils.Variation))  # 1D tensor
+        self.non_artifact_totals = np.zeros(len(utils.Variation))  # 1D tensor
 
         for n, datum in enumerate(self):
             counts = (len(datum.ref_tensor), len(datum.alt_tensor))
             (self.unlabeled_indices_by_count if datum.label() == Label.UNLABELED else self.labeled_indices_by_count)[counts].append(n)
 
+            if datum.label == Label.ARTIFACT:
+                self.artifact_totals += datum.variant_type_one_hot()
+            elif datum.label != Label.UNLABELED:
+                self.non_artifact_totals += datum.variant_type_one_hot()
+
         self.num_read_features = self[0].alt_tensor().size()[1]
         self.num_info_features = len(self[0].info_tensor())
         self.ref_sequence_length = self[0].ref_sequence_tensor.shape[-1]
-
-
-        # get metadata -- this parallels the order of saving in preprocess_dataset.py
-        _,_,_, self.num_training_data, \
-        self.artifact_totals, self.non_artifact_totals = torch.load(metadata_file)
 
     def __len__(self):
         return len(self._data) / TENSORS_PER_READ_SET if self._memory_map_mode else Tlen(self.data)
