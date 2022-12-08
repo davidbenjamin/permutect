@@ -1,4 +1,5 @@
 from typing import List
+import numpy as np
 
 import torch
 from mutect3.data.read_set import ReadSet
@@ -27,23 +28,24 @@ class ReadSetBatch:
         self.labeled = data[0].label() != Label.UNLABELED
         self.ref_count = len(data[0].ref_tensor)
         self.alt_count = len(data[0].alt_tensor)
-        for datum in data:
-            assert (datum.label() != Label.UNLABELED) == self.labeled, "Batch may not mix labeled and unlabeled"
-            assert len(datum.ref_tensor) == self.ref_count, "batch may not mix different ref counts"
-            assert len(datum.alt_tensor) == self.alt_count, "batch may not mix different alt counts"
 
-        self._ref_sequences = torch.stack([item.ref_sequence_tensor for item in data])
-        self._reads = torch.cat([item.ref_tensor for item in data] + [item.alt_tensor for item in data], dim=0)
-        self._info = torch.stack([item.info_tensor for item in data], dim=0)
-        self._labels = torch.FloatTensor([1.0 if item.label == Label.ARTIFACT else 0.0 for item in data]) if self.labeled else None
+        # for datum in data:
+        #    assert (datum.label() != Label.UNLABELED) == self.labeled, "Batch may not mix labeled and unlabeled"
+        #    assert len(datum.ref_tensor) == self.ref_count, "batch may not mix different ref counts"
+        #    assert len(datum.alt_tensor) == self.alt_count, "batch may not mix different alt counts"
+
+        self.ref_sequences = torch.from_numpy(np.stack([item.ref_sequence_tensor for item in data]))
+        self.reads = torch.from_numpy(np.vstack([item.ref_tensor for item in data] + [item.alt_tensor for item in data]))
+        self.info = torch.from_numpy(np.vstack([item.info_tensor for item in data]))
+        self.labels = torch.FloatTensor([1.0 if item.label == Label.ARTIFACT else 0.0 for item in data]) if self.labeled else None
         self._size = len(data)
 
     # pin memory for all tensors that are sent to the GPU
     def pin_memory(self):
-        self._ref_sequences = self._ref_sequences.pin_memory()
-        self._reads = self._reads.pin_memory()
-        self._info = self._info.pin_memory()
-        self._labels = self._labels.pin_memory()
+        self.ref_sequences = self.ref_sequences.pin_memory()
+        self.reads = self.reads.pin_memory()
+        self.info = self.info.pin_memory()
+        self.labels = self.labels.pin_memory()
         return self
 
     def is_labeled(self) -> bool:
@@ -51,18 +53,6 @@ class ReadSetBatch:
 
     def size(self) -> int:
         return self._size
-
-    def ref_sequences(self) -> torch.Tensor:
-        return self._ref_sequences
-
-    def reads(self) -> torch.Tensor:
-        return self._reads
-
-    def info(self) -> torch.Tensor:
-        return self._info
-
-    def labels(self) -> torch.Tensor:
-        return self._labels
 
     def variant_type_one_hot(self):
         return self._info[:, -len(Variation):]

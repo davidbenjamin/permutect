@@ -161,7 +161,7 @@ class ArtifactModel(nn.Module):
     # number of reads in the whole batch.  Thus, we have to be careful to downsample within each datum.
     def apply_phi_to_reads(self, batch: ReadSetBatch):
         # note that we put the reads on GPU, apply read embedding phi, then put the result back on CPU
-        return torch.sigmoid(self.phi(batch.reads().to(self._device)))
+        return torch.sigmoid(self.phi(batch.reads.to(self._device)))
 
     def forward_from_phi_reads_to_calibration(self, phi_reads: torch.Tensor, batch: ReadSetBatch, weight_range: float=0):
         weights = torch.ones(len(phi_reads), 1, device=self._device) if weight_range == 0 else (1 + weight_range * (1 - 2 * torch.rand(len(phi_reads), 1, device=self._device)))
@@ -183,9 +183,9 @@ class ArtifactModel(nn.Module):
         effective_alt_counts = torch.square(alt_wt_sums) / alt_wt_sq_sums
 
         # stack side-by-side to get 2D tensor, where each variant row is (ref mean, alt mean, info)
-        omega_info = torch.sigmoid(self.omega(batch.info().to(self._device)))
+        omega_info = torch.sigmoid(self.omega(batch.info.to(self._device)))
 
-        ref_seq_embedding = self.ref_seq_cnn(batch.ref_sequences())
+        ref_seq_embedding = self.ref_seq_cnn(batch.ref_sequences)
         concatenated = torch.cat((ref_means, alt_means, omega_info, ref_seq_embedding), dim=1)
         logits = self.rho(concatenated).squeeze(dim=1)  # specify dim so that in edge case of batch size 1 we get 1D tensor, not scalar
         return logits, effective_ref_counts, effective_alt_counts
@@ -214,7 +214,7 @@ class ArtifactModel(nn.Module):
                 continue
             phi_reads = self.apply_phi_to_reads(batch)
             logits, ref_counts, alt_counts = self.forward_from_phi_reads_to_calibration(phi_reads, batch)
-            uncalibrated_logits_ref_alt_counts_labels.append((logits.detach(), ref_counts.detach(), alt_counts.detach(), batch.labels().to(self._device)))
+            uncalibrated_logits_ref_alt_counts_labels.append((logits.detach(), ref_counts.detach(), alt_counts.detach(), batch.labels.to(self._device)))
 
         print("Training calibration. . .")
         optimizer = torch.optim.Adam(self.calibration_parameters())
@@ -272,7 +272,7 @@ class ArtifactModel(nn.Module):
                     aug2_pred = self.forward_from_phi_reads(phi_reads, batch, weight_range=reweighting_range)
 
                     if batch.is_labeled():
-                        labels = batch.labels()
+                        labels = batch.labels
                         # labeled loss: cross entropy for original and both augmented copies
 
                         # the variant-dependent weights multiply the (unreduced) bces inside the torch.sum below
@@ -344,8 +344,8 @@ class ArtifactModel(nn.Module):
 
                 pred = self.forward(batch)
 
-                labels = batch.labels()
-                correct = ((pred > 0) == (batch.labels() > 0.5))
+                labels = batch.labels
+                correct = ((pred > 0) == (batch.labels > 0.5))
 
                 for l_bin in logit_bins:
                     accuracy[l_bin].record_with_mask(correct, (pred > l_bin[0]) & (pred < l_bin[1]))

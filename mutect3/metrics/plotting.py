@@ -88,7 +88,7 @@ def plot_roc_curve(model, loader, normal_artifact=False):
 
     pbar = tqdm(enumerate(loader), mininterval=10)
     for _, batch in pbar:
-        labels = batch.labels()
+        labels = batch.labels
         logits = model(batch, posterior=True, normal_artifact=normal_artifact)
         for n in range(batch.size()):
             predictions_and_labels.append((logits[n].item(), labels[n].item()))
