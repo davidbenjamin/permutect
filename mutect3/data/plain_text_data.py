@@ -39,6 +39,7 @@ from mutect3.data.read_set import ReadSet
 
 from mutect3.utils import Label, Variation
 
+MAX_VALUE = 10000
 MIN_REF = 5
 EPSILON = 0.00001
 QUANTILE_DATA_COUNT = 10000

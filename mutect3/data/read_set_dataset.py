@@ -12,14 +12,9 @@ from torch.utils.data import Dataset, DataLoader
 from torch.utils.data.sampler import Sampler
 
 from mutect3 import utils
-from mutect3.data.read_set import ReadSet, load_list_of_read_sets
+from mutect3.data.read_set import ReadSet
 from mutect3.data.read_set_batch import ReadSetBatch
 from mutect3.utils import Label
-
-# TODO: in order to handle very large fragments (and chimeric reads), we may eventually prefer to log-scale fragment sizes
-MAX_VALUE = 10000  # clamp inputs to this range
-
-PICKLE_EXTENSION = ".pickle"
 
 
 class ReadSetDataset(Dataset):
@@ -64,6 +59,7 @@ def make_test_data_loader(dataset: ReadSetDataset, batch_size: int):
     return DataLoader(dataset=dataset, batch_size=batch_size, collate_fn=ReadSetBatch)
 
 
+# TODO: this might belong somewhere else
 def count_data(dataset_file):
     n = 0
     with open(dataset_file) as file:
@@ -71,16 +67,6 @@ def count_data(dataset_file):
             if Label.is_label(line.strip()):
                 n += 1
     return n
-
-
-
-
-
-def make_loader_from_file(dataset_file, batch_size, use_gpu: bool, num_workers: int = 0):
-    with open(dataset_file, 'rb') as file:
-        data = load_list_of_read_sets(file)
-        dataset = ReadSetDataset(data=data, shuffle=False)  # data has already been normalized
-        return make_semisupervised_data_loader(dataset, batch_size, pin_memory=use_gpu, num_workers=num_workers)
 
 
 class BigReadSetDataset:
