@@ -44,6 +44,7 @@ MIN_REF = 5
 EPSILON = 0.00001
 QUANTILE_DATA_COUNT = 10000
 
+
 # ex: [0, 1, 3, 6, 7] -> [0, 1, 1, 3, 3, 3, 6, 7] -- 2 is rounded down to the nearest cutoff, 1 and likewise 4 and 5 are rounded to 3
 # assumes that cutoffs include 0 and are ascending
 def make_round_down_table(cutoffs):
