@@ -36,7 +36,7 @@ class Variation(enum.IntEnum):
     BIG_DELETION = 4
 
     def one_hot_tensor(self):
-        result = torch.zeros(len(Variation))
+        result = np.zeros(len(Variation))
         result[self.value] = 1
         return result
 

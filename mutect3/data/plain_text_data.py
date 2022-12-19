@@ -171,7 +171,7 @@ def generate_normalized_data(dataset_files, max_bytes_per_chunk: int):
 
 def normalize_buffer(buffer, read_medians_override=None, read_iqrs_override=None, info_medians_override=None, info_iqrs_override=None):
     all_ref = np.vstack([datum.ref_tensor for datum in buffer])
-    all_info = np.vstack([datum.ref_tensor for datum in buffer])
+    all_info = np.vstack([datum.info_tensor for datum in buffer])
 
     read_medians, read_iqrs = medians_and_iqrs(all_ref) if read_medians_override is None else (read_medians_override, read_iqrs_override)
     info_medians, info_iqrs = medians_and_iqrs(all_info) if info_medians_override is None else (info_medians_override, info_iqrs_override)

@@ -43,14 +43,13 @@ class ReadSet:
 
     # gatk_info tensor comes from GATK and does not include one-hot encoding of variant type
     @classmethod
-    def from_gatk(cls, ref_sequence_string: str, variant_type: utils.Variation, ref_tensor: torch.Tensor, alt_tensor: torch.Tensor,
-                 gatk_info_tensor: torch.Tensor, label: utils.Label, variant_string: str = None):
-        info_tensor = torch.cat((gatk_info_tensor, variant_type.one_hot_tensor()))
+    def from_gatk(cls, ref_sequence_string: str, variant_type: utils.Variation, ref_tensor: np.ndarray, alt_tensor: np.ndarray,
+                 gatk_info_tensor: np.ndarray, label: utils.Label, variant_string: str = None):
+        info_tensor = np.hstack([gatk_info_tensor, variant_type.one_hot_tensor()])
         return cls(make_sequence_tensor(ref_sequence_string), ref_tensor, alt_tensor, info_tensor, label, variant_string)
 
     def size_in_bytes(self):
-        return sys.getsizeof(self.ref_tensor.storage()) + sys.getsizeof(self.alt_tensor.storage()) + \
-               sys.getsizeof(self.info_tensor.storage()) + sys.getsizeof(self.label)
+        return self.ref_tensor.nbytes + self.alt_tensor.nbytes + self.info_tensor.nbytes + sys.getsizeof(self.label)
 
     def variant_type_one_hot(self):
         return self.info_tensor[-len(Variation):]
