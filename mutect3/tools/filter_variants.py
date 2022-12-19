@@ -12,7 +12,7 @@ from tqdm.autonotebook import tqdm
 
 from mutect3.architecture.artifact_model import ArtifactModel
 from mutect3.architecture.posterior_model import PosteriorModel
-from mutect3.data import read_set_dataset
+from mutect3.data import read_set_dataset, plain_text_data
 from mutect3 import constants
 from mutect3.data.posterior_dataset import PosteriorDataset
 from mutect3.data.posterior_datum import PosteriorDatum
@@ -167,15 +167,14 @@ def make_posterior_data_loader(dataset_file, input_vcf, artifact_model: Artifact
 
     data_count = 0
     chunk_count = 0
-    for read_set, posterior_datum in read_set_dataset.read_data(dataset_file, posterior=True, yield_nones=True):
+    for read_set, posterior_datum in plain_text_data.read_data(dataset_file, posterior=True):
         data_count += 1
 
-        if read_set is not None:
-            encoding = encode_datum(posterior_datum)
-            if encoding not in m2_filtering_to_keep:
-                posterior_datum.set_allele_frequency(allele_frequencies[encoding])
-                posterior_buffer.append(posterior_datum)
-                read_sets_buffer.append(read_set)
+        encoding = encode_datum(posterior_datum)
+        if encoding not in m2_filtering_to_keep:
+            posterior_datum.set_allele_frequency(allele_frequencies[encoding])
+            posterior_buffer.append(posterior_datum)
+            read_sets_buffer.append(read_set)
 
         if data_count == math.ceil(num_data * (chunk_count + 1) / num_chunks):
             print("memory usage percent: " + str(psutil.virtual_memory().percent))

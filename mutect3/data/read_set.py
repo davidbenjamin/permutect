@@ -31,20 +31,22 @@ class ReadSet:
     :param info_tensor  1D tensor of information about the variant as a whole
     :param label        an object of the Label enum artifact, non-artifact, unlabeled
     """
-    def __init__(self, ref_sequence_tensor: np.ndarray, ref_tensor: np.ndarray, alt_tensor: np.ndarray, info_tensor: np.ndarray, label: utils.Label):
+    def __init__(self, ref_sequence_tensor: np.ndarray, ref_tensor: np.ndarray, alt_tensor: np.ndarray, info_tensor: np.ndarray, label: utils.Label,
+                 variant_string: str = None):
         # Note: if changing any of the data fields below, make sure to modify the size_in_bytes() method below accordingly!
         self.ref_sequence_tensor = ref_sequence_tensor
         self.ref_tensor = ref_tensor
         self.alt_tensor = alt_tensor
         self.info_tensor = info_tensor
         self.label = label
+        self.variant_string = variant_string
 
     # gatk_info tensor comes from GATK and does not include one-hot encoding of variant type
     @classmethod
     def from_gatk(cls, ref_sequence_string: str, variant_type: utils.Variation, ref_tensor: torch.Tensor, alt_tensor: torch.Tensor,
-                 gatk_info_tensor: torch.Tensor, label: utils.Label):
+                 gatk_info_tensor: torch.Tensor, label: utils.Label, variant_string: str = None):
         info_tensor = torch.cat((gatk_info_tensor, variant_type.one_hot_tensor()))
-        return cls(make_sequence_tensor(ref_sequence_string), ref_tensor, alt_tensor, info_tensor, label)
+        return cls(make_sequence_tensor(ref_sequence_string), ref_tensor, alt_tensor, info_tensor, label, variant_string)
 
     def size_in_bytes(self):
         return sys.getsizeof(self.ref_tensor.storage()) + sys.getsizeof(self.alt_tensor.storage()) + \

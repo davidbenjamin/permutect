@@ -2,7 +2,7 @@ from typing import List
 import numpy as np
 
 import torch
-from mutect3.data.read_set import ReadSet
+from mutect3.data.read_set import ReadSet, ReadSetWithVariantString
 from mutect3.utils import Variation
 
 
@@ -39,6 +39,8 @@ class ReadSetBatch:
         self.info = torch.from_numpy(np.vstack([item.info_tensor for item in data]))
         self.labels = torch.FloatTensor([1.0 if item.label == Label.ARTIFACT else 0.0 for item in data]) if self.labeled else None
         self._size = len(data)
+
+        self.variant_strings = None if data[0].variant_string is None else [datum.variant_string for datum in data]
 
     # pin memory for all tensors that are sent to the GPU
     def pin_memory(self):

@@ -86,7 +86,8 @@ def read_data(dataset_file, posterior: bool = False, round_down: bool = True):
             n += 1
 
             # contig:position,ref->alt
-            locus, mutation = file.readline().strip().split(",")
+            variant_string = file.readline().strip()
+            locus, mutation = variant_string.split(",")
             contig, position = locus.split(":")
             position = int(position)
             # TODO: replace with tqdm progress bar by counting file in initial pass.  It can't be that expensive.
@@ -123,7 +124,8 @@ def read_data(dataset_file, posterior: bool = False, round_down: bool = True):
             assert alt_tensor is None or not np.isnan(np.sum(alt_tensor)), contig + ":" + str(position)
             assert not np.isnan(np.sum(gatk_info_tensor)), contig + ":" + str(position)
 
-            datum = ReadSet.from_gatk(ref_sequence_string, Variation.get_type(ref, alt), ref_tensor, alt_tensor, gatk_info_tensor, label)
+            datum = ReadSet.from_gatk(ref_sequence_string, Variation.get_type(ref, alt), ref_tensor, alt_tensor,
+                                      gatk_info_tensor, label, variant_string if posterior else None)
 
             if ref_tensor_size >= MIN_REF and alt_tensor_size > 0:
                 if posterior:
