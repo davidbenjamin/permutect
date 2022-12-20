@@ -11,13 +11,12 @@ import numpy as np
 from mmap_ninja.ragged import RaggedMmap
 from mutect3 import utils
 
-from mutect3.data.read_set import ReadSet, load_list_of_read_sets
+from mutect3.data.read_set import ReadSet, load_list_of_read_sets, ReadSetBatch
 import torch
 from torch.utils.data import Dataset, DataLoader
 from torch.utils.data.sampler import Sampler
 
 from mutect3.data.read_set import ReadSet
-from mutect3.data.read_set_batch import ReadSetBatch
 from mutect3.utils import Label
 
 

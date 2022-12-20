@@ -1,5 +1,6 @@
 import torch
-from mutect3.data import read_set, read_set_batch, read_set_dataset
+
+import mutect3.data.read_set
 from mutect3.data.read_set import ReadSet
 
 
@@ -27,7 +28,7 @@ def test_read_set_batch():
 
     data = [ReadSet.from_gatk(ref_sequence_strings[n], variant_types[n], ref_tensors[n], alt_tensors[n], gatk_info_tensors[n], labels[n]) for n in range(size)]
 
-    batch = read_set_batch.ReadSetBatch(data)
+    batch = mutect3.data.read_set.ReadSetBatch(data)
 
     assert torch.equal(batch.ref_sequences,
                        torch.Tensor([

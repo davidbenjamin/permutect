@@ -13,7 +13,7 @@ from matplotlib import pyplot as plt
 
 from mutect3.architecture.mlp import MLP
 from mutect3.architecture.dna_sequence_convolution import DNASequenceConvolution
-from mutect3.data.read_set_batch import ReadSetBatch
+from mutect3.data.read_set import ReadSetBatch
 from mutect3.data.read_set_dataset import ReadSetDataset, make_data_loader
 from mutect3 import utils
 from mutect3.utils import Call, Variation

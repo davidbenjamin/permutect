@@ -14,8 +14,7 @@ from mutect3.architecture.artifact_model import ArtifactModel
 from mutect3.architecture.posterior_model import PosteriorModel
 from mutect3.data import read_set_dataset, plain_text_data
 from mutect3 import constants
-from mutect3.data.posterior_dataset import PosteriorDataset
-from mutect3.data.posterior_datum import PosteriorDatum
+from mutect3.data.posterior import PosteriorDatum, PosteriorDataset
 from mutect3.utils import Call
 
 TRUSTED_M2_FILTERS = {'contamination'}

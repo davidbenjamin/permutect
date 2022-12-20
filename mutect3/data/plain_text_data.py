@@ -34,7 +34,7 @@ import numpy as np
 import psutil
 
 from mutect3 import utils
-from mutect3.data.posterior_datum import PosteriorDatum
+from mutect3.data.posterior import PosteriorDatum
 from mutect3.data.read_set import ReadSet
 
 from mutect3.utils import Label, Variation
