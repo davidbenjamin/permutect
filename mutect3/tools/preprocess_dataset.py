@@ -13,18 +13,15 @@ normalizes each chunk, outputs each chunk as a binary PyTorch file, and bundles 
 """
 
 
-TRAIN_TAR_NAME = "train.tar"
-
-
 def parse_arguments():
     parser = argparse.ArgumentParser()
     parser.add_argument('--' + constants.TRAINING_DATASETS_NAME, nargs='+', type=str, required=True)
     parser.add_argument('--' + constants.CHUNK_SIZE_NAME, type=int, default=int(2e9), required=False)
-    parser.add_argument('--' + constants.OUTPUT_DIR_NAME, type=str, default=None, required=False)
+    parser.add_argument('--' + constants.OUTPUT_NAME, type=str, default=None, required=False)
     return parser.parse_args()
 
 
-def do_work(training_datasets, output_dir, chunk_size):
+def do_work(training_datasets, output_file, chunk_size):
     data_files = []
 
     num_read_features, num_info_features, ref_sequence_length = None, None, None
@@ -50,8 +47,7 @@ def do_work(training_datasets, output_dir, chunk_size):
         tempfile.NamedTemporaryFile()
 
     # . . . and bundle them in a tarfile
-    train_tar = output_dir + '/' + TRAIN_TAR_NAME
-    with tarfile.open(train_tar, "w") as train_tar:
+    with tarfile.open(output_file, "w") as train_tar:
         for train_file in data_files:
             train_tar.add(train_file, arcname=os.path.basename(train_file))
 
@@ -59,10 +55,9 @@ def do_work(training_datasets, output_dir, chunk_size):
 def main(args):
     chunk_size = getattr(args, constants.CHUNK_SIZE_NAME)
     training_datasets = getattr(args, constants.TRAINING_DATASETS_NAME)
-    output_dir = getattr(args, constants.OUTPUT_DIR_NAME)
-    output_dir = output_dir if output_dir is not None else os.getcwd()
+    output_file = getattr(args, constants.OUTPUT_NAME)
 
-    do_work(training_datasets, output_dir, chunk_size)
+    do_work(training_datasets, output_file, chunk_size)
 
 
 if __name__ == '__main__':

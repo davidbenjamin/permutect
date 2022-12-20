@@ -1,5 +1,5 @@
 from mutect3.test.test_utils import artificial_data
-from mutect3.data.read_set_dataset import ReadSetDataset, BigReadSetDataset, make_semisupervised_data_loader, make_test_data_loader
+from mutect3.data.read_set_dataset import ReadSetDataset, make_test_data_loader
 from mutect3.data.read_set import ReadSet
 from typing import Iterable
 from mutect3.architecture.artifact_model import ArtifactModel, ArtifactModelParameters
@@ -14,7 +14,7 @@ BATCH_SIZE = 64
 CHUNK_SIZE = 100000
 NUM_EPOCHS = 50
 NUM_SPECTRUM_ITERATIONS = 100
-TRAINING_PARAMS = TrainingParameters(batch_size=BATCH_SIZE, chunk_size=CHUNK_SIZE, num_epochs=NUM_EPOCHS, reweighting_range=0.3)
+TRAINING_PARAMS = TrainingParameters(batch_size=BATCH_SIZE, num_epochs=NUM_EPOCHS, reweighting_range=0.3)
 
 REF_SEQ_LAYER_STRINGS = ['convolution/kernel_size=3/out_channels=64',
                      'pool/kernel_size=3',

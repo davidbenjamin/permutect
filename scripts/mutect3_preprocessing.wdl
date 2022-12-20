@@ -46,7 +46,7 @@ task Preprocess {
     command <<<
         set -e
 
-        preprocess_dataset --training_datasets ~{sep=' ' training_datasets} --chunk_size ~{chunk_size}
+        preprocess_dataset --training_datasets ~{sep=' ' training_datasets} --chunk_size ~{chunk_size} --output train.tar
     >>>
 
     runtime {

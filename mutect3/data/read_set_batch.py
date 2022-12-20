@@ -2,7 +2,7 @@ from typing import List
 import numpy as np
 
 import torch
-from mutect3.data.read_set import ReadSet, ReadSetWithVariantString
+from mutect3.data.read_set import ReadSet
 from mutect3.utils import Variation
 
 
@@ -25,7 +25,7 @@ from mutect3.utils import Label
 class ReadSetBatch:
 
     def __init__(self, data: List[ReadSet]):
-        self.labeled = data[0].label() != Label.UNLABELED
+        self.labeled = data[0].label != Label.UNLABELED
         self.ref_count = len(data[0].ref_tensor)
         self.alt_count = len(data[0].alt_tensor)
 
@@ -34,9 +34,9 @@ class ReadSetBatch:
         #    assert len(datum.ref_tensor) == self.ref_count, "batch may not mix different ref counts"
         #    assert len(datum.alt_tensor) == self.alt_count, "batch may not mix different alt counts"
 
-        self.ref_sequences = torch.from_numpy(np.stack([item.ref_sequence_tensor for item in data]))
-        self.reads = torch.from_numpy(np.vstack([item.ref_tensor for item in data] + [item.alt_tensor for item in data]))
-        self.info = torch.from_numpy(np.vstack([item.info_tensor for item in data]))
+        self.ref_sequences = torch.from_numpy(np.stack([item.ref_sequence_tensor for item in data])).float()
+        self.reads = torch.from_numpy(np.vstack([item.ref_tensor for item in data] + [item.alt_tensor for item in data])).float()
+        self.info = torch.from_numpy(np.vstack([item.info_tensor for item in data])).float()
         self.labels = torch.FloatTensor([1.0 if item.label == Label.ARTIFACT else 0.0 for item in data]) if self.labeled else None
         self._size = len(data)
 
@@ -57,7 +57,7 @@ class ReadSetBatch:
         return self._size
 
     def variant_type_one_hot(self):
-        return self._info[:, -len(Variation):]
+        return self.info[:, -len(Variation):]
 
     def variant_type_mask(self, variant_type: Variation):
-        return self._info[:, -len(Variation) + variant_type.value] == 1
+        return self.info[:, -len(Variation) + variant_type.value] == 1

@@ -3,7 +3,7 @@ import warnings
 from collections import defaultdict
 
 import torch
-import time
+import numpy as np
 from torch.utils.tensorboard import SummaryWriter
 
 from torch import nn
@@ -14,8 +14,7 @@ from matplotlib import pyplot as plt
 from mutect3.architecture.mlp import MLP
 from mutect3.architecture.dna_sequence_convolution import DNASequenceConvolution
 from mutect3.data.read_set_batch import ReadSetBatch
-from mutect3.data import read_set
-from mutect3.data import read_set_dataset
+from mutect3.data.read_set_dataset import ReadSetDataset, make_data_loader
 from mutect3 import utils
 from mutect3.utils import Call, Variation
 from mutect3.metrics import plotting
@@ -195,11 +194,8 @@ class ArtifactModel(nn.Module):
         logits, effective_ref_counts, effective_alt_counts = self.forward_from_phi_reads_to_calibration(phi_reads, batch, weight_range)
         return self.calibration.forward(logits, effective_ref_counts, effective_alt_counts)
 
-    def learn_calibration(self, read_set_batch_generator, num_epochs):
-        """
-        :param read_set_batch_generator: some iterable (like a Dataloader) or generator of read set batches
-        :param num_epochs:  number of calibration epochs
-        """
+    def learn_calibration(self, dataset: ReadSetDataset, num_epochs, batch_size, num_workers):
+
         self.train(False)
         utils.freeze(self.parameters())
         utils.unfreeze(self.calibration_parameters())
@@ -208,7 +204,8 @@ class ArtifactModel(nn.Module):
         # do forward and backward passes on the calibration submodule
         print("Computing uncalibrated part of model. . .")
         uncalibrated_logits_ref_alt_counts_labels = []
-        pbar = tqdm(enumerate(read_set_batch_generator), mininterval=10)
+        valid_loader = make_data_loader(dataset, utils.Epoch.VALID, batch_size, self._device.type == 'cuda', num_workers)
+        pbar = tqdm(enumerate(valid_loader), mininterval=10)
         for n, batch in pbar:
             if not batch.is_labeled():
                 continue
@@ -233,18 +230,20 @@ class ArtifactModel(nn.Module):
 
                 nll_loss.record_sum(loss.detach(), len(logits))
 
-    def train_model(self, big_read_set_dataset: read_set_dataset.BigReadSetDataset, num_epochs, summary_writer: SummaryWriter, reweighting_range: float, m3_params: ArtifactModelParameters):
+    def train_model(self, dataset: ReadSetDataset, num_epochs, batch_size, num_workers, summary_writer: SummaryWriter, reweighting_range: float, m3_params: ArtifactModelParameters):
         bce = torch.nn.BCEWithLogitsLoss(reduction='none')  # no reduction because we may want to first multiply by weights for unbalanced data
         train_optimizer = torch.optim.AdamW(self.training_parameters(), lr=m3_params.learning_rate)
 
-        artifact_totals = big_read_set_dataset.training_artifact_totals
-        non_artifact_totals = big_read_set_dataset.training_non_artifact_totals
-        total_labeled = torch.sum(artifact_totals + non_artifact_totals).item()
-        total_unlabeled = big_read_set_dataset.num_training_data - total_labeled
+        artifact_totals = dataset.artifact_totals
+        non_artifact_totals = dataset.non_artifact_totals
+        total_labeled = np.sum(artifact_totals + non_artifact_totals)
+        total_unlabeled = len(dataset)  - total_labeled
 
         labeled_artifact_to_non_artifact_ratios = artifact_totals / non_artifact_totals
-        labeled_artifact_weights_by_type = 1 / torch.sqrt(labeled_artifact_to_non_artifact_ratios)
-        labeled_non_artifact_weights_by_type = torch.sqrt(labeled_artifact_to_non_artifact_ratios)
+
+        # TODO: should these live on the GPU?
+        labeled_artifact_weights_by_type = torch.from_numpy(1 / np.sqrt(labeled_artifact_to_non_artifact_ratios))
+        labeled_non_artifact_weights_by_type = torch.from_numpy(np.sqrt(labeled_artifact_to_non_artifact_ratios))
 
         # balance training by weighting the loss function
         # if total unlabeled is less than total labeled, we do not compensate, since labeled data are more informative
@@ -256,14 +255,17 @@ class ArtifactModel(nn.Module):
             print("For variation type {}, there are {} labeled artifact examples and {} labeled non-artifact examples"
                   .format(variation_type.name, artifact_totals[idx].item(), non_artifact_totals[idx].item()))
 
+        train_loader = make_data_loader(dataset, utils.Epoch.TRAIN, batch_size, self._device.type == 'cuda', num_workers)
+        valid_loader = make_data_loader(dataset, utils.Epoch.VALID, batch_size, self._device.type == 'cuda', num_workers)
+
         for epoch in trange(1, num_epochs + 1, desc="Epoch"):
             for epoch_type in [utils.Epoch.TRAIN, utils.Epoch.VALID]:
                 self.set_epoch_type(epoch_type)
-                generator = big_read_set_dataset.generate_batches(epoch_type)
                 labeled_loss = utils.StreamingAverage(device=self._device)
                 unlabeled_loss = utils.StreamingAverage(device=self._device)
 
-                pbar = tqdm(enumerate(generator), mininterval=10)
+                loader = train_loader if epoch_type == utils.Epoch.TRAIN else valid_loader
+                pbar = tqdm(enumerate(loader), mininterval=10)
                 for n, batch in pbar:
                     phi_reads = self.apply_phi_to_reads(batch)
 
@@ -313,7 +315,10 @@ class ArtifactModel(nn.Module):
         # done with training
 
     # generators by name is eg {"train": train_generator, "valid": valid_generator}
-    def evaluate_model_after_training(self, batch_generators_by_name, summary_writer: SummaryWriter, prefix: str = ""):
+    def evaluate_model_after_training(self, dataset, batch_size, num_workers, summary_writer: SummaryWriter, prefix: str = ""):
+        train_loader = make_data_loader(dataset, utils.Epoch.TRAIN, batch_size, self._device.type == 'cuda', num_workers)
+        valid_loader = make_data_loader(dataset, utils.Epoch.VALID, batch_size, self._device.type == 'cuda', num_workers)
+        laoders_by_name = {"training": train_loader, "validation": valid_loader}
         self.freeze_all()
         self.cpu()
         self._device = "cpu"
@@ -327,12 +332,12 @@ class ArtifactModel(nn.Module):
 
         # grid of figures -- rows are loaders, columns are variant types
         # each subplot is a bar chart grouped by call type (variant vs artifact)
-        sens_fig, sens_axs = plt.subplots(len(batch_generators_by_name), len(Variation), sharex='all', sharey='all', squeeze=False)
+        sens_fig, sens_axs = plt.subplots(len(laoders_by_name), len(Variation), sharex='all', sharey='all', squeeze=False)
 
         # accuracy is indexed by loader only
-        acc_fig, acc_axs = plt.subplots(1, len(batch_generators_by_name), sharex='all', sharey='all', squeeze=False)
+        acc_fig, acc_axs = plt.subplots(1, len(laoders_by_name), sharex='all', sharey='all', squeeze=False)
 
-        for loader_idx, (loader_name, loader) in enumerate(batch_generators_by_name.items()):
+        for loader_idx, (loader_name, loader) in enumerate(laoders_by_name.items()):
             accuracy = defaultdict(utils.StreamingAverage)
             # indexed by variant type, then call type (artifact vs variant), then count bin
             sensitivity = {var_type: defaultdict(lambda: defaultdict(utils.StreamingAverage)) for var_type in Variation}

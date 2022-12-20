@@ -86,13 +86,6 @@ class Label(enum.IntEnum):
         return False
 
 
-def split_dataset_into_train_and_valid(dataset, train_fraction=0.9, fixed_seed: bool = True):
-    train_len = int(train_fraction * len(dataset))
-    valid_len = len(dataset) - train_len
-    generator = torch.Generator().manual_seed(99) if fixed_seed else None
-    return random_split(dataset, lengths=[train_len, valid_len], generator=generator)
-
-
 def freeze(parameters):
     for parameter in parameters:
         parameter.requires_grad = False

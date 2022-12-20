@@ -7,7 +7,6 @@ workflow TrainMutect3 {
         Int num_epochs
         Int batch_size
         Int? num_workers
-        Int chunk_size
         Float dropout_p
         Float reweighting_range
         Array[Int] read_layers
@@ -32,7 +31,6 @@ workflow TrainMutect3 {
                 num_epochs = num_epochs,
                 batch_size = batch_size,
                 num_workers = num_workers,
-                chunk_size = chunk_size,
                 dropout_p = dropout_p,
                 reweighting_range = reweighting_range,
                 read_layers = read_layers,
@@ -53,7 +51,6 @@ workflow TrainMutect3 {
                 num_epochs = num_epochs,
                 batch_size = batch_size,
                 num_workers = num_workers,
-                chunk_size = chunk_size,
                 dropout_p = dropout_p,
                 reweighting_range = reweighting_range,
                 read_layers = read_layers,
@@ -80,7 +77,6 @@ task TrainMutect3GPU {
         Int num_epochs
         Int batch_size
         Int? num_workers
-        Int chunk_size
         Float dropout_p
         Float reweighting_range
         Array[Int] read_layers
@@ -116,7 +112,6 @@ task TrainMutect3GPU {
             --reweighting_range ~{reweighting_range} \
             --batch_size ~{batch_size} \
             ~{"--num_workers " + num_workers} \
-            --chunk_size ~{chunk_size} \
             --num_epochs ~{num_epochs} \
             --output mutect3.pt \
             --tensorboard_dir tensorboard \
@@ -147,7 +142,6 @@ task TrainMutect3CPU {
 
         Int num_epochs
         Int batch_size
-        Int chunk_size
         Int? num_workers
         Float dropout_p
         Float reweighting_range
@@ -183,7 +177,6 @@ task TrainMutect3CPU {
             --reweighting_range ~{reweighting_range} \
             --batch_size ~{batch_size} \
             ~{"--num_workers " + num_workers} \
-            --chunk_size ~{chunk_size} \
             --num_epochs ~{num_epochs} \
             --output mutect3.pt \
             --tensorboard_dir tensorboard \

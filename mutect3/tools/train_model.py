@@ -4,16 +4,15 @@ import torch
 from torch.utils.tensorboard import SummaryWriter
 
 from mutect3.architecture.artifact_model import ArtifactModelParameters, ArtifactModel
-from mutect3 import utils, constants
-from mutect3.data import read_set_dataset
+from mutect3 import constants
+from mutect3.data.read_set_dataset import ReadSetDataset
 
 
 class TrainingParameters:
-    def __init__(self, batch_size, chunk_size, num_epochs, reweighting_range: float, num_workers: int=0):
+    def __init__(self, batch_size, num_epochs, reweighting_range: float, num_workers: int=0):
         self.batch_size = batch_size
         self.num_epochs = num_epochs
         self.reweighting_range = reweighting_range
-        self.chunk_size = chunk_size
         self.num_workers = num_workers
 
 
@@ -21,23 +20,20 @@ def train_artifact_model(m3_params: ArtifactModelParameters, params: TrainingPar
     use_gpu = torch.cuda.is_available()
     device = torch.device('cuda' if use_gpu else 'cpu')
 
-    # TODO: at some point need to split into train and valid
-    dataset = read_set_dataset.ReadSetDataset(data_tarfile=data_tarfile)
+    dataset = ReadSetDataset(data_tarfile=data_tarfile, validation_fraction=0.1)
 
     model = ArtifactModel(params=m3_params, num_read_features=dataset.num_read_features,
                           num_info_features=dataset.num_info_features, ref_sequence_length=dataset.ref_sequence_length, device=device).float()
 
     print("Training. . .")
     summary_writer = SummaryWriter(tensorboard_dir)
-    model.train_model(dataset, params.num_epochs, summary_writer=summary_writer, reweighting_range=params.reweighting_range, m3_params=m3_params)
+    model.train_model(dataset, params.num_epochs, params.batch_size, params.num_workers, summary_writer=summary_writer, reweighting_range=params.reweighting_range, m3_params=m3_params)
 
-    # TODO: generate batches no longer exists.  Use a DataLoader
     print("Calibrating. . .")
-    model.learn_calibration(dataset.generate_batches(utils.Epoch.VALID), num_epochs=50)
+    model.learn_calibration(dataset, num_epochs=50, batch_size=params.batch_size, num_workers=params.num_workers)
 
-    # TODO: generate batches no longer exists.  Use a DataLoader
     print("Evaluating trained model. . .")
-    model.evaluate_model_after_training({"training": dataset.generate_batches(utils.Epoch.TRAIN), "validation": dataset.generate_batches(utils.Epoch.VALID)}, summary_writer)
+    model.evaluate_model_after_training(dataset, params.batch_size, params.num_workers, summary_writer)
 
     summary_writer.close()
 
@@ -57,10 +53,9 @@ def save_artifact_model(model, m3_params, path):
 def parse_training_params(args) -> TrainingParameters:
     reweighting_range = getattr(args, constants.REWEIGHTING_RANGE_NAME)
     batch_size = getattr(args, constants.BATCH_SIZE_NAME)
-    chunk_size = getattr(args, constants.CHUNK_SIZE_NAME)
     num_epochs = getattr(args, constants.NUM_EPOCHS_NAME)
     num_workers = getattr(args, constants.NUM_WORKERS_NAME)
-    return TrainingParameters(batch_size, chunk_size, num_epochs, reweighting_range, num_workers=num_workers)
+    return TrainingParameters(batch_size, num_epochs, reweighting_range, num_workers=num_workers)
 
 
 def parse_mutect3_params(args) -> ArtifactModelParameters:
@@ -93,7 +88,6 @@ def parse_arguments():
     parser.add_argument('--' + constants.REWEIGHTING_RANGE_NAME, type=float, default=0.3, required=False)
     parser.add_argument('--' + constants.BATCH_SIZE_NAME, type=int, default=64, required=False)
     parser.add_argument('--' + constants.NUM_WORKERS_NAME, type=int, default=0, required=False)
-    parser.add_argument('--' + constants.CHUNK_SIZE_NAME, type=int, default=1000000, required=False)
     parser.add_argument('--' + constants.NUM_EPOCHS_NAME, type=int, required=True)
 
     # path to saved model
@@ -103,8 +97,7 @@ def parse_arguments():
     return parser.parse_args()
 
 
-def main():
-    args = parse_arguments()
+def main(args):
     m3_params = parse_mutect3_params(args)
     training_params = parse_training_params(args)
 
@@ -115,4 +108,4 @@ def main():
 
 
 if __name__ == '__main__':
-    main()
+    main(parse_arguments())

@@ -25,7 +25,7 @@ TENSORS_PER_READ_SET = 5
 
 
 class ReadSetDataset(Dataset):
-    def __init__(self, data_in_ram: Iterable[ReadSet] = None, data_tarfile=None):
+    def __init__(self, data_in_ram: Iterable[ReadSet] = None, data_tarfile=None, validation_fraction: float = 0.0):
         super(ReadSetDataset, self).__init__()
         assert data_in_ram is not None or data_tarfile is not None, "No data given"
         assert data_in_ram is None or data_tarfile is None, "Data given from both RAM and tarfile"
@@ -46,37 +46,38 @@ class ReadSetDataset(Dataset):
 
         # keys = (ref read count, alt read count) tuples; values = list of indices
         # this is used in the batch sampler to make same-shape batches
-        self.labeled_indices_by_count = defaultdict(list)
-        self.unlabeled_indices_by_count = defaultdict(list)
+        self.labeled_indices_by_count = {utils.Epoch.TRAIN: defaultdict(list), utils.Epoch.VALID: defaultdict(list)}
+        self.unlabeled_indices_by_count = {utils.Epoch.TRAIN: defaultdict(list), utils.Epoch.VALID: defaultdict(list)}
         self.artifact_totals = np.zeros(len(utils.Variation))  # 1D tensor
         self.non_artifact_totals = np.zeros(len(utils.Variation))  # 1D tensor
 
         for n, datum in enumerate(self):
+            train_or_valid = utils.Epoch.VALID if random.random() < validation_fraction else utils.Epoch.TRAIN
             counts = (len(datum.ref_tensor), len(datum.alt_tensor))
-            (self.unlabeled_indices_by_count if datum.label() == Label.UNLABELED else self.labeled_indices_by_count)[counts].append(n)
+            (self.unlabeled_indices_by_count if datum.label == Label.UNLABELED else self.labeled_indices_by_count)[train_or_valid][counts].append(n)
 
             if datum.label == Label.ARTIFACT:
                 self.artifact_totals += datum.variant_type_one_hot()
             elif datum.label != Label.UNLABELED:
                 self.non_artifact_totals += datum.variant_type_one_hot()
 
-        self.num_read_features = self[0].alt_tensor().size()[1]
-        self.num_info_features = len(self[0].info_tensor())
+        self.num_read_features = self[0].alt_tensor.shape[1]
+        self.num_info_features = len(self[0].info_tensor)
         self.ref_sequence_length = self[0].ref_sequence_tensor.shape[-1]
 
     def __len__(self):
-        return len(self._data) / TENSORS_PER_READ_SET if self._memory_map_mode else len(self.data)
+        return len(self._data) // TENSORS_PER_READ_SET if self._memory_map_mode else len(self.data)
 
     def __getitem__(self, index):
         if self._memory_map_mode:
             bottom_index = index * TENSORS_PER_READ_SET
 
             # The order here corresponds to the order of yield statements within make_flattened_tensor_generator()
-            return ReadSet(ref_sequence_tensor=self.memory_map[bottom_index + 2],
-                           ref_tensor=self.memory_map[bottom_index],
-                           alt_tensor=self.memory_map[bottom_index + 1],
-                           info_tensor=self.memory_map[bottom_index + 3],
-                           label=utils.Label(self.memory_map[bottom_index + 4][0]))
+            return ReadSet(ref_sequence_tensor=self._data[bottom_index + 2],
+                           ref_tensor=self._data[bottom_index],
+                           alt_tensor=self._data[bottom_index + 1],
+                           info_tensor=self._data[bottom_index + 3],
+                           label=utils.Label(self._data[bottom_index + 4][0]))
         else:
             return self.data[index]
 
@@ -107,15 +108,9 @@ def make_read_set_generator_from_tarfile(data_tarfile):
             yield datum
 
 
-# this is used for training and validation but not deployment / testing
-def make_semisupervised_data_loader(dataset: ReadSetDataset, batch_size: int, pin_memory=False, num_workers: int = 0):
-    sampler = SemiSupervisedBatchSampler(dataset, batch_size)
+def make_data_loader(dataset: ReadSetDataset, train_or_valid: utils.Epoch, batch_size: int, pin_memory=False, num_workers: int = 0):
+    sampler = SemiSupervisedBatchSampler(dataset, batch_size, train_or_valid)
     return DataLoader(dataset=dataset, batch_sampler=sampler, collate_fn=ReadSetBatch, pin_memory=pin_memory, num_workers=num_workers)
-
-
-# TODO: batches have a single ref, alt count so this will have to be done with batch sampler somehow
-def make_test_data_loader(dataset: ReadSetDataset, batch_size: int):
-    return DataLoader(dataset=dataset, batch_size=batch_size, collate_fn=ReadSetBatch)
 
 
 # TODO: this might belong somewhere else
@@ -137,9 +132,9 @@ def chunk(lis, chunk_size):
 # the artifact model handles weighting the losses to compensate for class imbalance between supervised and unsupervised
 # thus the sampler is not responsible for balancing the data
 class SemiSupervisedBatchSampler(Sampler):
-    def __init__(self, dataset: ReadSetDataset, batch_size):
-        self.labeled_indices_by_count = dataset.labeled_indices_by_count
-        self.unlabeled_indices_by_count = dataset.unlabeled_indices_by_count
+    def __init__(self, dataset: ReadSetDataset, batch_size, train_or_valid: utils.Epoch):
+        self.labeled_indices_by_count = dataset.labeled_indices_by_count[train_or_valid]
+        self.unlabeled_indices_by_count = dataset.unlabeled_indices_by_count[train_or_valid]
         self.batch_size = batch_size
         self.num_batches = sum(math.ceil(len(indices) // self.batch_size) for indices in
                             chain(self.labeled_indices_by_count.values(), self.unlabeled_indices_by_count.values()))
