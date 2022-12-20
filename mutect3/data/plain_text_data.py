@@ -76,7 +76,7 @@ def round_down_alt(n: int):
     return ALT_ROUNDING[min(len(ALT_ROUNDING) - 1, n)]
 
 
-def read_data(dataset_file, posterior: bool = False, round_down: bool = True):
+def read_data(dataset_file, posterior: bool, round_down: bool = True, include_variant_string: bool = False):
     """
     generator that yields data from a plain text dataset file. In posterior mode, yield a tuple of ReadSet and PosteriorDatum
     """
@@ -96,47 +96,45 @@ def read_data(dataset_file, posterior: bool = False, round_down: bool = True):
                 print(contig + ":" + str(position))
             ref_allele, alt_allele = mutation.strip().split("->")
 
-            # ref base string
-            ref_sequence_string = file.readline().strip()
+            if posterior:
+                skip_ref_sequence_line = file.readline()
+                skip_info_tensor_line = file.readline()
+                ref_tensor_size, alt_tensor_size, normal_ref_tensor_size, normal_alt_tensor_size = map(int, file.readline().strip().split())
 
-            gatk_info_tensor = line_to_tensor(file.readline())
+                tensor_lines_to_skip = ref_tensor_size + alt_tensor_size
+                for _ in range(tensor_lines_to_skip):
+                    file.readline()
+                depth, alt_count, normal_depth, normal_alt_count = read_integers(file.readline())
+                seq_error_log_likelihood = read_float(file.readline())
+                normal_seq_error_log_likelihood = read_float(file.readline())
 
-            # tumor ref count, tumor alt count, normal ref count, normal alt count -- single-spaced
-            # these are the read counts of our possibly-downsampled tensors, not the original sequencing data
-            ref_tensor_size, alt_tensor_size, normal_ref_tensor_size, normal_alt_tensor_size = map(int, file.readline().strip().split())
-
-            ref_tensor = read_2d_tensor(file, ref_tensor_size)
-            alt_tensor = read_2d_tensor(file, alt_tensor_size)
-
-            if round_down:
-                ref_tensor = utils.downsample_tensor(ref_tensor, 0 if ref_tensor is None else round_down_ref(len(ref_tensor)))
-                alt_tensor = utils.downsample_tensor(alt_tensor, 0 if alt_tensor is None else round_down_alt(len(alt_tensor)))
-
-            # normal_ref_tensor = read_2d_tensor(file, normal_ref_tensor_size)  # not currently used
-            # normal_alt_tensor = read_2d_tensor(file, normal_alt_tensor_size)  # not currently used
-            # round down normal tensors as well
-
-            depth, alt_count, normal_depth, normal_alt_count = read_integers(file.readline())
-
-            seq_error_log_likelihood = read_float(file.readline())
-            normal_seq_error_log_likelihood = read_float(file.readline())
-
-            assert ref_tensor is None or not np.isnan(np.sum(ref_tensor)), contig + ":" + str(position)
-            assert alt_tensor is None or not np.isnan(np.sum(alt_tensor)), contig + ":" + str(position)
-            assert not np.isnan(np.sum(gatk_info_tensor)), contig + ":" + str(position)
-
-            datum = ReadSet.from_gatk(ref_sequence_string, Variation.get_type(ref_allele, alt_allele), ref_tensor, alt_tensor,
-                                      gatk_info_tensor, label, variant_string if posterior else None)
-
-            if ref_tensor_size >= MIN_REF and alt_tensor_size > 0:
-                if posterior:
-                    posterior_datum = PosteriorDatum(contig, position, ref_allele, alt_allele, depth,
-                                alt_count, normal_depth, normal_alt_count, seq_error_log_likelihood, normal_seq_error_log_likelihood)
-                    yield datum, posterior_datum
-                else:
-                    yield datum
+                if ref_tensor_size >= MIN_REF and alt_tensor_size > 0:
+                    yield PosteriorDatum(contig, position, ref_allele, alt_allele, depth, alt_count, normal_depth,
+                                         normal_alt_count, seq_error_log_likelihood, normal_seq_error_log_likelihood)
             else:
-                pass    # no data output
+                # ref base string
+                ref_sequence_string = file.readline().strip()
+                gatk_info_tensor = line_to_tensor(file.readline())
+                ref_tensor_size, alt_tensor_size, normal_ref_tensor_size, normal_alt_tensor_size = map(int, file.readline().strip().split())
+
+                ref_tensor = read_2d_tensor(file, ref_tensor_size)
+                alt_tensor = read_2d_tensor(file, alt_tensor_size)
+
+                if round_down:
+                    ref_tensor = utils.downsample_tensor(ref_tensor, 0 if ref_tensor is None else round_down_ref(len(ref_tensor)))
+                    alt_tensor = utils.downsample_tensor(alt_tensor, 0 if alt_tensor is None else round_down_alt(len(alt_tensor)))
+
+                # normal_ref_tensor = read_2d_tensor(file, normal_ref_tensor_size)  # not currently used
+                # normal_alt_tensor = read_2d_tensor(file, normal_alt_tensor_size)  # not currently used
+                # round down normal tensors as well
+
+                skip_depths = file.readline()
+                skip_seq_error = file.readline()
+                skip_normal_seq_error = file.readline()
+
+                if ref_tensor_size >= MIN_REF and alt_tensor_size > 0:
+                    yield ReadSet.from_gatk(ref_sequence_string, Variation.get_type(ref_allele, alt_allele), ref_tensor,
+                                          alt_tensor, gatk_info_tensor, label, variant_string if include_variant_string else None)
 
 
 # TODO: there is some code duplication between this and filter_variants.py
