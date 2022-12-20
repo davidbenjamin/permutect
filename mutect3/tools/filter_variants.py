@@ -45,7 +45,7 @@ def encode(contig: str, position: int, alt: str):
 
 
 def encode_datum(datum: PosteriorDatum):
-    return encode(datum.contig(), datum.position(), datum.alt())
+    return encode(datum.contig, datum.position, datum.alt)
 
 
 def encode_variant(v: cyvcf2.Variant, zero_based=False):
@@ -178,7 +178,7 @@ def make_posterior_data_loader(dataset_file, input_vcf, artifact_model: Artifact
 
         if data_count == math.ceil(num_data * (chunk_count + 1) / num_chunks):
             print("memory usage percent: " + str(psutil.virtual_memory().percent))
-            print(posterior_buffer[-1].contig() + ":" + str(posterior_buffer[-1].position()))
+            print(posterior_buffer[-1].contig + ":" + str(posterior_buffer[-1].position))
 
             artifact_dataset = read_set_dataset.ReadSetDataset(data=read_sets_buffer)
             logits = []
