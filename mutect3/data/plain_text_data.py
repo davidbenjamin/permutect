@@ -140,6 +140,7 @@ def read_data(dataset_file, posterior: bool = False, round_down: bool = True):
 
 
 # TODO: there is some code duplication between this and filter_variants.py
+# TODO: give this a mode for posterior = True that parallels read_data
 def generate_normalized_data(dataset_files, max_bytes_per_chunk: int):
     """
     given text dataset files, generate normalized lists of read sets that fit in memory
