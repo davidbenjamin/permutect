@@ -103,9 +103,7 @@ def get_segmentation(segments_file) -> defaultdict:
     return result
 
 
-def main():
-    args = parse_arguments()
-
+def main(args):
     make_filtered_vcf(saved_artifact_model=getattr(args, constants.M3_MODEL_NAME),
                       initial_log_variant_prior=getattr(args, constants.INITIAL_LOG_VARIANT_PRIOR_NAME),
                       initial_log_artifact_prior=getattr(args, constants.INITIAL_LOG_ARTIFACT_PRIOR_NAME),
@@ -235,4 +233,4 @@ def apply_filtering_to_vcf(input_vcf, output_vcf, error_probability_threshold, p
 
 
 if __name__ == '__main__':
-    main()
+    main(parse_arguments())

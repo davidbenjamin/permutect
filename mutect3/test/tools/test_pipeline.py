@@ -1,18 +1,24 @@
 from argparse import Namespace
 import tempfile
 
-from mutect3.tools import preprocess_dataset, train_model
+from mutect3.tools import preprocess_dataset, train_model, filter_variants
 from mutect3 import constants
 
 
 def test_on_dream1():
-
-    # STEP 1: preprocess the plain text training dataset yielding a training tarfile
+    # Input Files
     training_datasets = ["/Users/davidben/mutect3/just-dream-1/dream1-normal-small-training.dataset"]
+    mutect2_vcf = "/Users/davidben/mutect3/dream-vcfs/dream1-50000.vcf"
+    filtering_dataset = "/Users/davidben/mutect3/just-dream-1/small-test.dataset"
+
+    # Intermediate and Output Files
     training_data_tarfile = tempfile.NamedTemporaryFile()
     saved_artifact_model = tempfile.NamedTemporaryFile()
     training_tensorboard_dir = tempfile.TemporaryDirectory()
+    filtering_tensorboard_dir = tempfile.TemporaryDirectory()
+    filtered_mutect3_vcf = tempfile.NamedTemporaryFile()
 
+    # STEP 1: preprocess the plain text training dataset yielding a training tarfile
     preprocess_args = Namespace()
     setattr(preprocess_args, constants.CHUNK_SIZE_NAME, 1e6)
     setattr(preprocess_args, constants.TRAINING_DATASETS_NAME, training_datasets)
@@ -50,4 +56,22 @@ def test_on_dream1():
     setattr(train_model_args, constants.TENSORBOARD_DIR_NAME, training_tensorboard_dir.name)
 
     train_model.main(train_model_args)
-    k = 9
+
+    # STEP 3: call variants
+    filtering_args = Namespace()
+    setattr(filtering_args, constants.INPUT_NAME, mutect2_vcf)
+    setattr(filtering_args, constants.TEST_DATASET_NAME, filtering_dataset)
+    setattr(filtering_args, constants.M3_MODEL_NAME, saved_artifact_model.name)
+    setattr(filtering_args, constants.OUTPUT_NAME, filtered_mutect3_vcf.name)
+    setattr(filtering_args, constants.TENSORBOARD_DIR_NAME, filtering_tensorboard_dir.name)
+    setattr(filtering_args, constants.BATCH_SIZE_NAME, 64)
+    setattr(filtering_args, constants.CHUNK_SIZE_NAME, default=100000)
+    setattr(filtering_args, constants.NUM_SPECTRUM_ITERATIONS, 10)
+    setattr(filtering_args, constants.INITIAL_LOG_VARIANT_PRIOR_NAME, -10.0)
+    setattr(filtering_args, constants.INITIAL_LOG_ARTIFACT_PRIOR_NAME, -10.0)
+    setattr(filtering_args, constants.NUM_IGNORED_SITES_NAME, 100000)
+    setattr(filtering_args, constants.MAF_SEGMENTS_NAME, None)
+    setattr(filtering_args, constants.NORMAL_MAF_SEGMENTS_NAME, None)
+    setattr(filtering_args, constants.GERMLINE_MODE_NAME, False)
+
+    filter_variants.main(filtering_args)
