@@ -78,7 +78,7 @@ class ReadSetDataset(Dataset):
                            info_tensor=self._data[bottom_index + 3],
                            label=utils.Label(self._data[bottom_index + 4][0]))
         else:
-            return self.data[index]
+            return self._data[index]
 
 
 # from a generator that yields read sets, create a generator that yields

@@ -49,7 +49,7 @@ def test_on_dream1():
     setattr(train_model_args, constants.REWEIGHTING_RANGE_NAME, 0.3)
     setattr(train_model_args, constants.BATCH_SIZE_NAME, 64)
     setattr(train_model_args, constants.NUM_WORKERS_NAME, 2)
-    setattr(train_model_args, constants.NUM_EPOCHS_NAME, 10)
+    setattr(train_model_args, constants.NUM_EPOCHS_NAME, 2)
 
     # path to saved model
     setattr(train_model_args, constants.OUTPUT_NAME, saved_artifact_model.name)
@@ -65,7 +65,7 @@ def test_on_dream1():
     setattr(filtering_args, constants.OUTPUT_NAME, filtered_mutect3_vcf.name)
     setattr(filtering_args, constants.TENSORBOARD_DIR_NAME, filtering_tensorboard_dir.name)
     setattr(filtering_args, constants.BATCH_SIZE_NAME, 64)
-    setattr(filtering_args, constants.CHUNK_SIZE_NAME, default=100000)
+    setattr(filtering_args, constants.CHUNK_SIZE_NAME, 100000)
     setattr(filtering_args, constants.NUM_SPECTRUM_ITERATIONS, 10)
     setattr(filtering_args, constants.INITIAL_LOG_VARIANT_PRIOR_NAME, -10.0)
     setattr(filtering_args, constants.INITIAL_LOG_ARTIFACT_PRIOR_NAME, -10.0)
