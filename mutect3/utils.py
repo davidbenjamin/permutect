@@ -7,10 +7,19 @@ import torch
 from torch.utils.data import random_split
 
 
-def assert_same_or_was_none(old, new):
-    if old is not None:
-        assert new is not None, "setting to None"
-        assert new == old, "new is different from old"
+class ConsistentValue:
+    """
+    Tracks a value that once initialized, is consistent among eg all members of a dataset.  For example, all tensors
+    must have the same number of columns.
+    """
+    def __init__(self, value=None):
+        self.value = value
+
+    def check(self, value):
+        if self.value is None:
+            self.value = value
+        else:
+            assert self.value == value, "inconsistent values"
 
 
 def downsample_tensor(tensor2d: np.ndarray, new_length: int):

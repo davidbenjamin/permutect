@@ -13,7 +13,7 @@ from tqdm.autonotebook import tqdm
 from mutect3.architecture.artifact_model import ArtifactModel
 from mutect3.architecture.posterior_model import PosteriorModel
 from mutect3.data import read_set_dataset, plain_text_data
-from mutect3 import constants
+from mutect3 import constants, utils
 from mutect3.data.posterior import PosteriorDatum, PosteriorDataset
 from mutect3.utils import Call
 
@@ -45,6 +45,10 @@ def encode(contig: str, position: int, alt: str):
 
 def encode_datum(datum: PosteriorDatum):
     return encode(datum.contig, datum.position, datum.alt)
+
+
+def variant_string(datum: PosteriorDatum):
+    return datum.contig + ':' + datum.position + ',' + datum.ref + "->" + datum.alt
 
 
 def encode_variant(v: cyvcf2.Variant, zero_based=False):
@@ -149,49 +153,35 @@ def make_posterior_data_loader(dataset_file, input_vcf, artifact_model: Artifact
     print("recording M2 filters and allele frequencies from input VCF")
     for v in cyvcf2.VCF(input_vcf):
         encoding = encode_variant(v, zero_based=True)
-
         if filters_to_keep_from_m2(v):
             m2_filtering_to_keep.add(encoding)
-
         allele_frequencies[encoding] = 10 ** (-get_first_numeric_element(v, "POPAF"))
 
-    # TODO chunk size should be command line argument
-    num_data = read_set_dataset.count_data(dataset_file)
-    num_chunks = math.ceil(num_data / chunk_size)
+    # pass through the plain text dataset, normalizing and creating ReadSetDatasets as we go, running the artifact model
+    # to get artifact logits, which we record in a dict keyed by variant strings.  These will later be added to PosteriorDatum objects.
+    print("reading dataset and calculating artifact logits")
+    variant_to_logit = {}
+    for list_of_read_sets in plain_text_data.generate_normalized_data([dataset_file], chunk_size, include_variant_string=True):
+        artifact_dataset = read_set_dataset.ReadSetDataset(data_in_ram=list_of_read_sets, validation_fraction=0.0)
+        artifact_loader = read_set_dataset.make_data_loader(artifact_dataset, utils.Epoch.TRAIN, batch_size, pin_memory=False, num_workers=0)
 
-    print("preparing dataset to pass to Mutect3 posterior probability model")
-    read_sets_buffer = []
-    posterior_buffer = []
+        for artifact_batch in artifact_loader:
+            artifact_logits = artifact_model.forward(batch=artifact_batch).detach().tolist()
+            variant_strings = artifact_batch.variant_strings    # format is eg chr1:1000,A->C
+            for var_string, logit in zip(variant_strings, artifact_logits):
+                variant_to_logit[var_string] = logit
+
+    # pass through the plain text dataset again, this time reading PosteriorDatum objects, looking up the previously-computed
+    # allele frequencies and artifact logits.
     posterior_data = []
-
-    data_count = 0
-    chunk_count = 0
-    for read_set, posterior_datum in plain_text_data.read_data(dataset_file, posterior=True):
-        data_count += 1
+    for posterior_datum in plain_text_data.read_data(dataset_file, posterior=True):
 
         encoding = encode_datum(posterior_datum)
         if encoding not in m2_filtering_to_keep:
             posterior_datum.set_allele_frequency(allele_frequencies[encoding])
-            posterior_buffer.append(posterior_datum)
-            read_sets_buffer.append(read_set)
+            posterior_datum.set_artifact_logit(variant_to_logit[posterior_datum.variant_string])
+            posterior_data.append(posterior_datum)
 
-        if data_count == math.ceil(num_data * (chunk_count + 1) / num_chunks):
-            print("memory usage percent: " + str(psutil.virtual_memory().percent))
-            print(posterior_buffer[-1].contig + ":" + str(posterior_buffer[-1].position))
-
-            artifact_dataset = read_set_dataset.ReadSetDataset(data=read_sets_buffer)
-            logits = []
-            for artifact_batch in read_set_dataset.make_test_data_loader(artifact_dataset, batch_size):
-                logits.extend(artifact_model.forward(batch=artifact_batch).detach().tolist())
-            for logit, posterior in zip(logits, posterior_buffer):
-                posterior.set_artifact_logit(logit)
-            posterior_data.extend(posterior_buffer)
-
-            chunk_count += 1
-            read_sets_buffer = []
-            posterior_buffer = []
-
-    assert data_count == num_data and chunk_count == num_chunks and len(read_sets_buffer) == 0  # should be nothing left over
     print("Size of filtering dataset: " + str(len(posterior_data)))
     posterior_dataset = PosteriorDataset(posterior_data)
     return posterior_dataset.make_data_loader(batch_size)

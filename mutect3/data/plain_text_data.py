@@ -109,7 +109,7 @@ def read_data(dataset_file, posterior: bool, round_down: bool = True, include_va
                 normal_seq_error_log_likelihood = read_float(file.readline())
 
                 if ref_tensor_size >= MIN_REF and alt_tensor_size > 0:
-                    yield PosteriorDatum(contig, position, ref_allele, alt_allele, depth, alt_count, normal_depth,
+                    yield PosteriorDatum(contig, position, ref_allele, alt_allele, variant_string, depth, alt_count, normal_depth,
                                          normal_alt_count, seq_error_log_likelihood, normal_seq_error_log_likelihood)
             else:
                 # ref base string
@@ -137,20 +137,19 @@ def read_data(dataset_file, posterior: bool, round_down: bool = True, include_va
                                           alt_tensor, gatk_info_tensor, label, variant_string if include_variant_string else None)
 
 
-# TODO: there is some code duplication between this and filter_variants.py
-# TODO: give this a mode for posterior = True that parallels read_data
-def generate_normalized_data(dataset_files, max_bytes_per_chunk: int):
+def generate_normalized_data(dataset_files, max_bytes_per_chunk: int, include_variant_string: bool = False):
     """
     given text dataset files, generate normalized lists of read sets that fit in memory
     :param dataset_files:
     :param max_bytes_per_chunk:
+    :param include_variant_string: include the variant string in generated ReadSet data
     :return:
     """
     for dataset_file in dataset_files:
         buffer, bytes_in_buffer = [], 0
         read_medians, read_iqrs, info_medians, info_iqrs = None, None, None, None
 
-        for read_set in read_data(dataset_file, posterior=False):
+        for read_set in read_data(dataset_file, posterior=False, include_variant_string=include_variant_string):
             buffer.append(read_set)
             bytes_in_buffer += read_set.size_in_bytes()
             if bytes_in_buffer > max_bytes_per_chunk:
