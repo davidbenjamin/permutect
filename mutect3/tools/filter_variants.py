@@ -38,17 +38,11 @@ def load_artifact_model(path) -> ArtifactModel:
 
 
 def encode(contig: str, position: int, alt: str):
-    # TODO: restore the alt eventually once we handle multiallelics intelligently eg by splitting
-    # return contig + ':' + str(position) + ':' + alt
-    return contig + ':' + str(position)
+    return contig + ':' + str(position) + ':' + alt
 
 
 def encode_datum(datum: PosteriorDatum):
     return encode(datum.contig, datum.position, datum.alt)
-
-
-def variant_string(datum: PosteriorDatum):
-    return datum.contig + ':' + datum.position + ',' + datum.ref + "->" + datum.alt
 
 
 def encode_variant(v: cyvcf2.Variant, zero_based=False):
@@ -175,7 +169,7 @@ def make_posterior_data_loader(dataset_file, input_vcf, artifact_model: Artifact
     for posterior_datum in plain_text_data.read_data(dataset_file, posterior=True):
 
         encoding = encode_datum(posterior_datum)
-        if encoding not in m2_filtering_to_keep:
+        if encoding in allele_frequencies and encoding not in m2_filtering_to_keep:
             posterior_datum.set_allele_frequency(allele_frequencies[encoding])
             posterior_datum.set_artifact_logit(variant_to_logit[posterior_datum.variant_string])
             posterior_data.append(posterior_datum)

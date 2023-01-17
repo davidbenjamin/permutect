@@ -1,7 +1,7 @@
 import random
 from typing import List, Iterable
 
-from torch import Tensor, IntTensor, BoolTensor, vstack
+from torch import Tensor, IntTensor, BoolTensor, vstack, from_numpy
 from torch.utils.data import Dataset, DataLoader
 
 from mutect3 import utils
@@ -48,7 +48,7 @@ class PosteriorBatch:
         self.normal_depths = IntTensor([item.normal_depth for item in data])
         self.normal_alt_counts = IntTensor([item.normal_alt_count for item in data])
 
-        self._variant_type_one_hot = vstack([item.variant_type.one_hot_tensor() for item in self._original_list])
+        self._variant_type_one_hot = vstack([from_numpy(item.variant_type.one_hot_tensor()) for item in self._original_list]).float()
 
         self.seq_error_log_likelihoods = Tensor([item.seq_error_log_likelihood for item in self._original_list])
         self.normal_seq_error_log_likelihoods = Tensor([item.normal_seq_error_log_likelihood for item in self._original_list])
