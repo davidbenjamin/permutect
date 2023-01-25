@@ -52,5 +52,10 @@ def main(args):
     do_work(training_datasets, output_file, chunk_size)
 
 
+def main_with_parsing():
+    args = parse_arguments()
+    main(args)
+
+
 if __name__ == '__main__':
-    main(parse_arguments())
+    main_with_parsing()

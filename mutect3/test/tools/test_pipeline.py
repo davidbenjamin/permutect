@@ -9,7 +9,7 @@ def test_on_dream1():
     # Input Files
     training_datasets = ["/Users/davidben/mutect3/just-dream-1/dream1-normal-small-training.dataset"]
     mutect2_vcf = "/Users/davidben/mutect3/dream-vcfs/dream1-50000.vcf"
-    filtering_dataset = "/Users/davidben/mutect3/just-dream-1/small-test.dataset"
+    filtering_dataset = "/Users/davidben/mutect3/just-dream-1/dream1-test.dataset"
 
     # Intermediate and Output Files
     training_data_tarfile = tempfile.NamedTemporaryFile()
@@ -75,3 +75,4 @@ def test_on_dream1():
     setattr(filtering_args, constants.GERMLINE_MODE_NAME, False)
 
     filter_variants.main(filtering_args)
+    h = 9
