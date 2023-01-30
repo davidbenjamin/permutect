@@ -23,7 +23,7 @@ def test_on_dream1():
     setattr(preprocess_args, constants.CHUNK_SIZE_NAME, 1e6)
     setattr(preprocess_args, constants.TRAINING_DATASETS_NAME, training_datasets)
     setattr(preprocess_args, constants.OUTPUT_NAME, training_data_tarfile.name)
-    preprocess_dataset.main(preprocess_args)
+    preprocess_dataset.main_without_parsing(preprocess_args)
 
     # STEP 2: train a model
     train_model_args = Namespace()
@@ -55,7 +55,7 @@ def test_on_dream1():
     setattr(train_model_args, constants.OUTPUT_NAME, saved_artifact_model.name)
     setattr(train_model_args, constants.TENSORBOARD_DIR_NAME, training_tensorboard_dir.name)
 
-    train_model.main(train_model_args)
+    train_model.main_without_parsing(train_model_args)
 
     # STEP 3: call variants
     filtering_args = Namespace()
@@ -74,5 +74,5 @@ def test_on_dream1():
     setattr(filtering_args, constants.NORMAL_MAF_SEGMENTS_NAME, None)
     setattr(filtering_args, constants.GERMLINE_MODE_NAME, False)
 
-    filter_variants.main(filtering_args)
+    filter_variants.main_without_parsing(filtering_args)
     h = 9

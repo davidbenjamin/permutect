@@ -44,7 +44,7 @@ def do_work(training_datasets, output_file, chunk_size):
             train_tar.add(train_file, arcname=os.path.basename(train_file))
 
 
-def main(args):
+def main_without_parsing(args):
     chunk_size = getattr(args, constants.CHUNK_SIZE_NAME)
     training_datasets = getattr(args, constants.TRAINING_DATASETS_NAME)
     output_file = getattr(args, constants.OUTPUT_NAME)
@@ -52,10 +52,10 @@ def main(args):
     do_work(training_datasets, output_file, chunk_size)
 
 
-def main_with_parsing():
+def main():
     args = parse_arguments()
-    main(args)
+    main_without_parsing(args)
 
 
 if __name__ == '__main__':
-    main_with_parsing()
+    main()

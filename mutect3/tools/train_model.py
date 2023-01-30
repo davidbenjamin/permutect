@@ -97,7 +97,7 @@ def parse_arguments():
     return parser.parse_args()
 
 
-def main(args):
+def main_without_parsing(args):
     m3_params = parse_mutect3_params(args)
     training_params = parse_training_params(args)
 
@@ -107,5 +107,10 @@ def main(args):
     save_artifact_model(model, m3_params, getattr(args, constants.OUTPUT_NAME))
 
 
+def main():
+    args = parse_arguments()
+    main_without_parsing(args)
+
+
 if __name__ == '__main__':
-    main(parse_arguments())
+    main()
