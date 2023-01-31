@@ -37,8 +37,7 @@ from mutect3 import utils
 from mutect3.data.posterior import PosteriorDatum
 from mutect3.data.read_set import ReadSet
 
-from mutect3.utils import Label, Variation
-from mutect3.tools.filter_variants import encode
+from mutect3.utils import Label, Variation, encode
 
 MAX_VALUE = 10000
 MIN_REF = 5

@@ -15,7 +15,7 @@ from mutect3.architecture.posterior_model import PosteriorModel
 from mutect3.data import read_set_dataset, plain_text_data
 from mutect3 import constants, utils
 from mutect3.data.posterior import PosteriorDatum, PosteriorDataset
-from mutect3.utils import Call
+from mutect3.utils import Call, encode, encode_datum, encode_variant
 
 TRUSTED_M2_FILTERS = {'contamination'}
 
@@ -36,20 +36,6 @@ def load_artifact_model(path) -> ArtifactModel:
     model = ArtifactModel(m3_params, num_read_features=num_read_features, num_info_features=num_info_features, ref_sequence_length=ref_sequence_length)
     model.load_state_dict(saved[constants.STATE_DICT_NAME])
     return model
-
-
-def encode(contig: str, position: int, alt: str):
-    return contig + ':' + str(position) + ':' + alt
-
-
-def encode_datum(datum: PosteriorDatum):
-    return encode(datum.contig, datum.position, datum.alt)
-
-
-def encode_variant(v: cyvcf2.Variant, zero_based=False):
-    alt = v.ALT[0]  # TODO: we're assuming biallelic
-    start = (v.start + 1) if zero_based else v.start
-    return encode(v.CHROM, start, alt)
 
 
 def get_first_numeric_element(variant, key):

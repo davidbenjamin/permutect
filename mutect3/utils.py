@@ -1,5 +1,7 @@
 import enum
 import numpy as np
+from mutect3.data.posterior import PosteriorDatum
+import cyvcf2
 
 
 # variant size is alt - ref length
@@ -148,3 +150,17 @@ class StreamingAverage:
 
 def log_binomial_coefficient(n: torch.Tensor, k: torch.Tensor):
     return (n + 1).lgamma() - (k + 1).lgamma() - ((n - k) + 1).lgamma()
+
+
+def encode(contig: str, position: int, alt: str):
+    return contig + ':' + str(position) + ':' + alt
+
+
+def encode_datum(datum: PosteriorDatum):
+    return encode(datum.contig, datum.position, datum.alt)
+
+
+def encode_variant(v: cyvcf2.Variant, zero_based=False):
+    alt = v.ALT[0]  # TODO: we're assuming biallelic
+    start = (v.start + 1) if zero_based else v.start
+    return encode(v.CHROM, start, alt)
