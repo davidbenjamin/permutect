@@ -38,6 +38,7 @@ from mutect3.data.posterior import PosteriorDatum
 from mutect3.data.read_set import ReadSet
 
 from mutect3.utils import Label, Variation
+from mutect3.tools.filter_variants import encode
 
 MAX_VALUE = 10000
 MIN_REF = 5
@@ -87,8 +88,8 @@ def read_data(dataset_file, posterior: bool, round_down: bool = True, include_va
             n += 1
 
             # contig:position,ref->alt
-            variant_string = file.readline().strip()
-            locus, mutation = variant_string.split(",")
+            variant_line = file.readline().strip()
+            locus, mutation = variant_line.split(",")
             contig, position = locus.split(":")
             position = int(position)
             # TODO: replace with tqdm progress bar by counting file in initial pass.  It can't be that expensive.
@@ -109,7 +110,7 @@ def read_data(dataset_file, posterior: bool, round_down: bool = True, include_va
                 normal_seq_error_log_likelihood = read_float(file.readline())
 
                 if ref_tensor_size >= MIN_REF and alt_tensor_size > 0:
-                    yield PosteriorDatum(contig, position, ref_allele, alt_allele, variant_string, depth, alt_count, normal_depth,
+                    yield PosteriorDatum(contig, position, ref_allele, alt_allele, depth, alt_count, normal_depth,
                                          normal_alt_count, seq_error_log_likelihood, normal_seq_error_log_likelihood)
             else:
                 # ref base string
@@ -134,7 +135,7 @@ def read_data(dataset_file, posterior: bool, round_down: bool = True, include_va
 
                 if ref_tensor_size >= MIN_REF and alt_tensor_size > 0:
                     yield ReadSet.from_gatk(ref_sequence_string, Variation.get_type(ref_allele, alt_allele), ref_tensor,
-                                          alt_tensor, gatk_info_tensor, label, variant_string if include_variant_string else None)
+                                          alt_tensor, gatk_info_tensor, label, encode(contig, position, alt_allele) if include_variant_string else None)
 
 
 def generate_normalized_data(dataset_files, max_bytes_per_chunk: int, include_variant_string: bool = False):

@@ -20,6 +20,7 @@ from mutect3.utils import Call
 TRUSTED_M2_FILTERS = {'contamination'}
 
 POST_PROB_INFO_KEY = 'POST'
+ARTIFACT_LOD_INFO_KEY = 'ARTLOD'
 FILTER_NAMES = [call_type.name.lower() for call_type in Call]
 
 CHUNK_SIZE = 100000
@@ -171,7 +172,7 @@ def make_posterior_data_loader(dataset_file, input_vcf, artifact_model: Artifact
         encoding = encode_datum(posterior_datum)
         if encoding in allele_frequencies and encoding not in m2_filtering_to_keep:
             posterior_datum.set_allele_frequency(allele_frequencies[encoding])
-            posterior_datum.set_artifact_logit(variant_to_logit[posterior_datum.variant_string])
+            posterior_datum.set_artifact_logit(variant_to_logit[encoding])
             posterior_data.append(posterior_datum)
 
     print("Size of filtering dataset: " + str(len(posterior_data)))
@@ -183,19 +184,26 @@ def apply_filtering_to_vcf(input_vcf, output_vcf, error_probability_threshold, p
     print("Computing final error probabilities")
     passing_call_type = Call.GERMLINE if germline_mode else Call.SOMATIC
     encoding_to_post_prob_dict = {}
+    encoding_to_artifact_logit = {}
     pbar = tqdm(enumerate(posterior_loader), mininterval=10)
     for n, batch in pbar:
         posterior_probs = posterior_model.posterior_probabilities(batch)
 
         encodings = [encode_datum(datum) for datum in batch.original_list()]
-        for encoding, post_probs in zip(encodings, posterior_probs):
+        artifact_logits = [datum.artifact_logit for datum in batch.original_list()]
+
+        for encoding, post_probs, logit in zip(encodings, posterior_probs, artifact_logits):
             encoding_to_post_prob_dict[encoding] = post_probs.tolist()
+            encoding_to_artifact_logit[encoding] = logit
+
     print("Applying threshold")
     unfiltered_vcf = cyvcf2.VCF(input_vcf)
 
     all_types = [call_type.name for call_type in Call]
     unfiltered_vcf.add_info_to_header({'ID': POST_PROB_INFO_KEY, 'Description': 'Mutect3 posterior probability of {' + ', '.join(all_types) + '}',
                                        'Type': 'Float', 'Number': 'A'})
+    unfiltered_vcf.add_info_to_header({'ID': ARTIFACT_LOD_INFO_KEY, 'Description': 'Mutect3 artifact log odds',
+         'Type': 'Float', 'Number': 'A'})
 
     for n, filter_name in enumerate(FILTER_NAMES):
         if n != passing_call_type:
@@ -211,6 +219,7 @@ def apply_filtering_to_vcf(input_vcf, output_vcf, error_probability_threshold, p
         if encoding in encoding_to_post_prob_dict:
             post_probs = encoding_to_post_prob_dict[encoding]
             v.INFO[POST_PROB_INFO_KEY] = ','.join(map(lambda prob: "{:.4f}".format(prob), post_probs))
+            v.INFO[ARTIFACT_LOD_INFO_KEY] = str(encoding_to_artifact_logit[encoding])
 
             error_prob = 1 - post_probs[passing_call_type]
             if error_prob > error_probability_threshold:

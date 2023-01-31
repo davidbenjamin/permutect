@@ -8,7 +8,7 @@ from mutect3 import utils
 
 
 class PosteriorDatum:
-    def __init__(self, contig: str, position: int, ref: str, alt: str, variant_string: str,
+    def __init__(self, contig: str, position: int, ref: str, alt: str,
                  depth: int, alt_count: int, normal_depth: int, normal_alt_count: int,
                  seq_error_log_likelihood: float, normal_seq_error_log_likelihood: float, allele_frequency: float = None,
                  artifact_logit: float = None):
@@ -16,7 +16,6 @@ class PosteriorDatum:
         self.position = position
         self.ref = ref
         self.alt = alt
-        self.variant_string = variant_string
         self.variant_type = utils.Variation.get_type(ref, alt)
 
         self.depth = depth
