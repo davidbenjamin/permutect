@@ -59,15 +59,27 @@ class Calibration(nn.Module):
         # We initialize it to something large.
         self.max_logit = nn.Parameter(torch.tensor(10.0))
 
-    def forward(self, logits, ref_counts: torch.Tensor, alt_counts: torch.Tensor):
+    def temperature(self, ref_counts: torch.Tensor, alt_counts: torch.Tensor):
         # based on stats 101 it's reasonable to guess that confidence depends on the sqrt of the evidence count
         # thus we apply a sqrt nonlinearity before the MLP in order to hopefully reduce the number of parameters needed.
         sqrt_counts = torch.column_stack((torch.sqrt(alt_counts), torch.sqrt(ref_counts)))
 
         # temperature scaling means multiplying logits -- in this case the temperature depends on alt and ref counts
-        temperatures = torch.squeeze(self.mlp.forward(sqrt_counts))
-        calibrated_logits = logits * temperatures
+        return torch.squeeze(self.mlp.forward(sqrt_counts))
+
+    def forward(self, logits, ref_counts: torch.Tensor, alt_counts: torch.Tensor):
+        calibrated_logits = logits * self.temperature(ref_counts, alt_counts)
         return self.max_logit * torch.tanh(calibrated_logits / self.max_logit)
+
+    def plot_temperature(self, title):
+        x_y_lab_tuples = []
+        alt_counts = torch.range(1, 100)
+        for ref_count in [1, 5, 10, 25, 50, 100]:
+            ref_counts = ref_count * torch.ones_like(alt_counts)
+            temps = self.temperature(ref_counts, alt_counts).detach()
+            x_y_lab_tuples.append((alt_counts.numpy(), temps.numpy(), str(ref_count) + " ref reads"))
+
+        return plotting.simple_plot(x_y_lab_tuples, "alt count", "temperature", title)
 
 
 class ArtifactModel(nn.Module):
