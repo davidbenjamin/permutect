@@ -66,13 +66,13 @@ class Calibration(nn.Module):
     def temperature(self, ref_counts: torch.Tensor, alt_counts: torch.Tensor):
         effective_ref = self.max_ref * torch.tanh(ref_counts / self.max_ref)
         effective_alt = self.max_alt * torch.tanh(alt_counts / self.max_alt)
-        
+
         # based on stats 101 it's reasonable to guess that confidence depends on the sqrt of the evidence count
         # thus we apply a sqrt nonlinearity before the MLP in order to hopefully reduce the number of parameters needed.
         sqrt_counts = torch.column_stack((torch.sqrt(effective_alt), torch.sqrt(effective_ref)))
 
         # temperature scaling means multiplying logits -- in this case the temperature depends on alt and ref counts
-        return torch.squeeze(self.mlp.forward(sqrt_counts))
+        return torch.exp(torch.squeeze(self.mlp.forward(sqrt_counts)))
 
     def forward(self, logits, ref_counts: torch.Tensor, alt_counts: torch.Tensor):
         calibrated_logits = logits * self.temperature(ref_counts, alt_counts)
