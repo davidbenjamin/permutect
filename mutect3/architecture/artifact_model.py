@@ -51,7 +51,7 @@ class Calibration(nn.Module):
         super(Calibration, self).__init__()
 
         # take the transformed alt and ref counts (i.e. two input "features") and output
-        self.mlp = MLP([2, 5, 5, 1])
+        self.mlp = MLP([2, 5, 5, 5, 1])
 
         # we apply as asymptotic threshold function logit --> M * tanh(logit/M) where M is the maximum absolute
         # value of the thresholded output.  For logits << M this is the identity, and approaching M the asymptote
