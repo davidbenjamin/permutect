@@ -343,7 +343,7 @@ class ArtifactModel(nn.Module):
 
         # accuracy indexed by logit bin
         # sensitivity indexed by truth label, then count bin -- 1st key is utils.CallType, 2nd is the count bin
-        logit_bins = [(-999, -4), (-4, -1), (-1, 1), (1, 4), (4, 999)]
+        logit_bins = [(-999, -4), (-4, -2), (-2, -1), (-1, 1), (1, 2), (2, 4), (4, 999)]
         count_bins = [(1, 2), (3, 4), (5, 7), (8, 10), (11, 20), (21, 1000)]  # inclusive on both sides
         logit_bin_labels = [("{}-{}".format(l_bin[0], l_bin[1])) for l_bin in logit_bins]
         count_bin_labels = [(("{}-{}".format(c_bin[0], c_bin[1])) if c_bin[1] < 100 else "{}+".format(c_bin[0])) for c_bin in count_bins]
