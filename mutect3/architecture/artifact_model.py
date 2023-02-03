@@ -343,7 +343,7 @@ class ArtifactModel(nn.Module):
 
         # accuracy indexed by logit bin
         # sensitivity indexed by truth label, then count bin -- 1st key is utils.CallType, 2nd is the count bin
-        logit_bins = [(-999, -4), (-4, -2), (-2, -1), (-1, 1), (1, 2), (2, 4), (4, 999)]
+        logit_bins = [(-999, -4), (-4, -2), (-2, -1), (-1, 0), (0, 1), (1, 2), (2, 4), (4, 999)]
         count_bins = [(1, 2), (3, 4), (5, 7), (8, 10), (11, 20), (21, 1000)]  # inclusive on both sides
         logit_bin_labels = [("{}-{}".format(l_bin[0], l_bin[1])) for l_bin in logit_bins]
         count_bin_labels = [(("{}-{}".format(c_bin[0], c_bin[1])) if c_bin[1] < 100 else "{}+".format(c_bin[0])) for c_bin in count_bins]
@@ -381,12 +381,22 @@ class ArtifactModel(nn.Module):
                         sensitivity[var_type][Call.SOMATIC][c_bin].record_with_mask(correct, (labels < 0.5) & count_and_variant_mask)
                         sensitivity[var_type][Call.ARTIFACT][c_bin].record_with_mask(correct, (labels > 0.5) & count_and_variant_mask)
             # done collecting data for this particular loader, now fill in subplots for this loader's row
+            # first the plots versus alt count
             for var_type in Variation:
-                # data for one particular subplot
-                sens_bar_plot_data = {label.name: [sensitivity[var_type][label][c_bin].get().item() for c_bin in count_bins] for label in sensitivity[var_type].keys()}
-                plotting.grouped_bar_plot_on_axis(sens_axs[loader_idx, var_type], sens_bar_plot_data, count_bin_labels, loader_name)
-                sens_axs[loader_idx, var_type].set_title(var_type.name)
+                # data for one particular subplot (row = train / valid, column = variant type)
+                # sens_bar_plot_data = {label.name: [sensitivity[var_type][label][c_bin].get().item() for c_bin in count_bins] for label in sensitivity[var_type].keys()}
 
+                x_y_lab_tuples = [([c_bin[0] for c_bin in count_bins],
+                                   [sensitivity[var_type][label][c_bin].get().item() for c_bin in count_bins],
+                                   label.name)
+                                  for label in sensitivity[var_type].keys()]
+                subplot = sens_axs[loader_idx, var_type]
+
+                plotting.simple_plot_on_axis(subplot, x_y_lab_tuples, "alt count", "accuracy")
+                # plotting.grouped_bar_plot_on_axis(subplot, sens_bar_plot_data, count_bin_labels, loader_name)
+                subplot.set_title(var_type.name)
+
+            # now the plot versus output logit
             plotting.simple_bar_plot_on_axis(acc_axs[0, loader_idx], [accuracy[l_bin].get() for l_bin in logit_bins], logit_bin_labels, "accuracy")
             acc_axs[0, loader_idx].set_title(loader_name)
 

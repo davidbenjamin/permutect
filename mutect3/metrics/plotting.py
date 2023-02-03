@@ -16,6 +16,14 @@ def simple_plot(x_y_lab_tuples, x_label, y_label, title):
     return fig, curve
 
 
+def simple_plot_on_axis(ax, x_y_lab_tuples, x_label, y_label):
+    for (x, y, lab) in x_y_lab_tuples:
+        ax.plot(x, y, label=lab)
+    ax.set_xlabel(x_label)
+    ax.set_ylabel(y_label)
+    ax.legend()
+
+
 def simple_bar_plot_on_axis(ax, heights, x_labels, y_label):
     spacing = 3
     bar_width = 0.7 * spacing
