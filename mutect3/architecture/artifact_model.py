@@ -219,10 +219,15 @@ class ArtifactModel(nn.Module):
         utils.freeze(self.parameters())
         utils.unfreeze(self.calibration_parameters())
 
+        # TODO: code duplication between here and train_model
+        labeled_artifact_to_non_artifact_ratios = dataset.artifact_to_non_artifact_ratios()
+        labeled_artifact_weights_by_type = torch.from_numpy(1 / np.sqrt(labeled_artifact_to_non_artifact_ratios)).to(self._device)
+        labeled_non_artifact_weights_by_type = torch.from_numpy(np.sqrt(labeled_artifact_to_non_artifact_ratios)).to(self._device)
+
         # gather uncalibrated logits -- everything computed by the frozen part of the model -- so that we only
         # do forward and backward passes on the calibration submodule
         print("Computing uncalibrated part of model. . .")
-        uncalibrated_logits_ref_alt_counts_labels = []
+        uncalibrated_logits_ref_alt_counts_labels_weights = []
         valid_loader = make_data_loader(dataset, utils.Epoch.VALID, batch_size, self._device.type == 'cuda', num_workers)
         pbar = tqdm(enumerate(valid_loader), mininterval=10)
         for n, batch in pbar:
@@ -230,7 +235,14 @@ class ArtifactModel(nn.Module):
                 continue
             phi_reads = self.apply_phi_to_reads(batch)
             logits, ref_counts, alt_counts = self.forward_from_phi_reads_to_calibration(phi_reads, batch)
-            uncalibrated_logits_ref_alt_counts_labels.append((logits.detach(), ref_counts.detach(), alt_counts.detach(), batch.labels.to(self._device)))
+            labels = batch.labels.to(self._device)
+
+            # TODO: more code duplication between here and train_model
+            types_one_hot = batch.variant_type_one_hot()
+            weights = labels * torch.sum(labeled_artifact_weights_by_type * types_one_hot, dim=1) + \
+                                     (1 - labels) * torch.sum(labeled_non_artifact_weights_by_type * types_one_hot, dim=1)
+
+            uncalibrated_logits_ref_alt_counts_labels_weights.append((logits.detach(), ref_counts.detach(), alt_counts.detach(), labels, weights))
 
         print("Training calibration. . .")
         optimizer = torch.optim.Adam(self.calibration_parameters())
@@ -238,11 +250,11 @@ class ArtifactModel(nn.Module):
         for epoch in trange(1, num_epochs + 1, desc="Calibration epoch"):
             nll_loss = utils.StreamingAverage(device=self._device)
 
-            pbar = tqdm(enumerate(uncalibrated_logits_ref_alt_counts_labels), mininterval=10)
-            for n, (logits, ref_counts, alt_counts, labels) in pbar:
+            pbar = tqdm(enumerate(uncalibrated_logits_ref_alt_counts_labels_weights), mininterval=10)
+            for n, (logits, ref_counts, alt_counts, labels, weights) in pbar:
                 pred = self.calibration.forward(logits, ref_counts, alt_counts)
 
-                loss = torch.sum(bce(pred, labels))
+                loss = torch.sum(weights * bce(pred, labels))
                 optimizer.zero_grad(set_to_none=True)
                 loss.backward()
                 optimizer.step()
