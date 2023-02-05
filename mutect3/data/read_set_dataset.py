@@ -80,6 +80,13 @@ class ReadSetDataset(Dataset):
         else:
             return self._data[index]
 
+    def artifact_to_non_artifact_ratios(self):
+        return self.artifact_totals / self.non_artifact_totals
+
+    def total_labeled_and_unlabeled(self):
+        total_labeled = np.sum(self.artifact_totals + self.non_artifact_totals)
+        return total_labeled, len(self) - total_labeled
+
 
 # from a generator that yields read sets, create a generator that yields
 # ref tensor, alt tensor, ref sequence tensor, info tensor, label tensor, ref tensor alt tensor. . .

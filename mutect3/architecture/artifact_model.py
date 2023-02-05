@@ -253,25 +253,21 @@ class ArtifactModel(nn.Module):
         bce = torch.nn.BCEWithLogitsLoss(reduction='none')  # no reduction because we may want to first multiply by weights for unbalanced data
         train_optimizer = torch.optim.AdamW(self.training_parameters(), lr=m3_params.learning_rate)
 
-        artifact_totals = dataset.artifact_totals
-        non_artifact_totals = dataset.non_artifact_totals
-        total_labeled = np.sum(artifact_totals + non_artifact_totals)
-        total_unlabeled = len(dataset)  - total_labeled
-
-        labeled_artifact_to_non_artifact_ratios = artifact_totals / non_artifact_totals
+        labeled_artifact_to_non_artifact_ratios = dataset.artifact_to_non_artifact_ratios()
 
         labeled_artifact_weights_by_type = torch.from_numpy(1 / np.sqrt(labeled_artifact_to_non_artifact_ratios)).to(self._device)
         labeled_non_artifact_weights_by_type = torch.from_numpy(np.sqrt(labeled_artifact_to_non_artifact_ratios)).to(self._device)
 
         # balance training by weighting the loss function
         # if total unlabeled is less than total labeled, we do not compensate, since labeled data are more informative
+        total_labeled, total_unlabeled = dataset.total_labeled_and_unlabeled()
         labeled_to_unlabeled_ratio = 1 if total_unlabeled < total_labeled else total_labeled / total_unlabeled
 
         print("Training data contains {} labeled examples and {} unlabeled examples".format(total_labeled, total_unlabeled))
         for variation_type in utils.Variation:
             idx = variation_type.value
             print("For variation type {}, there are {} labeled artifact examples and {} labeled non-artifact examples"
-                  .format(variation_type.name, artifact_totals[idx].item(), non_artifact_totals[idx].item()))
+                  .format(variation_type.name, dataset.artifact_totals[idx].item(), dataset.non_artifact_totals[idx].item()))
 
         train_loader = make_data_loader(dataset, utils.Epoch.TRAIN, batch_size, self._device.type == 'cuda', num_workers)
         valid_loader = make_data_loader(dataset, utils.Epoch.VALID, batch_size, self._device.type == 'cuda', num_workers)
@@ -336,7 +332,7 @@ class ArtifactModel(nn.Module):
     def evaluate_model_after_training(self, dataset, batch_size, num_workers, summary_writer: SummaryWriter, prefix: str = ""):
         train_loader = make_data_loader(dataset, utils.Epoch.TRAIN, batch_size, self._device.type == 'cuda', num_workers)
         valid_loader = make_data_loader(dataset, utils.Epoch.VALID, batch_size, self._device.type == 'cuda', num_workers)
-        laoders_by_name = {"training": train_loader, "validation": valid_loader}
+        loaders_by_name = {"training": train_loader, "validation": valid_loader}
         self.freeze_all()
         self.cpu()
         self._device = "cpu"
@@ -350,12 +346,13 @@ class ArtifactModel(nn.Module):
 
         # grid of figures -- rows are loaders, columns are variant types
         # each subplot is a bar chart grouped by call type (variant vs artifact)
-        sens_fig, sens_axs = plt.subplots(len(laoders_by_name), len(Variation), sharex='all', sharey='all', squeeze=False)
+        sens_fig, sens_axs = plt.subplots(len(loaders_by_name), len(Variation), sharex='all', sharey='all', squeeze=False)
 
         # accuracy is indexed by loader only
-        acc_fig, acc_axs = plt.subplots(1, len(laoders_by_name), sharex='all', sharey='all', squeeze=False)
+        acc_fig, acc_axs = plt.subplots(1, len(loaders_by_name), sharex='all', sharey='all', squeeze=False)
 
-        for loader_idx, (loader_name, loader) in enumerate(laoders_by_name.items()):
+        log_artifact_to_non_artifact_ratios = np.log(dataset.artifact_to_non_artifact_ratios())
+        for loader_idx, (loader_name, loader) in enumerate(loaders_by_name.items()):
             accuracy = defaultdict(utils.StreamingAverage)
             # indexed by variant type, then call type (artifact vs variant), then count bin
             sensitivity = {var_type: defaultdict(lambda: defaultdict(utils.StreamingAverage)) for var_type in Variation}
@@ -365,9 +362,17 @@ class ArtifactModel(nn.Module):
                 if not batch.is_labeled():
                     continue
 
-                pred = self.forward(batch)
-
                 labels = batch.labels
+
+                types_one_hot = batch.variant_type_one_hot()
+                log_prior_odds = torch.sum(log_artifact_to_non_artifact_ratios * types_one_hot, dim=1)
+
+                # the model was trained with losses weighted to mimic balanced data with equal numbers of
+                # artifact and non-artifact within each variant type.  This is equivalent to an assumption of equal
+                # prior probability of artifact and non-artifact.  Since the evaluation set is not necessarily balanced,
+                # we modify the predicted logit by the appropriate ratio of priors.
+                pred = self.forward(batch) + log_prior_odds
+
                 correct = ((pred > 0) == (batch.labels > 0.5))
 
                 for l_bin in logit_bins:
