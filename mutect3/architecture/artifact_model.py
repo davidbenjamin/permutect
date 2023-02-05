@@ -234,7 +234,7 @@ class ArtifactModel(nn.Module):
 
         print("Training calibration. . .")
         optimizer = torch.optim.Adam(self.calibration_parameters())
-        bce = nn.BCEWithLogitsLoss()
+        bce = nn.BCEWithLogitsLoss(reduction='none')  # no reduction because we may want to first multiply by weights for unbalanced data
         for epoch in trange(1, num_epochs + 1, desc="Calibration epoch"):
             nll_loss = utils.StreamingAverage(device=self._device)
 
@@ -242,7 +242,7 @@ class ArtifactModel(nn.Module):
             for n, (logits, ref_counts, alt_counts, labels) in pbar:
                 pred = self.calibration.forward(logits, ref_counts, alt_counts)
 
-                loss = bce(pred, labels)
+                loss = torch.sum(bce(pred, labels))
                 optimizer.zero_grad(set_to_none=True)
                 loss.backward()
                 optimizer.step()
@@ -351,7 +351,7 @@ class ArtifactModel(nn.Module):
         # accuracy is indexed by loader only
         acc_fig, acc_axs = plt.subplots(1, len(loaders_by_name), sharex='all', sharey='all', squeeze=False)
 
-        log_artifact_to_non_artifact_ratios = np.log(dataset.artifact_to_non_artifact_ratios())
+        log_artifact_to_non_artifact_ratios = torch.from_numpy(np.log(dataset.artifact_to_non_artifact_ratios()))
         for loader_idx, (loader_name, loader) in enumerate(loaders_by_name.items()):
             accuracy = defaultdict(utils.StreamingAverage)
             # indexed by variant type, then call type (artifact vs variant), then count bin
