@@ -413,6 +413,10 @@ class ArtifactModel(nn.Module):
                 # plotting.grouped_bar_plot_on_axis(subplot, sens_bar_plot_data, count_bin_labels, loader_name)
                 subplot.set_title(var_type.name)
 
+            # replace the redundant identical SOMATIC/ARTIFACT legends on each subplot with a single legend for the figure
+            handles, labels = sens_axs[-1][-1].get_legend_handles_labels()
+            sens_fig.legend(handles, labels, loc='upper center')
+
             # now the plot versus output logit
             plotting.simple_bar_plot_on_axis(acc_axs[0, loader_idx], [accuracy[l_bin].get() for l_bin in logit_bins], logit_bin_labels, "accuracy")
             acc_axs[0, loader_idx].set_title(loader_name)
