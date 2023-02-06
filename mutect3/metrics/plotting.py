@@ -118,3 +118,35 @@ def plot_roc_curve(model, loader, normal_artifact=False):
 
     x_y_lab = [(sensitivity, precision, "ROC")]
     return simple_plot(x_y_lab, x_label="sensitivity", y_label="precision", title="ROC curve according to M3's own probabilities.")
+
+
+# labels are 0 for non-artifact, 1 for artifact
+def plot_accuracy_vs_accuracy_roc_on_axis(predictions_and_labels, axis):
+    # sort from least to greatest artifact logit
+    predictions_and_labels.sort(key=lambda prediction_and_label: prediction_and_label[0])
+    thresholds = []
+    non_artifact_accuracy = []
+    artifact_accuracy = []
+
+    num_calls = len(predictions_and_labels)
+    total_artifact = sum([label for _, label in predictions_and_labels])
+    total_non_artifact = num_calls - total_artifact
+
+    # start at threshold = -infinity; that is, everything is called an artifact, and pick up one variant at a time
+    correct_artifact_calls, correct_non_artifact_calls = total_artifact, 0
+
+    last_threshold = -10
+
+    for threshold, label in predictions_and_labels:
+        correct_artifact_calls -= label     # if labeled as artifact, one artifact has slipped below threshold
+        correct_non_artifact_calls += (1 - label)   # if labeled as non-artifact, one non-artifact has been gained
+
+        if threshold > last_threshold + 1:
+            last_threshold = threshold
+            thresholds.append(threshold)
+            artifact_accuracy.append(correct_artifact_calls / total_artifact)
+            non_artifact_accuracy.append(correct_non_artifact_calls / total_non_artifact)
+
+    x_y_lab = [(artifact_accuracy, non_artifact_accuracy, "ROC")]
+
+    simple_plot_on_axis(axis, x_y_lab, "artifact accuracy", "non-artifact accuracy")

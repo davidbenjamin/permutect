@@ -360,6 +360,9 @@ class ArtifactModel(nn.Module):
         # each subplot is a bar chart grouped by call type (variant vs artifact)
         sens_fig, sens_axs = plt.subplots(len(loaders_by_name), len(Variation), sharex='all', sharey='all', squeeze=False)
 
+        # likewise, but for ROC-like curves of accuracy on variants vs accuracy on artifacts
+        roc_fig, roc_axs = plt.subplots(len(loaders_by_name), len(Variation), sharex='all', sharey='all', squeeze=False)
+
         # accuracy is indexed by loader only
         acc_fig, acc_axs = plt.subplots(1, len(loaders_by_name), sharex='all', sharey='all', squeeze=False)
 
@@ -368,6 +371,9 @@ class ArtifactModel(nn.Module):
             accuracy = defaultdict(utils.StreamingAverage)
             # indexed by variant type, then call type (artifact vs variant), then count bin
             sensitivity = {var_type: defaultdict(lambda: defaultdict(utils.StreamingAverage)) for var_type in Variation}
+
+            # map of variant type -> tuples of (predicted logit, actual label) for generating roc curves
+            roc_data = {var_type: defaultdict(list) for var_type in Variation}
 
             pbar = tqdm(enumerate(loader), mininterval=10)
             for n, batch in pbar:
@@ -387,16 +393,25 @@ class ArtifactModel(nn.Module):
 
                 correct = ((pred > 0) == (batch.labels > 0.5))
 
+                # record data for accuracy vs predicted logit calibration bar graph
                 for l_bin in logit_bins:
                     accuracy[l_bin].record_with_mask(correct, (pred > l_bin[0]) & (pred < l_bin[1]))
 
                 for var_type in Variation:
                     variant_mask = batch.variant_type_mask(var_type)
+
+                    # record data for variant/artifact accuracy vs alt count line graph
                     for c_bin in count_bins:
                         count_mask = (c_bin[0] <= batch.alt_count) & (c_bin[1] >= batch.alt_count)
                         count_and_variant_mask = count_mask & variant_mask
                         sensitivity[var_type][Call.SOMATIC][c_bin].record_with_mask(correct, (labels < 0.5) & count_and_variant_mask)
                         sensitivity[var_type][Call.ARTIFACT][c_bin].record_with_mask(correct, (labels > 0.5) & count_and_variant_mask)
+
+                    # record data for variant/artifact accuracy ROC curve
+                    for is_variant_type, predicted_logit, label in zip(variant_mask, batch.pred, batch.labels):
+                        if is_variant_type:
+                            roc_data[var_type].append((predicted_logit, label))
+
             # done collecting data for this particular loader, now fill in subplots for this loader's row
             # first the plots versus alt count
             for var_type in Variation:
@@ -407,26 +422,30 @@ class ArtifactModel(nn.Module):
                                    [sensitivity[var_type][label][c_bin].get().item() for c_bin in count_bins],
                                    label.name)
                                   for label in sensitivity[var_type].keys()]
-                subplot = sens_axs[loader_idx, var_type]
+                sens_subplot = sens_axs[loader_idx, var_type]
 
-                plotting.simple_plot_on_axis(subplot, x_y_lab_tuples, "alt count", "accuracy")
+                plotting.simple_plot_on_axis(sens_subplot, x_y_lab_tuples, "alt count", "accuracy")
                 # plotting.grouped_bar_plot_on_axis(subplot, sens_bar_plot_data, count_bin_labels, loader_name)
-                subplot.set_title(var_type.name)
+                sens_subplot.set_title(var_type.name)
+
+                roc_subplot = roc_axs[loader_idx, var_type]
+                plotting.plot_accuracy_vs_accuracy_roc_on_axis(roc_data[var_type], roc_subplot)
 
             # now the plot versus output logit
             plotting.simple_bar_plot_on_axis(acc_axs[0, loader_idx], [accuracy[l_bin].get() for l_bin in logit_bins], logit_bin_labels, "accuracy")
             acc_axs[0, loader_idx].set_title(loader_name)
 
         # done collecting stats for all loaders and filling in subplots
-        for ax in sens_fig.get_axes():
-            ax.label_outer()
-        for ax in acc_fig.get_axes():
+        for ax in chain(sens_fig.get_axes(), roc_fig.get_axes(), acc_fig.get_axes()):
             ax.label_outer()
 
         sens_fig.tight_layout()
+        roc_fig.tight_layout()
+
         # replace the redundant identical SOMATIC/ARTIFACT legends on each subplot with a single legend for the figure
         handles, labels = sens_axs[-1][-1].get_legend_handles_labels()
         sens_fig.legend(handles, labels, loc='upper center')
-        
+
         summary_writer.add_figure("{} sensitivity by alt count".format(prefix), sens_fig)
         summary_writer.add_figure(prefix + " accuracy by logit output", acc_fig)
+        summary_writer.add_figure(prefix + " variant accuracy vs artifact accuracy curve", roc_fig)
