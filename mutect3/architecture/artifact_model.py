@@ -410,7 +410,7 @@ class ArtifactModel(nn.Module):
                     # record data for variant/artifact accuracy ROC curve
                     for is_variant_type, predicted_logit, label in zip(variant_mask, pred, batch.labels):
                         if is_variant_type:
-                            roc_data[var_type].append((predicted_logit, label))
+                            roc_data[var_type].append((predicted_logit.item(), label.item()))
 
             # done collecting data for this particular loader, now fill in subplots for this loader's row
             # first the plots versus alt count

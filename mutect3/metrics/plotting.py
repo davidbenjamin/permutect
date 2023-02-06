@@ -129,8 +129,8 @@ def plot_accuracy_vs_accuracy_roc_on_axis(predictions_and_labels, axis):
     artifact_accuracy = []
 
     num_calls = len(predictions_and_labels)
-    total_artifact = sum([label for _, label in predictions_and_labels])
-    total_non_artifact = num_calls - total_artifact
+    total_artifact = sum([label for _, label in predictions_and_labels]) + 0.0001
+    total_non_artifact = num_calls - total_artifact + 0.0002
 
     # start at threshold = -infinity; that is, everything is called an artifact, and pick up one variant at a time
     correct_artifact_calls, correct_non_artifact_calls = total_artifact, 0
