@@ -49,7 +49,7 @@ def test_on_dream1():
     setattr(train_model_args, constants.REWEIGHTING_RANGE_NAME, 0.3)
     setattr(train_model_args, constants.BATCH_SIZE_NAME, 64)
     setattr(train_model_args, constants.NUM_WORKERS_NAME, 2)
-    setattr(train_model_args, constants.NUM_EPOCHS_NAME, 2)
+    setattr(train_model_args, constants.NUM_EPOCHS_NAME, 5)
 
     # path to saved model
     setattr(train_model_args, constants.OUTPUT_NAME, saved_artifact_model.name)

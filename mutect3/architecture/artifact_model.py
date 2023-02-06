@@ -373,7 +373,7 @@ class ArtifactModel(nn.Module):
             sensitivity = {var_type: defaultdict(lambda: defaultdict(utils.StreamingAverage)) for var_type in Variation}
 
             # map of variant type -> tuples of (predicted logit, actual label) for generating roc curves
-            roc_data = {var_type: defaultdict(list) for var_type in Variation}
+            roc_data = {var_type: [] for var_type in Variation}
 
             pbar = tqdm(enumerate(loader), mininterval=10)
             for n, batch in pbar:
@@ -408,7 +408,7 @@ class ArtifactModel(nn.Module):
                         sensitivity[var_type][Call.ARTIFACT][c_bin].record_with_mask(correct, (labels > 0.5) & count_and_variant_mask)
 
                     # record data for variant/artifact accuracy ROC curve
-                    for is_variant_type, predicted_logit, label in zip(variant_mask, batch.pred, batch.labels):
+                    for is_variant_type, predicted_logit, label in zip(variant_mask, pred, batch.labels):
                         if is_variant_type:
                             roc_data[var_type].append((predicted_logit, label))
 
