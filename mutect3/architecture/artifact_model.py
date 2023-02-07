@@ -389,7 +389,7 @@ class ArtifactModel(nn.Module):
                     truncated_count = min(max_count, batch.alt_count)
                     acc_vs_cnt[variant_type][Call.SOMATIC if label < 0.5 else Call.ARTIFACT][truncated_count].record(correct_call)
                     roc_data[variant_type].append((predicted_logit, label))
-                    acc_vs_logit[var_type][logit_to_bin(predicted_logit)].record(correct_call)
+                    acc_vs_logit[variant_type][logit_to_bin(predicted_logit)].record(correct_call)
 
             # done collecting data for this particular loader, now fill in subplots for this loader's row
             for var_type in Variation:
