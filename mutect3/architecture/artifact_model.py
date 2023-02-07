@@ -364,7 +364,7 @@ class ArtifactModel(nn.Module):
         roc_fig, roc_axes = plt.subplots(len(loaders_by_name), len(Variation), sharex='all', sharey='all', squeeze=False)
 
         # calibration is indexed by loader only
-        cal_fig, cal_axes = plt.subplots(1, len(loaders_by_name), sharex='all', sharey='all', squeeze=False)
+        cal_fig, cal_axes = plt.subplots(len(loaders_by_name), len(Variation), sharex='all', sharey='all', squeeze=False)
 
         log_artifact_to_non_artifact_ratios = torch.from_numpy(np.log(dataset.artifact_to_non_artifact_ratios()))
         for loader_idx, (loader_name, loader) in enumerate(loaders_by_name.items()):
