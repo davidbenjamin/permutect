@@ -401,7 +401,7 @@ class ArtifactModel(nn.Module):
                                    [acc_vs_cnt[var_type][label][count].get() for count in non_empty_count_bins],
                                    label.name) for label in acc_vs_cnt[var_type].keys()]
                 acc_vs_logit_x_y_lab_tuple = [([bin_center(idx) for idx in non_empty_logit_bins],
-                                              [acc_vs_logit[var_type][idx].get().item() for idx in non_empty_logit_bins],
+                                              [acc_vs_logit[var_type][idx].get() for idx in non_empty_logit_bins],
                                               None)]
 
                 plotting.simple_plot_on_axis(acc_vs_cnt_axes[loader_idx, var_type], acc_vs_cnt_x_y_lab_tuples, None, None)
