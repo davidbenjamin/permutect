@@ -382,10 +382,10 @@ class ArtifactModel(nn.Module):
 
                 # We weight training loss to balance artifact and non-artifact within each variant type.
                 # Here we restore an unbalanced prior to mimic what the posterior model would do
-                pred = (self.forward(batch) + log_prior_odds).tolist()
+                pred = self.forward(batch) + log_prior_odds
                 correct = ((pred > 0) == (batch.labels > 0.5)).tolist()
 
-                for variant_type, predicted_logit, label, correct_call in zip(batch.variant_types(), pred, batch.labels.tolist(), correct):
+                for variant_type, predicted_logit, label, correct_call in zip(batch.variant_types(), pred.tolist(), batch.labels.tolist(), correct):
                     truncated_count = min(max_count, batch.alt_count)
                     acc_vs_cnt[variant_type][Call.SOMATIC if label < 0.5 else Call.ARTIFACT][truncated_count].record(correct_call)
                     roc_data[variant_type].append((predicted_logit, label))
