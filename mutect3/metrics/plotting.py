@@ -153,4 +153,6 @@ def plot_accuracy_vs_accuracy_roc_on_axis(predictions_and_labels, axis):
 
     simple_plot_on_axis(axis, x_y_lab, "artifact accuracy", "non-artifact accuracy")
     for threshold, art_acc, non_art_acc in zip(thresholds, artifact_accuracy, non_artifact_accuracy):
-        axis.annotate(str(threshold), (art_acc, non_art_acc))
+        axis.plot(art_acc, non_art_acc, 'ro')   # point
+        if threshold % 3 == 0:      # label
+            axis.annotate(str(threshold), (art_acc, non_art_acc))

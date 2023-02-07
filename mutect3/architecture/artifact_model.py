@@ -436,11 +436,6 @@ class ArtifactModel(nn.Module):
             acc_axs[0, loader_idx].set_title(loader_name)
 
         # done collecting stats for all loaders and filling in subplots
-        for ax in chain(sens_fig.get_axes(), roc_fig.get_axes(), acc_fig.get_axes()):
-            ax.label_outer()
-
-        sens_fig.tight_layout()
-        roc_fig.tight_layout()
 
         # replace the redundant identical SOMATIC/ARTIFACT legends on each subplot with a single legend for the figure
         handles, labels = sens_axs[-1][-1].get_legend_handles_labels()
@@ -449,6 +444,33 @@ class ArtifactModel(nn.Module):
         handles, labels = roc_axs[-1][-1].get_legend_handles_labels()
         roc_fig.legend(handles, labels, loc='upper center')
 
-        summary_writer.add_figure("{} sensitivity by alt count".format(prefix), sens_fig)
+        for ax in chain(sens_fig.get_axes(), roc_fig.get_axes(), acc_fig.get_axes()):
+            ax.label_outer()    # y tick labels only shown in leftmost column, x tick labels only shown on bottom row
+            ax.legend().set_visible(False)  # hide the redundant identical subplot legends
+
+            # remove the subplot labels and title -- these will be given manually to the whole figure and to the outer rows
+            ax.set_xlabel(None)
+            ax.set_ylabel(None)
+            ax.set_title(None)
+
+        for axes in sens_axs, roc_axs:
+            # make variant type column heading by setting titles on the top row of subplots
+            for col_idx, var_type in enumerate(Variation):
+                axes[0][col_idx].set_title(var_type.name)
+
+            # make epoch/loader type row heading by setting y labels on leftmost column of subplots
+            for row_idx, (loader_name, _) in enumerate(loaders_by_name.items()):
+                axes[row_idx][0].set_ylabel(loader_name)
+
+        sens_fig.supxlabel("Alt read count")
+        sens_fig.supylabel("Accuracy")
+
+        roc_fig.supxlabel("Non-artifact Accuracy")
+        roc_fig.supylabel("Artifact Accuracy")
+
+        sens_fig.tight_layout()
+        roc_fig.tight_layout()
+
+        summary_writer.add_figure("{} accuracy by alt count".format(prefix), sens_fig)
         summary_writer.add_figure(prefix + " accuracy by logit output", acc_fig)
         summary_writer.add_figure(prefix + " variant accuracy vs artifact accuracy curve", roc_fig)
