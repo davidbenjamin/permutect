@@ -408,7 +408,7 @@ class ArtifactModel(nn.Module):
                 plotting.plot_accuracy_vs_accuracy_roc_on_axis(roc_data[var_type], roc_axes[loader_idx, var_type])
 
                 # now the plot versus output logit
-                plotting.simple_bar_on_axis(cal_axes[loader_idx, var_type], acc_vs_logit_x_y_lab_tuple, None, None)
+                plotting.simple_plot_on_axis(cal_axes[loader_idx, var_type], acc_vs_logit_x_y_lab_tuple, None, None)
 
         # done collecting stats for all loaders and filling in subplots
 
