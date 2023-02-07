@@ -368,8 +368,10 @@ class ArtifactModel(nn.Module):
 
         log_artifact_to_non_artifact_ratios = torch.from_numpy(np.log(dataset.artifact_to_non_artifact_ratios()))
         for loader_idx, (loader_name, loader) in enumerate(loaders_by_name.items()):
-            # indexed by variant type, then call type (artifact vs variant), then logit bin or count bin
-            acc_vs_logit = {var_type: defaultdict(lambda: defaultdict(utils.StreamingAverage)) for var_type in Variation}
+            # indexed by variant type, then logit bin
+            acc_vs_logit = {var_type: defaultdict(utils.StreamingAverage) for var_type in Variation}
+
+            # indexed by variant type, then call type (artifact vs variant), then  count bin
             acc_vs_cnt = {var_type: defaultdict(lambda: defaultdict(utils.StreamingAverage)) for var_type in Variation}
 
             # map of variant type -> tuples of (predicted logit, actual label) for generating roc curves
