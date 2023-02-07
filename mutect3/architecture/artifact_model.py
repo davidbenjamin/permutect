@@ -181,7 +181,7 @@ class ArtifactModel(nn.Module):
         # note that we put the reads on GPU, apply read embedding phi, then put the result back on CPU
         return torch.sigmoid(self.phi(batch.reads.to(self._device)))
 
-    def forward_from_phi_reads_to_calibration(self, phi_reads: torch.Tensor, batch: ReadSetBatch, weight_range: float=0):
+    def forward_from_phi_reads_to_calibration(self, phi_reads: torch.Tensor, batch: ReadSetBatch, weight_range: float = 0):
         weights = torch.ones(len(phi_reads), 1, device=self._device) if weight_range == 0 else (1 + weight_range * (1 - 2 * torch.rand(len(phi_reads), 1, device=self._device)))
         weighted_phi_reads = weights * phi_reads
 
@@ -208,7 +208,6 @@ class ArtifactModel(nn.Module):
         logits = self.rho(concatenated).squeeze(dim=1)  # specify dim so that in edge case of batch size 1 we get 1D tensor, not scalar
         return logits, effective_ref_counts, effective_alt_counts
 
-    # beta is for downsampling data augmentation
     def forward_from_phi_reads(self, phi_reads: torch.Tensor, batch: ReadSetBatch, weight_range: float = 0):
         logits, effective_ref_counts, effective_alt_counts = self.forward_from_phi_reads_to_calibration(phi_reads, batch, weight_range)
         return self.calibration.forward(logits, effective_ref_counts, effective_alt_counts)
@@ -349,12 +348,12 @@ class ArtifactModel(nn.Module):
         self.cpu()
         self._device = "cpu"
 
-        # accuracy indexed by logit bin
-        # sensitivity indexed by truth label, then count bin -- 1st key is utils.CallType, 2nd is the count bin
-        logit_bins = [(-999, -4), (-4, -2), (-2, -1), (-1, 0), (0, 1), (1, 2), (2, 4), (4, 999)]
-        count_bins = [(1, 2), (3, 4), (5, 7), (8, 10), (11, 20), (21, 1000)]  # inclusive on both sides
-        logit_bin_labels = [("{}-{}".format(l_bin[0], l_bin[1])) for l_bin in logit_bins]
-        count_bin_labels = [(("{}-{}".format(c_bin[0], c_bin[1])) if c_bin[1] < 100 else "{}+".format(c_bin[0])) for c_bin in count_bins]
+        max_count = 20  # counts above this will be truncated
+        max_logit = 6
+
+        # round logit to nearest int, truncate to range, ending up with bins 0. . . 2*max_logit
+        logit_to_bin = lambda logit: min(max(round(logit), -max_logit), max_logit) + max_logit
+        bin_center = lambda bin_idx: bin_idx - max_logit
 
         # grid of figures -- rows are loaders, columns are variant types
         # each subplot has two line graphs of accuracy vs alt count, one each for artifact, non-artifact
@@ -369,64 +368,47 @@ class ArtifactModel(nn.Module):
         log_artifact_to_non_artifact_ratios = torch.from_numpy(np.log(dataset.artifact_to_non_artifact_ratios()))
         for loader_idx, (loader_name, loader) in enumerate(loaders_by_name.items()):
             # indexed by variant type, then logit bin
-            acc_vs_logit = {var_type: defaultdict(utils.StreamingAverage) for var_type in Variation}
+            acc_vs_logit = {var_type: [utils.StreamingAverage() for _ in range(2*max_logit + 1)] for var_type in Variation}
 
-            # indexed by variant type, then call type (artifact vs variant), then  count bin
-            acc_vs_cnt = {var_type: defaultdict(lambda: defaultdict(utils.StreamingAverage)) for var_type in Variation}
+            # indexed by variant type, then call type (artifact vs variant), then count bin
+            acc_vs_cnt = {var_type: defaultdict(lambda: [utils.StreamingAverage() for _ in range(max_count + 1)]) for var_type in Variation}
 
-            # map of variant type -> tuples of (predicted logit, actual label) for generating roc curves
-            roc_data = {var_type: [] for var_type in Variation}
+            roc_data = {var_type: [] for var_type in Variation}     # variant type -> (predicted logit, actual label)
 
-            pbar = tqdm(enumerate(loader), mininterval=10)
+            pbar = tqdm(enumerate(filter(lambda bat: bat.is_labeled(), loader)), mininterval=10)
             for n, batch in pbar:
-                if not batch.is_labeled():
-                    continue
-
-                labels = batch.labels
-
                 types_one_hot = batch.variant_type_one_hot()
                 log_prior_odds = torch.sum(log_artifact_to_non_artifact_ratios * types_one_hot, dim=1)
 
-                # the model was trained with losses weighted to mimic balanced data with equal numbers of
-                # artifact and non-artifact within each variant type.  This is equivalent to an assumption of equal
-                # prior probability of artifact and non-artifact.  Since the evaluation set is not necessarily balanced,
-                # we modify the predicted logit by the appropriate ratio of priors.
-                pred = self.forward(batch) + log_prior_odds
-                correct = ((pred > 0) == (batch.labels > 0.5))
+                # We weight training loss to balance artifact and non-artifact within each variant type.
+                # Here we restore an unbalanced prior to mimic what the posterior model would do
+                pred = (self.forward(batch) + log_prior_odds).tolist()
+                correct = ((pred > 0) == (batch.labels > 0.5)).tolist()
 
-                for var_type in Variation:
-                    variant_mask = batch.variant_type_mask(var_type)
-
-                    # record data for accuracy vs predicted logit calibration bar graph
-                    for l_bin in logit_bins:
-                        logit_mask = (pred > l_bin[0]) & (pred < l_bin[1])
-                        acc_vs_logit[var_type][l_bin].record_with_mask(correct, logit_mask & variant_mask)
-
-                    # record data for variant/artifact accuracy vs alt count line graph
-                    for c_bin in count_bins:
-                        count_mask = (c_bin[0] <= batch.alt_count) & (c_bin[1] >= batch.alt_count)
-                        count_and_variant_mask = count_mask & variant_mask
-                        acc_vs_cnt[var_type][Call.SOMATIC][c_bin].record_with_mask(correct, (labels < 0.5) & count_and_variant_mask)
-                        acc_vs_cnt[var_type][Call.ARTIFACT][c_bin].record_with_mask(correct, (labels > 0.5) & count_and_variant_mask)
-
-                    # record data for variant/artifact accuracy ROC curve
-                    for is_variant_type, predicted_logit, label in zip(variant_mask, pred, batch.labels):
-                        if is_variant_type:
-                            roc_data[var_type].append((predicted_logit.item(), label.item()))
+                for variant_type, predicted_logit, label, correct_call in zip(batch.variant_types(), pred, batch.labels.tolist(), correct):
+                    truncated_count = min(max_count, batch.alt_count)
+                    acc_vs_cnt[variant_type][Call.SOMATIC if label < 0.5 else Call.ARTIFACT][truncated_count].record(correct_call)
+                    roc_data[variant_type].append((predicted_logit, label))
+                    acc_vs_logit[var_type][logit_to_bin(predicted_logit)].record(correct_call)
 
             # done collecting data for this particular loader, now fill in subplots for this loader's row
             for var_type in Variation:
                 # data for one particular subplot (row = train / valid, column = variant type)
 
-                x_y_lab_tuples = [([c_bin[0] for c_bin in count_bins],
-                                   [acc_vs_cnt[var_type][label][c_bin].get().item() for c_bin in count_bins],
+                non_empty_count_bins = [count for count in range(max_count + 1) if not acc_vs_cnt[var_type][label][count].is_empty()]
+                non_empty_logit_bins = [idx for idx in range(2*max_logit + 1) if not acc_vs_logit[var_type][idx].is_empty()]
+                acc_vs_cnt_x_y_lab_tuples = [(non_empty_count_bins,
+                                   [acc_vs_cnt[var_type][label][count].get().item() for count in non_empty_count_bins],
                                    label.name) for label in acc_vs_cnt[var_type].keys()]
+                acc_vs_logit_x_y_lab_tuple = [([bin_center(idx) for idx in non_empty_logit_bins],
+                                              [acc_vs_logit[var_type][idx].get().item() for idx in non_empty_logit_bins],
+                                              None)]
 
-                plotting.simple_plot_on_axis(acc_vs_cnt_axes[loader_idx, var_type], x_y_lab_tuples, None, None)
+                plotting.simple_plot_on_axis(acc_vs_cnt_axes[loader_idx, var_type], acc_vs_cnt_x_y_lab_tuples, None, None)
                 plotting.plot_accuracy_vs_accuracy_roc_on_axis(roc_data[var_type], roc_axes[loader_idx, var_type])
 
                 # now the plot versus output logit
-                plotting.simple_bar_plot_on_axis(cal_axes[loader_idx, var_type], [acc_vs_logit[var_type][l_bin].get() for l_bin in logit_bins], logit_bin_labels, "calibration")
+                plotting.simple_bar_on_axis(cal_axes[loader_idx, var_type], acc_vs_logit_x_y_lab_tuple, None, None)
 
         # done collecting stats for all loaders and filling in subplots
 
@@ -466,6 +448,7 @@ class ArtifactModel(nn.Module):
 
         acc_vs_cnt_fig.tight_layout()
         roc_fig.tight_layout()
+        cal_fig.tight_layout()
 
         summary_writer.add_figure("{} accuracy by alt count".format(prefix), acc_vs_cnt_fig)
         summary_writer.add_figure(prefix + " accuracy by logit output", cal_fig)

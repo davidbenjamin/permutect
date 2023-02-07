@@ -127,6 +127,9 @@ class StreamingAverage:
         self._count = 0
         self._sum = torch.tensor([0.0], device=device)
 
+    def is_empty(self):
+        return self._count == 0
+
     # this is the only method where, if we're on GPU, self._sum is transferred to the CPU
     def get(self):
         return self._sum.item() / (self._count + 0.0001)

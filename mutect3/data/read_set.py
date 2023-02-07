@@ -137,3 +137,8 @@ class ReadSetBatch:
 
     def variant_type_mask(self, variant_type: Variation):
         return self.info[:, -len(Variation) + variant_type.value] == 1
+
+    # return list of variant type integer indices
+    def variant_types(self):
+        one_hot = self.variant_type_one_hot()
+        return [int(x) for x in sum([n*one_hot[:, n] for n in range(len(Variation))])]
