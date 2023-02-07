@@ -446,6 +446,9 @@ class ArtifactModel(nn.Module):
         handles, labels = sens_axs[-1][-1].get_legend_handles_labels()
         sens_fig.legend(handles, labels, loc='upper center')
 
+        handles, labels = roc_axs[-1][-1].get_legend_handles_labels()
+        roc_fig.legend(handles, labels, loc='upper center')
+
         summary_writer.add_figure("{} sensitivity by alt count".format(prefix), sens_fig)
         summary_writer.add_figure(prefix + " accuracy by logit output", acc_fig)
         summary_writer.add_figure(prefix + " variant accuracy vs artifact accuracy curve", roc_fig)

@@ -1,4 +1,5 @@
 from matplotlib import pyplot as plt
+import math
 
 # one or more simple plots of y data vs x data on shared axes
 from tqdm.autonotebook import tqdm
@@ -135,18 +136,21 @@ def plot_accuracy_vs_accuracy_roc_on_axis(predictions_and_labels, axis):
     # start at threshold = -infinity; that is, everything is called an artifact, and pick up one variant at a time
     correct_artifact_calls, correct_non_artifact_calls = total_artifact, 0
 
-    last_threshold = -10
+    next_threshold = -10
 
-    for threshold, label in predictions_and_labels:
+    for pred_logit, label in predictions_and_labels:
         correct_artifact_calls -= label     # if labeled as artifact, one artifact has slipped below threshold
         correct_non_artifact_calls += (1 - label)   # if labeled as non-artifact, one non-artifact has been gained
 
-        if threshold > last_threshold + 1:
-            last_threshold = threshold
-            thresholds.append(threshold)
+        if pred_logit > next_threshold:
+            thresholds.append(next_threshold)
             artifact_accuracy.append(correct_artifact_calls / total_artifact)
             non_artifact_accuracy.append(correct_non_artifact_calls / total_non_artifact)
+
+            next_threshold = math.ceil(pred_logit)
 
     x_y_lab = [(artifact_accuracy, non_artifact_accuracy, "ROC")]
 
     simple_plot_on_axis(axis, x_y_lab, "artifact accuracy", "non-artifact accuracy")
+    for threshold, art_acc, non_art_acc in zip(thresholds, artifact_accuracy, non_artifact_accuracy):
+        axis.annotate(str(threshold), (art_acc, non_art_acc))
