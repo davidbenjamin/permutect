@@ -398,7 +398,7 @@ class ArtifactModel(nn.Module):
                 non_empty_count_bins = [count for count in range(max_count + 1) if not acc_vs_cnt[var_type][label][count].is_empty()]
                 non_empty_logit_bins = [idx for idx in range(2*max_logit + 1) if not acc_vs_logit[var_type][idx].is_empty()]
                 acc_vs_cnt_x_y_lab_tuples = [(non_empty_count_bins,
-                                   [acc_vs_cnt[var_type][label][count].get().item() for count in non_empty_count_bins],
+                                   [acc_vs_cnt[var_type][label][count].get() for count in non_empty_count_bins],
                                    label.name) for label in acc_vs_cnt[var_type].keys()]
                 acc_vs_logit_x_y_lab_tuple = [([bin_center(idx) for idx in non_empty_logit_bins],
                                               [acc_vs_logit[var_type][idx].get().item() for idx in non_empty_logit_bins],
