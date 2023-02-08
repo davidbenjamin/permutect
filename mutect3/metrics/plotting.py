@@ -122,7 +122,7 @@ def plot_roc_curve(model, loader, normal_artifact=False):
 
 
 # labels are 0 for non-artifact, 1 for artifact
-def plot_accuracy_vs_accuracy_roc_on_axis(predictions_and_labels, axis):
+def plot_accuracy_vs_accuracy_roc_on_axis(predictions_and_labels, axis, curve_label=None):
     # sort from least to greatest artifact logit
     predictions_and_labels.sort(key=lambda prediction_and_label: prediction_and_label[0])
     thresholds = []
@@ -149,10 +149,9 @@ def plot_accuracy_vs_accuracy_roc_on_axis(predictions_and_labels, axis):
 
             next_threshold = math.ceil(pred_logit)
 
-    x_y_lab = [(artifact_accuracy, non_artifact_accuracy, "ROC")]
+    x_y_lab = [(artifact_accuracy, non_artifact_accuracy, curve_label)]
 
     simple_plot_on_axis(axis, x_y_lab, "artifact accuracy", "non-artifact accuracy")
     for threshold, art_acc, non_art_acc in zip(thresholds, artifact_accuracy, non_artifact_accuracy):
-        axis.plot(art_acc, non_art_acc, 'ro')   # point
-        if threshold % 3 == 0:      # label
-            axis.annotate(str(threshold), (art_acc, non_art_acc))
+        axis.plot(art_acc, non_art_acc, 'ro' if threshold == 0 else 'go', markersize=12)   # point
+

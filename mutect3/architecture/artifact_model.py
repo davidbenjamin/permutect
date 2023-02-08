@@ -358,12 +358,9 @@ class ArtifactModel(nn.Module):
         # grid of figures -- rows are loaders, columns are variant types
         # each subplot has two line graphs of accuracy vs alt count, one each for artifact, non-artifact
         acc_vs_cnt_fig, acc_vs_cnt_axes = plt.subplots(len(loaders_by_name), len(Variation), sharex='all', sharey='all', squeeze=False)
-
-        # likewise, but for ROC-like curves of accuracy on variants vs accuracy on artifacts
         roc_fig, roc_axes = plt.subplots(len(loaders_by_name), len(Variation), sharex='all', sharey='all', squeeze=False)
-
-        # calibration is indexed by loader only
         cal_fig, cal_axes = plt.subplots(len(loaders_by_name), len(Variation), sharex='all', sharey='all', squeeze=False)
+        roc_by_cnt_fig, roc_by_cnt_axes = plt.subplots(len(loaders_by_name), len(Variation), sharex='all', sharey='all', squeeze=False)
 
         log_artifact_to_non_artifact_ratios = torch.from_numpy(np.log(dataset.artifact_to_non_artifact_ratios()))
         for loader_idx, (loader_name, loader) in enumerate(loaders_by_name.items()):
@@ -374,6 +371,7 @@ class ArtifactModel(nn.Module):
             acc_vs_cnt = {var_type: defaultdict(lambda: [utils.StreamingAverage() for _ in range(max_count + 1)]) for var_type in Variation}
 
             roc_data = {var_type: [] for var_type in Variation}     # variant type -> (predicted logit, actual label)
+            roc_data_by_cnt = {var_type: [[]]*(max_count + 1) for var_type in Variation}  # variant type, count -> (predicted logit, actual label)
 
             pbar = tqdm(enumerate(filter(lambda bat: bat.is_labeled(), loader)), mininterval=10)
             for n, batch in pbar:
@@ -389,6 +387,7 @@ class ArtifactModel(nn.Module):
                     truncated_count = min(max_count, batch.alt_count)
                     acc_vs_cnt[variant_type][Call.SOMATIC if label < 0.5 else Call.ARTIFACT][truncated_count].record(correct_call)
                     roc_data[variant_type].append((predicted_logit, label))
+                    roc_data_by_cnt[variant_type][min(max_count, batch.alt_count)].append((predicted_logit, label))
                     acc_vs_logit[variant_type][logit_to_bin(predicted_logit)].record(correct_call)
 
             # done collecting data for this particular loader, now fill in subplots for this loader's row
@@ -407,6 +406,9 @@ class ArtifactModel(nn.Module):
                 plotting.simple_plot_on_axis(acc_vs_cnt_axes[loader_idx, var_type], acc_vs_cnt_x_y_lab_tuples, None, None)
                 plotting.plot_accuracy_vs_accuracy_roc_on_axis(roc_data[var_type], roc_axes[loader_idx, var_type])
 
+                for alt_count in (2, 3, 4, 5, 7, 10, 15):
+                    plotting.plot_accuracy_vs_accuracy_roc_on_axis(roc_data_by_cnt[var_type][alt_count], roc_by_cnt_axes[loader_idx, var_type], curve_label=str(alt_count))
+
                 # now the plot versus output logit
                 plotting.simple_plot_on_axis(cal_axes[loader_idx, var_type], acc_vs_logit_x_y_lab_tuple, None, None)
 
@@ -419,7 +421,10 @@ class ArtifactModel(nn.Module):
         handles, labels = roc_axes[-1][-1].get_legend_handles_labels()
         roc_fig.legend(handles, labels, loc='upper center')
 
-        for ax in chain(acc_vs_cnt_fig.get_axes(), roc_fig.get_axes(), cal_fig.get_axes()):
+        handles, labels = roc_by_cnt_axes[-1][-1].get_legend_handles_labels()
+        roc_by_cnt_fig.legend(handles, labels, loc='upper center')
+
+        for ax in chain(acc_vs_cnt_fig.get_axes(), roc_fig.get_axes(), cal_fig.get_axes(), roc_by_cnt_fig.get_axes()):
             ax.label_outer()    # y tick labels only shown in leftmost column, x tick labels only shown on bottom row
             ax.legend().set_visible(False)  # hide the redundant identical subplot legends
 
@@ -428,7 +433,7 @@ class ArtifactModel(nn.Module):
             ax.set_ylabel(None)
             ax.set_title(None)
 
-        for axes in acc_vs_cnt_axes, roc_axes, cal_axes:
+        for axes in acc_vs_cnt_axes, roc_axes, cal_axes, roc_by_cnt_axes:
             # make variant type column heading by setting titles on the top row of subplots
             for col_idx, var_type in enumerate(Variation):
                 axes[0][col_idx].set_title(var_type.name)
@@ -446,10 +451,15 @@ class ArtifactModel(nn.Module):
         roc_fig.supxlabel("Non-artifact Accuracy")
         roc_fig.supylabel("Artifact Accuracy")
 
+        roc_by_cnt_fig.supxlabel("Non-artifact Accuracy")
+        roc_by_cnt_fig.supylabel("Artifact Accuracy")
+
         acc_vs_cnt_fig.tight_layout()
         roc_fig.tight_layout()
+        roc_by_cnt_fig.tight_layout()
         cal_fig.tight_layout()
 
         summary_writer.add_figure("{} accuracy by alt count".format(prefix), acc_vs_cnt_fig)
         summary_writer.add_figure(prefix + " accuracy by logit output", cal_fig)
         summary_writer.add_figure(prefix + " variant accuracy vs artifact accuracy curve", roc_fig)
+        summary_writer.add_figure(prefix + " variant accuracy vs artifact accuracy curves by alt count", roc_fig)
