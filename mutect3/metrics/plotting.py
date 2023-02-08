@@ -122,36 +122,40 @@ def plot_roc_curve(model, loader, normal_artifact=False):
 
 
 # labels are 0 for non-artifact, 1 for artifact
-def plot_accuracy_vs_accuracy_roc_on_axis(predictions_and_labels, axis, curve_label=None):
-    # sort from least to greatest artifact logit
-    predictions_and_labels.sort(key=lambda prediction_and_label: prediction_and_label[0])
-    thresholds = []
-    non_artifact_accuracy = []
-    artifact_accuracy = []
+# predictions_and_labels has form [[(pred, label), (pred, label). . . for roc 1], [likewise for roc 2] etc]
+def plot_accuracy_vs_accuracy_roc_on_axis(lists_of_predictions_and_labels, curve_labels, axis):
+    x_y_lab_tuples = []
+    for predictions_and_labels, curve_label in zip(lists_of_predictions_and_labels, curve_labels):
+        # sort from least to greatest artifact logit
+        predictions_and_labels.sort(key=lambda prediction_and_label: prediction_and_label[0])
+        thresholds = []
+        non_artifact_accuracy = []
+        artifact_accuracy = []
 
-    num_calls = len(predictions_and_labels)
-    total_artifact = sum([label for _, label in predictions_and_labels]) + 0.0001
-    total_non_artifact = num_calls - total_artifact + 0.0002
+        num_calls = len(predictions_and_labels)
+        total_artifact = sum([label for _, label in predictions_and_labels]) + 0.0001
+        total_non_artifact = num_calls - total_artifact + 0.0002
 
-    # start at threshold = -infinity; that is, everything is called an artifact, and pick up one variant at a time
-    correct_artifact_calls, correct_non_artifact_calls = total_artifact, 0
+        # start at threshold = -infinity; that is, everything is called an artifact, and pick up one variant at a time
+        correct_artifact_calls, correct_non_artifact_calls = total_artifact, 0
 
-    next_threshold = -10
+        next_threshold = -10
 
-    for pred_logit, label in predictions_and_labels:
-        correct_artifact_calls -= label     # if labeled as artifact, one artifact has slipped below threshold
-        correct_non_artifact_calls += (1 - label)   # if labeled as non-artifact, one non-artifact has been gained
+        for pred_logit, label in predictions_and_labels:
+            correct_artifact_calls -= label     # if labeled as artifact, one artifact has slipped below threshold
+            correct_non_artifact_calls += (1 - label)   # if labeled as non-artifact, one non-artifact has been gained
 
-        if pred_logit > next_threshold:
-            thresholds.append(next_threshold)
-            artifact_accuracy.append(correct_artifact_calls / total_artifact)
-            non_artifact_accuracy.append(correct_non_artifact_calls / total_non_artifact)
+            if pred_logit > next_threshold:
+                thresholds.append(next_threshold)
+                artifact_accuracy.append(correct_artifact_calls / total_artifact)
+                non_artifact_accuracy.append(correct_non_artifact_calls / total_non_artifact)
 
-            next_threshold = math.ceil(pred_logit)
+                next_threshold = math.ceil(pred_logit)
 
-    x_y_lab = [(artifact_accuracy, non_artifact_accuracy, curve_label)]
+        x_y_lab_tuples.append((artifact_accuracy, non_artifact_accuracy, curve_label))
 
-    simple_plot_on_axis(axis, x_y_lab, "artifact accuracy", "non-artifact accuracy")
-    for threshold, art_acc, non_art_acc in zip(thresholds, artifact_accuracy, non_artifact_accuracy):
-        axis.plot(art_acc, non_art_acc, 'ro' if threshold == 0 else 'go', markersize=12)   # point
+        for threshold, art_acc, non_art_acc in zip(thresholds, artifact_accuracy, non_artifact_accuracy):
+            axis.plot(art_acc, non_art_acc, 'ro' if threshold == 0 else 'go', markersize=2)   # point
+
+    simple_plot_on_axis(axis, x_y_lab_tuples, "artifact accuracy", "non-artifact accuracy")
 

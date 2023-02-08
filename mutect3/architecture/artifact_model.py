@@ -404,10 +404,11 @@ class ArtifactModel(nn.Module):
                                               None)]
 
                 plotting.simple_plot_on_axis(acc_vs_cnt_axes[loader_idx, var_type], acc_vs_cnt_x_y_lab_tuples, None, None)
-                plotting.plot_accuracy_vs_accuracy_roc_on_axis(roc_data[var_type], roc_axes[loader_idx, var_type])
+                plotting.plot_accuracy_vs_accuracy_roc_on_axis([roc_data[var_type]], [None], roc_axes[loader_idx, var_type])
 
-                for alt_count in (2, 3, 4, 5, 7, 10, 15):
-                    plotting.plot_accuracy_vs_accuracy_roc_on_axis(roc_data_by_cnt[var_type][alt_count], roc_by_cnt_axes[loader_idx, var_type], curve_label=str(alt_count))
+                roc_alt_counts = [2, 3, 4, 5, 7, 10, 15]
+                plotting.plot_accuracy_vs_accuracy_roc_on_axis([roc_data_by_cnt[var_type][alt_count] for alt_count in roc_alt_counts],
+                                                               [str(alt_count) for alt_count in roc_alt_counts], roc_by_cnt_axes[loader_idx, var_type])
 
                 # now the plot versus output logit
                 plotting.simple_plot_on_axis(cal_axes[loader_idx, var_type], acc_vs_logit_x_y_lab_tuple, None, None)
