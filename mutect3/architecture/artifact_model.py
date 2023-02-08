@@ -387,7 +387,7 @@ class ArtifactModel(nn.Module):
                     truncated_count = min(max_count, batch.alt_count)
                     acc_vs_cnt[variant_type][Call.SOMATIC if label < 0.5 else Call.ARTIFACT][truncated_count].record(correct_call)
                     roc_data[variant_type].append((predicted_logit, label))
-                    roc_data_by_cnt[variant_type][min(max_count, batch.alt_count)].append((predicted_logit, label))
+                    roc_data_by_cnt[variant_type][truncated_count].append((predicted_logit, label))
                     acc_vs_logit[variant_type][logit_to_bin(predicted_logit)].record(correct_call)
 
             # done collecting data for this particular loader, now fill in subplots for this loader's row
@@ -463,4 +463,4 @@ class ArtifactModel(nn.Module):
         summary_writer.add_figure("{} accuracy by alt count".format(prefix), acc_vs_cnt_fig)
         summary_writer.add_figure(prefix + " accuracy by logit output", cal_fig)
         summary_writer.add_figure(prefix + " variant accuracy vs artifact accuracy curve", roc_fig)
-        summary_writer.add_figure(prefix + " variant accuracy vs artifact accuracy curves by alt count", roc_fig)
+        summary_writer.add_figure(prefix + " variant accuracy vs artifact accuracy curves by alt count", roc_by_cnt_fig)
