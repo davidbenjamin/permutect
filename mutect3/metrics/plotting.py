@@ -125,6 +125,7 @@ def plot_roc_curve(model, loader, normal_artifact=False):
 # predictions_and_labels has form [[(pred, label), (pred, label). . . for roc 1], [likewise for roc 2] etc]
 def plot_accuracy_vs_accuracy_roc_on_axis(lists_of_predictions_and_labels, curve_labels, axis):
     x_y_lab_tuples = []
+    dots = []
     for predictions_and_labels, curve_label in zip(lists_of_predictions_and_labels, curve_labels):
         # sort from least to greatest artifact logit
         predictions_and_labels.sort(key=lambda prediction_and_label: prediction_and_label[0])
@@ -155,7 +156,9 @@ def plot_accuracy_vs_accuracy_roc_on_axis(lists_of_predictions_and_labels, curve
         x_y_lab_tuples.append((artifact_accuracy, non_artifact_accuracy, curve_label))
 
         for threshold, art_acc, non_art_acc in zip(thresholds, artifact_accuracy, non_artifact_accuracy):
-            axis.plot(art_acc, non_art_acc, 'ro' if threshold == 0 else 'go', markersize=2)   # point
+            dots.append((art_acc, non_art_acc, 'ro' if threshold == 0 else 'go'))
 
     simple_plot_on_axis(axis, x_y_lab_tuples, "artifact accuracy", "non-artifact accuracy")
+    for x, y, spec in dots:
+        axis.plot(x, y, spec, markersize=2)  # point
 
