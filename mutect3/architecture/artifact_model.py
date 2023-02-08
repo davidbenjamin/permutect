@@ -371,7 +371,7 @@ class ArtifactModel(nn.Module):
             acc_vs_cnt = {var_type: defaultdict(lambda: [utils.StreamingAverage() for _ in range(max_count + 1)]) for var_type in Variation}
 
             roc_data = {var_type: [] for var_type in Variation}     # variant type -> (predicted logit, actual label)
-            roc_data_by_cnt = {var_type: ([] for _ in range(max_count + 1)) for var_type in Variation}  # variant type, count -> (predicted logit, actual label)
+            roc_data_by_cnt = {var_type: [[] for _ in range(max_count + 1)] for var_type in Variation}  # variant type, count -> (predicted logit, actual label)
 
             pbar = tqdm(enumerate(filter(lambda bat: bat.is_labeled(), loader)), mininterval=10)
             for n, batch in pbar:
