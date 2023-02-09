@@ -1,5 +1,6 @@
 import torch
-from mutect3.data import read_set, read_set_batch, read_set_dataset
+
+import mutect3.data.read_set
 from mutect3.data.read_set import ReadSet
 
 
@@ -27,9 +28,9 @@ def test_read_set_batch():
 
     data = [ReadSet.from_gatk(ref_sequence_strings[n], variant_types[n], ref_tensors[n], alt_tensors[n], gatk_info_tensors[n], labels[n]) for n in range(size)]
 
-    batch = read_set_batch.ReadSetBatch(data)
+    batch = mutect3.data.read_set.ReadSetBatch(data)
 
-    assert torch.equal(batch.ref_sequences(),
+    assert torch.equal(batch.ref_sequences,
                        torch.Tensor([
                            [[1,0,0],[0,1,1],[0,0,0],[0,0,0]],
                            [[0,0,0],[0,0,0],[1,0,1],[0,1,0]],
@@ -39,10 +40,10 @@ def test_read_set_batch():
     assert batch.is_labeled()
     assert batch.size() == 3
 
-    assert batch.reads().shape[0] == sum(ref_counts) + sum(alt_counts)
-    assert batch.reads().shape[1] == num_read_features
+    assert batch.reads.shape[0] == sum(ref_counts) + sum(alt_counts)
+    assert batch.reads.shape[1] == num_read_features
 
-    assert batch.info().shape[0] == 3
+    assert batch.info.shape[0] == 3
 
-    assert batch.labels().tolist() == [1.0, 0.0, 1.0]
+    assert batch.labels.tolist() == [1.0, 0.0, 1.0]
 

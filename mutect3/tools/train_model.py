@@ -4,46 +4,41 @@ import torch
 from torch.utils.tensorboard import SummaryWriter
 
 from mutect3.architecture.artifact_model import ArtifactModelParameters, ArtifactModel
-from mutect3 import utils, constants
-from mutect3.data import read_set_dataset
+from mutect3 import constants
+from mutect3.data.read_set_dataset import ReadSetDataset
 
 
 class TrainingParameters:
-    def __init__(self, batch_size, chunk_size, num_epochs, reweighting_range: float, num_workers: int=0):
+    def __init__(self, batch_size, num_epochs, reweighting_range: float, num_workers: int=0):
         self.batch_size = batch_size
         self.num_epochs = num_epochs
         self.reweighting_range = reweighting_range
-        self.chunk_size = chunk_size
         self.num_workers = num_workers
 
 
-def train_artifact_model(m3_params: ArtifactModelParameters, params: TrainingParameters, tensorboard_dir, training_datasets=None, train_valid_meta_tuple=None):
+def train_artifact_model(m3_params: ArtifactModelParameters, params: TrainingParameters, tensorboard_dir, data_tarfile):
     use_gpu = torch.cuda.is_available()
     device = torch.device('cuda' if use_gpu else 'cpu')
 
-    if training_datasets is not None:
-        big_dataset = read_set_dataset.BigReadSetDataset(batch_size=params.batch_size, max_bytes_per_chunk=params.chunk_size, dataset_files=training_datasets, num_workers=params.num_workers)
-    else:
-        big_dataset = read_set_dataset.BigReadSetDataset(batch_size=params.batch_size, max_bytes_per_chunk=params.chunk_size, train_valid_meta_tuple=train_valid_meta_tuple, num_workers=params.num_workers)
+    dataset = ReadSetDataset(data_tarfile=data_tarfile, validation_fraction=0.1)
 
-    model = ArtifactModel(params=m3_params, num_read_features=big_dataset.num_read_features,
-                          num_info_features=big_dataset.num_info_features, ref_sequence_length=big_dataset.ref_sequence_length, device=device).float()
+    model = ArtifactModel(params=m3_params, num_read_features=dataset.num_read_features,
+                          num_info_features=dataset.num_info_features, ref_sequence_length=dataset.ref_sequence_length, device=device).float()
 
     print("Training. . .")
     summary_writer = SummaryWriter(tensorboard_dir)
-    model.train_model(big_dataset, params.num_epochs, summary_writer=summary_writer, reweighting_range=params.reweighting_range, m3_params=m3_params)
+    model.train_model(dataset, params.num_epochs, params.batch_size, params.num_workers, summary_writer=summary_writer, reweighting_range=params.reweighting_range, m3_params=m3_params)
 
     print("Calibrating. . .")
-    model.learn_calibration(big_dataset.generate_batches(utils.Epoch.VALID), num_epochs=50)
+    temp_fig_before, temp_curve_before = model.calibration.plot_temperature("Count-Dependent Calibration Before")
+    model.learn_calibration(dataset, num_epochs=50, batch_size=params.batch_size, num_workers=params.num_workers)
+    temp_fig_after, temp_curve_after = model.calibration.plot_temperature("Count-Dependent Calibration After")
+    summary_writer.add_figure("calibration before", temp_fig_before)
+    summary_writer.add_figure("calibration after", temp_fig_after)
 
     print("Evaluating trained model. . .")
-    model.evaluate_model_after_training({"training": big_dataset.generate_batches(utils.Epoch.TRAIN), "validation": big_dataset.generate_batches(utils.Epoch.VALID)}, summary_writer)
-    # model.evaluate_model_after_training(valid_loader, summary_writer, "validation data for (1,25) and (50,50): ",
-    #                                    artifact_beta_shape=torch.Tensor((1, 25)), variant_beta_shape=torch.Tensor((50, 50)))
-    # model.evaluate_model_after_training(valid_loader, summary_writer, "validation data for (1,25) and (25,25): ",
-    #                                    artifact_beta_shape=torch.Tensor((1, 25)), variant_beta_shape=torch.Tensor((25, 25)))
-    # model.evaluate_model_after_training(valid_loader, summary_writer, "validation data for (1,50) and (50,50): ",
-    #                                    artifact_beta_shape=torch.Tensor((1, 50)), variant_beta_shape=torch.Tensor((50, 50)))
+    model.evaluate_model_after_training(dataset, params.batch_size, params.num_workers, summary_writer)
+
     summary_writer.close()
 
     return model
@@ -62,10 +57,9 @@ def save_artifact_model(model, m3_params, path):
 def parse_training_params(args) -> TrainingParameters:
     reweighting_range = getattr(args, constants.REWEIGHTING_RANGE_NAME)
     batch_size = getattr(args, constants.BATCH_SIZE_NAME)
-    chunk_size = getattr(args, constants.CHUNK_SIZE_NAME)
     num_epochs = getattr(args, constants.NUM_EPOCHS_NAME)
     num_workers = getattr(args, constants.NUM_WORKERS_NAME)
-    return TrainingParameters(batch_size, chunk_size, num_epochs, reweighting_range, num_workers=num_workers)
+    return TrainingParameters(batch_size, num_epochs, reweighting_range, num_workers=num_workers)
 
 
 def parse_mutect3_params(args) -> ArtifactModelParameters:
@@ -93,14 +87,11 @@ def parse_arguments():
 
     # Training data inputs
     parser.add_argument('--' + constants.TRAIN_TAR_NAME, type=str, required=True)
-    parser.add_argument('--' + constants.VALID_TAR_NAME, type=str, required=True)
-    parser.add_argument('--' + constants.METADATA_NAME, type=str, required=True)
 
     # training hyperparameters
     parser.add_argument('--' + constants.REWEIGHTING_RANGE_NAME, type=float, default=0.3, required=False)
     parser.add_argument('--' + constants.BATCH_SIZE_NAME, type=int, default=64, required=False)
     parser.add_argument('--' + constants.NUM_WORKERS_NAME, type=int, default=0, required=False)
-    parser.add_argument('--' + constants.CHUNK_SIZE_NAME, type=int, default=1000000, required=False)
     parser.add_argument('--' + constants.NUM_EPOCHS_NAME, type=int, required=True)
 
     # path to saved model
@@ -110,15 +101,19 @@ def parse_arguments():
     return parser.parse_args()
 
 
-def main():
-    args = parse_arguments()
+def main_without_parsing(args):
     m3_params = parse_mutect3_params(args)
     training_params = parse_training_params(args)
 
-    train_valid_meta_tuple = (getattr(args, constants.TRAIN_TAR_NAME), getattr(args, constants.VALID_TAR_NAME), getattr(args, constants.METADATA_NAME))
-    model = train_artifact_model(m3_params=m3_params, train_valid_meta_tuple=train_valid_meta_tuple,
+    tarfile_data = getattr(args, constants.TRAIN_TAR_NAME)
+    model = train_artifact_model(m3_params=m3_params, data_tarfile=tarfile_data,
                                  params=training_params, tensorboard_dir=getattr(args, constants.TENSORBOARD_DIR_NAME))
     save_artifact_model(model, m3_params, getattr(args, constants.OUTPUT_NAME))
+
+
+def main():
+    args = parse_arguments()
+    main_without_parsing(args)
 
 
 if __name__ == '__main__':

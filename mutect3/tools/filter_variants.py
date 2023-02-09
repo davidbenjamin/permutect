@@ -12,15 +12,15 @@ from tqdm.autonotebook import tqdm
 
 from mutect3.architecture.artifact_model import ArtifactModel
 from mutect3.architecture.posterior_model import PosteriorModel
-from mutect3.data import read_set_dataset
-from mutect3 import constants
-from mutect3.data.posterior_dataset import PosteriorDataset
-from mutect3.data.posterior_datum import PosteriorDatum
-from mutect3.utils import Call
+from mutect3.data import read_set_dataset, plain_text_data
+from mutect3 import constants, utils
+from mutect3.data.posterior import PosteriorDatum, PosteriorDataset
+from mutect3.utils import Call, encode, encode_datum, encode_variant
 
 TRUSTED_M2_FILTERS = {'contamination'}
 
 POST_PROB_INFO_KEY = 'POST'
+ARTIFACT_LOD_INFO_KEY = 'ARTLOD'
 FILTER_NAMES = [call_type.name.lower() for call_type in Call]
 
 CHUNK_SIZE = 100000
@@ -36,22 +36,6 @@ def load_artifact_model(path) -> ArtifactModel:
     model = ArtifactModel(m3_params, num_read_features=num_read_features, num_info_features=num_info_features, ref_sequence_length=ref_sequence_length)
     model.load_state_dict(saved[constants.STATE_DICT_NAME])
     return model
-
-
-def encode(contig: str, position: int, alt: str):
-    # TODO: restore the alt eventually once we handle multiallelics intelligently eg by splitting
-    # return contig + ':' + str(position) + ':' + alt
-    return contig + ':' + str(position)
-
-
-def encode_datum(datum: PosteriorDatum):
-    return encode(datum.contig(), datum.position(), datum.alt())
-
-
-def encode_variant(v: cyvcf2.Variant, zero_based=False):
-    alt = v.ALT[0]  # TODO: we're assuming biallelic
-    start = (v.start + 1) if zero_based else v.start
-    return encode(v.CHROM, start, alt)
 
 
 def get_first_numeric_element(variant, key):
@@ -100,9 +84,7 @@ def get_segmentation(segments_file) -> defaultdict:
     return result
 
 
-def main():
-    args = parse_arguments()
-
+def main_without_parsing(args):
     make_filtered_vcf(saved_artifact_model=getattr(args, constants.M3_MODEL_NAME),
                       initial_log_variant_prior=getattr(args, constants.INITIAL_LOG_VARIANT_PRIOR_NAME),
                       initial_log_artifact_prior=getattr(args, constants.INITIAL_LOG_ARTIFACT_PRIOR_NAME),
@@ -150,50 +132,35 @@ def make_posterior_data_loader(dataset_file, input_vcf, artifact_model: Artifact
     print("recording M2 filters and allele frequencies from input VCF")
     for v in cyvcf2.VCF(input_vcf):
         encoding = encode_variant(v, zero_based=True)
-
         if filters_to_keep_from_m2(v):
             m2_filtering_to_keep.add(encoding)
-
         allele_frequencies[encoding] = 10 ** (-get_first_numeric_element(v, "POPAF"))
 
-    # TODO chunk size should be command line argument
-    num_data = read_set_dataset.count_data(dataset_file)
-    num_chunks = math.ceil(num_data / chunk_size)
+    # pass through the plain text dataset, normalizing and creating ReadSetDatasets as we go, running the artifact model
+    # to get artifact logits, which we record in a dict keyed by variant strings.  These will later be added to PosteriorDatum objects.
+    print("reading dataset and calculating artifact logits")
+    variant_to_logit = {}
+    for list_of_read_sets in plain_text_data.generate_normalized_data([dataset_file], chunk_size, include_variant_string=True):
+        artifact_dataset = read_set_dataset.ReadSetDataset(data_in_ram=list_of_read_sets, validation_fraction=0.0)
+        artifact_loader = read_set_dataset.make_data_loader(artifact_dataset, utils.Epoch.TRAIN, batch_size, pin_memory=False, num_workers=0)
 
-    print("preparing dataset to pass to Mutect3 posterior probability model")
-    read_sets_buffer = []
-    posterior_buffer = []
+        for artifact_batch in artifact_loader:
+            artifact_logits = artifact_model.forward(batch=artifact_batch).detach().tolist()
+            variant_strings = artifact_batch.variant_strings    # format is eg chr1:1000,A->C
+            for var_string, logit in zip(variant_strings, artifact_logits):
+                variant_to_logit[var_string] = logit
+
+    # pass through the plain text dataset again, this time reading PosteriorDatum objects, looking up the previously-computed
+    # allele frequencies and artifact logits.
     posterior_data = []
+    for posterior_datum in plain_text_data.read_data(dataset_file, posterior=True):
 
-    data_count = 0
-    chunk_count = 0
-    for read_set, posterior_datum in read_set_dataset.read_data(dataset_file, posterior=True, yield_nones=True):
-        data_count += 1
+        encoding = encode_datum(posterior_datum)
+        if encoding in allele_frequencies and encoding not in m2_filtering_to_keep:
+            posterior_datum.set_allele_frequency(allele_frequencies[encoding])
+            posterior_datum.set_artifact_logit(variant_to_logit[encoding])
+            posterior_data.append(posterior_datum)
 
-        if read_set is not None:
-            encoding = encode_datum(posterior_datum)
-            if encoding not in m2_filtering_to_keep:
-                posterior_datum.set_allele_frequency(allele_frequencies[encoding])
-                posterior_buffer.append(posterior_datum)
-                read_sets_buffer.append(read_set)
-
-        if data_count == math.ceil(num_data * (chunk_count + 1) / num_chunks):
-            print("memory usage percent: " + str(psutil.virtual_memory().percent))
-            print(posterior_buffer[-1].contig() + ":" + str(posterior_buffer[-1].position()))
-
-            artifact_dataset = read_set_dataset.ReadSetDataset(data=read_sets_buffer, shuffle=False)
-            logits = []
-            for artifact_batch in read_set_dataset.make_test_data_loader(artifact_dataset, batch_size):
-                logits.extend(artifact_model.forward(batch=artifact_batch).detach().tolist())
-            for logit, posterior in zip(logits, posterior_buffer):
-                posterior.set_artifact_logit(logit)
-            posterior_data.extend(posterior_buffer)
-
-            chunk_count += 1
-            read_sets_buffer = []
-            posterior_buffer = []
-
-    assert data_count == num_data and chunk_count == num_chunks and len(read_sets_buffer) == 0  # should be nothing left over
     print("Size of filtering dataset: " + str(len(posterior_data)))
     posterior_dataset = PosteriorDataset(posterior_data)
     return posterior_dataset.make_data_loader(batch_size)
@@ -203,19 +170,26 @@ def apply_filtering_to_vcf(input_vcf, output_vcf, error_probability_threshold, p
     print("Computing final error probabilities")
     passing_call_type = Call.GERMLINE if germline_mode else Call.SOMATIC
     encoding_to_post_prob_dict = {}
+    encoding_to_artifact_logit = {}
     pbar = tqdm(enumerate(posterior_loader), mininterval=10)
     for n, batch in pbar:
         posterior_probs = posterior_model.posterior_probabilities(batch)
 
         encodings = [encode_datum(datum) for datum in batch.original_list()]
-        for encoding, post_probs in zip(encodings, posterior_probs):
+        artifact_logits = [datum.artifact_logit for datum in batch.original_list()]
+
+        for encoding, post_probs, logit in zip(encodings, posterior_probs, artifact_logits):
             encoding_to_post_prob_dict[encoding] = post_probs.tolist()
+            encoding_to_artifact_logit[encoding] = logit
+
     print("Applying threshold")
     unfiltered_vcf = cyvcf2.VCF(input_vcf)
 
     all_types = [call_type.name for call_type in Call]
     unfiltered_vcf.add_info_to_header({'ID': POST_PROB_INFO_KEY, 'Description': 'Mutect3 posterior probability of {' + ', '.join(all_types) + '}',
                                        'Type': 'Float', 'Number': 'A'})
+    unfiltered_vcf.add_info_to_header({'ID': ARTIFACT_LOD_INFO_KEY, 'Description': 'Mutect3 artifact log odds',
+         'Type': 'Float', 'Number': 'A'})
 
     for n, filter_name in enumerate(FILTER_NAMES):
         if n != passing_call_type:
@@ -231,6 +205,7 @@ def apply_filtering_to_vcf(input_vcf, output_vcf, error_probability_threshold, p
         if encoding in encoding_to_post_prob_dict:
             post_probs = encoding_to_post_prob_dict[encoding]
             v.INFO[POST_PROB_INFO_KEY] = ','.join(map(lambda prob: "{:.4f}".format(prob), post_probs))
+            v.INFO[ARTIFACT_LOD_INFO_KEY] = str(encoding_to_artifact_logit[encoding])
 
             error_prob = 1 - post_probs[passing_call_type]
             if error_prob > error_probability_threshold:
@@ -244,6 +219,11 @@ def apply_filtering_to_vcf(input_vcf, output_vcf, error_probability_threshold, p
     print("closing resources")
     writer.close()
     unfiltered_vcf.close()
+
+
+def main():
+    args = parse_arguments()
+    main_without_parsing(args)
 
 
 if __name__ == '__main__':

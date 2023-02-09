@@ -94,7 +94,7 @@ def get_validation_stats(model, loader, thresholds=[0.0]):
 
     model.train(False)
     for batch in loader:
-        labels = batch.labels()
+        labels = batch.labels
         filters = [m2.filters() for m2 in batch.mutect_info()]
         alt_count = batch.alt_count
         predictions = model(batch, posterior=True)

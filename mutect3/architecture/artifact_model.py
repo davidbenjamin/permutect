@@ -3,7 +3,7 @@ import warnings
 from collections import defaultdict
 
 import torch
-import time
+import numpy as np
 from torch.utils.tensorboard import SummaryWriter
 
 from torch import nn
@@ -13,9 +13,8 @@ from matplotlib import pyplot as plt
 
 from mutect3.architecture.mlp import MLP
 from mutect3.architecture.dna_sequence_convolution import DNASequenceConvolution
-from mutect3.data.read_set_batch import ReadSetBatch
-from mutect3.data import read_set
-from mutect3.data import read_set_dataset
+from mutect3.data.read_set import ReadSetBatch
+from mutect3.data.read_set_dataset import ReadSetDataset, make_data_loader
 from mutect3 import utils
 from mutect3.utils import Call, Variation
 from mutect3.metrics import plotting
@@ -52,7 +51,7 @@ class Calibration(nn.Module):
         super(Calibration, self).__init__()
 
         # take the transformed alt and ref counts (i.e. two input "features") and output
-        self.mlp = MLP([2, 5, 5, 1])
+        self.mlp = MLP([2, 5, 5, 5, 1])
 
         # we apply as asymptotic threshold function logit --> M * tanh(logit/M) where M is the maximum absolute
         # value of the thresholded output.  For logits << M this is the identity, and approaching M the asymptote
@@ -60,15 +59,34 @@ class Calibration(nn.Module):
         # We initialize it to something large.
         self.max_logit = nn.Parameter(torch.tensor(10.0))
 
-    def forward(self, logits, ref_counts: torch.Tensor, alt_counts: torch.Tensor):
+        # likewise, we cap the effective alt and ref counts to avoid arbitrarily large confidence
+        self.max_alt = nn.Parameter(torch.tensor(20.0))
+        self.max_ref = nn.Parameter(torch.tensor(20.0))
+
+    def temperature(self, ref_counts: torch.Tensor, alt_counts: torch.Tensor):
+        effective_ref = self.max_ref * torch.tanh(ref_counts / self.max_ref)
+        effective_alt = self.max_alt * torch.tanh(alt_counts / self.max_alt)
+
         # based on stats 101 it's reasonable to guess that confidence depends on the sqrt of the evidence count
         # thus we apply a sqrt nonlinearity before the MLP in order to hopefully reduce the number of parameters needed.
-        sqrt_counts = torch.column_stack((torch.sqrt(alt_counts), torch.sqrt(ref_counts)))
+        sqrt_counts = torch.column_stack((torch.sqrt(effective_alt), torch.sqrt(effective_ref)))
 
         # temperature scaling means multiplying logits -- in this case the temperature depends on alt and ref counts
-        temperatures = torch.squeeze(self.mlp.forward(sqrt_counts))
-        calibrated_logits = logits * temperatures
+        return torch.exp(torch.squeeze(self.mlp.forward(sqrt_counts)))
+
+    def forward(self, logits, ref_counts: torch.Tensor, alt_counts: torch.Tensor):
+        calibrated_logits = logits * self.temperature(ref_counts, alt_counts)
         return self.max_logit * torch.tanh(calibrated_logits / self.max_logit)
+
+    def plot_temperature(self, title):
+        x_y_lab_tuples = []
+        alt_counts = torch.range(1, 100)
+        for ref_count in [1, 5, 10, 25, 50, 100]:
+            ref_counts = ref_count * torch.ones_like(alt_counts)
+            temps = self.temperature(ref_counts, alt_counts).detach()
+            x_y_lab_tuples.append((alt_counts.numpy(), temps.numpy(), str(ref_count) + " ref reads"))
+
+        return plotting.simple_plot(x_y_lab_tuples, "alt count", "temperature", title)
 
 
 class ArtifactModel(nn.Module):
@@ -134,7 +152,7 @@ class ArtifactModel(nn.Module):
         return self._ref_sequence_length
 
     def training_parameters(self):
-        return chain(self.phi.parameters(), self.omega.parameters(), self.rho.parameters(), [self.calibration.max_logit])
+        return chain(self.phi.parameters(), self.omega.parameters(), self.rho.parameters(), self.calibration.parameters())
 
     def calibration_parameters(self):
         return self.calibration.parameters()
@@ -161,9 +179,9 @@ class ArtifactModel(nn.Module):
     # number of reads in the whole batch.  Thus, we have to be careful to downsample within each datum.
     def apply_phi_to_reads(self, batch: ReadSetBatch):
         # note that we put the reads on GPU, apply read embedding phi, then put the result back on CPU
-        return torch.sigmoid(self.phi(batch.reads().to(self._device)))
+        return torch.sigmoid(self.phi(batch.reads.to(self._device)))
 
-    def forward_from_phi_reads_to_calibration(self, phi_reads: torch.Tensor, batch: ReadSetBatch, weight_range: float=0):
+    def forward_from_phi_reads_to_calibration(self, phi_reads: torch.Tensor, batch: ReadSetBatch, weight_range: float = 0):
         weights = torch.ones(len(phi_reads), 1, device=self._device) if weight_range == 0 else (1 + weight_range * (1 - 2 * torch.rand(len(phi_reads), 1, device=self._device)))
         weighted_phi_reads = weights * phi_reads
 
@@ -183,87 +201,96 @@ class ArtifactModel(nn.Module):
         effective_alt_counts = torch.square(alt_wt_sums) / alt_wt_sq_sums
 
         # stack side-by-side to get 2D tensor, where each variant row is (ref mean, alt mean, info)
-        omega_info = torch.sigmoid(self.omega(batch.info().to(self._device)))
+        omega_info = torch.sigmoid(self.omega(batch.info.to(self._device)))
 
-        ref_seq_embedding = self.ref_seq_cnn(batch.ref_sequences())
+        ref_seq_embedding = self.ref_seq_cnn(batch.ref_sequences)
         concatenated = torch.cat((ref_means, alt_means, omega_info, ref_seq_embedding), dim=1)
         logits = self.rho(concatenated).squeeze(dim=1)  # specify dim so that in edge case of batch size 1 we get 1D tensor, not scalar
         return logits, effective_ref_counts, effective_alt_counts
 
-    # beta is for downsampling data augmentation
     def forward_from_phi_reads(self, phi_reads: torch.Tensor, batch: ReadSetBatch, weight_range: float = 0):
         logits, effective_ref_counts, effective_alt_counts = self.forward_from_phi_reads_to_calibration(phi_reads, batch, weight_range)
         return self.calibration.forward(logits, effective_ref_counts, effective_alt_counts)
 
-    def learn_calibration(self, read_set_batch_generator, num_epochs):
-        """
-        :param read_set_batch_generator: some iterable (like a Dataloader) or generator of read set batches
-        :param num_epochs:  number of calibration epochs
-        """
+    def learn_calibration(self, dataset: ReadSetDataset, num_epochs, batch_size, num_workers):
+
         self.train(False)
         utils.freeze(self.parameters())
         utils.unfreeze(self.calibration_parameters())
 
+        # TODO: code duplication between here and train_model
+        labeled_artifact_to_non_artifact_ratios = dataset.artifact_to_non_artifact_ratios()
+        labeled_artifact_weights_by_type = torch.from_numpy(1 / np.sqrt(labeled_artifact_to_non_artifact_ratios)).to(self._device)
+        labeled_non_artifact_weights_by_type = torch.from_numpy(np.sqrt(labeled_artifact_to_non_artifact_ratios)).to(self._device)
+
         # gather uncalibrated logits -- everything computed by the frozen part of the model -- so that we only
         # do forward and backward passes on the calibration submodule
         print("Computing uncalibrated part of model. . .")
-        uncalibrated_logits_ref_alt_counts_labels = []
-        pbar = tqdm(enumerate(read_set_batch_generator), mininterval=10)
+        uncalibrated_logits_ref_alt_counts_labels_weights = []
+        valid_loader = make_data_loader(dataset, utils.Epoch.VALID, batch_size, self._device.type == 'cuda', num_workers)
+        pbar = tqdm(enumerate(valid_loader), mininterval=10)
         for n, batch in pbar:
             if not batch.is_labeled():
                 continue
             phi_reads = self.apply_phi_to_reads(batch)
             logits, ref_counts, alt_counts = self.forward_from_phi_reads_to_calibration(phi_reads, batch)
-            uncalibrated_logits_ref_alt_counts_labels.append((logits.detach(), ref_counts.detach(), alt_counts.detach(), batch.labels().to(self._device)))
+            labels = batch.labels.to(self._device)
+
+            # TODO: more code duplication between here and train_model
+            types_one_hot = batch.variant_type_one_hot()
+            weights = labels * torch.sum(labeled_artifact_weights_by_type * types_one_hot, dim=1) + \
+                                     (1 - labels) * torch.sum(labeled_non_artifact_weights_by_type * types_one_hot, dim=1)
+
+            uncalibrated_logits_ref_alt_counts_labels_weights.append((logits.detach(), ref_counts.detach(), alt_counts.detach(), labels, weights))
 
         print("Training calibration. . .")
         optimizer = torch.optim.Adam(self.calibration_parameters())
-        bce = nn.BCEWithLogitsLoss()
+        bce = nn.BCEWithLogitsLoss(reduction='none')  # no reduction because we may want to first multiply by weights for unbalanced data
         for epoch in trange(1, num_epochs + 1, desc="Calibration epoch"):
             nll_loss = utils.StreamingAverage(device=self._device)
 
-            pbar = tqdm(enumerate(uncalibrated_logits_ref_alt_counts_labels), mininterval=10)
-            for n, (logits, ref_counts, alt_counts, labels) in pbar:
+            pbar = tqdm(enumerate(uncalibrated_logits_ref_alt_counts_labels_weights), mininterval=10)
+            for n, (logits, ref_counts, alt_counts, labels, weights) in pbar:
                 pred = self.calibration.forward(logits, ref_counts, alt_counts)
 
-                loss = bce(pred, labels)
+                loss = torch.sum(weights * bce(pred, labels))
                 optimizer.zero_grad(set_to_none=True)
                 loss.backward()
                 optimizer.step()
 
                 nll_loss.record_sum(loss.detach(), len(logits))
 
-    def train_model(self, big_read_set_dataset: read_set_dataset.BigReadSetDataset, num_epochs, summary_writer: SummaryWriter, reweighting_range: float, m3_params: ArtifactModelParameters):
+    def train_model(self, dataset: ReadSetDataset, num_epochs, batch_size, num_workers, summary_writer: SummaryWriter, reweighting_range: float, m3_params: ArtifactModelParameters):
         bce = torch.nn.BCEWithLogitsLoss(reduction='none')  # no reduction because we may want to first multiply by weights for unbalanced data
         train_optimizer = torch.optim.AdamW(self.training_parameters(), lr=m3_params.learning_rate)
 
-        artifact_totals = big_read_set_dataset.training_artifact_totals
-        non_artifact_totals = big_read_set_dataset.training_non_artifact_totals
-        total_labeled = torch.sum(artifact_totals + non_artifact_totals).item()
-        total_unlabeled = big_read_set_dataset.num_training_data - total_labeled
+        labeled_artifact_to_non_artifact_ratios = dataset.artifact_to_non_artifact_ratios()
 
-        labeled_artifact_to_non_artifact_ratios = artifact_totals / non_artifact_totals
-        labeled_artifact_weights_by_type = 1 / torch.sqrt(labeled_artifact_to_non_artifact_ratios)
-        labeled_non_artifact_weights_by_type = torch.sqrt(labeled_artifact_to_non_artifact_ratios)
+        labeled_artifact_weights_by_type = torch.from_numpy(1 / np.sqrt(labeled_artifact_to_non_artifact_ratios)).to(self._device)
+        labeled_non_artifact_weights_by_type = torch.from_numpy(np.sqrt(labeled_artifact_to_non_artifact_ratios)).to(self._device)
 
         # balance training by weighting the loss function
         # if total unlabeled is less than total labeled, we do not compensate, since labeled data are more informative
+        total_labeled, total_unlabeled = dataset.total_labeled_and_unlabeled()
         labeled_to_unlabeled_ratio = 1 if total_unlabeled < total_labeled else total_labeled / total_unlabeled
 
         print("Training data contains {} labeled examples and {} unlabeled examples".format(total_labeled, total_unlabeled))
         for variation_type in utils.Variation:
             idx = variation_type.value
             print("For variation type {}, there are {} labeled artifact examples and {} labeled non-artifact examples"
-                  .format(variation_type.name, artifact_totals[idx].item(), non_artifact_totals[idx].item()))
+                  .format(variation_type.name, dataset.artifact_totals[idx].item(), dataset.non_artifact_totals[idx].item()))
+
+        train_loader = make_data_loader(dataset, utils.Epoch.TRAIN, batch_size, self._device.type == 'cuda', num_workers)
+        valid_loader = make_data_loader(dataset, utils.Epoch.VALID, batch_size, self._device.type == 'cuda', num_workers)
 
         for epoch in trange(1, num_epochs + 1, desc="Epoch"):
             for epoch_type in [utils.Epoch.TRAIN, utils.Epoch.VALID]:
                 self.set_epoch_type(epoch_type)
-                generator = big_read_set_dataset.generate_batches(epoch_type)
                 labeled_loss = utils.StreamingAverage(device=self._device)
                 unlabeled_loss = utils.StreamingAverage(device=self._device)
 
-                pbar = tqdm(enumerate(generator), mininterval=10)
+                loader = train_loader if epoch_type == utils.Epoch.TRAIN else valid_loader
+                pbar = tqdm(enumerate(loader), mininterval=10)
                 for n, batch in pbar:
                     phi_reads = self.apply_phi_to_reads(batch)
 
@@ -272,7 +299,7 @@ class ArtifactModel(nn.Module):
                     aug2_pred = self.forward_from_phi_reads(phi_reads, batch, weight_range=reweighting_range)
 
                     if batch.is_labeled():
-                        labels = batch.labels()
+                        labels = batch.labels
                         # labeled loss: cross entropy for original and both augmented copies
 
                         # the variant-dependent weights multiply the (unreduced) bces inside the torch.sum below
@@ -313,66 +340,127 @@ class ArtifactModel(nn.Module):
         # done with training
 
     # generators by name is eg {"train": train_generator, "valid": valid_generator}
-    def evaluate_model_after_training(self, batch_generators_by_name, summary_writer: SummaryWriter, prefix: str = ""):
+    def evaluate_model_after_training(self, dataset, batch_size, num_workers, summary_writer: SummaryWriter, prefix: str = ""):
+        train_loader = make_data_loader(dataset, utils.Epoch.TRAIN, batch_size, self._device.type == 'cuda', num_workers)
+        valid_loader = make_data_loader(dataset, utils.Epoch.VALID, batch_size, self._device.type == 'cuda', num_workers)
+        loaders_by_name = {"training": train_loader, "validation": valid_loader}
         self.freeze_all()
         self.cpu()
         self._device = "cpu"
 
-        # accuracy indexed by logit bin
-        # sensitivity indexed by truth label, then count bin -- 1st key is utils.CallType, 2nd is the count bin
-        logit_bins = [(-999, -4), (-4, -1), (-1, 1), (1, 4), (4, 999)]
-        count_bins = [(1, 2), (3, 4), (5, 7), (8, 10), (11, 20), (21, 1000)]  # inclusive on both sides
-        logit_bin_labels = [("{}-{}".format(l_bin[0], l_bin[1])) for l_bin in logit_bins]
-        count_bin_labels = [(("{}-{}".format(c_bin[0], c_bin[1])) if c_bin[1] < 100 else "{}+".format(c_bin[0])) for c_bin in count_bins]
+        max_count = 20  # counts above this will be truncated
+        max_logit = 6
+
+        # round logit to nearest int, truncate to range, ending up with bins 0. . . 2*max_logit
+        logit_to_bin = lambda logit: min(max(round(logit), -max_logit), max_logit) + max_logit
+        bin_center = lambda bin_idx: bin_idx - max_logit
 
         # grid of figures -- rows are loaders, columns are variant types
-        # each subplot is a bar chart grouped by call type (variant vs artifact)
-        sens_fig, sens_axs = plt.subplots(len(batch_generators_by_name), len(Variation), sharex='all', sharey='all', squeeze=False)
+        # each subplot has two line graphs of accuracy vs alt count, one each for artifact, non-artifact
+        acc_vs_cnt_fig, acc_vs_cnt_axes = plt.subplots(len(loaders_by_name), len(Variation), sharex='all', sharey='all', squeeze=False)
+        roc_fig, roc_axes = plt.subplots(len(loaders_by_name), len(Variation), sharex='all', sharey='all', squeeze=False)
+        cal_fig, cal_axes = plt.subplots(len(loaders_by_name), len(Variation), sharex='all', sharey='all', squeeze=False)
+        roc_by_cnt_fig, roc_by_cnt_axes = plt.subplots(len(loaders_by_name), len(Variation), sharex='all', sharey='all', squeeze=False, figsize=(10, 6), dpi=100)
 
-        # accuracy is indexed by loader only
-        acc_fig, acc_axs = plt.subplots(1, len(batch_generators_by_name), sharex='all', sharey='all', squeeze=False)
+        log_artifact_to_non_artifact_ratios = torch.from_numpy(np.log(dataset.artifact_to_non_artifact_ratios()))
+        for loader_idx, (loader_name, loader) in enumerate(loaders_by_name.items()):
+            # indexed by variant type, then logit bin
+            acc_vs_logit = {var_type: [utils.StreamingAverage() for _ in range(2*max_logit + 1)] for var_type in Variation}
 
-        for loader_idx, (loader_name, loader) in enumerate(batch_generators_by_name.items()):
-            accuracy = defaultdict(utils.StreamingAverage)
             # indexed by variant type, then call type (artifact vs variant), then count bin
-            sensitivity = {var_type: defaultdict(lambda: defaultdict(utils.StreamingAverage)) for var_type in Variation}
+            acc_vs_cnt = {var_type: defaultdict(lambda: [utils.StreamingAverage() for _ in range(max_count + 1)]) for var_type in Variation}
 
-            pbar = tqdm(enumerate(loader), mininterval=10)
+            roc_data = {var_type: [] for var_type in Variation}     # variant type -> (predicted logit, actual label)
+            roc_data_by_cnt = {var_type: [[] for _ in range(max_count + 1)] for var_type in Variation}  # variant type, count -> (predicted logit, actual label)
+
+            pbar = tqdm(enumerate(filter(lambda bat: bat.is_labeled(), loader)), mininterval=10)
             for n, batch in pbar:
-                if not batch.is_labeled():
-                    continue
+                types_one_hot = batch.variant_type_one_hot()
+                log_prior_odds = torch.sum(log_artifact_to_non_artifact_ratios * types_one_hot, dim=1)
 
-                pred = self.forward(batch)
+                # We weight training loss to balance artifact and non-artifact within each variant type.
+                # Here we restore an unbalanced prior to mimic what the posterior model would do
+                pred = self.forward(batch) + log_prior_odds
+                correct = ((pred > 0) == (batch.labels > 0.5)).tolist()
 
-                labels = batch.labels()
-                correct = ((pred > 0) == (batch.labels() > 0.5))
+                for variant_type, predicted_logit, label, correct_call in zip(batch.variant_types(), pred.tolist(), batch.labels.tolist(), correct):
+                    truncated_count = min(max_count, batch.alt_count)
+                    acc_vs_cnt[variant_type][Call.SOMATIC if label < 0.5 else Call.ARTIFACT][truncated_count].record(correct_call)
+                    roc_data[variant_type].append((predicted_logit, label))
+                    roc_data_by_cnt[variant_type][truncated_count].append((predicted_logit, label))
+                    acc_vs_logit[variant_type][logit_to_bin(predicted_logit)].record(correct_call)
 
-                for l_bin in logit_bins:
-                    accuracy[l_bin].record_with_mask(correct, (pred > l_bin[0]) & (pred < l_bin[1]))
-
-                for var_type in Variation:
-                    variant_mask = batch.variant_type_mask(var_type)
-                    for c_bin in count_bins:
-                        count_mask = (c_bin[0] <= batch.alt_count) & (c_bin[1] >= batch.alt_count)
-                        count_and_variant_mask = count_mask & variant_mask
-                        sensitivity[var_type][Call.SOMATIC][c_bin].record_with_mask(correct, (labels < 0.5) & count_and_variant_mask)
-                        sensitivity[var_type][Call.ARTIFACT][c_bin].record_with_mask(correct, (labels > 0.5) & count_and_variant_mask)
             # done collecting data for this particular loader, now fill in subplots for this loader's row
             for var_type in Variation:
-                # data for one particular subplot
-                sens_bar_plot_data = {label.name: [sensitivity[var_type][label][c_bin].get().item() for c_bin in count_bins] for label in sensitivity[var_type].keys()}
-                plotting.grouped_bar_plot_on_axis(sens_axs[loader_idx, var_type], sens_bar_plot_data, count_bin_labels, loader_name)
-                sens_axs[loader_idx, var_type].set_title(var_type.name)
+                # data for one particular subplot (row = train / valid, column = variant type)
 
-            plotting.simple_bar_plot_on_axis(acc_axs[0, loader_idx], [accuracy[l_bin].get() for l_bin in logit_bins], logit_bin_labels, "accuracy")
-            acc_axs[0, loader_idx].set_title(loader_name)
+                non_empty_count_bins = [count for count in range(max_count + 1) if not acc_vs_cnt[var_type][label][count].is_empty()]
+                non_empty_logit_bins = [idx for idx in range(2*max_logit + 1) if not acc_vs_logit[var_type][idx].is_empty()]
+                acc_vs_cnt_x_y_lab_tuples = [(non_empty_count_bins,
+                                   [acc_vs_cnt[var_type][label][count].get() for count in non_empty_count_bins],
+                                   label.name) for label in acc_vs_cnt[var_type].keys()]
+                acc_vs_logit_x_y_lab_tuple = [([bin_center(idx) for idx in non_empty_logit_bins],
+                                              [acc_vs_logit[var_type][idx].get() for idx in non_empty_logit_bins],
+                                              None)]
+
+                plotting.simple_plot_on_axis(acc_vs_cnt_axes[loader_idx, var_type], acc_vs_cnt_x_y_lab_tuples, None, None)
+                plotting.plot_accuracy_vs_accuracy_roc_on_axis([roc_data[var_type]], [None], roc_axes[loader_idx, var_type])
+
+                roc_alt_counts = [2, 3, 4, 5, 7, 10, 15]
+                plotting.plot_accuracy_vs_accuracy_roc_on_axis([roc_data_by_cnt[var_type][alt_count] for alt_count in roc_alt_counts],
+                                                               [str(alt_count) for alt_count in roc_alt_counts], roc_by_cnt_axes[loader_idx, var_type])
+
+                # now the plot versus output logit
+                plotting.simple_plot_on_axis(cal_axes[loader_idx, var_type], acc_vs_logit_x_y_lab_tuple, None, None)
 
         # done collecting stats for all loaders and filling in subplots
-        for ax in sens_fig.get_axes():
-            ax.label_outer()
-        for ax in acc_fig.get_axes():
-            ax.label_outer()
 
-        sens_fig.tight_layout()
-        summary_writer.add_figure("{} sensitivity by alt count".format(prefix), sens_fig)
-        summary_writer.add_figure(prefix + " accuracy by logit output", acc_fig)
+        # replace the redundant identical SOMATIC/ARTIFACT legends on each subplot with a single legend for the figure
+        handles, labels = acc_vs_cnt_axes[-1][-1].get_legend_handles_labels()
+        acc_vs_cnt_fig.legend(handles, labels, loc='upper center')
+
+        handles, labels = roc_axes[-1][-1].get_legend_handles_labels()
+        roc_fig.legend(handles, labels, loc='upper center')
+
+        handles, labels = roc_by_cnt_axes[-1][-1].get_legend_handles_labels()
+        roc_by_cnt_fig.legend(handles, labels, loc='upper center')
+
+        for ax in chain(acc_vs_cnt_fig.get_axes(), roc_fig.get_axes(), cal_fig.get_axes(), roc_by_cnt_fig.get_axes()):
+            ax.label_outer()    # y tick labels only shown in leftmost column, x tick labels only shown on bottom row
+            ax.legend().set_visible(False)  # hide the redundant identical subplot legends
+
+            # remove the subplot labels and title -- these will be given manually to the whole figure and to the outer rows
+            ax.set_xlabel(None)
+            ax.set_ylabel(None)
+            ax.set_title(None)
+
+        for axes in acc_vs_cnt_axes, roc_axes, cal_axes, roc_by_cnt_axes:
+            # make variant type column heading by setting titles on the top row of subplots
+            for col_idx, var_type in enumerate(Variation):
+                axes[0][col_idx].set_title(var_type.name)
+
+            # make epoch/loader type row heading by setting y labels on leftmost column of subplots
+            for row_idx, (loader_name, _) in enumerate(loaders_by_name.items()):
+                axes[row_idx][0].set_ylabel(loader_name)
+
+        acc_vs_cnt_fig.supxlabel("Alt read count")
+        acc_vs_cnt_fig.supylabel("Accuracy")
+
+        cal_fig.supxlabel("Predicted logit")
+        cal_fig.supylabel("Accuracy")
+
+        roc_fig.supxlabel("Non-artifact Accuracy")
+        roc_fig.supylabel("Artifact Accuracy")
+
+        roc_by_cnt_fig.supxlabel("Non-artifact Accuracy")
+        roc_by_cnt_fig.supylabel("Artifact Accuracy")
+
+        acc_vs_cnt_fig.tight_layout()
+        roc_fig.tight_layout()
+        roc_by_cnt_fig.tight_layout()
+        cal_fig.tight_layout()
+
+        summary_writer.add_figure("{} accuracy by alt count".format(prefix), acc_vs_cnt_fig)
+        summary_writer.add_figure(prefix + " accuracy by logit output", cal_fig)
+        summary_writer.add_figure(prefix + " variant accuracy vs artifact accuracy curve", roc_fig)
+        summary_writer.add_figure(prefix + " variant accuracy vs artifact accuracy curves by alt count", roc_by_cnt_fig)

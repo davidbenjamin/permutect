@@ -4,12 +4,9 @@ version 1.0
 workflow TrainMutect3 {
     input {
         File train_tar
-        File valid_tar
-        File metadata
         Int num_epochs
         Int batch_size
         Int? num_workers
-        Int chunk_size
         Float dropout_p
         Float reweighting_range
         Array[Int] read_layers
@@ -28,15 +25,12 @@ workflow TrainMutect3 {
         call TrainMutect3GPU {
             input:
                 train_tar = train_tar,
-                valid_tar = valid_tar,
-                metadata = metadata,
                 mutect3_docker = mutect3_docker,
                 preemptible = preemptible,
                 max_retries = max_retries,
                 num_epochs = num_epochs,
                 batch_size = batch_size,
                 num_workers = num_workers,
-                chunk_size = chunk_size,
                 dropout_p = dropout_p,
                 reweighting_range = reweighting_range,
                 read_layers = read_layers,
@@ -51,15 +45,12 @@ workflow TrainMutect3 {
         call TrainMutect3CPU {
             input:
                 train_tar = train_tar,
-                valid_tar = valid_tar,
-                metadata = metadata,
                 mutect3_docker = mutect3_docker,
                 preemptible = preemptible,
                 max_retries = max_retries,
                 num_epochs = num_epochs,
                 batch_size = batch_size,
                 num_workers = num_workers,
-                chunk_size = chunk_size,
                 dropout_p = dropout_p,
                 reweighting_range = reweighting_range,
                 read_layers = read_layers,
@@ -82,13 +73,10 @@ workflow TrainMutect3 {
 task TrainMutect3GPU {
     input {
         File train_tar
-        File valid_tar
-        File metadata
 
         Int num_epochs
         Int batch_size
         Int? num_workers
-        Int chunk_size
         Float dropout_p
         Float reweighting_range
         Array[Int] read_layers
@@ -116,8 +104,6 @@ task TrainMutect3GPU {
 
         train_model \
             --train_tar ~{train_tar} \
-            --valid_tar ~{valid_tar} \
-            --metadata ~{metadata} \
             --read_layers ~{sep=' ' read_layers} \
             --info_layers ~{sep=' ' info_layers} \
             --aggregation_layers ~{sep=' ' aggregation_layers} \
@@ -126,7 +112,6 @@ task TrainMutect3GPU {
             --reweighting_range ~{reweighting_range} \
             --batch_size ~{batch_size} \
             ~{"--num_workers " + num_workers} \
-            --chunk_size ~{chunk_size} \
             --num_epochs ~{num_epochs} \
             --output mutect3.pt \
             --tensorboard_dir tensorboard \
@@ -154,12 +139,9 @@ task TrainMutect3GPU {
 task TrainMutect3CPU {
     input {
         File train_tar
-        File valid_tar
-        File metadata
 
         Int num_epochs
         Int batch_size
-        Int chunk_size
         Int? num_workers
         Float dropout_p
         Float reweighting_range
@@ -187,8 +169,6 @@ task TrainMutect3CPU {
 
         train_model \
             --train_tar ~{train_tar} \
-            --valid_tar ~{valid_tar} \
-            --metadata ~{metadata} \
             --read_layers ~{sep=' ' read_layers} \
             --info_layers ~{sep=' ' info_layers} \
             --aggregation_layers ~{sep=' ' aggregation_layers} \
@@ -197,7 +177,6 @@ task TrainMutect3CPU {
             --reweighting_range ~{reweighting_range} \
             --batch_size ~{batch_size} \
             ~{"--num_workers " + num_workers} \
-            --chunk_size ~{chunk_size} \
             --num_epochs ~{num_epochs} \
             --output mutect3.pt \
             --tensorboard_dir tensorboard \

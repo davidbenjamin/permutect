@@ -87,8 +87,8 @@ def test_read_data():
 
     data = list(ds.read_data(tmp.name))
     assert len(data) == 2
-    assert data[0].label() == utils.Label.UNLABELED
-    assert torch.max(data[0].info_tensor() - torch.tensor([0.192, 0.000, 0.000, 1.000, 1.000, 1.000, 1.000, 1.000, 1.000] + [1, 0, 0])).item() < 0.001
+    assert data[0].label == utils.Label.UNLABELED
+    assert torch.max(data[0].info_tensor - torch.tensor([0.192, 0.000, 0.000, 1.000, 1.000, 1.000, 1.000, 1.000, 1.000] + [1, 0, 0])).item() < 0.001
 
-    assert data[1].ref_tensor().size()[0] == 5
-    assert data[1].alt_tensor().size()[0] == 1
+    assert data[1].ref_tensor.size()[0] == 5
+    assert data[1].alt_tensor.size()[0] == 1

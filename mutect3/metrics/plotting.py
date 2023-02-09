@@ -1,4 +1,5 @@
 from matplotlib import pyplot as plt
+import math
 
 # one or more simple plots of y data vs x data on shared axes
 from tqdm.autonotebook import tqdm
@@ -14,6 +15,14 @@ def simple_plot(x_y_lab_tuples, x_label, y_label, title):
     curve.set_ylabel(y_label)
     curve.legend()
     return fig, curve
+
+
+def simple_plot_on_axis(ax, x_y_lab_tuples, x_label, y_label):
+    for (x, y, lab) in x_y_lab_tuples:
+        ax.plot(x, y, label=lab)
+    ax.set_xlabel(x_label)
+    ax.set_ylabel(y_label)
+    ax.legend()
 
 
 def simple_bar_plot_on_axis(ax, heights, x_labels, y_label):
@@ -88,7 +97,7 @@ def plot_roc_curve(model, loader, normal_artifact=False):
 
     pbar = tqdm(enumerate(loader), mininterval=10)
     for _, batch in pbar:
-        labels = batch.labels()
+        labels = batch.labels
         logits = model(batch, posterior=True, normal_artifact=normal_artifact)
         for n in range(batch.size()):
             predictions_and_labels.append((logits[n].item(), labels[n].item()))
@@ -110,3 +119,46 @@ def plot_roc_curve(model, loader, normal_artifact=False):
 
     x_y_lab = [(sensitivity, precision, "ROC")]
     return simple_plot(x_y_lab, x_label="sensitivity", y_label="precision", title="ROC curve according to M3's own probabilities.")
+
+
+# labels are 0 for non-artifact, 1 for artifact
+# predictions_and_labels has form [[(pred, label), (pred, label). . . for roc 1], [likewise for roc 2] etc]
+def plot_accuracy_vs_accuracy_roc_on_axis(lists_of_predictions_and_labels, curve_labels, axis):
+    x_y_lab_tuples = []
+    dots = []
+    for predictions_and_labels, curve_label in zip(lists_of_predictions_and_labels, curve_labels):
+        # sort from least to greatest artifact logit
+        predictions_and_labels.sort(key=lambda prediction_and_label: prediction_and_label[0])
+        thresholds = []
+        non_artifact_accuracy = []
+        artifact_accuracy = []
+
+        num_calls = len(predictions_and_labels)
+        total_artifact = sum([label for _, label in predictions_and_labels]) + 0.0001
+        total_non_artifact = num_calls - total_artifact + 0.0002
+
+        # start at threshold = -infinity; that is, everything is called an artifact, and pick up one variant at a time
+        correct_artifact_calls, correct_non_artifact_calls = total_artifact, 0
+
+        next_threshold = -10
+
+        for pred_logit, label in predictions_and_labels:
+            correct_artifact_calls -= label     # if labeled as artifact, one artifact has slipped below threshold
+            correct_non_artifact_calls += (1 - label)   # if labeled as non-artifact, one non-artifact has been gained
+
+            if pred_logit > next_threshold:
+                thresholds.append(next_threshold)
+                artifact_accuracy.append(correct_artifact_calls / total_artifact)
+                non_artifact_accuracy.append(correct_non_artifact_calls / total_non_artifact)
+
+                next_threshold = math.ceil(pred_logit)
+
+        x_y_lab_tuples.append((artifact_accuracy, non_artifact_accuracy, curve_label))
+
+        for threshold, art_acc, non_art_acc in zip(thresholds, artifact_accuracy, non_artifact_accuracy):
+            dots.append((art_acc, non_art_acc, 'ro' if threshold == 0 else 'go'))
+
+    simple_plot_on_axis(axis, x_y_lab_tuples, "artifact accuracy", "non-artifact accuracy")
+    for x, y, spec in dots:
+        axis.plot(x, y, spec, markersize=2)  # point
+

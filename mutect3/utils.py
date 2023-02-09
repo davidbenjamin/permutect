@@ -1,4 +1,7 @@
 import enum
+import numpy as np
+from mutect3.data.posterior import PosteriorDatum
+import cyvcf2
 
 
 # variant size is alt - ref length
@@ -6,10 +9,25 @@ import torch
 from torch.utils.data import random_split
 
 
-def downsample_tensor(tensor2d: torch.Tensor, new_length: int):
+class ConsistentValue:
+    """
+    Tracks a value that once initialized, is consistent among eg all members of a dataset.  For example, all tensors
+    must have the same number of columns.
+    """
+    def __init__(self, value=None):
+        self.value = value
+
+    def check(self, value):
+        if self.value is None:
+            self.value = value
+        else:
+            assert self.value == value, "inconsistent values"
+
+
+def downsample_tensor(tensor2d: np.ndarray, new_length: int):
     if tensor2d is None or new_length >= len(tensor2d):
         return tensor2d
-    perm = torch.randperm(len(tensor2d))
+    perm = np.random.permutation(len(tensor2d))
     return tensor2d[perm[:new_length]]
 
 
@@ -29,7 +47,7 @@ class Variation(enum.IntEnum):
     BIG_DELETION = 4
 
     def one_hot_tensor(self):
-        result = torch.zeros(len(Variation))
+        result = np.zeros(len(Variation))
         result[self.value] = 1
         return result
 
@@ -68,7 +86,7 @@ class Label(enum.IntEnum):
             if label_str == label.name:
                 return label
 
-        raise ValueError('label is invalid: %s' % label)
+        raise ValueError('label is invalid: %s' % label_str)
 
     @staticmethod
     def is_label(label_str: str):
@@ -77,13 +95,6 @@ class Label(enum.IntEnum):
                 return True
 
         return False
-
-
-def split_dataset_into_train_and_valid(dataset, train_fraction=0.9, fixed_seed: bool = True):
-    train_len = int(train_fraction * len(dataset))
-    valid_len = len(dataset) - train_len
-    generator = torch.Generator().manual_seed(99) if fixed_seed else None
-    return random_split(dataset, lengths=[train_len, valid_len], generator=generator)
 
 
 def freeze(parameters):
@@ -116,6 +127,9 @@ class StreamingAverage:
         self._count = 0
         self._sum = torch.tensor([0.0], device=device)
 
+    def is_empty(self):
+        return self._count == 0
+
     # this is the only method where, if we're on GPU, self._sum is transferred to the CPU
     def get(self):
         return self._sum.item() / (self._count + 0.0001)
@@ -139,3 +153,17 @@ class StreamingAverage:
 
 def log_binomial_coefficient(n: torch.Tensor, k: torch.Tensor):
     return (n + 1).lgamma() - (k + 1).lgamma() - ((n - k) + 1).lgamma()
+
+
+def encode(contig: str, position: int, alt: str):
+    return contig + ':' + str(position) + ':' + alt
+
+
+def encode_datum(datum: PosteriorDatum):
+    return encode(datum.contig, datum.position, datum.alt)
+
+
+def encode_variant(v: cyvcf2.Variant, zero_based=False):
+    alt = v.ALT[0]  # TODO: we're assuming biallelic
+    start = (v.start + 1) if zero_based else v.start
+    return encode(v.CHROM, start, alt)
