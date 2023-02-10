@@ -50,8 +50,19 @@ class Calibration(nn.Module):
     def __init__(self):
         super(Calibration, self).__init__()
 
-        # take the transformed alt and ref counts (i.e. two input "features") and output
-        self.mlp = MLP([2, 5, 5, 5, 1])
+        # temperature is of form
+        # a_11 f_1(alt) * f_1(ref) + a_12 f_1(alt)*f_2(ref) . . . + a_NN f_NN(alt) f_NN(ref)
+        # where coefficients are all positive and
+        # f_1(x) = 1
+        # f_2(x) = x^(1/4)
+        # f_3(x) = x^(1/3)
+        # f_4(x) = x^(1/2)
+
+        # now, remember that alt and ref counts are constant within a batch, so that means temperature is constant within a batch!
+        # so we don't need to worry about vectorizing our operations or otherwise making them efficient
+        # In matrix form this is, for a batch, with A the matrix of above coefficients
+
+        self.coeffs = nn.Parameter(torch.Tensor([[1.0, 0.001, 0.001, 0.001], [0.001, 0.001, 0.001, 0.001], [0.001, 0.001, 0.001, 0.001], [0.001, 0.001, 0.001, 0.001]]))
 
         # we apply as asymptotic threshold function logit --> M * tanh(logit/M) where M is the maximum absolute
         # value of the thresholded output.  For logits << M this is the identity, and approaching M the asymptote
@@ -64,15 +75,24 @@ class Calibration(nn.Module):
         self.max_ref = nn.Parameter(torch.tensor(20.0))
 
     def temperature(self, ref_counts: torch.Tensor, alt_counts: torch.Tensor):
-        effective_ref = self.max_ref * torch.tanh(ref_counts / self.max_ref)
-        effective_alt = self.max_alt * torch.tanh(alt_counts / self.max_alt)
+        ref_eff = torch.squeeze(self.max_ref * torch.tanh(ref_counts / self.max_ref))
+        alt_eff = torch.squeeze(self.max_alt * torch.tanh(alt_counts / self.max_alt))
 
-        # based on stats 101 it's reasonable to guess that confidence depends on the sqrt of the evidence count
-        # thus we apply a sqrt nonlinearity before the MLP in order to hopefully reduce the number of parameters needed.
-        sqrt_counts = torch.column_stack((torch.sqrt(effective_alt), torch.sqrt(effective_ref)))
+        batch_size = len(ref_counts)
+        basis_size = len(self.coeffs)
 
-        # temperature scaling means multiplying logits -- in this case the temperature depends on alt and ref counts
-        return torch.exp(torch.squeeze(self.mlp.forward(sqrt_counts)))
+        F_alt = torch.vstack((torch.ones_like(alt_eff), alt_eff**(1/4), alt_eff**(1/3), alt_eff**(1/2)))
+        F_ref = torch.vstack((torch.ones_like(ref_eff), ref_eff ** (1 / 4), ref_eff ** (1 / 3), ref_eff ** (1 / 2)))
+        assert F_alt.shape == (basis_size, batch_size)
+        assert F_ref.shape == (basis_size, batch_size)
+
+        X = torch.matmul(self.coeffs, F_alt) * F_ref
+        assert X.shape == (basis_size, batch_size)
+
+        temperature = torch.sum(X, dim=0)
+        assert temperature.shape == (batch_size, )
+
+        return temperature
 
     def forward(self, logits, ref_counts: torch.Tensor, alt_counts: torch.Tensor):
         calibrated_logits = logits * self.temperature(ref_counts, alt_counts)
