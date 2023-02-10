@@ -150,7 +150,7 @@ def get_roc_data(predictions_and_labels):
     thresh_and_accs = []  # tuples of threshold, accuracy on artifacts, accuracy on non-artifacts
     art_found, non_art_found = total_artifact, 0
     next_threshold = -10
-    best_threshold = -99999, best_harmonic_mean = 0
+    best_threshold, best_harmonic_mean = -99999, 0
     for pred_logit, label in predictions_and_labels:
         art_found -= label  # if labeled as artifact, one artifact has slipped below threshold
         non_art_found += (1 - label)  # if labeled as non-artifact, one non-artifact has been gained
