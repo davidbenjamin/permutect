@@ -379,16 +379,21 @@ class ArtifactModel(nn.Module):
                 log_prior_odds = torch.sum(log_artifact_to_non_artifact_ratios * types_one_hot, dim=1)
 
                 # We weight training loss to balance artifact and non-artifact within each variant type.
-                # Here we restore an unbalanced prior to mimic what the posterior model would do
-                pred = self.forward(batch) + log_prior_odds
-                correct = ((pred > 0) == (batch.labels > 0.5)).tolist()
+                # the roc curves don't depend on the relative amounts of artifacts and non-artifacts in the evaluation data
+                # and so they use the logits from the artifact model as-is.  The accuracy vs count and accuracy vs logit curves,
+                # however, do depend on the (lack of) balance in the evaluation data and so for those metrics
+                # we restore an unbalanced prior to mimic what the posterior model would do
+                pred = self.forward(batch)
+                posterior_pred = pred + log_prior_odds
+                correct = ((posterior_pred > 0) == (batch.labels > 0.5)).tolist()
 
-                for variant_type, predicted_logit, label, correct_call in zip(batch.variant_types(), pred.tolist(), batch.labels.tolist(), correct):
+                for variant_type, predicted_logit, posterior_logit, label, correct_call in zip(batch.variant_types(), pred.tolist(), posterior_pred.tolist(), batch.labels.tolist(), correct):
                     truncated_count = min(max_count, batch.alt_count)
                     acc_vs_cnt[variant_type][Call.SOMATIC if label < 0.5 else Call.ARTIFACT][truncated_count].record(correct_call)
+                    acc_vs_logit[variant_type][logit_to_bin(posterior_logit)].record(correct_call)
+
                     roc_data[variant_type].append((predicted_logit, label))
                     roc_data_by_cnt[variant_type][truncated_count].append((predicted_logit, label))
-                    acc_vs_logit[variant_type][logit_to_bin(predicted_logit)].record(correct_call)
 
             # done collecting data for this particular loader, now fill in subplots for this loader's row
             for var_type in Variation:

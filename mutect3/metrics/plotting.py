@@ -127,7 +127,7 @@ def plot_accuracy_vs_accuracy_roc_on_axis(lists_of_predictions_and_labels, curve
     x_y_lab_tuples = []
     dots = []
     for predictions_and_labels, curve_label in zip(lists_of_predictions_and_labels, curve_labels):
-        thresh_and_accs = get_roc_data(predictions_and_labels)
+        thresh_and_accs, _ = get_roc_data(predictions_and_labels)
         x_y_lab_tuples.append(([x[1] for x in thresh_and_accs], [x[2] for x in thresh_and_accs], curve_label))
 
         for threshold, art_acc, non_art_acc in thresh_and_accs:
@@ -164,5 +164,5 @@ def get_roc_data(predictions_and_labels):
         if pred_logit > next_threshold:
             thresh_and_accs.append((next_threshold, art_acc, non_art_acc))
             next_threshold = math.ceil(pred_logit)
-    return thresh_and_accs
+    return thresh_and_accs, best_threshold
 
