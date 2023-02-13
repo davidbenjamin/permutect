@@ -127,38 +127,42 @@ def plot_accuracy_vs_accuracy_roc_on_axis(lists_of_predictions_and_labels, curve
     x_y_lab_tuples = []
     dots = []
     for predictions_and_labels, curve_label in zip(lists_of_predictions_and_labels, curve_labels):
-        # sort from least to greatest artifact logit
-        predictions_and_labels.sort(key=lambda prediction_and_label: prediction_and_label[0])
-        thresholds = []
-        non_artifact_accuracy = []
-        artifact_accuracy = []
+        thresh_and_accs, _ = get_roc_data(predictions_and_labels)
+        x_y_lab_tuples.append(([x[1] for x in thresh_and_accs], [x[2] for x in thresh_and_accs], curve_label))
 
-        num_calls = len(predictions_and_labels)
-        total_artifact = sum([label for _, label in predictions_and_labels]) + 0.0001
-        total_non_artifact = num_calls - total_artifact + 0.0002
-
-        # start at threshold = -infinity; that is, everything is called an artifact, and pick up one variant at a time
-        correct_artifact_calls, correct_non_artifact_calls = total_artifact, 0
-
-        next_threshold = -10
-
-        for pred_logit, label in predictions_and_labels:
-            correct_artifact_calls -= label     # if labeled as artifact, one artifact has slipped below threshold
-            correct_non_artifact_calls += (1 - label)   # if labeled as non-artifact, one non-artifact has been gained
-
-            if pred_logit > next_threshold:
-                thresholds.append(next_threshold)
-                artifact_accuracy.append(correct_artifact_calls / total_artifact)
-                non_artifact_accuracy.append(correct_non_artifact_calls / total_non_artifact)
-
-                next_threshold = math.ceil(pred_logit)
-
-        x_y_lab_tuples.append((artifact_accuracy, non_artifact_accuracy, curve_label))
-
-        for threshold, art_acc, non_art_acc in zip(thresholds, artifact_accuracy, non_artifact_accuracy):
+        for threshold, art_acc, non_art_acc in thresh_and_accs:
             dots.append((art_acc, non_art_acc, 'ro' if threshold == 0 else 'go'))
 
     simple_plot_on_axis(axis, x_y_lab_tuples, "artifact accuracy", "non-artifact accuracy")
     for x, y, spec in dots:
         axis.plot(x, y, spec, markersize=2)  # point
+
+
+# input is list of (predicted artifact logit, binary artifact/non-artifact label) tuples
+# 1st output is (threshold, accuracy on artifacts, accuracy on non-artifacts) tuples
+# 2nd output is the threshold that maximizes harmonic mean of accuracy on artifacts and accuracy on non-artifacts
+def get_roc_data(predictions_and_labels):
+    predictions_and_labels.sort(key=lambda p_and_l: p_and_l[0])  # sort from least to greatest artifact logit
+    num_calls = len(predictions_and_labels)
+    total_artifact = sum([label for _, label in predictions_and_labels]) + 0.0001
+    total_non_artifact = num_calls - total_artifact + 0.0002
+    # start at threshold = -infinity; that is, everything is called an artifact, and pick up one variant at a time
+    thresh_and_accs = []  # tuples of threshold, accuracy on artifacts, accuracy on non-artifacts
+    art_found, non_art_found = total_artifact, 0
+    next_threshold = -10
+    best_threshold, best_harmonic_mean = -99999, 0
+    for pred_logit, label in predictions_and_labels:
+        art_found -= label  # if labeled as artifact, one artifact has slipped below threshold
+        non_art_found += (1 - label)  # if labeled as non-artifact, one non-artifact has been gained
+        art_acc, non_art_acc = art_found / total_artifact, non_art_found / total_non_artifact
+        harmonic_mean = 0 if (art_acc == 0 or non_art_acc == 0) else 1/((1/art_acc) + (1/non_art_acc))
+
+        if harmonic_mean > best_harmonic_mean:
+            best_harmonic_mean = harmonic_mean
+            best_threshold = pred_logit
+
+        if pred_logit > next_threshold:
+            thresh_and_accs.append((next_threshold, art_acc, non_art_acc))
+            next_threshold = math.ceil(pred_logit)
+    return thresh_and_accs, best_threshold
 
