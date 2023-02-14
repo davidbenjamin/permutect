@@ -8,8 +8,10 @@ from mutect3 import constants
 def test_on_dream1():
     # Input Files
     training_datasets = ["/Users/davidben/mutect3/just-dream-1/dream1-normal-small-training.dataset"]
-    mutect2_vcf = "/Users/davidben/mutect3/dream-vcfs/dream1-50000.vcf"
-    filtering_dataset = "/Users/davidben/mutect3/just-dream-1/dream1-test.dataset"
+    #mutect2_vcf = "/Users/davidben/mutect3/dream-vcfs/dream1-50000.vcf"
+    mutect2_vcf = "/Users/davidben/mutect3/integration-test/dream1-mutect2-small.vcf"
+    #filtering_dataset = "/Users/davidben/mutect3/just-dream-1/dream1-test.dataset"
+    filtering_dataset = "/Users/davidben/mutect3/integration-test/dream1-small-test.dataset"
 
     # Intermediate and Output Files
     training_data_tarfile = tempfile.NamedTemporaryFile()

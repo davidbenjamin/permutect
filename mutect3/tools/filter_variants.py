@@ -18,9 +18,14 @@ from mutect3.data.posterior import PosteriorDatum, PosteriorDataset
 from mutect3.utils import Call, encode, encode_datum, encode_variant
 
 TRUSTED_M2_FILTERS = {'contamination'}
+M2_INFO_TO_REMOVE = ["AS_FilterStatus", "AS_SB_TABLE", "ECNT", "GERMQ", "MBQ", "MFRL", "MMQ", "MPOS"]
 
 POST_PROB_INFO_KEY = 'POST'
 ARTIFACT_LOD_INFO_KEY = 'ARTLOD'
+LOG_PRIOR_INFO_KEY = 'PRIOR'
+SPECTRA_LOG_LIKELIHOOD_INFO_KEY = 'SPECLL'
+NORMAL_LOG_LIKELIHOOD_INFO_KEY = 'NORMLL'
+
 FILTER_NAMES = [call_type.name.lower() for call_type in Call]
 
 CHUNK_SIZE = 100000
@@ -169,18 +174,28 @@ def make_posterior_data_loader(dataset_file, input_vcf, artifact_model: Artifact
 def apply_filtering_to_vcf(input_vcf, output_vcf, error_probability_threshold, posterior_loader, posterior_model, germline_mode: bool = False):
     print("Computing final error probabilities")
     passing_call_type = Call.GERMLINE if germline_mode else Call.SOMATIC
-    encoding_to_post_prob_dict = {}
+    encoding_to_post_prob = {}
     encoding_to_artifact_logit = {}
+    encoding_to_log_priors = {}
+    encoding_to_spectra_lls = {}
+    encoding_to_normal_lls = {}
     pbar = tqdm(enumerate(posterior_loader), mininterval=10)
     for n, batch in pbar:
-        posterior_probs = posterior_model.posterior_probabilities(batch)
+        # posterior, along with intermediate tensors for debugging/interpretation
+        log_priors, spectra_lls, normal_lls, log_posteriors = \
+            posterior_model.log_posterior_and_ingredients(batch)
+
+        posterior_probs = torch.nn.functional.softmax(log_posteriors, dim=1)
 
         encodings = [encode_datum(datum) for datum in batch.original_list()]
         artifact_logits = [datum.artifact_logit for datum in batch.original_list()]
 
-        for encoding, post_probs, logit in zip(encodings, posterior_probs, artifact_logits):
-            encoding_to_post_prob_dict[encoding] = post_probs.tolist()
+        for encoding, post_probs, logit, log_prior, log_spec, log_normal in zip(encodings, posterior_probs, artifact_logits, log_priors, spectra_lls, normal_lls):
+            encoding_to_post_prob[encoding] = post_probs.tolist()
             encoding_to_artifact_logit[encoding] = logit
+            encoding_to_log_priors[encoding] = log_prior
+            encoding_to_spectra_lls[encoding] = log_spec
+            encoding_to_normal_lls[encoding] = log_normal
 
     print("Applying threshold")
     unfiltered_vcf = cyvcf2.VCF(input_vcf)
@@ -188,6 +203,12 @@ def apply_filtering_to_vcf(input_vcf, output_vcf, error_probability_threshold, p
     all_types = [call_type.name for call_type in Call]
     unfiltered_vcf.add_info_to_header({'ID': POST_PROB_INFO_KEY, 'Description': 'Mutect3 posterior probability of {' + ', '.join(all_types) + '}',
                                        'Type': 'Float', 'Number': 'A'})
+    unfiltered_vcf.add_info_to_header({'ID': LOG_PRIOR_INFO_KEY, 'Description': 'Log priors of {' + ', '.join(all_types) + '}',
+         'Type': 'Float', 'Number': 'A'})
+    unfiltered_vcf.add_info_to_header({'ID': SPECTRA_LOG_LIKELIHOOD_INFO_KEY, 'Description': 'Log spectra likelihoods of {' + ', '.join(all_types) + '}',
+         'Type': 'Float', 'Number': 'A'})
+    unfiltered_vcf.add_info_to_header({'ID': NORMAL_LOG_LIKELIHOOD_INFO_KEY, 'Description': 'Log normal likelihoods of {' + ', '.join(all_types) + '}',
+         'Type': 'Float', 'Number': 'A'})
     unfiltered_vcf.add_info_to_header({'ID': ARTIFACT_LOD_INFO_KEY, 'Description': 'Mutect3 artifact log odds',
          'Type': 'Float', 'Number': 'A'})
 
@@ -198,14 +219,20 @@ def apply_filtering_to_vcf(input_vcf, output_vcf, error_probability_threshold, p
     writer = cyvcf2.Writer(output_vcf, unfiltered_vcf)  # input vcf is a template for the header
     pbar = tqdm(enumerate(unfiltered_vcf), mininterval=10)
     for n, v in pbar:
+        for info_key in M2_INFO_TO_REMOVE:  # remove unwanted M2 INFO
+            del v.INFO[info_key]
+
         filters = filters_to_keep_from_m2(v)
 
         # TODO: in germline mode, somatic doesn't exist (or is just highly irrelevant) and germline is not an error!
         encoding = encode_variant(v, zero_based=True)  # cyvcf2 is zero-based
-        if encoding in encoding_to_post_prob_dict:
-            post_probs = encoding_to_post_prob_dict[encoding]
-            v.INFO[POST_PROB_INFO_KEY] = ','.join(map(lambda prob: "{:.4f}".format(prob), post_probs))
-            v.INFO[ARTIFACT_LOD_INFO_KEY] = str(encoding_to_artifact_logit[encoding])
+        if encoding in encoding_to_post_prob:
+            post_probs = encoding_to_post_prob[encoding]
+            v.INFO[POST_PROB_INFO_KEY] = ','.join(map(lambda prob: "{:.3f}".format(prob), post_probs))
+            v.INFO[LOG_PRIOR_INFO_KEY] = ','.join(map(lambda pri: "{:.3f}".format(pri), encoding_to_log_priors[encoding]))
+            v.INFO[SPECTRA_LOG_LIKELIHOOD_INFO_KEY] = ','.join(map(lambda ll: "{:.3f}".format(ll), encoding_to_spectra_lls[encoding]))
+            v.INFO[ARTIFACT_LOD_INFO_KEY] = "{:.3f}".format(encoding_to_artifact_logit[encoding])
+            v.INFO[NORMAL_LOG_LIKELIHOOD_INFO_KEY] = ','.join(map(lambda ll: "{:.3f}".format(ll), encoding_to_normal_lls[encoding]))
 
             error_prob = 1 - post_probs[passing_call_type]
             if error_prob > error_probability_threshold:

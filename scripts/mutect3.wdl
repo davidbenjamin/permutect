@@ -224,9 +224,11 @@ task IndexVCF {
 
     command <<<
 
-        cp ~{unindexed_vcf} output.vcf
+        cp ~{unindexed_vcf} indexed.vcf
 
-        gatk --java-options "-Xmx~{command_mem}m" IndexFeatureFile -I output.vcf
+        gatk --java-options "-Xmx~{command_mem}m" IndexFeatureFile -I indexed.vcf
+
+        gatk --java-options "-Xmx~{command_mem}m" SelectVariants -V indexed.vcf -O output.vcf -DGA DP -DGA AF -DGA F1R2 -DGA F2R1 -DGA FAD -DGA SB --lenient
 
         set -e
     >>>
