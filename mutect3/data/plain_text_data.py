@@ -40,7 +40,6 @@ from mutect3.data.read_set import ReadSet
 from mutect3.utils import Label, Variation, encode
 
 MAX_VALUE = 10000
-MIN_REF = 5
 EPSILON = 0.00001
 QUANTILE_DATA_COUNT = 10000
 
@@ -108,7 +107,7 @@ def read_data(dataset_file, posterior: bool, round_down: bool = True, include_va
                 seq_error_log_likelihood = read_float(file.readline())
                 normal_seq_error_log_likelihood = read_float(file.readline())
 
-                if ref_tensor_size >= MIN_REF and alt_tensor_size > 0:
+                if alt_tensor_size > 0:
                     yield PosteriorDatum(contig, position, ref_allele, alt_allele, depth, alt_count, normal_depth,
                                          normal_alt_count, seq_error_log_likelihood, normal_seq_error_log_likelihood)
             else:
@@ -117,7 +116,7 @@ def read_data(dataset_file, posterior: bool, round_down: bool = True, include_va
                 gatk_info_tensor = line_to_tensor(file.readline())
                 ref_tensor_size, alt_tensor_size, normal_ref_tensor_size, normal_alt_tensor_size = map(int, file.readline().strip().split())
 
-                ref_tensor = read_2d_tensor(file, ref_tensor_size)
+                ref_tensor = read_2d_tensor(file, ref_tensor_size) if ref_tensor_size > 0 else None
                 alt_tensor = read_2d_tensor(file, alt_tensor_size)
 
                 if round_down:
@@ -132,7 +131,7 @@ def read_data(dataset_file, posterior: bool, round_down: bool = True, include_va
                 skip_seq_error = file.readline()
                 skip_normal_seq_error = file.readline()
 
-                if ref_tensor_size >= MIN_REF and alt_tensor_size > 0:
+                if alt_tensor_size > 0:
                     yield ReadSet.from_gatk(ref_sequence_string, Variation.get_type(ref_allele, alt_allele), ref_tensor,
                                           alt_tensor, gatk_info_tensor, label, encode(contig, position, alt_allele) if include_variant_string else None)
 

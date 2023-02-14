@@ -153,11 +153,16 @@ class ArtifactModel(nn.Module):
 
         # rho is the universal aggregation function
         ref_alt_info_ref_seq_embedding_dimension = 2 * self.phi.output_dimension() + self.omega.output_dimension() + self.ref_seq_cnn.output_dimension()
+        alt_info_ref_seq_embedding_dimension = self.phi.output_dimension() + self.omega.output_dimension() + self.ref_seq_cnn.output_dimension()
 
         # The [1] is for the output of binary classification, represented as a single artifact/non-artifact logit
         self.rho = MLP([ref_alt_info_ref_seq_embedding_dimension] + params.aggregation_layers + [1], batch_normalize=params.batch_normalize,
                        dropout_p=params.dropout_p)
         self.rho.to(self._device)
+
+        self.rho_no_ref = MLP([alt_info_ref_seq_embedding_dimension] + params.aggregation_layers + [1],
+                       batch_normalize=params.batch_normalize, dropout_p=params.dropout_p)
+        self.rho_no_ref.to(self._device)
 
         self.calibration = Calibration()
         self.calibration.to(self._device)
@@ -172,7 +177,7 @@ class ArtifactModel(nn.Module):
         return self._ref_sequence_length
 
     def training_parameters(self):
-        return chain(self.phi.parameters(), self.omega.parameters(), self.rho.parameters(), self.calibration.parameters())
+        return chain(self.phi.parameters(), self.omega.parameters(), self.rho.parameters(), self.rho_no_ref.parameters(), self.calibration.parameters())
 
     def calibration_parameters(self):
         return self.calibration.parameters()
@@ -189,9 +194,9 @@ class ArtifactModel(nn.Module):
             self.freeze_all()
 
     # returns 1D tensor of length batch_size of log odds ratio (logits) between artifact and non-artifact
-    def forward(self, batch: ReadSetBatch):
+    def forward(self, batch: ReadSetBatch, use_ref_reads: bool = True):
         phi_reads = self.apply_phi_to_reads(batch)
-        return self.forward_from_phi_reads(phi_reads=phi_reads, batch=batch)
+        return self.forward_from_phi_reads(phi_reads=phi_reads, batch=batch, use_ref_reads=(use_ref_reads and batch.ref_count > 0))
 
     # for the sake of recycling the read embeddings when training with data augmentation, we split the forward pass
     # into 1) the expensive and recyclable embedding of every single read and 2) everything else
@@ -201,7 +206,7 @@ class ArtifactModel(nn.Module):
         # note that we put the reads on GPU, apply read embedding phi, then put the result back on CPU
         return torch.sigmoid(self.phi(batch.reads.to(self._device)))
 
-    def forward_from_phi_reads_to_calibration(self, phi_reads: torch.Tensor, batch: ReadSetBatch, weight_range: float = 0):
+    def forward_from_phi_reads_to_calibration(self, phi_reads: torch.Tensor, batch: ReadSetBatch, weight_range: float = 0, use_ref_reads: bool = True):
         weights = torch.ones(len(phi_reads), 1, device=self._device) if weight_range == 0 else (1 + weight_range * (1 - 2 * torch.rand(len(phi_reads), 1, device=self._device)))
         weighted_phi_reads = weights * phi_reads
 
@@ -213,23 +218,23 @@ class ArtifactModel(nn.Module):
         ref_wt_sq_sums, alt_wt_sq_sums = sums_over_chunks(torch.square(ref_wts), ref_count), sums_over_chunks(torch.square(alt_wts), alt_count)
 
         # weighted mean is sum of reads in a chunk divided by sum of weights in same chunk
-        ref_means = sums_over_chunks(weighted_phi_reads[:total_ref], ref_count) / ref_wt_sums
+        ref_means = sums_over_chunks(weighted_phi_reads[:total_ref], ref_count) / ref_wt_sums if use_ref_reads else None
         alt_means = sums_over_chunks(weighted_phi_reads[total_ref:], alt_count) / alt_wt_sums
 
         # these are fed to the calibration, since reweighting effectively reduces the read counts
-        effective_ref_counts = torch.square(ref_wt_sums) / ref_wt_sq_sums
         effective_alt_counts = torch.square(alt_wt_sums) / alt_wt_sq_sums
+        effective_ref_counts = torch.square(ref_wt_sums) / ref_wt_sq_sums if use_ref_reads else torch.zeros_like(effective_alt_counts)
 
         # stack side-by-side to get 2D tensor, where each variant row is (ref mean, alt mean, info)
         omega_info = torch.sigmoid(self.omega(batch.info.to(self._device)))
 
         ref_seq_embedding = self.ref_seq_cnn(batch.ref_sequences)
-        concatenated = torch.cat((ref_means, alt_means, omega_info, ref_seq_embedding), dim=1)
-        logits = self.rho(concatenated).squeeze(dim=1)  # specify dim so that in edge case of batch size 1 we get 1D tensor, not scalar
+        concatenated = torch.cat((ref_means, alt_means, omega_info, ref_seq_embedding) if use_ref_reads else (alt_means, omega_info, ref_seq_embedding), dim=1)
+        logits = (self.rho if use_ref_reads else self.rho_no_ref).forward(concatenated).squeeze(dim=1)  # specify dim so that in edge case of batch size 1 we get 1D tensor, not scalar
         return logits, effective_ref_counts, effective_alt_counts
 
-    def forward_from_phi_reads(self, phi_reads: torch.Tensor, batch: ReadSetBatch, weight_range: float = 0):
-        logits, effective_ref_counts, effective_alt_counts = self.forward_from_phi_reads_to_calibration(phi_reads, batch, weight_range)
+    def forward_from_phi_reads(self, phi_reads: torch.Tensor, batch: ReadSetBatch, weight_range: float = 0, use_ref_reads: bool = True):
+        logits, effective_ref_counts, effective_alt_counts = self.forward_from_phi_reads_to_calibration(phi_reads, batch, weight_range, use_ref_reads=use_ref_reads)
         return self.calibration.forward(logits, effective_ref_counts, effective_alt_counts)
 
     def learn_calibration(self, dataset: ReadSetDataset, num_epochs, batch_size, num_workers):
