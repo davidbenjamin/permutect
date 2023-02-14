@@ -18,6 +18,7 @@ from mutect3.data.posterior import PosteriorDatum, PosteriorDataset
 from mutect3.utils import Call, encode, encode_datum, encode_variant
 
 TRUSTED_M2_FILTERS = {'contamination'}
+M2_INFO_TO_REMOVE = ["AS_FilterStatus", "AS_SB_TABLE", "ECNT", "GERMQ", "MBQ", "MFRL", "MMQ", "MPOS"]
 
 POST_PROB_INFO_KEY = 'POST'
 ARTIFACT_LOD_INFO_KEY = 'ARTLOD'
@@ -218,6 +219,9 @@ def apply_filtering_to_vcf(input_vcf, output_vcf, error_probability_threshold, p
     writer = cyvcf2.Writer(output_vcf, unfiltered_vcf)  # input vcf is a template for the header
     pbar = tqdm(enumerate(unfiltered_vcf), mininterval=10)
     for n, v in pbar:
+        for info_key in M2_INFO_TO_REMOVE:  # remove unwanted M2 INFO
+            del v.INFO[info_key]
+
         filters = filters_to_keep_from_m2(v)
 
         # TODO: in germline mode, somatic doesn't exist (or is just highly irrelevant) and germline is not an error!
