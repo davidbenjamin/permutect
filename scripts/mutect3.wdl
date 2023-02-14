@@ -224,7 +224,7 @@ task IndexVCF {
 
     command <<<
 
-        cp ~{unindexed_vcf} output.vcf
+        cp ~{unindexed_vcf} indexed.vcf
 
         gatk --java-options "-Xmx~{command_mem}m" IndexFeatureFile -I indexed.vcf
 
