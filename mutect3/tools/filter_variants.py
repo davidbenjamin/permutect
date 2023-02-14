@@ -206,7 +206,7 @@ def apply_filtering_to_vcf(input_vcf, output_vcf, error_probability_threshold, p
          'Type': 'Float', 'Number': 'A'})
     unfiltered_vcf.add_info_to_header({'ID': SPECTRA_LOG_LIKELIHOOD_INFO_KEY, 'Description': 'Log spectra likelihoods of {' + ', '.join(all_types) + '}',
          'Type': 'Float', 'Number': 'A'})
-    unfiltered_vcf.add_info_to_header({'ID': LOG_PRIOR_INFO_KEY, 'Description': 'Log normal likelihoods of {' + ', '.join(all_types) + '}',
+    unfiltered_vcf.add_info_to_header({'ID': NORMAL_LOG_LIKELIHOOD_INFO_KEY, 'Description': 'Log normal likelihoods of {' + ', '.join(all_types) + '}',
          'Type': 'Float', 'Number': 'A'})
     unfiltered_vcf.add_info_to_header({'ID': ARTIFACT_LOD_INFO_KEY, 'Description': 'Mutect3 artifact log odds',
          'Type': 'Float', 'Number': 'A'})
@@ -227,8 +227,8 @@ def apply_filtering_to_vcf(input_vcf, output_vcf, error_probability_threshold, p
             v.INFO[POST_PROB_INFO_KEY] = ','.join(map(lambda prob: "{:.3f}".format(prob), post_probs))
             v.INFO[LOG_PRIOR_INFO_KEY] = ','.join(map(lambda pri: "{:.3f}".format(pri), encoding_to_log_priors[encoding]))
             v.INFO[SPECTRA_LOG_LIKELIHOOD_INFO_KEY] = ','.join(map(lambda ll: "{:.3f}".format(ll), encoding_to_spectra_lls[encoding]))
-            v.INFO[NORMAL_LOG_LIKELIHOOD_INFO_KEY] = ','.join(map(lambda ll: "{:.3f}".format(ll), encoding_to_normal_lls[encoding]))
             v.INFO[ARTIFACT_LOD_INFO_KEY] = "{:.3f}".format(encoding_to_artifact_logit[encoding])
+            v.INFO[NORMAL_LOG_LIKELIHOOD_INFO_KEY] = ','.join(map(lambda ll: "{:.3f}".format(ll), encoding_to_normal_lls[encoding]))
 
             error_prob = 1 - post_probs[passing_call_type]
             if error_prob > error_probability_threshold:
