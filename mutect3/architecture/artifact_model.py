@@ -75,7 +75,7 @@ class Calibration(nn.Module):
         self.max_ref = nn.Parameter(torch.tensor(20.0))
 
     def temperature(self, ref_counts: torch.Tensor, alt_counts: torch.Tensor):
-        ref_eff = torch.squeeze(self.max_ref * torch.tanh(ref_counts / self.max_ref))
+        ref_eff = torch.squeeze(self.max_ref * torch.tanh(ref_counts / self.max_ref)) + 0.0001
         alt_eff = torch.squeeze(self.max_alt * torch.tanh(alt_counts / self.max_alt))
 
         batch_size = len(ref_counts)
@@ -217,27 +217,27 @@ class ArtifactModel(nn.Module):
         total_ref = ref_count * batch.size()
 
         ref_wts, alt_wts = weights[:total_ref], weights[total_ref:]
-        ref_wt_sums, alt_wt_sums = 0 if ref_count == 0 else sums_over_chunks(ref_wts, ref_count), sums_over_chunks(alt_wts, alt_count)
-        ref_wt_sq_sums, alt_wt_sq_sums = 0 if ref_count == 0 else sums_over_chunks(torch.square(ref_wts), ref_count), sums_over_chunks(torch.square(alt_wts), alt_count)
+        ref_wt_sums, alt_wt_sums = (None if ref_count == 0 else sums_over_chunks(ref_wts, ref_count)), sums_over_chunks(alt_wts, alt_count)
+        ref_wt_sq_sums, alt_wt_sq_sums = (None if ref_count == 0 else sums_over_chunks(torch.square(ref_wts), ref_count)), sums_over_chunks(torch.square(alt_wts), alt_count)
 
         # weighted mean is sum of reads in a chunk divided by sum of weights in same chunk
-        ref_means = sums_over_chunks(weighted_phi_reads[:total_ref], ref_count) / ref_wt_sums if use_ref_reads else None
+        ref_means = None if ref_count == 0 else (sums_over_chunks(weighted_phi_reads[:total_ref], ref_count) / ref_wt_sums)
         alt_means = sums_over_chunks(weighted_phi_reads[total_ref:], alt_count) / alt_wt_sums
 
         # these are fed to the calibration, since reweighting effectively reduces the read counts
         effective_alt_counts = torch.square(alt_wt_sums) / alt_wt_sq_sums
-        effective_ref_counts = torch.square(ref_wt_sums) / ref_wt_sq_sums if use_ref_reads else torch.zeros_like(effective_alt_counts)
+        effective_ref_counts = torch.zeros_like(effective_alt_counts) if ref_count == 0 else (torch.square(ref_wt_sums) / ref_wt_sq_sums)
 
         # stack side-by-side to get 2D tensor, where each variant row is (ref mean, alt mean, info)
         omega_info = torch.sigmoid(self.omega(batch.info.to(self._device)))
 
         ref_seq_embedding = self.ref_seq_cnn(batch.ref_sequences)
-        concatenated = torch.cat((ref_means, alt_means, omega_info, ref_seq_embedding) if use_ref_reads else (alt_means, omega_info, ref_seq_embedding), dim=1)
-        logits = (self.rho if use_ref_reads else self.rho_no_ref).forward(concatenated).squeeze(dim=1)  # specify dim so that in edge case of batch size 1 we get 1D tensor, not scalar
+        concatenated = torch.cat((ref_means, alt_means, omega_info, ref_seq_embedding) if (use_ref_reads and ref_count > 0) else (alt_means, omega_info, ref_seq_embedding), dim=1)
+        logits = (self.rho if (use_ref_reads and ref_count > 0) else self.rho_no_ref).forward(concatenated).squeeze(dim=1)  # specify dim so that in edge case of batch size 1 we get 1D tensor, not scalar
         return logits, effective_ref_counts, effective_alt_counts
 
     def forward_from_phi_reads(self, phi_reads: torch.Tensor, batch: ReadSetBatch, weight_range: float = 0, use_ref_reads: bool = True):
-        logits, effective_ref_counts, effective_alt_counts = self.forward_from_phi_reads_to_calibration(phi_reads, batch, weight_range, use_ref_reads=use_ref_reads)
+        logits, effective_ref_counts, effective_alt_counts = self.forward_from_phi_reads_to_calibration(phi_reads, batch, weight_range, use_ref_reads=(use_ref_reads and batch.ref_count > 0))
         return self.calibration.forward(logits, effective_ref_counts, effective_alt_counts)
 
     def learn_calibration(self, dataset: ReadSetDataset, num_epochs, batch_size, num_workers):
