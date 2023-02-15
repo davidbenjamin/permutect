@@ -185,11 +185,14 @@ class ArtifactModel(nn.Module):
     def freeze_all(self):
         utils.freeze(self.parameters())
 
-    def set_epoch_type(self, epoch_type: utils.Epoch):
+    def set_epoch_type(self, epoch_type: utils.Epoch, use_ref_reads: bool = True):
         if epoch_type == utils.Epoch.TRAIN:
             self.train(True)
             utils.freeze(self.parameters())
-            utils.unfreeze(self.training_parameters())
+            if use_ref_reads:
+                utils.unfreeze(self.training_parameters())
+            else:
+                utils.unfreeze(self.rho_no_ref.parameters())
         else:
             self.freeze_all()
 
@@ -285,7 +288,7 @@ class ArtifactModel(nn.Module):
 
                 nll_loss.record_sum(loss.detach(), len(logits))
 
-    def train_model(self, dataset: ReadSetDataset, num_epochs, batch_size, num_workers, summary_writer: SummaryWriter, reweighting_range: float, m3_params: ArtifactModelParameters):
+    def train_model(self, dataset: ReadSetDataset, num_epochs, batch_size, num_workers, summary_writer: SummaryWriter, reweighting_range: float, m3_params: ArtifactModelParameters, use_ref_reads: bool = True):
         bce = torch.nn.BCEWithLogitsLoss(reduction='none')  # no reduction because we may want to first multiply by weights for unbalanced data
         train_optimizer = torch.optim.AdamW(self.training_parameters(), lr=m3_params.learning_rate)
 
@@ -310,7 +313,8 @@ class ArtifactModel(nn.Module):
 
         for epoch in trange(1, num_epochs + 1, desc="Epoch"):
             for epoch_type in [utils.Epoch.TRAIN, utils.Epoch.VALID]:
-                self.set_epoch_type(epoch_type)
+                self.set_epoch_type(epoch_type, use_ref_reads=use_ref_reads)
+
                 labeled_loss = utils.StreamingAverage(device=self._device)
                 unlabeled_loss = utils.StreamingAverage(device=self._device)
 
@@ -319,9 +323,9 @@ class ArtifactModel(nn.Module):
                 for n, batch in pbar:
                     phi_reads = self.apply_phi_to_reads(batch)
 
-                    orig_pred = self.forward_from_phi_reads(phi_reads, batch, weight_range=0)
-                    aug1_pred = self.forward_from_phi_reads(phi_reads, batch, weight_range=reweighting_range)
-                    aug2_pred = self.forward_from_phi_reads(phi_reads, batch, weight_range=reweighting_range)
+                    orig_pred = self.forward_from_phi_reads(phi_reads, batch, weight_range=0, use_ref_reads=use_ref_reads)
+                    aug1_pred = self.forward_from_phi_reads(phi_reads, batch, weight_range=reweighting_range, use_ref_reads=use_ref_reads)
+                    aug2_pred = self.forward_from_phi_reads(phi_reads, batch, weight_range=reweighting_range, use_ref_reads=use_ref_reads)
 
                     if batch.is_labeled():
                         labels = batch.labels
@@ -357,8 +361,8 @@ class ArtifactModel(nn.Module):
                         train_optimizer.step()
 
                 # done with one epoch type -- training or validation -- for this epoch
-                summary_writer.add_scalar(epoch_type.name + "/Labeled Loss", labeled_loss.get(), epoch)
-                summary_writer.add_scalar(epoch_type.name + "/Unlabeled Loss", unlabeled_loss.get(), epoch)
+                summary_writer.add_scalar(epoch_type.name + "/Labeled Loss" + ("" if use_ref_reads else "refless"), labeled_loss.get(), epoch)
+                summary_writer.add_scalar(epoch_type.name + "/Unlabeled Loss" + ("" if use_ref_reads else "refless"), unlabeled_loss.get(), epoch)
                 print("Labeled loss for epoch " + str(epoch) + " of " + epoch_type.name + ": " + str(labeled_loss.get()))
             # done with training and validation for this epoch
             # note that we have not learned the AF spectrum yet
