@@ -228,7 +228,9 @@ task IndexVCF {
 
         gatk --java-options "-Xmx~{command_mem}m" IndexFeatureFile -I indexed.vcf
 
-        gatk --java-options "-Xmx~{command_mem}m" SelectVariants -V indexed.vcf -O output.vcf -DGA DP -DGA AF -DGA F1R2 -DGA F2R1 -DGA FAD -DGA SB --lenient
+        gatk --java-options "-Xmx~{command_mem}m" SelectVariants -V indexed.vcf -O output.vcf --lenient \
+            -DGA DP -DGA AF -DGA F1R2 -DGA F2R1 -DGA FAD -DGA SB \
+            -DA AS_FilterStatus -DA AS_SB_TABLE -DA ECNT -DA GERMQ -DA MBQ -DA MFRL -DA MMQ -DA MPOS
 
         set -e
     >>>
