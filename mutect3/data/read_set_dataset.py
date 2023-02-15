@@ -71,9 +71,11 @@ class ReadSetDataset(Dataset):
         if self._memory_map_mode:
             bottom_index = index * TENSORS_PER_READ_SET
 
+            possible_ref = self._data[bottom_index]
+
             # The order here corresponds to the order of yield statements within make_flattened_tensor_generator()
             return ReadSet(ref_sequence_tensor=self._data[bottom_index + 2],
-                           ref_tensor=self._data[bottom_index],
+                           ref_tensor=possible_ref if len(possible_ref) > 0 else None,
                            alt_tensor=self._data[bottom_index + 1],
                            info_tensor=self._data[bottom_index + 3],
                            label=utils.Label(self._data[bottom_index + 4][0]))
@@ -92,7 +94,7 @@ class ReadSetDataset(Dataset):
 # ref tensor, alt tensor, ref sequence tensor, info tensor, label tensor, ref tensor alt tensor. . .
 def make_flattened_tensor_generator(read_set_generator):
     for read_set in read_set_generator:
-        yield read_set.ref_tensor
+        yield read_set.ref_tensor if read_set.ref_tensor is not None else np.empty((0, 0))
         yield read_set.alt_tensor
         yield read_set.ref_sequence_tensor
         yield read_set.info_tensor
