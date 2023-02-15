@@ -52,7 +52,7 @@ class ReadSetDataset(Dataset):
 
         for n, datum in enumerate(self):
             train_or_valid = utils.Epoch.VALID if random.random() < validation_fraction else utils.Epoch.TRAIN
-            counts = (len(datum.ref_tensor), len(datum.alt_tensor))
+            counts = (len(datum.ref_tensor) if datum.ref_tensor is not None else 0, len(datum.alt_tensor))
             (self.unlabeled_indices_by_count if datum.label == Label.UNLABELED else self.labeled_indices_by_count)[train_or_valid][counts].append(n)
 
             if datum.label == Label.ARTIFACT:

@@ -217,8 +217,8 @@ class ArtifactModel(nn.Module):
         total_ref = ref_count * batch.size()
 
         ref_wts, alt_wts = weights[:total_ref], weights[total_ref:]
-        ref_wt_sums, alt_wt_sums = sums_over_chunks(ref_wts, ref_count), sums_over_chunks(alt_wts, alt_count)
-        ref_wt_sq_sums, alt_wt_sq_sums = sums_over_chunks(torch.square(ref_wts), ref_count), sums_over_chunks(torch.square(alt_wts), alt_count)
+        ref_wt_sums, alt_wt_sums = 0 if ref_count == 0 else sums_over_chunks(ref_wts, ref_count), sums_over_chunks(alt_wts, alt_count)
+        ref_wt_sq_sums, alt_wt_sq_sums = 0 if ref_count == 0 else sums_over_chunks(torch.square(ref_wts), ref_count), sums_over_chunks(torch.square(alt_wts), alt_count)
 
         # weighted mean is sum of reads in a chunk divided by sum of weights in same chunk
         ref_means = sums_over_chunks(weighted_phi_reads[:total_ref], ref_count) / ref_wt_sums if use_ref_reads else None
