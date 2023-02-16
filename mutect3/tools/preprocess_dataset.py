@@ -28,7 +28,7 @@ def do_work(training_datasets, output_file, chunk_size):
 
     # save all the lists of read sets to tempfiles. . .
     for read_set_list in generate_normalized_data(training_datasets, max_bytes_per_chunk=chunk_size):
-        num_read_features.check(read_set_list[0].ref_tensor.shape[1])
+        num_read_features.check(read_set_list[0].alt_tensor.shape[1])
         num_info_features.check(read_set_list[0].info_tensor.shape[0])
         ref_sequence_length.check(read_set_list[0].ref_sequence_tensor.shape[-1])
 

@@ -29,6 +29,10 @@ def train_artifact_model(m3_params: ArtifactModelParameters, params: TrainingPar
     summary_writer = SummaryWriter(tensorboard_dir)
     model.train_model(dataset, params.num_epochs, params.batch_size, params.num_workers, summary_writer=summary_writer, reweighting_range=params.reweighting_range, m3_params=m3_params)
 
+    # TODO: don't just hard-code number of refless epochs!!!
+    model.train_model(dataset, 5, params.batch_size, params.num_workers, summary_writer=summary_writer,
+                      reweighting_range=params.reweighting_range, m3_params=m3_params, use_ref_reads=False)
+
     print("Calibrating. . .")
     temp_fig_before, temp_curve_before = model.calibration.plot_temperature("Count-Dependent Calibration Before")
     model.learn_calibration(dataset, num_epochs=50, batch_size=params.batch_size, num_workers=params.num_workers)

@@ -49,7 +49,7 @@ class ReadSet:
         return cls(make_sequence_tensor(ref_sequence_string), ref_tensor, alt_tensor, info_tensor, label, variant_string)
 
     def size_in_bytes(self):
-        return self.ref_tensor.nbytes + self.alt_tensor.nbytes + self.info_tensor.nbytes + sys.getsizeof(self.label)
+        return (self.ref_tensor.nbytes if self.ref_tensor is not None else 0) + self.alt_tensor.nbytes + self.info_tensor.nbytes + sys.getsizeof(self.label)
 
     def variant_type_one_hot(self):
         return self.info_tensor[-len(Variation):]
@@ -102,7 +102,7 @@ class ReadSetBatch:
 
     def __init__(self, data: List[ReadSet]):
         self.labeled = data[0].label != Label.UNLABELED
-        self.ref_count = len(data[0].ref_tensor)
+        self.ref_count = len(data[0].ref_tensor) if data[0].ref_tensor is not None else 0
         self.alt_count = len(data[0].alt_tensor)
 
         # for datum in data:
@@ -111,7 +111,8 @@ class ReadSetBatch:
         #    assert len(datum.alt_tensor) == self.alt_count, "batch may not mix different alt counts"
 
         self.ref_sequences = torch.from_numpy(np.stack([item.ref_sequence_tensor for item in data])).float()
-        self.reads = torch.from_numpy(np.vstack([item.ref_tensor for item in data] + [item.alt_tensor for item in data])).float()
+        list_of_ref_tensors = [item.ref_tensor for item in data] if self.ref_count > 0 else []
+        self.reads = torch.from_numpy(np.vstack(list_of_ref_tensors + [item.alt_tensor for item in data])).float()
         self.info = torch.from_numpy(np.vstack([item.info_tensor for item in data])).float()
         self.labels = torch.FloatTensor([1.0 if item.label == Label.ARTIFACT else 0.0 for item in data]) if self.labeled else None
         self._size = len(data)
