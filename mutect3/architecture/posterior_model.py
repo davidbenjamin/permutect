@@ -111,6 +111,7 @@ class PosteriorModel(torch.nn.Module):
         # All log likelihood/relative posterior tensors below have shape batch.size() x len(CallType)
         # spectra tensors contain the likelihood that these *particular* reads (that is, not just the read count) are alt
         # normal log likelihoods contain everything going on in the matched normal sample
+        # note that the call to make_unnormalized_priors ensures that no_germline_mode works
         log_priors = torch.nn.functional.log_softmax(self.make_unnormalized_priors(types, batch.allele_frequencies), dim=1)
 
         spectra_log_likelihoods = torch.zeros_like(log_priors)
