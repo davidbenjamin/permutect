@@ -35,5 +35,6 @@ NUM_IGNORED_SITES_NAME = 'num_ignored_sites'
 MAF_SEGMENTS_NAME = 'maf_segments'
 NORMAL_MAF_SEGMENTS_NAME = 'normal_maf_segments'
 GERMLINE_MODE_NAME = 'germline_mode'
+NO_GERMLINE_MODE_NAME = 'no_germline_mode'
 
 M3_MODEL_NAME = 'm3_model'

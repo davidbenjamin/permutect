@@ -44,8 +44,10 @@ class PosteriorModel(torch.nn.Module):
 
     """
     def __init__(self, variant_log_prior: float, artifact_log_prior: float, segmentation=defaultdict(IntervalTree),
-                 normal_segmentation=defaultdict(IntervalTree)):
+                 normal_segmentation=defaultdict(IntervalTree), no_germline_mode: bool = False):
         super(PosteriorModel, self).__init__()
+
+        self.no_germline_mode = no_germline_mode
 
         # TODO: might as well give the normal segmentation as well
         self.segmentation = segmentation
@@ -69,13 +71,13 @@ class PosteriorModel(torch.nn.Module):
             initial[Call.SOMATIC] = variant_log_prior
             initial[Call.ARTIFACT] = artifact_log_prior
             initial[Call.SEQ_ERROR] = 0
-            initial[Call.GERMLINE] = 0
+            initial[Call.GERMLINE] = -9999 if self.no_germline_mode else 0
             self._unnormalized_priors.weight.copy_(initial)
 
     def make_unnormalized_priors(self, variant_types_one_hot_2d: torch.Tensor, allele_frequencies_1d: torch.Tensor) -> torch.Tensor:
         result = self._unnormalized_priors(variant_types_one_hot_2d)
         result[:, Call.SEQ_ERROR] = 0
-        result[:, Call.GERMLINE] = torch.log(1 - torch.square(1 - allele_frequencies_1d))     # 1 minus hom ref probability
+        result[:, Call.GERMLINE] = -9999 if self.no_germline_mode else torch.log(1 - torch.square(1 - allele_frequencies_1d))     # 1 minus hom ref probability
         return result   # batch size x len(CallType)
 
     def posterior_probabilities(self, batch: PosteriorBatch) -> torch.Tensor:
@@ -91,6 +93,7 @@ class PosteriorModel(torch.nn.Module):
         :param batch:
         :return: non-log error probabilities as a 1D tensor with length batch size
         """
+        assert not (germline_mode and self.no_germline_mode), "germline mode and no-germline mode are incompatible"
         return 1 - self.posterior_probabilities(batch)[:, Call.GERMLINE if germline_mode else Call.SOMATIC]     # 0th column is variant
 
     def log_posterior_and_ingredients(self, batch: PosteriorBatch) -> torch.Tensor:

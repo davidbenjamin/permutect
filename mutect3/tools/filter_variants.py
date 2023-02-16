@@ -66,7 +66,15 @@ def parse_arguments():
     parser.add_argument('--' + constants.NUM_IGNORED_SITES_NAME, type=float, required=True)
     parser.add_argument('--' + constants.MAF_SEGMENTS_NAME, required=False)
     parser.add_argument('--' + constants.NORMAL_MAF_SEGMENTS_NAME, required=False)
+
+    # genotype both somatic and germline, but germline is not considered an error to be filtered and hence
+    # is treated as true positive when optimizing F1 score for choosing error posterior threshold
     parser.add_argument('--' + constants.GERMLINE_MODE_NAME, action='store_true')
+
+    # this is different from the above -- if true, do not genotype germline at all i.e. germline variation is
+    # treated as impossible.  This is useful for certain validations, such as pooled mixtures, where pseudo-somatic
+    # events are created by mixing germline events at varying fractions.
+    parser.add_argument('--' + constants.NO_GERMLINE_MODE_NAME, action='store_true')
     return parser.parse_args()
 
 
@@ -101,17 +109,18 @@ def main_without_parsing(args):
                       tensorboard_dir=getattr(args, constants.TENSORBOARD_DIR_NAME),
                       num_ignored_sites=getattr(args, constants.NUM_IGNORED_SITES_NAME),
                       germline_mode=getattr(args, constants.GERMLINE_MODE_NAME),
+                      no_germline_mode=getattr(args, constants.NO_GERMLINE_MODE_NAME),
                       segmentation=get_segmentation(getattr(args, constants.MAF_SEGMENTS_NAME)),
                       normal_segmentation=get_segmentation(getattr(args, constants.NORMAL_MAF_SEGMENTS_NAME)))
 
 
 def make_filtered_vcf(saved_artifact_model, initial_log_variant_prior: float, initial_log_artifact_prior: float,
                       test_dataset_file, input_vcf, output_vcf, batch_size: int, chunk_size: int, num_spectrum_iterations: int, tensorboard_dir,
-                      num_ignored_sites: int, germline_mode: bool = False, segmentation=defaultdict(IntervalTree),
+                      num_ignored_sites: int, germline_mode: bool = False, no_germline_mode: bool = False,segmentation=defaultdict(IntervalTree),
                       normal_segmentation=defaultdict(IntervalTree)):
     print("Loading artifact model and test dataset")
     artifact_model = load_artifact_model(saved_artifact_model)
-    posterior_model = PosteriorModel(initial_log_variant_prior, initial_log_artifact_prior, segmentation=segmentation, normal_segmentation=normal_segmentation)
+    posterior_model = PosteriorModel(initial_log_variant_prior, initial_log_artifact_prior, segmentation=segmentation, normal_segmentation=normal_segmentation, no_germline_mode=no_germline_mode)
     posterior_data_loader = make_posterior_data_loader(test_dataset_file, input_vcf, artifact_model, batch_size, chunk_size=chunk_size)
 
     print("Learning AF spectra")
