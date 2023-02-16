@@ -200,6 +200,7 @@ def apply_filtering_to_vcf(input_vcf, output_vcf, error_probability_threshold, p
     unfiltered_vcf = cyvcf2.VCF(input_vcf)
 
     all_types = [call_type.name for call_type in Call]
+    unfiltered_vcf.add_format_to_header( {'ID': "DP", 'Description': "depth", 'Type': 'Integer', 'Number': '1'})
     unfiltered_vcf.add_info_to_header({'ID': POST_PROB_INFO_KEY, 'Description': 'Mutect3 posterior probability of {' + ', '.join(all_types) + '}',
                                        'Type': 'Float', 'Number': 'A'})
     unfiltered_vcf.add_info_to_header({'ID': LOG_PRIOR_INFO_KEY, 'Description': 'Log priors of {' + ', '.join(all_types) + '}',
