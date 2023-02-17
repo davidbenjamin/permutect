@@ -14,7 +14,7 @@ BATCH_SIZE = 64
 CHUNK_SIZE = 100000
 NUM_EPOCHS = 50
 NUM_SPECTRUM_ITERATIONS = 100
-TRAINING_PARAMS = TrainingParameters(batch_size=BATCH_SIZE, num_epochs=NUM_EPOCHS, reweighting_range=0.3)
+TRAINING_PARAMS = TrainingParameters(batch_size=BATCH_SIZE, num_epochs=NUM_EPOCHS, num_refless_epochs=10, reweighting_range=0.3)
 
 REF_SEQ_LAYER_STRINGS = ['convolution/kernel_size=3/out_channels=64',
                      'pool/kernel_size=3',

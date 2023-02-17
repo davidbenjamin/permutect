@@ -9,9 +9,10 @@ from mutect3.data.read_set_dataset import ReadSetDataset
 
 
 class TrainingParameters:
-    def __init__(self, batch_size, num_epochs, reweighting_range: float, num_workers: int=0):
+    def __init__(self, batch_size, num_epochs, num_refless_epochs, reweighting_range: float, num_workers: int=0):
         self.batch_size = batch_size
         self.num_epochs = num_epochs
+        self.num_refless_epochs = num_refless_epochs
         self.reweighting_range = reweighting_range
         self.num_workers = num_workers
 
@@ -29,8 +30,7 @@ def train_artifact_model(m3_params: ArtifactModelParameters, params: TrainingPar
     summary_writer = SummaryWriter(tensorboard_dir)
     model.train_model(dataset, params.num_epochs, params.batch_size, params.num_workers, summary_writer=summary_writer, reweighting_range=params.reweighting_range, m3_params=m3_params)
 
-    # TODO: don't just hard-code number of refless epochs!!!
-    model.train_model(dataset, 5, params.batch_size, params.num_workers, summary_writer=summary_writer,
+    model.train_model(dataset, params.num_refless_epochs, params.batch_size, params.num_workers, summary_writer=summary_writer,
                       reweighting_range=params.reweighting_range, m3_params=m3_params, use_ref_reads=False)
 
     print("Calibrating. . .")
@@ -62,8 +62,9 @@ def parse_training_params(args) -> TrainingParameters:
     reweighting_range = getattr(args, constants.REWEIGHTING_RANGE_NAME)
     batch_size = getattr(args, constants.BATCH_SIZE_NAME)
     num_epochs = getattr(args, constants.NUM_EPOCHS_NAME)
+    num_refless_epochs = getattr(args, constants.NUM_REFLESS_EPOCHS_NAME)
     num_workers = getattr(args, constants.NUM_WORKERS_NAME)
-    return TrainingParameters(batch_size, num_epochs, reweighting_range, num_workers=num_workers)
+    return TrainingParameters(batch_size, num_epochs, num_refless_epochs, reweighting_range, num_workers=num_workers)
 
 
 def parse_mutect3_params(args) -> ArtifactModelParameters:
@@ -97,6 +98,7 @@ def parse_arguments():
     parser.add_argument('--' + constants.BATCH_SIZE_NAME, type=int, default=64, required=False)
     parser.add_argument('--' + constants.NUM_WORKERS_NAME, type=int, default=0, required=False)
     parser.add_argument('--' + constants.NUM_EPOCHS_NAME, type=int, required=True)
+    parser.add_argument('--' + constants.NUM_REFLESS_EPOCHS_NAME, type=int, required=True)
 
     # path to saved model
     parser.add_argument('--' + constants.OUTPUT_NAME, type=str, required=True)
