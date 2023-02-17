@@ -91,7 +91,8 @@ def get_segmentation(segments_file) -> defaultdict:
                 continue
             tokens = line.split()
             contig, start, stop, maf = tokens[0], int(tokens[1]), int(tokens[2]), float(tokens[3])
-            result[contig][start:stop] = maf
+            if stop > start:    # IntervalTree throws error if start == stop
+                result[contig][start:stop] = maf
 
     return result
 
@@ -116,7 +117,7 @@ def main_without_parsing(args):
 
 def make_filtered_vcf(saved_artifact_model, initial_log_variant_prior: float, initial_log_artifact_prior: float,
                       test_dataset_file, input_vcf, output_vcf, batch_size: int, chunk_size: int, num_spectrum_iterations: int, tensorboard_dir,
-                      num_ignored_sites: int, germline_mode: bool = False, no_germline_mode: bool = False,segmentation=defaultdict(IntervalTree),
+                      num_ignored_sites: int, germline_mode: bool = False, no_germline_mode: bool = False, segmentation=defaultdict(IntervalTree),
                       normal_segmentation=defaultdict(IntervalTree)):
     print("Loading artifact model and test dataset")
     artifact_model = load_artifact_model(saved_artifact_model)
