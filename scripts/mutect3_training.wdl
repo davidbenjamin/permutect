@@ -5,6 +5,7 @@ workflow TrainMutect3 {
     input {
         File train_tar
         Int num_epochs
+        Int num_refless_epochs
         Int batch_size
         Int? num_workers
         Float dropout_p
@@ -29,6 +30,7 @@ workflow TrainMutect3 {
                 preemptible = preemptible,
                 max_retries = max_retries,
                 num_epochs = num_epochs,
+                num_refless_epochs = num_refless_epochs,
                 batch_size = batch_size,
                 num_workers = num_workers,
                 dropout_p = dropout_p,
@@ -49,6 +51,7 @@ workflow TrainMutect3 {
                 preemptible = preemptible,
                 max_retries = max_retries,
                 num_epochs = num_epochs,
+                num_refless_epochs = num_refless_epochs,
                 batch_size = batch_size,
                 num_workers = num_workers,
                 dropout_p = dropout_p,
@@ -75,6 +78,7 @@ task TrainMutect3GPU {
         File train_tar
 
         Int num_epochs
+        Int num_refless_epochs
         Int batch_size
         Int? num_workers
         Float dropout_p
@@ -112,7 +116,7 @@ task TrainMutect3GPU {
             --reweighting_range ~{reweighting_range} \
             --batch_size ~{batch_size} \
             ~{"--num_workers " + num_workers} \
-            --num_epochs ~{num_epochs} \
+            --num_epochs ~{num_epochs} --num_refless_epochs ~{num_refless_epochs}\
             --output mutect3.pt \
             --tensorboard_dir tensorboard \
             ~{extra_args}
@@ -141,6 +145,7 @@ task TrainMutect3CPU {
         File train_tar
 
         Int num_epochs
+        Int num_refless_epochs
         Int batch_size
         Int? num_workers
         Float dropout_p
@@ -177,7 +182,7 @@ task TrainMutect3CPU {
             --reweighting_range ~{reweighting_range} \
             --batch_size ~{batch_size} \
             ~{"--num_workers " + num_workers} \
-            --num_epochs ~{num_epochs} \
+            --num_epochs ~{num_epochs} --num_refless_epochs ~{num_refless_epochs}\
             --output mutect3.pt \
             --tensorboard_dir tensorboard \
             ~{extra_args}
