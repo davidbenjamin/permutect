@@ -4,6 +4,7 @@ version 1.0
 workflow TrainMutect3 {
     input {
         File train_tar
+        File artifact_tar
         Int num_epochs
         Int num_refless_epochs
         Int batch_size
@@ -28,6 +29,7 @@ workflow TrainMutect3 {
         call TrainMutect3GPU {
             input:
                 train_tar = train_tar,
+                artifact_tar = artifact_tar,
                 mutect3_docker = mutect3_docker,
                 preemptible = preemptible,
                 max_retries = max_retries,
@@ -51,6 +53,7 @@ workflow TrainMutect3 {
         call TrainMutect3CPU {
             input:
                 train_tar = train_tar,
+                artifact_tar = artifact_tar,
                 mutect3_docker = mutect3_docker,
                 preemptible = preemptible,
                 max_retries = max_retries,
@@ -82,6 +85,7 @@ workflow TrainMutect3 {
 task TrainMutect3GPU {
     input {
         File train_tar
+        File artifact_tar
 
         Int num_epochs
         Int num_refless_epochs
@@ -117,6 +121,7 @@ task TrainMutect3GPU {
 
         train_model \
             --train_tar ~{train_tar} \
+            --artifact_tar ~{artifact_tar} \
             --read_layers ~{sep=' ' read_layers} \
             --info_layers ~{sep=' ' info_layers} \
             --aggregation_layers ~{sep=' ' aggregation_layers} \
@@ -154,6 +159,7 @@ task TrainMutect3GPU {
 task TrainMutect3CPU {
     input {
         File train_tar
+        File artifact_tar
 
         Int num_epochs
         Int num_refless_epochs
@@ -188,6 +194,7 @@ task TrainMutect3CPU {
 
         train_model \
             --train_tar ~{train_tar} \
+            --artifact_tar ~{artifact_tar} \
             --read_layers ~{sep=' ' read_layers} \
             --info_layers ~{sep=' ' info_layers} \
             --aggregation_layers ~{sep=' ' aggregation_layers} \

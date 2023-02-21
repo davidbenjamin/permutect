@@ -38,6 +38,10 @@ def germline_log_likelihood(afs, mafs, alt_counts, ref_counts):
     return torch.logsumexp(torch.vstack((alt_minor_ll, alt_major_ll, hom_ll)), dim=0)
 
 
+def initialize_artifact_spectra():
+    return BetaBinomialMixture(input_size=len(Variation), num_components=5)
+
+
 class PosteriorModel(torch.nn.Module):
     """
 
@@ -57,7 +61,7 @@ class PosteriorModel(torch.nn.Module):
         self.somatic_spectrum = FeaturelessBetaBinomialMixture(num_components=5)
 
         # artifact spectra for each variant type.  Variant type encoded as one-hot input vector.
-        self.artifact_spectra = BetaBinomialMixture(input_size=len(Variation), num_components=5)
+        self.artifact_spectra = initialize_artifact_spectra()
 
         # pre-softmax priors [log P(variant), log P(artifact), log P(seq error)] for each variant type
         # linear layer with no bias to select the appropriate priors given one-hot variant encoding

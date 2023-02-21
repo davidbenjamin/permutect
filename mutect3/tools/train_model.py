@@ -1,10 +1,15 @@
 import argparse
+import tempfile
+import tarfile
+import os
+import pickle
 
 import torch
 from torch.utils.tensorboard import SummaryWriter
 
+from mutect3 import constants, utils
 from mutect3.architecture.artifact_model import ArtifactModelParameters, ArtifactModel
-from mutect3 import constants
+from mutect3.architecture.posterior_model import initialize_artifact_spectra
 from mutect3.data.read_set_dataset import ReadSetDataset
 
 
@@ -51,16 +56,39 @@ def train_artifact_model(m3_params: ArtifactModelParameters, params: TrainingPar
     return model
 
 
-# TODO: fill in this function!!!!
-def learn_artifact_priors_and_spectra(data_tarfile, genomic_span_of_data: int):
-    dataset = ReadSetDataset(data_tarfile=data_tarfile, validation_fraction=0.0)
-    artifact_counts = dataset.artifact_totals   # 1D tensor of length len(utils.Variation)
+def learn_artifact_priors_and_spectra(artifact_tarfile, genomic_span_of_data: int):
+    temp_dir = tempfile.TemporaryDirectory()
+    tar = tarfile.open(artifact_tarfile)
+    tar.extractall(temp_dir.name)
+    tar.close()
+    data_files = [os.path.abspath(os.path.join(temp_dir.name, p)) for p in os.listdir(temp_dir.name)]
+
+    artifact_counts = torch.zeros(len(utils.Variation))
+    types_one_hot_buffer, depths_buffer, alt_counts_buffer = [], [], []   # list of tensors as they accumulate
+    types_one_hot_tensors, depths_tensors, alt_counts_tensors = [], [], []
+    for file in data_files:
+        for artifact_posterior in pickle.load(open(file, 'rb')):
+            variant_type = utils.Variation.get_type(artifact_posterior.ref, artifact_posterior.alt)
+            artifact_counts[variant_type] += 1
+            types_one_hot_buffer.append(variant_type.one_hot_tensor())
+            depths_buffer.append(artifact_posterior.depth)
+            alt_counts_buffer.append(artifact_posterior.alt_count)
+
+        # after each file, turn the buffers into tensors
+        types_one_hot_tensors.append(torch.vstack(types_one_hot_buffer))
+        depths_tensors.append(torch.Tensor(depths_buffer))
+        alt_counts_buffer.append(torch.Tensor(alt_counts_buffer))
+        types_one_hot_buffer, depths_buffer, alt_counts_buffer = [], [], []
 
     log_artifact_priors = torch.log(artifact_counts / genomic_span_of_data)
 
+    artifact_spectra = initialize_artifact_spectra()
 
+    # TODO: hard-coded num epochs!!!
+    artifact_spectra.fit(num_epochs=10, inputs_2d_tensor=torch.vstack(types_one_hot_tensors),
+                         depths_1d_tensor=torch.hstack(depths_tensors), alt_counts_1d_tensor=torch.hstack(alt_counts_tensors),
+                         batch_size=64)
 
-    artifact_spectra = None
     return log_artifact_priors, artifact_spectra
 
 
@@ -124,6 +152,8 @@ def parse_arguments():
     # Training data inputs
     parser.add_argument('--' + constants.TRAIN_TAR_NAME, type=str, required=True,
                         help='tarfile of training/validation datasets produced by preprocess_dataset.py')
+    parser.add_argument('--' + constants.ARTIFACT_TAR_NAME, type=str, required=True,
+                        help='tarfile of artifact posterior data produced by preprocess_dataset.py')
 
     # training hyperparameters
     parser.add_argument('--' + constants.REWEIGHTING_RANGE_NAME, type=float, default=0.3, required=False,
@@ -167,7 +197,8 @@ def main_without_parsing(args):
     model = train_artifact_model(m3_params=m3_params, data_tarfile=tarfile_data,
                                  params=training_params, tensorboard_dir=getattr(args, constants.TENSORBOARD_DIR_NAME))
 
-    artifact_log_priors, artifact_spectra = learn_artifact_priors_and_spectra(tarfile_data, genomic_span) if learn_artifact_spectra else (None, None)
+    artifact_tarfile_data = getattr(args, constants.ARTIFACT_TAR_NAME)
+    artifact_log_priors, artifact_spectra = learn_artifact_priors_and_spectra(artifact_tarfile_data, genomic_span) if learn_artifact_spectra else (None, None)
 
     save_artifact_model(model, m3_params, getattr(args, constants.OUTPUT_NAME), artifact_log_priors, artifact_spectra)
 
