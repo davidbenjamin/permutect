@@ -1,10 +1,12 @@
 import math
-from torch import nn, lgamma, exp, unsqueeze, logsumexp
-from torch.nn.functional import softmax, log_softmax
+
 import torch
+from torch import nn, exp, unsqueeze, logsumexp
+from torch.nn.functional import softmax, log_softmax
 
 from mutect3.metrics.plotting import simple_plot
 from mutect3.utils import beta_binomial
+
 
 class BetaBinomialMixture(nn.Module):
     """

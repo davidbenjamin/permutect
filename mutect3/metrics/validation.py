@@ -7,6 +7,7 @@ from mutect3.metrics.plotting import simple_plot
 # above, they were filters that are not artifacts, such as germline, contamination, and weak evidence
 # here, they are artifact filters that we intend to use in M3, such as the normal artifact filter
 
+
 def round_alt_count_for_binning(alt_count):
     if alt_count < 15:
         return alt_count

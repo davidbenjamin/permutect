@@ -3,10 +3,10 @@ import os
 import tarfile
 import tempfile
 
-from mutect3 import constants, utils
-from mutect3.utils import ConsistentValue
+from mutect3 import constants
 from mutect3.data import read_set
 from mutect3.data.plain_text_data import generate_normalized_data
+from mutect3.utils import ConsistentValue
 
 """
 This tool takes as input a list of text file Mutect3 training datasets, reads them in chunks that fit in memory,

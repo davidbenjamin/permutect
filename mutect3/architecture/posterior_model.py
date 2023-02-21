@@ -1,18 +1,17 @@
-import torch
-from torch.utils.tensorboard import SummaryWriter
-
-from itertools import chain
 from collections import defaultdict
+from itertools import chain
+
+import torch
 from intervaltree import IntervalTree
-from tqdm.autonotebook import trange, tqdm
 from matplotlib import pyplot as plt
+from torch.utils.tensorboard import SummaryWriter
+from tqdm.autonotebook import trange, tqdm
 
 from mutect3 import utils
-from mutect3.data.posterior import PosteriorBatch
-from mutect3.utils import Variation, Call
 from mutect3.architecture.beta_binomial_mixture import BetaBinomialMixture, FeaturelessBetaBinomialMixture
-from mutect3.data.read_set import ReadSetBatch
+from mutect3.data.posterior import PosteriorBatch
 from mutect3.metrics import plotting
+from mutect3.utils import Variation, Call
 
 HOM_ALPHA, HOM_BETA = torch.Tensor([98.0]), torch.Tensor([2.0])
 

@@ -1,21 +1,19 @@
 import argparse
-import math
-from typing import Set
-from intervaltree import IntervalTree
 from collections import defaultdict
-import psutil
+from typing import Set
 
-import torch
-from torch.utils.tensorboard import SummaryWriter
 import cyvcf2
+import torch
+from intervaltree import IntervalTree
+from torch.utils.tensorboard import SummaryWriter
 from tqdm.autonotebook import tqdm
 
+from mutect3 import constants, utils
 from mutect3.architecture.artifact_model import ArtifactModel
 from mutect3.architecture.posterior_model import PosteriorModel
 from mutect3.data import read_set_dataset, plain_text_data
-from mutect3 import constants, utils
-from mutect3.data.posterior import PosteriorDatum, PosteriorDataset
-from mutect3.utils import Call, encode, encode_datum, encode_variant
+from mutect3.data.posterior import PosteriorDataset
+from mutect3.utils import Call, encode_datum, encode_variant
 
 TRUSTED_M2_FILTERS = {'contamination'}
 
