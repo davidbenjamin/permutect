@@ -15,10 +15,13 @@ normalizes each chunk, outputs each chunk as a binary PyTorch file, and bundles 
 
 
 def parse_arguments():
-    parser = argparse.ArgumentParser()
-    parser.add_argument('--' + constants.TRAINING_DATASETS_NAME, nargs='+', type=str, required=True)
-    parser.add_argument('--' + constants.CHUNK_SIZE_NAME, type=int, default=int(2e9), required=False)
-    parser.add_argument('--' + constants.OUTPUT_NAME, type=str, default=None, required=False)
+    parser = argparse.ArgumentParser(description='preprocess plain text training dataset into tarfile of nprmalized binary data')
+    parser.add_argument('--' + constants.TRAINING_DATASETS_NAME, nargs='+', type=str, required=True,
+                        help='list of plain text data files')
+    parser.add_argument('--' + constants.CHUNK_SIZE_NAME, type=int, default=int(2e9), required=False,
+                        help='size in bytes of output binary data files')
+    parser.add_argument('--' + constants.OUTPUT_NAME, type=str, default=None, required=False,
+                        help='path to output tarfile')
     return parser.parse_args()
 
 
