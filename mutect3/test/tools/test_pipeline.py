@@ -72,7 +72,7 @@ def test_on_dream1():
     setattr(filtering_args, constants.NUM_SPECTRUM_ITERATIONS, 10)
     setattr(filtering_args, constants.INITIAL_LOG_VARIANT_PRIOR_NAME, -10.0)
     setattr(filtering_args, constants.INITIAL_LOG_ARTIFACT_PRIOR_NAME, -10.0)
-    setattr(filtering_args, constants.NUM_IGNORED_SITES_NAME, 100000)
+    setattr(filtering_args, constants.GENOMIC_SPAN_NAME, 100000)
     setattr(filtering_args, constants.MAF_SEGMENTS_NAME, None)
     setattr(filtering_args, constants.NORMAL_MAF_SEGMENTS_NAME, None)
     setattr(filtering_args, constants.GERMLINE_MODE_NAME, False)

@@ -143,7 +143,7 @@ class PosteriorModel(torch.nn.Module):
         return log_posteriors
 
     def learn_priors_and_spectra(self, posterior_loader, num_iterations, ignored_to_non_ignored_ratio: float,
-                                 summary_writer: SummaryWriter = None):
+                                 summary_writer: SummaryWriter = None, artifact_log_priors=None, artifact_spectra_state_dict=None):
         """
         :param summary_writer:
         :param num_iterations:
@@ -151,10 +151,26 @@ class PosteriorModel(torch.nn.Module):
         :param ignored_to_non_ignored_ratio: ratio of sites in which no evidence of variation was found to sites in which
         sufficient evidence was found to emit test data.  Without this parameter (i.e. if it were set to zero) we would
         underestimate the frequency of sequencing error, hence overestimate the prior probability of variation.
-
+        :param artifact_spectra_state_dict: (possibly None) if given, pretrained parameters of self.artifact_spectra
+        from train_model.py.  In this case we make sure to freeze this part of the model
+        :param artifact_log_priors: (possibly None) 1D tensor with length len(utils.Variation) containing log prior probabilities
+        of artifacts for each variation type, from train_model.py.  If given, freeze these parameters.
         :return:
         """
-        spectra_and_prior_params = chain(self.somatic_spectrum.parameters(), self.artifact_spectra.parameters(),
+        if artifact_spectra_state_dict is not None:
+            self.artifact_spectra.load_state_dict(artifact_spectra_state_dict)
+            utils.freeze(self.artifact_spectra.parameters())
+
+        # TODO: UNSAFE! We're getting into the details of exactly how unnormalized priors work
+        # TODO: and the whole approach breaks apart if we implement things without going through self._unnormalized_priors
+        # TODO: also, this only ensures that the priors are frozen within this function, but what if they are modified elsewhere?
+        # note that we can't just freeze normally because this is just one row of the log priors tensor
+        if artifact_log_priors is not None:
+            with torch.no_grad():
+                self._unnormalized_priors.weight[Call.ARTIFACT] = artifact_log_priors
+
+        artifact_spectra_params_to_learn = self.artifact_spectra.parameters() if artifact_spectra_state_dict is None else []
+        spectra_and_prior_params = chain(self.somatic_spectrum.parameters(), artifact_spectra_params_to_learn,
                                          self._unnormalized_priors.parameters())
         optimizer = torch.optim.Adam(spectra_and_prior_params)
 
@@ -180,6 +196,11 @@ class PosteriorModel(torch.nn.Module):
                 optimizer.zero_grad(set_to_none=True)
                 loss.backward()
                 optimizer.step()
+
+                # TODO: INELEGANT! since we can't freeze just the artifact row of log priors, we have to reset it after each batch
+                if artifact_log_priors is not None:
+                    with torch.no_grad():
+                        self._unnormalized_priors.weight[Call.ARTIFACT] = artifact_log_priors
 
                 epoch_loss.record_sum(batch.size() * loss.detach(), batch.size())
 

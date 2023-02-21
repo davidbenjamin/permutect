@@ -51,13 +51,28 @@ def train_artifact_model(m3_params: ArtifactModelParameters, params: TrainingPar
     return model
 
 
-def save_artifact_model(model, m3_params, path):
+# TODO: fill in this function!!!!
+def learn_artifact_priors_and_spectra(data_tarfile, genomic_span_of_data: int):
+    dataset = ReadSetDataset(data_tarfile=data_tarfile, validation_fraction=0.0)
+    artifact_counts = dataset.artifact_totals   # 1D tensor of length len(utils.Variation)
+
+    log_artifact_priors = torch.log(artifact_counts / genomic_span_of_data)
+
+
+
+    artifact_spectra = None
+    return log_artifact_priors, artifact_spectra
+
+
+def save_artifact_model(model, m3_params, path, artifact_log_priors, artifact_spectra):
     torch.save({
         constants.STATE_DICT_NAME: model.state_dict(),
         constants.M3_PARAMS_NAME: m3_params,
         constants.NUM_READ_FEATURES_NAME: model.num_read_features(),
         constants.NUM_INFO_FEATURES_NAME: model.num_info_features(),
-        constants.REF_SEQUENCE_LENGTH_NAME: model.ref_sequence_length()
+        constants.REF_SEQUENCE_LENGTH_NAME: model.ref_sequence_length(),
+        constants.ARTIFACT_LOG_PRIORS_NAME: artifact_log_priors,
+        constants.ARTIFACT_SPECTRA_STATE_DICT_NAME: artifact_spectra.state_dict()
     }, path)
 
 
@@ -124,6 +139,15 @@ def parse_arguments():
     parser.add_argument('--' + constants.NUM_REFLESS_EPOCHS_NAME, type=int, required=True,
                         help='number of epochs for training only the reference-ignoring aggregation subnetwork.')
 
+    parser.add_argument('--' + constants.LEARN_ARTIFACT_SPECTRA_NAME, action='store_true',
+                        help='flag to include artifact priors and allele fraction spectra in saved output.  '
+                             'This is worth doing if labeled training data is available but might work poorly '
+                             'when Mutect3 generates weak labels based on allele fractions.')
+    parser.add_argument('--' + constants.GENOMIC_SPAN_NAME, type=float, required=False,
+                        help='Total number of sites considered by Mutect2 in all training data, including those lacking variation or artifacts, hence absent from input datasets.  '
+                             'Necessary for learning priors since otherwise rates of artifacts and variants would be overinflated. '
+                             'Only required if learning artifact log priors')
+
     # path to saved model
     parser.add_argument('--' + constants.OUTPUT_NAME, type=str, required=True,
                         help='path to output saved model file')
@@ -136,11 +160,16 @@ def parse_arguments():
 def main_without_parsing(args):
     m3_params = parse_mutect3_params(args)
     training_params = parse_training_params(args)
+    learn_artifact_spectra = getattr(args, constants.LEARN_ARTIFACT_SPECTRA_NAME)
+    genomic_span = getattr(args, constants.GENOMIC_SPAN_NAME)
 
     tarfile_data = getattr(args, constants.TRAIN_TAR_NAME)
     model = train_artifact_model(m3_params=m3_params, data_tarfile=tarfile_data,
                                  params=training_params, tensorboard_dir=getattr(args, constants.TENSORBOARD_DIR_NAME))
-    save_artifact_model(model, m3_params, getattr(args, constants.OUTPUT_NAME))
+
+    artifact_log_priors, artifact_spectra = learn_artifact_priors_and_spectra(tarfile_data, genomic_span) if learn_artifact_spectra else (None, None)
+
+    save_artifact_model(model, m3_params, getattr(args, constants.OUTPUT_NAME), artifact_log_priors, artifact_spectra)
 
 
 def main():

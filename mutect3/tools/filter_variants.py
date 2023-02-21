@@ -25,19 +25,22 @@ NORMAL_LOG_LIKELIHOOD_INFO_KEY = 'NORMLL'
 
 FILTER_NAMES = [call_type.name.lower() for call_type in Call]
 
-CHUNK_SIZE = 100000
-
 
 # this presumes that we have an ArtifactModel and we have saved it via save_mutect3_model as in train_model.py
+# it includes log artifact priors and artifact spectra, but these may be None
 def load_artifact_model(path) -> ArtifactModel:
     saved = torch.load(path)
     m3_params = saved[constants.M3_PARAMS_NAME]
     num_read_features = saved[constants.NUM_READ_FEATURES_NAME]
     num_info_features = saved[constants.NUM_INFO_FEATURES_NAME]
     ref_sequence_length = saved[constants.REF_SEQUENCE_LENGTH_NAME]
+
     model = ArtifactModel(m3_params, num_read_features=num_read_features, num_info_features=num_info_features, ref_sequence_length=ref_sequence_length)
     model.load_state_dict(saved[constants.STATE_DICT_NAME])
-    return model
+
+    artifact_log_priors = saved[constants.ARTIFACT_LOG_PRIORS_NAME] # possibly None
+    artifact_spectra_state_dict = saved[constants.ARTIFACT_SPECTRA_STATE_DICT_NAME] #possibly None
+    return model, artifact_log_priors, artifact_spectra_state_dict
 
 
 def get_first_numeric_element(variant, key):
@@ -65,8 +68,8 @@ def parse_arguments():
                         help='initial value for natural log prior of somatic variants')
     parser.add_argument('--' + constants.INITIAL_LOG_ARTIFACT_PRIOR_NAME, type=float, default=-10.0, required=False,
                         help='initial value for natural log prior of artifacts')
-    parser.add_argument('--' + constants.NUM_IGNORED_SITES_NAME, type=float, required=True,
-                        help='number of sites considered by Mutect2 but lacking variation or artifacts, hence absent from input dataset.  '
+    parser.add_argument('--' + constants.GENOMIC_SPAN_NAME, type=float, required=True,
+                        help='number of sites considered by Mutect2, including those lacking variation or artifacts, hence absent from input dataset.  '
                              'Necessary for learning priors since otherwise rates of artifacts and variants would be overinflated.')
     parser.add_argument('--' + constants.MAF_SEGMENTS_NAME, required=False,
                         help='copy-number segmentation file from GATK containing minor allele fractions.  '
@@ -115,7 +118,7 @@ def main_without_parsing(args):
                       chunk_size=getattr(args, constants.CHUNK_SIZE_NAME),
                       num_spectrum_iterations=getattr(args, constants.NUM_SPECTRUM_ITERATIONS),
                       tensorboard_dir=getattr(args, constants.TENSORBOARD_DIR_NAME),
-                      num_ignored_sites=getattr(args, constants.NUM_IGNORED_SITES_NAME),
+                      genomic_span=getattr(args, constants.GENOMIC_SPAN_NAME),
                       germline_mode=getattr(args, constants.GERMLINE_MODE_NAME),
                       no_germline_mode=getattr(args, constants.NO_GERMLINE_MODE_NAME),
                       segmentation=get_segmentation(getattr(args, constants.MAF_SEGMENTS_NAME)),
@@ -124,19 +127,21 @@ def main_without_parsing(args):
 
 def make_filtered_vcf(saved_artifact_model, initial_log_variant_prior: float, initial_log_artifact_prior: float,
                       test_dataset_file, input_vcf, output_vcf, batch_size: int, chunk_size: int, num_spectrum_iterations: int, tensorboard_dir,
-                      num_ignored_sites: int, germline_mode: bool = False, no_germline_mode: bool = False, segmentation=defaultdict(IntervalTree),
+                      genomic_span: int, germline_mode: bool = False, no_germline_mode: bool = False, segmentation=defaultdict(IntervalTree),
                       normal_segmentation=defaultdict(IntervalTree)):
     print("Loading artifact model and test dataset")
-    artifact_model = load_artifact_model(saved_artifact_model)
+    artifact_model, artifact_log_priors, artifact_spectra_state_dict = load_artifact_model(saved_artifact_model)
     posterior_model = PosteriorModel(initial_log_variant_prior, initial_log_artifact_prior, segmentation=segmentation, normal_segmentation=normal_segmentation, no_germline_mode=no_germline_mode)
     posterior_data_loader = make_posterior_data_loader(test_dataset_file, input_vcf, artifact_model, batch_size, chunk_size=chunk_size)
 
     print("Learning AF spectra")
     summary_writer = SummaryWriter(tensorboard_dir)
 
-    # TODO: filtering data loader is now a filtering dataset!!!
+    num_ignored_sites = genomic_span - len(posterior_data_loader.dataset)
+    # here is where pretrained artifact priors and spectra are used if given
     posterior_model.learn_priors_and_spectra(posterior_data_loader, num_iterations=num_spectrum_iterations,
-        summary_writer=summary_writer, ignored_to_non_ignored_ratio=num_ignored_sites/len(posterior_data_loader.dataset))
+        summary_writer=summary_writer, ignored_to_non_ignored_ratio=num_ignored_sites/len(posterior_data_loader.dataset),
+        artifact_log_priors=artifact_log_priors, artifact_spectra_state_dict=artifact_spectra_state_dict)
 
     print("Calculating optimal logit threshold")
     error_probability_threshold = posterior_model.calculate_probability_threshold(posterior_data_loader, summary_writer, germline_mode=germline_mode)

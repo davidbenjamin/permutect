@@ -143,10 +143,10 @@ task Mutect3Filtering {
 
     command <<<
         # set -e
-        num_ignored=`grep "callable" ~{mutect_stats} | while read name value; do echo $value; done`
+        genomic_span=`grep "callable" ~{mutect_stats} | while read name value; do echo $value; done`
 
         filter_variants --input ~{mutect2_vcf} --test_dataset ~{test_dataset} --m3_model ~{mutect3_model} --output mutect3-filtered.vcf \
-            --batch_size ~{batch_size} --chunk_size ~{chunk_size} ~{"--maf_segments " + maf_segments} ~{"--normal_maf_segments " + normal_maf_segments} --num_ignored_sites $num_ignored ~{m3_filtering_extra_args}
+            --batch_size ~{batch_size} --chunk_size ~{chunk_size} ~{"--maf_segments " + maf_segments} ~{"--normal_maf_segments " + normal_maf_segments} --genomic_span $genomic_span ~{m3_filtering_extra_args}
     >>>
 
     runtime {
