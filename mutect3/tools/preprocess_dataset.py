@@ -3,10 +3,10 @@ import os
 import tarfile
 import tempfile
 
-from mutect3 import constants, utils
-from mutect3.utils import ConsistentValue
+from mutect3 import constants
 from mutect3.data import read_set
 from mutect3.data.plain_text_data import generate_normalized_data
+from mutect3.utils import ConsistentValue
 
 """
 This tool takes as input a list of text file Mutect3 training datasets, reads them in chunks that fit in memory,
@@ -15,10 +15,13 @@ normalizes each chunk, outputs each chunk as a binary PyTorch file, and bundles 
 
 
 def parse_arguments():
-    parser = argparse.ArgumentParser()
-    parser.add_argument('--' + constants.TRAINING_DATASETS_NAME, nargs='+', type=str, required=True)
-    parser.add_argument('--' + constants.CHUNK_SIZE_NAME, type=int, default=int(2e9), required=False)
-    parser.add_argument('--' + constants.OUTPUT_NAME, type=str, default=None, required=False)
+    parser = argparse.ArgumentParser(description='preprocess plain text training dataset into tarfile of nprmalized binary data')
+    parser.add_argument('--' + constants.TRAINING_DATASETS_NAME, nargs='+', type=str, required=True,
+                        help='list of plain text data files')
+    parser.add_argument('--' + constants.CHUNK_SIZE_NAME, type=int, default=int(2e9), required=False,
+                        help='size in bytes of output binary data files')
+    parser.add_argument('--' + constants.OUTPUT_NAME, type=str, default=None, required=False,
+                        help='path to output tarfile')
     return parser.parse_args()
 
 

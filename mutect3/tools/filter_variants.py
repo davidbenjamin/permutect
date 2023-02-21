@@ -1,21 +1,19 @@
 import argparse
-import math
-from typing import Set
-from intervaltree import IntervalTree
 from collections import defaultdict
-import psutil
+from typing import Set
 
-import torch
-from torch.utils.tensorboard import SummaryWriter
 import cyvcf2
+import torch
+from intervaltree import IntervalTree
+from torch.utils.tensorboard import SummaryWriter
 from tqdm.autonotebook import tqdm
 
+from mutect3 import constants, utils
 from mutect3.architecture.artifact_model import ArtifactModel
 from mutect3.architecture.posterior_model import PosteriorModel
 from mutect3.data import read_set_dataset, plain_text_data
-from mutect3 import constants, utils
-from mutect3.data.posterior import PosteriorDatum, PosteriorDataset
-from mutect3.utils import Call, encode, encode_datum, encode_variant
+from mutect3.data.posterior import PosteriorDataset
+from mutect3.utils import Call, encode_datum, encode_variant
 
 TRUSTED_M2_FILTERS = {'contamination'}
 
@@ -53,28 +51,37 @@ def filters_to_keep_from_m2(v: cyvcf2.Variant) -> Set[str]:
 
 def parse_arguments():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--' + constants.INPUT_NAME, help='VCF from GATK', required=True)
-    parser.add_argument('--' + constants.TEST_DATASET_NAME, help='test dataset file from GATK', required=True)
-    parser.add_argument('--' + constants.M3_MODEL_NAME, help='trained Mutect3 model', required=True)
-    parser.add_argument('--' + constants.OUTPUT_NAME, help='output filtered vcf', required=True)
-    parser.add_argument('--' + constants.TENSORBOARD_DIR_NAME, type=str, default='tensorboard', required=False)
-    parser.add_argument('--' + constants.BATCH_SIZE_NAME, type=int, default=64, required=False)
-    parser.add_argument('--' + constants.CHUNK_SIZE_NAME, type=int, default=100000, required=False)
-    parser.add_argument('--' + constants.NUM_SPECTRUM_ITERATIONS, type=int, default=10, required=False)
-    parser.add_argument('--' + constants.INITIAL_LOG_VARIANT_PRIOR_NAME, type=float, default=-10.0, required=False)
-    parser.add_argument('--' + constants.INITIAL_LOG_ARTIFACT_PRIOR_NAME, type=float, default=-10.0, required=False)
-    parser.add_argument('--' + constants.NUM_IGNORED_SITES_NAME, type=float, required=True)
-    parser.add_argument('--' + constants.MAF_SEGMENTS_NAME, required=False)
-    parser.add_argument('--' + constants.NORMAL_MAF_SEGMENTS_NAME, required=False)
+    parser.add_argument('--' + constants.INPUT_NAME, required=True, help='unfiltered input Mutect2 VCF')
+    parser.add_argument('--' + constants.TEST_DATASET_NAME, required=True,
+                        help='plain text dataset file corresponding to variants in input VCF')
+    parser.add_argument('--' + constants.M3_MODEL_NAME, required=True, help='trained Mutect3 artifact model from train_model.py')
+    parser.add_argument('--' + constants.OUTPUT_NAME, required=True, help='path to output filtered VCF')
+    parser.add_argument('--' + constants.TENSORBOARD_DIR_NAME, type=str, default='tensorboard', required=False, help='path to output tensorboard')
+    parser.add_argument('--' + constants.BATCH_SIZE_NAME, type=int, default=64, required=False, help='batch size')
+    parser.add_argument('--' + constants.CHUNK_SIZE_NAME, type=int, default=100000, required=False, help='size in bytes of intermediate binary datasets')
+    parser.add_argument('--' + constants.NUM_SPECTRUM_ITERATIONS, type=int, default=10, required=False,
+                        help='number of epochs for fitting allele fraction spectra')
+    parser.add_argument('--' + constants.INITIAL_LOG_VARIANT_PRIOR_NAME, type=float, default=-10.0, required=False,
+                        help='initial value for natural log prior of somatic variants')
+    parser.add_argument('--' + constants.INITIAL_LOG_ARTIFACT_PRIOR_NAME, type=float, default=-10.0, required=False,
+                        help='initial value for natural log prior of artifacts')
+    parser.add_argument('--' + constants.NUM_IGNORED_SITES_NAME, type=float, required=True,
+                        help='number of sites considered by Mutect2 but lacking variation or artifacts, hence absent from input dataset.  '
+                             'Necessary for learning priors since otherwise rates of artifacts and variants would be overinflated.')
+    parser.add_argument('--' + constants.MAF_SEGMENTS_NAME, required=False,
+                        help='copy-number segmentation file from GATK containing minor allele fractions.  '
+                             'Useful for modeling germline variation as the minor allele fraction determines the distribution of germline allele counts.')
+    parser.add_argument('--' + constants.NORMAL_MAF_SEGMENTS_NAME, required=False,
+                        help='copy-number segmentation file from GATK containing minor allele fractions in the normal/control sample')
 
-    # genotype both somatic and germline, but germline is not considered an error to be filtered and hence
-    # is treated as true positive when optimizing F1 score for choosing error posterior threshold
-    parser.add_argument('--' + constants.GERMLINE_MODE_NAME, action='store_true')
+    parser.add_argument('--' + constants.GERMLINE_MODE_NAME, action='store_true',
+                        help='flag for genotyping both somatic and somatic variants distinctly but considering both '
+                             'as non-errors (true positives), which affects the posterior threshold set by optimal F1 score')
 
-    # this is different from the above -- if true, do not genotype germline at all i.e. germline variation is
-    # treated as impossible.  This is useful for certain validations, such as pooled mixtures, where pseudo-somatic
-    # events are created by mixing germline events at varying fractions.
-    parser.add_argument('--' + constants.NO_GERMLINE_MODE_NAME, action='store_true')
+    parser.add_argument('--' + constants.NO_GERMLINE_MODE_NAME, action='store_true',
+                        help='flag for not genotyping germline events so that the only possibilities considered are '
+                             'somatic, artifact, and sequencing error.  This is useful for certain validation where '
+                             'pseudo-somatic events are created by mixing germline events at varying fractions')
     return parser.parse_args()
 
 
