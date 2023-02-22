@@ -6,6 +6,7 @@ from tensorboard.backend.event_processing.event_accumulator import EventAccumula
 from mutect3 import constants
 from mutect3.architecture import artifact_model
 from mutect3.tools import train_model
+from mutect3.tools.filter_variants import load_artifact_model
 
 
 def test_train_model():
@@ -50,6 +51,12 @@ def test_train_model():
     setattr(train_model_args, constants.TENSORBOARD_DIR_NAME, training_tensorboard_dir.name)
 
     train_model.main_without_parsing(train_model_args)
+
+    events = EventAccumulator(training_tensorboard_dir.name)
+    events.Reload()
+
+    loaded_artifact_model, artifact_log_priors, artifact_spectra_state_dict = load_artifact_model(saved_artifact_model)
+    h = 99
 
 
 
