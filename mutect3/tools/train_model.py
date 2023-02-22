@@ -57,28 +57,25 @@ def train_artifact_model(m3_params: ArtifactModelParameters, params: TrainingPar
 
 
 def learn_artifact_priors_and_spectra(artifact_tarfile, genomic_span_of_data: int):
-    temp_dir = tempfile.TemporaryDirectory()
-    tar = tarfile.open(artifact_tarfile)
-    tar.extractall(temp_dir.name)
-    tar.close()
-    data_files = [os.path.abspath(os.path.join(temp_dir.name, p)) for p in os.listdir(temp_dir.name)]
+    with tempfile.TemporaryDirectory() as temp_dir:
+        data_files = utils.extract_to_temp_dir(artifact_tarfile, temp_dir)
 
-    artifact_counts = torch.zeros(len(utils.Variation))
-    types_one_hot_buffer, depths_buffer, alt_counts_buffer = [], [], []   # list of tensors as they accumulate
-    types_one_hot_tensors, depths_tensors, alt_counts_tensors = [], [], []
-    for file in data_files:
-        for artifact_posterior in pickle.load(open(file, 'rb')):
-            variant_type = utils.Variation.get_type(artifact_posterior.ref, artifact_posterior.alt)
-            artifact_counts[variant_type] += 1
-            types_one_hot_buffer.append(torch.from_numpy(variant_type.one_hot_tensor()))
-            depths_buffer.append(artifact_posterior.depth)
-            alt_counts_buffer.append(artifact_posterior.alt_count)
+        artifact_counts = torch.zeros(len(utils.Variation))
+        types_one_hot_buffer, depths_buffer, alt_counts_buffer = [], [], []   # list of tensors as they accumulate
+        types_one_hot_tensors, depths_tensors, alt_counts_tensors = [], [], []
+        for file in data_files:
+            for artifact_posterior in pickle.load(open(file, 'rb')):
+                variant_type = utils.Variation.get_type(artifact_posterior.ref, artifact_posterior.alt)
+                artifact_counts[variant_type] += 1
+                types_one_hot_buffer.append(torch.from_numpy(variant_type.one_hot_tensor()))
+                depths_buffer.append(artifact_posterior.depth)
+                alt_counts_buffer.append(artifact_posterior.alt_count)
 
-        # after each file, turn the buffers into tensors
-        types_one_hot_tensors.append(torch.vstack(types_one_hot_buffer))
-        depths_tensors.append(torch.Tensor(depths_buffer))
-        alt_counts_buffer.append(torch.Tensor(alt_counts_buffer))
-        types_one_hot_buffer, depths_buffer, alt_counts_buffer = [], [], []
+            # after each file, turn the buffers into tensors
+            types_one_hot_tensors.append(torch.vstack(types_one_hot_buffer))
+            depths_tensors.append(torch.Tensor(depths_buffer))
+            alt_counts_tensors.append(torch.Tensor(alt_counts_buffer))
+            types_one_hot_buffer, depths_buffer, alt_counts_buffer = [], [], []
 
     log_artifact_priors = torch.log(artifact_counts / genomic_span_of_data)
 

@@ -2,6 +2,9 @@ import enum
 import numpy as np
 from mutect3.data.posterior import PosteriorDatum
 import cyvcf2
+import tempfile
+import tarfile
+import os
 
 
 # variant size is alt - ref length
@@ -167,3 +170,10 @@ def encode_variant(v: cyvcf2.Variant, zero_based=False):
     alt = v.ALT[0]  # TODO: we're assuming biallelic
     start = (v.start + 1) if zero_based else v.start
     return encode(v.CHROM, start, alt)
+
+
+def extract_to_temp_dir(tar_file, directory):
+    tar = tarfile.open(tar_file)
+    tar.extractall(directory)
+    tar.close()
+    return [os.path.abspath(os.path.join(directory, p)) for p in os.listdir(directory)]
