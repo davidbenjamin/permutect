@@ -82,8 +82,8 @@ def learn_artifact_priors_and_spectra(artifact_tarfile, genomic_span_of_data: in
     artifact_spectra = initialize_artifact_spectra()
 
     # TODO: hard-coded num epochs!!!
-    artifact_spectra.fit(num_epochs=10, inputs_2d_tensor=torch.vstack(types_one_hot_tensors),
-                         depths_1d_tensor=torch.hstack(depths_tensors), alt_counts_1d_tensor=torch.hstack(alt_counts_tensors),
+    artifact_spectra.fit(num_epochs=10, inputs_2d_tensor=torch.vstack(types_one_hot_tensors).float(),
+                         depths_1d_tensor=torch.hstack(depths_tensors).float(), alt_counts_1d_tensor=torch.hstack(alt_counts_tensors).float(),
                          batch_size=64)
 
     return log_artifact_priors, artifact_spectra
