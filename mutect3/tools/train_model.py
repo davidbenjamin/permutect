@@ -70,7 +70,7 @@ def learn_artifact_priors_and_spectra(artifact_tarfile, genomic_span_of_data: in
         for artifact_posterior in pickle.load(open(file, 'rb')):
             variant_type = utils.Variation.get_type(artifact_posterior.ref, artifact_posterior.alt)
             artifact_counts[variant_type] += 1
-            types_one_hot_buffer.append(variant_type.one_hot_tensor())
+            types_one_hot_buffer.append(torch.from_numpy(variant_type.one_hot_tensor()))
             depths_buffer.append(artifact_posterior.depth)
             alt_counts_buffer.append(artifact_posterior.alt_count)
 
