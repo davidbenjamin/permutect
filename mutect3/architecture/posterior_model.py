@@ -227,10 +227,10 @@ class PosteriorModel(torch.nn.Module):
 
                 summary_writer.add_figure("Artifact AF Spectra", art_spectra_fig, epoch)
 
-                var_spectra_fig, var_spectra_axs = plt.subplots(1, 1, sharex='all', sharey='all')
+                var_spectra_fig, var_spectra_axs = plt.subplots()
                 frac, dens = self.somatic_spectrum.spectrum_density_vs_fraction()
-                var_spectra_axs[0, 0].plot(frac.numpy(), dens.numpy())
-                var_spectra_axs[0, 0].set_title("Variant AF Spectrum")
+                var_spectra_axs.plot(frac.numpy(), dens.numpy())
+                var_spectra_axs.set_title("Variant AF Spectrum")
                 summary_writer.add_figure("Variant AF Spectra", var_spectra_fig, epoch)
 
                 # bar plot of log priors -- data is indexed by call type name, and x ticks are variant types
