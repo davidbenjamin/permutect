@@ -9,7 +9,7 @@ from torch.utils.tensorboard import SummaryWriter
 
 from mutect3 import constants, utils
 from mutect3.architecture.artifact_model import ArtifactModelParameters, ArtifactModel
-from mutect3.architecture.posterior_model import initialize_artifact_spectra
+from mutect3.architecture.posterior_model import initialize_artifact_spectra, plot_artifact_spectra
 from mutect3.data.read_set_dataset import ReadSetDataset
 
 
@@ -22,7 +22,7 @@ class TrainingParameters:
         self.num_workers = num_workers
 
 
-def train_artifact_model(m3_params: ArtifactModelParameters, params: TrainingParameters, tensorboard_dir, data_tarfile):
+def train_artifact_model(m3_params: ArtifactModelParameters, params: TrainingParameters, summary_writer: SummaryWriter, data_tarfile):
     use_gpu = torch.cuda.is_available()
     device = torch.device('cuda' if use_gpu else 'cpu')
 
@@ -33,7 +33,6 @@ def train_artifact_model(m3_params: ArtifactModelParameters, params: TrainingPar
                           device=device).float()
 
     print("Training. . .")
-    summary_writer = SummaryWriter(tensorboard_dir)
     model.train_model(dataset, params.num_epochs, params.batch_size, params.num_workers, summary_writer=summary_writer,
                       reweighting_range=params.reweighting_range, m3_params=m3_params)
 
@@ -50,8 +49,6 @@ def train_artifact_model(m3_params: ArtifactModelParameters, params: TrainingPar
 
     print("Evaluating trained model. . .")
     model.evaluate_model_after_training(dataset, params.batch_size, params.num_workers, summary_writer)
-
-    summary_writer.close()
 
     return model
 
@@ -191,12 +188,17 @@ def main_without_parsing(args):
     genomic_span = getattr(args, constants.GENOMIC_SPAN_NAME)
 
     tarfile_data = getattr(args, constants.TRAIN_TAR_NAME)
-    model = train_artifact_model(m3_params=m3_params, data_tarfile=tarfile_data,
-                                 params=training_params, tensorboard_dir=getattr(args, constants.TENSORBOARD_DIR_NAME))
+    tensorboard_dir = getattr(args, constants.TENSORBOARD_DIR_NAME)
+    summary_writer = SummaryWriter(tensorboard_dir)
+    model = train_artifact_model(m3_params=m3_params, data_tarfile=tarfile_data, params=training_params, summary_writer=summary_writer)
 
     artifact_tarfile_data = getattr(args, constants.ARTIFACT_TAR_NAME)
     artifact_log_priors, artifact_spectra = learn_artifact_priors_and_spectra(artifact_tarfile_data, genomic_span) if learn_artifact_spectra else (None, None)
+    if artifact_spectra is not None:
+        art_spectra_fig, art_spectra_axs = plot_artifact_spectra(artifact_spectra)
+        summary_writer.add_figure("Artifact AF Spectra", art_spectra_fig, epoch)
 
+    summary_writer.close()
     save_artifact_model(model, m3_params, getattr(args, constants.OUTPUT_NAME), artifact_log_priors, artifact_spectra)
 
 

@@ -43,6 +43,20 @@ def initialize_artifact_spectra():
     return BetaBinomialMixture(input_size=len(Variation), num_components=5)
 
 
+def plot_artifact_spectra(artifact_spectra: BetaBinomialMixture):
+    # plot AF spectra in two-column grid with as many rows as needed
+    art_spectra_fig, art_spectra_axs = plt.subplots(ceil(len(Variation) / 2), 2, sharex='all', sharey='all')
+    for variant_type in Variation:
+        n = variant_type
+        row, col = int(n / 2), n % 2
+        frac, dens = artifact_spectra.spectrum_density_vs_fraction(
+            torch.from_numpy(variant_type.one_hot_tensor()).float())
+        art_spectra_axs[row, col].plot(frac.numpy(), dens.numpy())
+        art_spectra_axs[row, col].set_title(variant_type.name + " artifact AF spectrum")
+    for ax in art_spectra_fig.get_axes():
+        ax.label_outer()
+    return art_spectra_fig, art_spectra_axs
+
 class PosteriorModel(torch.nn.Module):
     """
 
@@ -212,19 +226,7 @@ class PosteriorModel(torch.nn.Module):
             if summary_writer is not None:
                 summary_writer.add_scalar("spectrum negative log evidence", epoch_loss.get(), epoch)
 
-                # plot AF spectra in two-column grid with as many rows as needed
-                art_spectra_fig, art_spectra_axs = plt.subplots(ceil(len(Variation)/2), 2, sharex='all', sharey='all')
-
-                for variant_type in Variation:
-                    n = variant_type
-                    row, col = int(n/2), n % 2
-                    frac, dens = self.artifact_spectra.spectrum_density_vs_fraction(torch.from_numpy(variant_type.one_hot_tensor()).float())
-                    art_spectra_axs[row, col].plot(frac.numpy(), dens.numpy())
-                    art_spectra_axs[row, col].set_title(variant_type.name + " artifact AF spectrum")
-
-                for ax in art_spectra_fig.get_axes():
-                    ax.label_outer()
-
+                art_spectra_fig, art_spectra_axs = plot_artifact_spectra(self.artifact_spectra)
                 summary_writer.add_figure("Artifact AF Spectra", art_spectra_fig, epoch)
 
                 var_spectra_fig, var_spectra_axs = plt.subplots()

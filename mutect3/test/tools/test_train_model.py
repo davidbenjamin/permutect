@@ -3,6 +3,7 @@ from argparse import Namespace
 import torch
 
 from tensorboard.backend.event_processing.event_accumulator import EventAccumulator
+from torch.utils.tensorboard import SummaryWriter
 
 from mutect3 import constants
 from mutect3.architecture import artifact_model
@@ -90,7 +91,9 @@ def test_training(dataset):
     training_params = train_model.TrainingParameters(batch_size=64, num_epochs=5, num_refless_epochs=3, reweighting_range=0.3)
 
     with tempfile.TemporaryDirectory() as tensorboard_dir:
-        train_model.train_artifact_model(m3_params=m3_params, training_datasets=[dataset], params=training_params, tensorboard_dir=tensorboard_dir)
+        summary_writer = SummaryWriter(tensorboard_dir)
+        train_model.train_artifact_model(m3_params=m3_params, training_datasets=[dataset], params=training_params, summary_writer=summary_writer)
+        summary_writer.close()
         events = EventAccumulator(tensorboard_dir)
         events.Reload()
         h = 99
