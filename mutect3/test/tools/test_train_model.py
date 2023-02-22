@@ -1,5 +1,6 @@
 import tempfile
 from argparse import Namespace
+import torch
 
 from tensorboard.backend.event_processing.event_accumulator import EventAccumulator
 
@@ -56,6 +57,14 @@ def test_train_model():
     events.Reload()
 
     loaded_artifact_model, artifact_log_priors, artifact_spectra_state_dict = load_artifact_model(saved_artifact_model)
+    assert artifact_log_priors is not None
+    assert artifact_spectra_state_dict is not None
+
+    saved = torch.load(saved_artifact_model)
+    assert constants.ARTIFACT_LOG_PRIORS_NAME in saved
+    assert constants.ARTIFACT_SPECTRA_STATE_DICT_NAME in saved
+
+    print(artifact_log_priors)
     h = 99
 
 

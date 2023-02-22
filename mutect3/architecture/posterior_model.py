@@ -1,5 +1,6 @@
 from collections import defaultdict
 from itertools import chain
+from math import ceil
 
 import torch
 from intervaltree import IntervalTree
@@ -211,23 +212,26 @@ class PosteriorModel(torch.nn.Module):
             if summary_writer is not None:
                 summary_writer.add_scalar("spectrum negative log evidence", epoch_loss.get(), epoch)
 
-                # plot AF spectra in 3x2 grid
-                spectra_fig, spectra_axs = plt.subplots(3, 2, sharex='all', sharey='all')
-                frac, dens = self.somatic_spectrum.spectrum_density_vs_fraction()
-                spectra_axs[0, 0].plot(frac.numpy(), dens.numpy())
-                spectra_axs[0, 0].set_title("Variant AF Spectrum")
+                # plot AF spectra in two-column grid with as many rows as needed
+                art_spectra_fig, art_spectra_axs = plt.subplots(ceil(len(Variation)/2), 2, sharex='all', sharey='all')
 
                 for variant_type in Variation:
-                    n = variant_type + 1    # +1 is the offset for variant
+                    n = variant_type
                     row, col = int(n/2), n % 2
                     frac, dens = self.artifact_spectra.spectrum_density_vs_fraction(torch.from_numpy(variant_type.one_hot_tensor()).float())
-                    spectra_axs[row, col].plot(frac.numpy(), dens.numpy())
-                    spectra_axs[row, col].set_title(variant_type.name + " artifact AF spectrum")
+                    art_spectra_axs[row, col].plot(frac.numpy(), dens.numpy())
+                    art_spectra_axs[row, col].set_title(variant_type.name + " artifact AF spectrum")
 
-                for ax in spectra_fig.get_axes():
+                for ax in art_spectra_fig.get_axes():
                     ax.label_outer()
 
-                summary_writer.add_figure("Artifact and Variant AF Spectra", spectra_fig, epoch)
+                summary_writer.add_figure("Artifact AF Spectra", art_spectra_fig, epoch)
+
+                var_spectra_fig, var_spectra_axs = plt.subplots(1, 1, sharex='all', sharey='all')
+                frac, dens = self.somatic_spectrum.spectrum_density_vs_fraction()
+                var_spectra_axs[0, 0].plot(frac.numpy(), dens.numpy())
+                var_spectra_axs[0, 0].set_title("Variant AF Spectrum")
+                summary_writer.add_figure("Variant AF Spectra", var_spectra_fig, epoch)
 
                 # bar plot of log priors -- data is indexed by call type name, and x ticks are variant types
                 log_prior_bar_plot_data = defaultdict(list)

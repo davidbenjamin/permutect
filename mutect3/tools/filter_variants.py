@@ -38,8 +38,8 @@ def load_artifact_model(path) -> ArtifactModel:
     model = ArtifactModel(m3_params, num_read_features=num_read_features, num_info_features=num_info_features, ref_sequence_length=ref_sequence_length)
     model.load_state_dict(saved[constants.STATE_DICT_NAME])
 
-    artifact_log_priors = saved[constants.ARTIFACT_LOG_PRIORS_NAME] # possibly None
-    artifact_spectra_state_dict = saved[constants.ARTIFACT_SPECTRA_STATE_DICT_NAME] #possibly None
+    artifact_log_priors = saved[constants.ARTIFACT_LOG_PRIORS_NAME]     # possibly None
+    artifact_spectra_state_dict = saved[constants.ARTIFACT_SPECTRA_STATE_DICT_NAME]     #possibly None
     return model, artifact_log_priors, artifact_spectra_state_dict
 
 
