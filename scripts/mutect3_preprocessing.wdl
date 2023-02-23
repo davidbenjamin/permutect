@@ -21,6 +21,7 @@ workflow PreprocessMutect3 {
 
     output {
         File train_tar = Preprocess.train_tar
+        File artifact_posterior_output = Preprocess.artifact_posterior_output
     }
 }
 
@@ -46,7 +47,7 @@ task Preprocess {
     command <<<
         set -e
 
-        preprocess_dataset --training_datasets ~{sep=' ' training_datasets} --chunk_size ~{chunk_size} --output train.tar
+        preprocess_dataset --training_datasets ~{sep=' ' training_datasets} --chunk_size ~{chunk_size} --output train.tar --artifact_posterior_output artifact.tar
     >>>
 
     runtime {
@@ -61,5 +62,6 @@ task Preprocess {
 
     output {
         File train_tar = "train.tar"
+        File artifact_posterior_output = "artifact.tar"
     }
 }

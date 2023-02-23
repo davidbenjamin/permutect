@@ -75,7 +75,7 @@ def round_down_alt(n: int):
     return ALT_ROUNDING[min(len(ALT_ROUNDING) - 1, n)]
 
 
-def read_data(dataset_file, posterior: bool, round_down: bool = True, include_variant_string: bool = False):
+def read_data(dataset_file, posterior: bool, round_down: bool = True, include_variant_string: bool = False, only_artifacts: bool = False):
     """
     generator that yields data from a plain text dataset file. In posterior mode, yield a tuple of ReadSet and PosteriorDatum
     """
@@ -83,6 +83,7 @@ def read_data(dataset_file, posterior: bool, round_down: bool = True, include_va
         n = 0
         while label_str := file.readline().strip():
             label = Label.get_label(label_str)
+            passes_label_filter = (label == Label.ARTIFACT or not only_artifacts)
             n += 1
 
             # contig:position,ref->alt
@@ -107,7 +108,7 @@ def read_data(dataset_file, posterior: bool, round_down: bool = True, include_va
                 seq_error_log_likelihood = read_float(file.readline())
                 normal_seq_error_log_likelihood = -read_float(file.readline())  # the GATK emits the negative of what should really be output
 
-                if alt_tensor_size > 0:
+                if alt_tensor_size > 0 and passes_label_filter:
                     yield PosteriorDatum(contig, position, ref_allele, alt_allele, depth, alt_count, normal_depth,
                                          normal_alt_count, seq_error_log_likelihood, normal_seq_error_log_likelihood)
             else:
@@ -131,9 +132,21 @@ def read_data(dataset_file, posterior: bool, round_down: bool = True, include_va
                 skip_seq_error = file.readline()
                 skip_normal_seq_error = file.readline()
 
-                if alt_tensor_size > 0:
+                if alt_tensor_size > 0 and passes_label_filter:
                     yield ReadSet.from_gatk(ref_sequence_string, Variation.get_type(ref_allele, alt_allele), ref_tensor,
                                           alt_tensor, gatk_info_tensor, label, encode(contig, position, alt_allele) if include_variant_string else None)
+
+
+def generate_artifact_posterior_data(dataset_files, num_data_per_chunk: int):
+    buffer = []
+    for dataset_file in dataset_files:
+        for posterior_datum in read_data(dataset_file, posterior=True, only_artifacts=True):
+            buffer.append(posterior_datum)
+            if len(buffer) == num_data_per_chunk:
+                yield buffer
+                buffer = []
+    if len(buffer) > 0:
+        yield buffer
 
 
 def generate_normalized_data(dataset_files, max_bytes_per_chunk: int, include_variant_string: bool = False):

@@ -1,5 +1,6 @@
 from collections import defaultdict
 from itertools import chain
+from math import ceil
 
 import torch
 from intervaltree import IntervalTree
@@ -38,6 +39,24 @@ def germline_log_likelihood(afs, mafs, alt_counts, ref_counts):
     return torch.logsumexp(torch.vstack((alt_minor_ll, alt_major_ll, hom_ll)), dim=0)
 
 
+def initialize_artifact_spectra():
+    return BetaBinomialMixture(input_size=len(Variation), num_components=5)
+
+
+def plot_artifact_spectra(artifact_spectra: BetaBinomialMixture):
+    # plot AF spectra in two-column grid with as many rows as needed
+    art_spectra_fig, art_spectra_axs = plt.subplots(ceil(len(Variation) / 2), 2, sharex='all', sharey='all')
+    for variant_type in Variation:
+        n = variant_type
+        row, col = int(n / 2), n % 2
+        frac, dens = artifact_spectra.spectrum_density_vs_fraction(
+            torch.from_numpy(variant_type.one_hot_tensor()).float())
+        art_spectra_axs[row, col].plot(frac.numpy(), dens.numpy())
+        art_spectra_axs[row, col].set_title(variant_type.name + " artifact AF spectrum")
+    for ax in art_spectra_fig.get_axes():
+        ax.label_outer()
+    return art_spectra_fig, art_spectra_axs
+
 class PosteriorModel(torch.nn.Module):
     """
 
@@ -57,7 +76,7 @@ class PosteriorModel(torch.nn.Module):
         self.somatic_spectrum = FeaturelessBetaBinomialMixture(num_components=5)
 
         # artifact spectra for each variant type.  Variant type encoded as one-hot input vector.
-        self.artifact_spectra = BetaBinomialMixture(input_size=len(Variation), num_components=5)
+        self.artifact_spectra = initialize_artifact_spectra()
 
         # pre-softmax priors [log P(variant), log P(artifact), log P(seq error)] for each variant type
         # linear layer with no bias to select the appropriate priors given one-hot variant encoding
@@ -143,7 +162,7 @@ class PosteriorModel(torch.nn.Module):
         return log_posteriors
 
     def learn_priors_and_spectra(self, posterior_loader, num_iterations, ignored_to_non_ignored_ratio: float,
-                                 summary_writer: SummaryWriter = None):
+                                 summary_writer: SummaryWriter = None, artifact_log_priors=None, artifact_spectra_state_dict=None):
         """
         :param summary_writer:
         :param num_iterations:
@@ -151,10 +170,26 @@ class PosteriorModel(torch.nn.Module):
         :param ignored_to_non_ignored_ratio: ratio of sites in which no evidence of variation was found to sites in which
         sufficient evidence was found to emit test data.  Without this parameter (i.e. if it were set to zero) we would
         underestimate the frequency of sequencing error, hence overestimate the prior probability of variation.
-
+        :param artifact_spectra_state_dict: (possibly None) if given, pretrained parameters of self.artifact_spectra
+        from train_model.py.  In this case we make sure to freeze this part of the model
+        :param artifact_log_priors: (possibly None) 1D tensor with length len(utils.Variation) containing log prior probabilities
+        of artifacts for each variation type, from train_model.py.  If given, freeze these parameters.
         :return:
         """
-        spectra_and_prior_params = chain(self.somatic_spectrum.parameters(), self.artifact_spectra.parameters(),
+        if artifact_spectra_state_dict is not None:
+            self.artifact_spectra.load_state_dict(artifact_spectra_state_dict)
+            utils.freeze(self.artifact_spectra.parameters())
+
+        # TODO: UNSAFE! We're getting into the details of exactly how unnormalized priors work
+        # TODO: and the whole approach breaks apart if we implement things without going through self._unnormalized_priors
+        # TODO: also, this only ensures that the priors are frozen within this function, but what if they are modified elsewhere?
+        # note that we can't just freeze normally because this is just one row of the log priors tensor
+        if artifact_log_priors is not None:
+            with torch.no_grad():
+                self._unnormalized_priors.weight[Call.ARTIFACT] = artifact_log_priors
+
+        artifact_spectra_params_to_learn = self.artifact_spectra.parameters() if artifact_spectra_state_dict is None else []
+        spectra_and_prior_params = chain(self.somatic_spectrum.parameters(), artifact_spectra_params_to_learn,
                                          self._unnormalized_priors.parameters())
         optimizer = torch.optim.Adam(spectra_and_prior_params)
 
@@ -181,28 +216,24 @@ class PosteriorModel(torch.nn.Module):
                 loss.backward()
                 optimizer.step()
 
+                # TODO: INELEGANT! since we can't freeze just the artifact row of log priors, we have to reset it after each batch
+                if artifact_log_priors is not None:
+                    with torch.no_grad():
+                        self._unnormalized_priors.weight[Call.ARTIFACT] = artifact_log_priors
+
                 epoch_loss.record_sum(batch.size() * loss.detach(), batch.size())
 
             if summary_writer is not None:
                 summary_writer.add_scalar("spectrum negative log evidence", epoch_loss.get(), epoch)
 
-                # plot AF spectra in 3x2 grid
-                spectra_fig, spectra_axs = plt.subplots(3, 2, sharex='all', sharey='all')
+                art_spectra_fig, art_spectra_axs = plot_artifact_spectra(self.artifact_spectra)
+                summary_writer.add_figure("Artifact AF Spectra", art_spectra_fig, epoch)
+
+                var_spectra_fig, var_spectra_axs = plt.subplots()
                 frac, dens = self.somatic_spectrum.spectrum_density_vs_fraction()
-                spectra_axs[0, 0].plot(frac.numpy(), dens.numpy())
-                spectra_axs[0, 0].set_title("Variant AF Spectrum")
-
-                for variant_type in Variation:
-                    n = variant_type + 1    # +1 is the offset for variant
-                    row, col = int(n/2), n % 2
-                    frac, dens = self.artifact_spectra.spectrum_density_vs_fraction(torch.from_numpy(variant_type.one_hot_tensor()).float())
-                    spectra_axs[row, col].plot(frac.numpy(), dens.numpy())
-                    spectra_axs[row, col].set_title(variant_type.name + " artifact AF spectrum")
-
-                for ax in spectra_fig.get_axes():
-                    ax.label_outer()
-
-                summary_writer.add_figure("Artifact and Variant AF Spectra", spectra_fig, epoch)
+                var_spectra_axs.plot(frac.numpy(), dens.numpy())
+                var_spectra_axs.set_title("Variant AF Spectrum")
+                summary_writer.add_figure("Variant AF Spectra", var_spectra_fig, epoch)
 
                 # bar plot of log priors -- data is indexed by call type name, and x ticks are variant types
                 log_prior_bar_plot_data = defaultdict(list)

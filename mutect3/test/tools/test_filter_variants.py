@@ -25,6 +25,6 @@ def test_filtering():
                                           chunk_size=100002,
                                           num_spectrum_iterations=10,
                                           tensorboard_dir=tensorboard_dir,
-                                          num_ignored_sites=float("2.0E9"),
+                                          genomic_span=float("2.0E9"),
                                           segmentation=segmentation)
         dummy_breakpoint = 77

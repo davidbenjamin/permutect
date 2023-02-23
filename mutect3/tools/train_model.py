@@ -1,10 +1,15 @@
 import argparse
+import tempfile
+import tarfile
+import os
+import pickle
 
 import torch
 from torch.utils.tensorboard import SummaryWriter
 
+from mutect3 import constants, utils
 from mutect3.architecture.artifact_model import ArtifactModelParameters, ArtifactModel
-from mutect3 import constants
+from mutect3.architecture.posterior_model import initialize_artifact_spectra, plot_artifact_spectra
 from mutect3.data.read_set_dataset import ReadSetDataset
 
 
@@ -17,7 +22,7 @@ class TrainingParameters:
         self.num_workers = num_workers
 
 
-def train_artifact_model(m3_params: ArtifactModelParameters, params: TrainingParameters, tensorboard_dir, data_tarfile):
+def train_artifact_model(m3_params: ArtifactModelParameters, params: TrainingParameters, summary_writer: SummaryWriter, data_tarfile):
     use_gpu = torch.cuda.is_available()
     device = torch.device('cuda' if use_gpu else 'cpu')
 
@@ -28,7 +33,6 @@ def train_artifact_model(m3_params: ArtifactModelParameters, params: TrainingPar
                           device=device).float()
 
     print("Training. . .")
-    summary_writer = SummaryWriter(tensorboard_dir)
     model.train_model(dataset, params.num_epochs, params.batch_size, params.num_workers, summary_writer=summary_writer,
                       reweighting_range=params.reweighting_range, m3_params=m3_params)
 
@@ -46,18 +50,51 @@ def train_artifact_model(m3_params: ArtifactModelParameters, params: TrainingPar
     print("Evaluating trained model. . .")
     model.evaluate_model_after_training(dataset, params.batch_size, params.num_workers, summary_writer)
 
-    summary_writer.close()
-
     return model
 
 
-def save_artifact_model(model, m3_params, path):
+def learn_artifact_priors_and_spectra(artifact_tarfile, genomic_span_of_data: int):
+    with tempfile.TemporaryDirectory() as temp_dir:
+        data_files = utils.extract_to_temp_dir(artifact_tarfile, temp_dir)
+
+        artifact_counts = torch.zeros(len(utils.Variation))
+        types_one_hot_buffer, depths_buffer, alt_counts_buffer = [], [], []   # list of tensors as they accumulate
+        types_one_hot_tensors, depths_tensors, alt_counts_tensors = [], [], []
+        for file in data_files:
+            for artifact_posterior in pickle.load(open(file, 'rb')):
+                variant_type = utils.Variation.get_type(artifact_posterior.ref, artifact_posterior.alt)
+                artifact_counts[variant_type] += 1
+                types_one_hot_buffer.append(torch.from_numpy(variant_type.one_hot_tensor()))
+                depths_buffer.append(artifact_posterior.depth)
+                alt_counts_buffer.append(artifact_posterior.alt_count)
+
+            # after each file, turn the buffers into tensors
+            types_one_hot_tensors.append(torch.vstack(types_one_hot_buffer))
+            depths_tensors.append(torch.Tensor(depths_buffer))
+            alt_counts_tensors.append(torch.Tensor(alt_counts_buffer))
+            types_one_hot_buffer, depths_buffer, alt_counts_buffer = [], [], []
+
+    log_artifact_priors = torch.log(artifact_counts / genomic_span_of_data)
+
+    artifact_spectra = initialize_artifact_spectra()
+
+    # TODO: hard-coded num epochs!!!
+    artifact_spectra.fit(num_epochs=10, inputs_2d_tensor=torch.vstack(types_one_hot_tensors).float(),
+                         depths_1d_tensor=torch.hstack(depths_tensors).float(), alt_counts_1d_tensor=torch.hstack(alt_counts_tensors).float(),
+                         batch_size=64)
+
+    return log_artifact_priors, artifact_spectra
+
+
+def save_artifact_model(model, m3_params, path, artifact_log_priors, artifact_spectra):
     torch.save({
         constants.STATE_DICT_NAME: model.state_dict(),
         constants.M3_PARAMS_NAME: m3_params,
         constants.NUM_READ_FEATURES_NAME: model.num_read_features(),
         constants.NUM_INFO_FEATURES_NAME: model.num_info_features(),
-        constants.REF_SEQUENCE_LENGTH_NAME: model.ref_sequence_length()
+        constants.REF_SEQUENCE_LENGTH_NAME: model.ref_sequence_length(),
+        constants.ARTIFACT_LOG_PRIORS_NAME: artifact_log_priors,
+        constants.ARTIFACT_SPECTRA_STATE_DICT_NAME: artifact_spectra.state_dict()
     }, path)
 
 
@@ -109,6 +146,8 @@ def parse_arguments():
     # Training data inputs
     parser.add_argument('--' + constants.TRAIN_TAR_NAME, type=str, required=True,
                         help='tarfile of training/validation datasets produced by preprocess_dataset.py')
+    parser.add_argument('--' + constants.ARTIFACT_TAR_NAME, type=str, required=True,
+                        help='tarfile of artifact posterior data produced by preprocess_dataset.py')
 
     # training hyperparameters
     parser.add_argument('--' + constants.REWEIGHTING_RANGE_NAME, type=float, default=0.3, required=False,
@@ -124,6 +163,15 @@ def parse_arguments():
     parser.add_argument('--' + constants.NUM_REFLESS_EPOCHS_NAME, type=int, required=True,
                         help='number of epochs for training only the reference-ignoring aggregation subnetwork.')
 
+    parser.add_argument('--' + constants.LEARN_ARTIFACT_SPECTRA_NAME, action='store_true',
+                        help='flag to include artifact priors and allele fraction spectra in saved output.  '
+                             'This is worth doing if labeled training data is available but might work poorly '
+                             'when Mutect3 generates weak labels based on allele fractions.')
+    parser.add_argument('--' + constants.GENOMIC_SPAN_NAME, type=float, required=False,
+                        help='Total number of sites considered by Mutect2 in all training data, including those lacking variation or artifacts, hence absent from input datasets.  '
+                             'Necessary for learning priors since otherwise rates of artifacts and variants would be overinflated. '
+                             'Only required if learning artifact log priors')
+
     # path to saved model
     parser.add_argument('--' + constants.OUTPUT_NAME, type=str, required=True,
                         help='path to output saved model file')
@@ -136,11 +184,22 @@ def parse_arguments():
 def main_without_parsing(args):
     m3_params = parse_mutect3_params(args)
     training_params = parse_training_params(args)
+    learn_artifact_spectra = getattr(args, constants.LEARN_ARTIFACT_SPECTRA_NAME)
+    genomic_span = getattr(args, constants.GENOMIC_SPAN_NAME)
 
     tarfile_data = getattr(args, constants.TRAIN_TAR_NAME)
-    model = train_artifact_model(m3_params=m3_params, data_tarfile=tarfile_data,
-                                 params=training_params, tensorboard_dir=getattr(args, constants.TENSORBOARD_DIR_NAME))
-    save_artifact_model(model, m3_params, getattr(args, constants.OUTPUT_NAME))
+    tensorboard_dir = getattr(args, constants.TENSORBOARD_DIR_NAME)
+    summary_writer = SummaryWriter(tensorboard_dir)
+    model = train_artifact_model(m3_params=m3_params, data_tarfile=tarfile_data, params=training_params, summary_writer=summary_writer)
+
+    artifact_tarfile_data = getattr(args, constants.ARTIFACT_TAR_NAME)
+    artifact_log_priors, artifact_spectra = learn_artifact_priors_and_spectra(artifact_tarfile_data, genomic_span) if learn_artifact_spectra else (None, None)
+    if artifact_spectra is not None:
+        art_spectra_fig, art_spectra_axs = plot_artifact_spectra(artifact_spectra)
+        summary_writer.add_figure("Artifact AF Spectra", art_spectra_fig)
+
+    summary_writer.close()
+    save_artifact_model(model, m3_params, getattr(args, constants.OUTPUT_NAME), artifact_log_priors, artifact_spectra)
 
 
 def main():

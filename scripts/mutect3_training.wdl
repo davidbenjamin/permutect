@@ -4,6 +4,7 @@ version 1.0
 workflow TrainMutect3 {
     input {
         File train_tar
+        File artifact_tar
         Int num_epochs
         Int num_refless_epochs
         Int batch_size
@@ -16,6 +17,8 @@ workflow TrainMutect3 {
         Array[String] ref_seq_layer_strings
         String? train_m3_extra_args
         Boolean use_gpu
+        Boolean learn_artifact_spectra
+        Float? genomic_span
 
         String mutect3_docker
         Int? preemptible
@@ -26,6 +29,7 @@ workflow TrainMutect3 {
         call TrainMutect3GPU {
             input:
                 train_tar = train_tar,
+                artifact_tar = artifact_tar,
                 mutect3_docker = mutect3_docker,
                 preemptible = preemptible,
                 max_retries = max_retries,
@@ -39,7 +43,9 @@ workflow TrainMutect3 {
                 info_layers = info_layers,
                 aggregation_layers = aggregation_layers,
                 ref_seq_layer_strings = ref_seq_layer_strings,
-                extra_args = train_m3_extra_args
+                extra_args = train_m3_extra_args,
+                learn_artifact_spectra = learn_artifact_spectra,
+                genomic_span = genomic_span
         }
     }
 
@@ -47,6 +53,7 @@ workflow TrainMutect3 {
         call TrainMutect3CPU {
             input:
                 train_tar = train_tar,
+                artifact_tar = artifact_tar,
                 mutect3_docker = mutect3_docker,
                 preemptible = preemptible,
                 max_retries = max_retries,
@@ -60,7 +67,9 @@ workflow TrainMutect3 {
                 info_layers = info_layers,
                 aggregation_layers = aggregation_layers,
                 ref_seq_layer_strings = ref_seq_layer_strings,
-                extra_args = train_m3_extra_args
+                extra_args = train_m3_extra_args,
+                learn_artifact_spectra = learn_artifact_spectra,
+                genomic_span = genomic_span
         }
     }
 
@@ -76,6 +85,7 @@ workflow TrainMutect3 {
 task TrainMutect3GPU {
     input {
         File train_tar
+        File artifact_tar
 
         Int num_epochs
         Int num_refless_epochs
@@ -87,6 +97,8 @@ task TrainMutect3GPU {
         Array[Int] info_layers
         Array[Int] aggregation_layers
         Array[String] ref_seq_layer_strings
+        Boolean learn_artifact_spectra
+        Float? genomic_span
 
         String? extra_args
 
@@ -102,12 +114,14 @@ task TrainMutect3GPU {
     # Mem is in units of GB but our command and memory runtime values are in MB
     Int machine_mem = if defined(mem) then mem * 1000 else 16000
     Int command_mem = machine_mem - 500
+    String learn_artifact_cmd = if learn_artifact_spectra then "--learn_artifact_spectra"  else ""
 
     command <<<
         set -e
 
         train_model \
             --train_tar ~{train_tar} \
+            --artifact_tar ~{artifact_tar} \
             --read_layers ~{sep=' ' read_layers} \
             --info_layers ~{sep=' ' info_layers} \
             --aggregation_layers ~{sep=' ' aggregation_layers} \
@@ -119,6 +133,8 @@ task TrainMutect3GPU {
             --num_epochs ~{num_epochs} --num_refless_epochs ~{num_refless_epochs}\
             --output mutect3.pt \
             --tensorboard_dir tensorboard \
+            ~{"--genomic_span " + genomic_span} \
+            ~{learn_artifact_cmd} \
             ~{extra_args}
     >>>
 
@@ -143,6 +159,7 @@ task TrainMutect3GPU {
 task TrainMutect3CPU {
     input {
         File train_tar
+        File artifact_tar
 
         Int num_epochs
         Int num_refless_epochs
@@ -154,6 +171,8 @@ task TrainMutect3CPU {
         Array[Int] info_layers
         Array[Int] aggregation_layers
         Array[String] ref_seq_layer_strings
+        Boolean learn_artifact_spectra
+        Float? genomic_span
         String? extra_args
 
         String mutect3_docker
@@ -168,12 +187,14 @@ task TrainMutect3CPU {
     # Mem is in units of GB but our command and memory runtime values are in MB
     Int machine_mem = if defined(mem) then mem * 1000 else 16000
     Int command_mem = machine_mem - 500
+    String learn_artifact_cmd = if learn_artifact_spectra then "--learn_artifact_spectra" else ""
 
     command <<<
         set -e
 
         train_model \
             --train_tar ~{train_tar} \
+            --artifact_tar ~{artifact_tar} \
             --read_layers ~{sep=' ' read_layers} \
             --info_layers ~{sep=' ' info_layers} \
             --aggregation_layers ~{sep=' ' aggregation_layers} \
@@ -185,6 +206,8 @@ task TrainMutect3CPU {
             --num_epochs ~{num_epochs} --num_refless_epochs ~{num_refless_epochs}\
             --output mutect3.pt \
             --tensorboard_dir tensorboard \
+            ~{"--genomic_span " + genomic_span} \
+            ~{learn_artifact_cmd} \
             ~{extra_args}
     >>>
 
