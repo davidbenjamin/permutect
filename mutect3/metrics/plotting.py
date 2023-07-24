@@ -1,5 +1,7 @@
 from matplotlib import pyplot as plt
+from matplotlib.figure import Figure
 import math
+from typing import List
 
 # one or more simple plots of y data vs x data on shared axes
 from tqdm.autonotebook import tqdm
@@ -98,4 +100,51 @@ def get_roc_data(predictions_and_labels):
             thresh_and_accs.append((next_threshold, art_acc, non_art_acc))
             next_threshold = math.ceil(pred_logit)
     return thresh_and_accs, best_threshold
+
+
+def tidy_subplots(figure: Figure, axes, x_label: str = None, y_label: str = None,
+                  column_labels: List[str] = None, row_labels: List[str] = None):
+    """
+    Combines various tidying operations on figures with subplots
+    1.  Removes the individual axis legends and replaces with a single figure legend.  This assumes
+        that all axes have the same lines.
+    2.  Show x (y) labels and tick labels only in bottom row (leftmost column)
+    3.  Apply column headings and row labels
+    4.  Apply overall x and y labels to the figure as a whole
+
+    figure matplotlib.figure.Figure
+    axes:   2D array of matplotlib.axes.Axes
+
+    We assume these have been generated together via figure, axes = plt.subplots(. . .)
+
+    """
+    handles, labels = figure.get_axes()[0].get_legend_handles_labels()
+    figure.legend(handles, labels, loc='upper center')
+
+    for ax in figure.get_axes():
+        ax.label_outer()  # y tick labels only shown in leftmost column, x tick labels only shown on bottom row
+        ax.legend().set_visible(False)  # hide the redundant identical subplot legends
+
+        # remove the subplot labels and title -- these will be given manually to the whole figure and to the outer rows
+        ax.set_xlabel(None)
+        ax.set_ylabel(None)
+        ax.set_title(None)
+
+    if x_label is not None:
+        figure.supxlabel(x_label)
+
+    if y_label is not None:
+        figure.supylabel(y_label)
+
+    if row_labels is not None:
+        assert len(row_labels) == len(axes)
+        for col_idx, label in enumerate(row_labels):
+            axes[0][col_idx].set_title(label)   # note that we use row 0 and set_title to make this a column heading
+
+    if column_labels is not None:
+        assert len(column_labels) == len(axes[0])
+        for row_idx, label in enumerate(column_labels):
+            axes[row_idx][0].set_ylabel(label)
+
+    figure.tight_layout()
 

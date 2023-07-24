@@ -449,50 +449,12 @@ class ArtifactModel(nn.Module):
 
         # done collecting stats for all loaders and filling in subplots
 
-        # replace the redundant identical SOMATIC/ARTIFACT legends on each subplot with a single legend for the figure
-        handles, labels = acc_vs_cnt_axes[-1][-1].get_legend_handles_labels()
-        acc_vs_cnt_fig.legend(handles, labels, loc='upper center')
-
-        handles, labels = roc_axes[-1][-1].get_legend_handles_labels()
-        roc_fig.legend(handles, labels, loc='upper center')
-
-        handles, labels = roc_by_cnt_axes[-1][-1].get_legend_handles_labels()
-        roc_by_cnt_fig.legend(handles, labels, loc='upper center')
-
-        for ax in chain(acc_vs_cnt_fig.get_axes(), roc_fig.get_axes(), cal_fig.get_axes(), roc_by_cnt_fig.get_axes()):
-            ax.label_outer()    # y tick labels only shown in leftmost column, x tick labels only shown on bottom row
-            ax.legend().set_visible(False)  # hide the redundant identical subplot legends
-
-            # remove the subplot labels and title -- these will be given manually to the whole figure and to the outer rows
-            ax.set_xlabel(None)
-            ax.set_ylabel(None)
-            ax.set_title(None)
-
-        for axes in acc_vs_cnt_axes, roc_axes, cal_axes, roc_by_cnt_axes:
-            # make variant type column heading by setting titles on the top row of subplots
-            for col_idx, var_type in enumerate(Variation):
-                axes[0][col_idx].set_title(var_type.name)
-
-            # make epoch/loader type row heading by setting y labels on leftmost column of subplots
-            for row_idx, (loader_name, _) in enumerate(loaders_by_name.items()):
-                axes[row_idx][0].set_ylabel(loader_name)
-
-        acc_vs_cnt_fig.supxlabel("Alt read count")
-        acc_vs_cnt_fig.supylabel("Accuracy")
-
-        cal_fig.supxlabel("Predicted logit")
-        cal_fig.supylabel("Accuracy")
-
-        roc_fig.supxlabel("Non-artifact Accuracy")
-        roc_fig.supylabel("Artifact Accuracy")
-
-        roc_by_cnt_fig.supxlabel("Non-artifact Accuracy")
-        roc_by_cnt_fig.supylabel("Artifact Accuracy")
-
-        acc_vs_cnt_fig.tight_layout()
-        roc_fig.tight_layout()
-        roc_by_cnt_fig.tight_layout()
-        cal_fig.tight_layout()
+        variation_types = [var_type.name for var_type in Variation]
+        loader_names = [name for (name, loader) in loaders_by_name.items()]
+        plotting.tidy_subplots(acc_vs_cnt_fig, acc_vs_cnt_axes, x_label="alt count", y_label="accuracy", row_labels=loader_names, column_labels=variation_types)
+        plotting.tidy_subplots(roc_fig, roc_axes, x_label="non-artifact accuracy", y_label="artifact accuracy", row_labels=loader_names, column_labels=variation_types)
+        plotting.tidy_subplots(roc_by_cnt_fig, roc_by_cnt_axes, x_label="non-artifact accuracy", y_label="artifact accuracy", row_labels=loader_names, column_labels=variation_types)
+        plotting.tidy_subplots(cal_fig, cal_axes, x_label="predicted logit", y_label="accuracy", row_labels=loader_names, column_labels=variation_types)
 
         summary_writer.add_figure("{} accuracy by alt count".format(prefix), acc_vs_cnt_fig)
         summary_writer.add_figure(prefix + " accuracy by logit output", cal_fig)
