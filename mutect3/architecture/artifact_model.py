@@ -206,7 +206,7 @@ class ArtifactModel(nn.Module):
     # number of reads in the whole batch.  Thus, we have to be careful to downsample within each datum.
     def apply_phi_to_reads(self, batch: ReadSetBatch):
         # note that we put the reads on GPU, apply read embedding phi, then put the result back on CPU
-        return torch.sigmoid(self.phi(batch.reads.to(self._device)))
+        return 2 * (torch.sigmoid(self.phi(batch.reads.to(self._device))) - 0.5)
 
     def forward_from_phi_reads_to_calibration(self, phi_reads: torch.Tensor, batch: ReadSetBatch, weight_range: float = 0, use_ref_reads: bool = True):
         weights = torch.ones(len(phi_reads), 1, device=self._device) if weight_range == 0 else (1 + weight_range * (1 - 2 * torch.rand(len(phi_reads), 1, device=self._device)))
