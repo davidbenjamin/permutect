@@ -88,7 +88,7 @@ def test_train_model():
 def test_training(dataset):
     m3_params = artifact_model.ArtifactModelParameters(read_layers=[20, 20, 20], info_layers=[20, 20], aggregation_layers=[20, 20],
                                                        dropout_p=0.0, batch_normalize=False, learning_rate=0.001)
-    training_params = train_model.TrainingParameters(batch_size=64, num_epochs=5, num_refless_epochs=3, reweighting_range=0.3)
+    training_params = train_model.TrainingParameters(batch_size=64, num_epochs=5, reweighting_range=0.3)
 
     with tempfile.TemporaryDirectory() as tensorboard_dir:
         summary_writer = SummaryWriter(tensorboard_dir)

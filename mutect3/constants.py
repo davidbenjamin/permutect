@@ -29,7 +29,6 @@ REWEIGHTING_RANGE_NAME = 'reweighting_range'
 BATCH_SIZE_NAME = 'batch_size'
 CHUNK_SIZE_NAME = 'chunk_size'
 NUM_EPOCHS_NAME = 'num_epochs'
-NUM_REFLESS_EPOCHS_NAME = 'num_refless_epochs'
 NUM_WORKERS_NAME = 'num_workers'
 NUM_SPECTRUM_ITERATIONS = 'num_spectrum_iterations'
 

@@ -159,10 +159,6 @@ class ArtifactModel(nn.Module):
                        dropout_p=params.dropout_p)
         self.rho.to(self._device)
 
-        self.rho_no_ref = MLP([alt_info_ref_seq_embedding_dimension] + params.aggregation_layers + [1],
-                       batch_normalize=params.batch_normalize, dropout_p=params.dropout_p)
-        self.rho_no_ref.to(self._device)
-
         self.calibration = Calibration()
         self.calibration.to(self._device)
 
@@ -176,7 +172,7 @@ class ArtifactModel(nn.Module):
         return self._ref_sequence_length
 
     def training_parameters(self):
-        return chain(self.phi.parameters(), self.omega.parameters(), self.rho.parameters(), self.rho_no_ref.parameters(), self.calibration.parameters())
+        return chain(self.phi.parameters(), self.omega.parameters(), self.rho.parameters(), self.calibration.parameters())
 
     def calibration_parameters(self):
         return self.calibration.parameters()
@@ -184,21 +180,18 @@ class ArtifactModel(nn.Module):
     def freeze_all(self):
         utils.freeze(self.parameters())
 
-    def set_epoch_type(self, epoch_type: utils.Epoch, use_ref_reads: bool = True):
+    def set_epoch_type(self, epoch_type: utils.Epoch):
         if epoch_type == utils.Epoch.TRAIN:
             self.train(True)
             utils.freeze(self.parameters())
-            if use_ref_reads:
-                utils.unfreeze(self.training_parameters())
-            else:
-                utils.unfreeze(self.rho_no_ref.parameters())
+            utils.unfreeze(self.training_parameters())
         else:
             self.freeze_all()
 
     # returns 1D tensor of length batch_size of log odds ratio (logits) between artifact and non-artifact
-    def forward(self, batch: ReadSetBatch, use_ref_reads: bool = True):
+    def forward(self, batch: ReadSetBatch):
         phi_reads = self.apply_phi_to_reads(batch)
-        return self.forward_from_phi_reads(phi_reads=phi_reads, batch=batch, use_ref_reads=(use_ref_reads and batch.ref_count > 0))
+        return self.forward_from_phi_reads(phi_reads=phi_reads, batch=batch)
 
     # for the sake of recycling the read embeddings when training with data augmentation, we split the forward pass
     # into 1) the expensive and recyclable embedding of every single read and 2) everything else
@@ -208,36 +201,37 @@ class ArtifactModel(nn.Module):
         # note that we put the reads on GPU, apply read embedding phi, then put the result back on CPU
         return 2 * (torch.sigmoid(self.phi(batch.reads.to(self._device))) - 0.5)
 
-    def forward_from_phi_reads_to_calibration(self, phi_reads: torch.Tensor, batch: ReadSetBatch, weight_range: float = 0, use_ref_reads: bool = True):
+    def forward_from_phi_reads_to_calibration(self, phi_reads: torch.Tensor, batch: ReadSetBatch, weight_range: float = 0):
         weights = torch.ones(len(phi_reads), 1, device=self._device) if weight_range == 0 else (1 + weight_range * (1 - 2 * torch.rand(len(phi_reads), 1, device=self._device)))
         weighted_phi_reads = weights * phi_reads
 
         ref_count, alt_count = batch.ref_count, batch.alt_count
         total_ref = ref_count * batch.size()
 
-        ref_wts, alt_wts = weights[:total_ref], weights[total_ref:]
-        ref_wt_sums, alt_wt_sums = (None if ref_count == 0 else sums_over_chunks(ref_wts, ref_count)), sums_over_chunks(alt_wts, alt_count)
-        ref_wt_sq_sums, alt_wt_sq_sums = (None if ref_count == 0 else sums_over_chunks(torch.square(ref_wts), ref_count)), sums_over_chunks(torch.square(alt_wts), alt_count)
+        alt_wts = weights[total_ref:]
+        alt_wt_sums = sums_over_chunks(alt_wts, alt_count)
+        alt_wt_sq_sums = sums_over_chunks(torch.square(alt_wts), alt_count)
+
+        # mean embedding of every read, alt and ref, at each datum
+        all_read_means = (sums_over_chunks(phi_reads[:total_ref], ref_count) + sums_over_chunks(weighted_phi_reads[total_ref:], alt_count)) / (alt_count + ref_count)
 
         # weighted mean is sum of reads in a chunk divided by sum of weights in same chunk
-        ref_means = None if ref_count == 0 else (sums_over_chunks(weighted_phi_reads[:total_ref], ref_count) / ref_wt_sums)
         alt_means = sums_over_chunks(weighted_phi_reads[total_ref:], alt_count) / alt_wt_sums
 
         # these are fed to the calibration, since reweighting effectively reduces the read counts
         effective_alt_counts = torch.square(alt_wt_sums) / alt_wt_sq_sums
-        effective_ref_counts = torch.zeros_like(effective_alt_counts) if ref_count == 0 else (torch.square(ref_wt_sums) / ref_wt_sq_sums)
 
         # stack side-by-side to get 2D tensor, where each variant row is (ref mean, alt mean, info)
         omega_info = torch.sigmoid(self.omega(batch.info.to(self._device)))
 
         ref_seq_embedding = self.ref_seq_cnn(batch.ref_sequences)
-        concatenated = torch.cat((ref_means, alt_means, omega_info, ref_seq_embedding) if (use_ref_reads and ref_count > 0) else (alt_means, omega_info, ref_seq_embedding), dim=1)
-        logits = (self.rho if (use_ref_reads and ref_count > 0) else self.rho_no_ref).forward(concatenated).squeeze(dim=1)  # specify dim so that in edge case of batch size 1 we get 1D tensor, not scalar
-        return logits, effective_ref_counts, effective_alt_counts
+        concatenated = torch.cat((all_read_means, alt_means, omega_info, ref_seq_embedding), dim=1)
+        logits = self.rho.forward(concatenated).squeeze(dim=1)  # specify dim so that in edge case of batch size 1 we get 1D tensor, not scalar
+        return logits, ref_count * torch.ones_like(effective_alt_counts), effective_alt_counts
 
-    def forward_from_phi_reads(self, phi_reads: torch.Tensor, batch: ReadSetBatch, weight_range: float = 0, use_ref_reads: bool = True):
-        logits, effective_ref_counts, effective_alt_counts = self.forward_from_phi_reads_to_calibration(phi_reads, batch, weight_range, use_ref_reads=(use_ref_reads and batch.ref_count > 0))
-        return self.calibration.forward(logits, effective_ref_counts, effective_alt_counts)
+    def forward_from_phi_reads(self, phi_reads: torch.Tensor, batch: ReadSetBatch, weight_range: float = 0):
+        logits, ref_counts, effective_alt_counts = self.forward_from_phi_reads_to_calibration(phi_reads, batch, weight_range)
+        return self.calibration.forward(logits, ref_counts, effective_alt_counts)
 
     def learn_calibration(self, dataset: ReadSetDataset, num_epochs, batch_size, num_workers):
 
@@ -284,7 +278,7 @@ class ArtifactModel(nn.Module):
                 utils.backpropagate(optimizer, loss)
                 nll_loss.record_sum(loss.detach(), len(logits))
 
-    def train_model(self, dataset: ReadSetDataset, num_epochs, batch_size, num_workers, summary_writer: SummaryWriter, reweighting_range: float, m3_params: ArtifactModelParameters, use_ref_reads: bool = True):
+    def train_model(self, dataset: ReadSetDataset, num_epochs, batch_size, num_workers, summary_writer: SummaryWriter, reweighting_range: float, m3_params: ArtifactModelParameters):
         bce = torch.nn.BCEWithLogitsLoss(reduction='none')  # no reduction because we may want to first multiply by weights for unbalanced data
         train_optimizer = torch.optim.AdamW(self.training_parameters(), lr=m3_params.learning_rate)
 
@@ -309,7 +303,7 @@ class ArtifactModel(nn.Module):
 
         for epoch in trange(1, num_epochs + 1, desc="Epoch"):
             for epoch_type in [utils.Epoch.TRAIN, utils.Epoch.VALID]:
-                self.set_epoch_type(epoch_type, use_ref_reads=use_ref_reads)
+                self.set_epoch_type(epoch_type)
 
                 labeled_loss = utils.StreamingAverage(device=self._device)
                 unlabeled_loss = utils.StreamingAverage(device=self._device)
@@ -319,9 +313,9 @@ class ArtifactModel(nn.Module):
                 for n, batch in pbar:
                     phi_reads = self.apply_phi_to_reads(batch)
 
-                    orig_pred = self.forward_from_phi_reads(phi_reads, batch, weight_range=0, use_ref_reads=use_ref_reads)
-                    aug1_pred = self.forward_from_phi_reads(phi_reads, batch, weight_range=reweighting_range, use_ref_reads=use_ref_reads)
-                    aug2_pred = self.forward_from_phi_reads(phi_reads, batch, weight_range=reweighting_range, use_ref_reads=use_ref_reads)
+                    orig_pred = self.forward_from_phi_reads(phi_reads, batch, weight_range=0)
+                    aug1_pred = self.forward_from_phi_reads(phi_reads, batch, weight_range=reweighting_range)
+                    aug2_pred = self.forward_from_phi_reads(phi_reads, batch, weight_range=reweighting_range)
 
                     if batch.is_labeled():
                         labels = batch.labels
@@ -355,8 +349,8 @@ class ArtifactModel(nn.Module):
                         utils.backpropagate(train_optimizer, loss)
 
                 # done with one epoch type -- training or validation -- for this epoch
-                summary_writer.add_scalar(epoch_type.name + "/Labeled Loss" + ("" if use_ref_reads else "refless"), labeled_loss.get(), epoch)
-                summary_writer.add_scalar(epoch_type.name + "/Unlabeled Loss" + ("" if use_ref_reads else "refless"), unlabeled_loss.get(), epoch)
+                summary_writer.add_scalar(epoch_type.name + "/Labeled Loss", labeled_loss.get(), epoch)
+                summary_writer.add_scalar(epoch_type.name + "/Unlabeled Loss", unlabeled_loss.get(), epoch)
                 print("Labeled loss for epoch " + str(epoch) + " of " + epoch_type.name + ": " + str(labeled_loss.get()))
             # done with training and validation for this epoch
             # note that we have not learned the AF spectrum yet
