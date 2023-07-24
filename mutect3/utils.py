@@ -158,6 +158,12 @@ def log_binomial_coefficient(n: torch.Tensor, k: torch.Tensor):
     return (n + 1).lgamma() - (k + 1).lgamma() - ((n - k) + 1).lgamma()
 
 
+def backpropagate(optimizer: torch.optim.Optimizer, loss: torch.Tensor):
+    optimizer.zero_grad(set_to_none=True)
+    loss.backward()
+    optimizer.step()
+
+
 def encode(contig: str, position: int, alt: str):
     return contig + ':' + str(position) + ':' + alt
 

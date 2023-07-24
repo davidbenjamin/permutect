@@ -282,10 +282,7 @@ class ArtifactModel(nn.Module):
                 pred = self.calibration.forward(logits, ref_counts, alt_counts)
 
                 loss = torch.sum(weights * bce(pred, labels))
-                optimizer.zero_grad(set_to_none=True)
-                loss.backward()
-                optimizer.step()
-
+                utils.backpropagate(optimizer, loss)
                 nll_loss.record_sum(loss.detach(), len(logits))
 
     def train_model(self, dataset: ReadSetDataset, num_epochs, batch_size, num_workers, summary_writer: SummaryWriter, reweighting_range: float, m3_params: ArtifactModelParameters, use_ref_reads: bool = True):
@@ -356,9 +353,7 @@ class ArtifactModel(nn.Module):
                     assert not loss.isnan().item()  # all sorts of errors produce a nan here.  This is a good place to spot it
 
                     if epoch_type == utils.Epoch.TRAIN:
-                        train_optimizer.zero_grad(set_to_none=True)
-                        loss.backward()
-                        train_optimizer.step()
+                        utils.backpropagate(train_optimizer, loss)
 
                 # done with one epoch type -- training or validation -- for this epoch
                 summary_writer.add_scalar(epoch_type.name + "/Labeled Loss" + ("" if use_ref_reads else "refless"), labeled_loss.get(), epoch)

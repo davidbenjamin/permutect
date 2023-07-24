@@ -1,4 +1,6 @@
 import torch
+from mutect3 import utils
+
 from mutect3.architecture.mlp import MLP
 
 
@@ -21,9 +23,7 @@ def test_linearly_separable_data():
     for epoch in range(num_epochs):
         prediction = model.forward(x)
         loss = loss_func(prediction, y)
-        optimizer.zero_grad()
-        loss.backward()
-        optimizer.step()
+        utils.backpropagate(optimizer, loss)
         loss_list.append(loss.item())
 
     assert loss_list[-1] < 0.01
@@ -60,9 +60,7 @@ def test_annular_data():
     for epoch in range(num_epochs):
         prediction = model.forward(x)
         loss = loss_func(torch.squeeze(prediction), y)
-        optimizer.zero_grad()
-        loss.backward()
-        optimizer.step()
+        utils.backpropagate(optimizer, loss)
         loss_list.append(loss.item())
 
     assert loss_list[-1] < 0.2
@@ -95,9 +93,7 @@ def test_xor_data():
     for epoch in range(num_epochs):
         prediction = model.forward(x)
         loss = loss_func(prediction.squeeze(), y)
-        optimizer.zero_grad()
-        loss.backward()
-        optimizer.step()
+        utils.backpropagate(optimizer, loss)
         loss_list.append(loss.item())
 
     assert loss_list[-1] < 0.15
