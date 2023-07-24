@@ -129,7 +129,6 @@ class ArtifactModel(nn.Module):
     because we have different output layers for each variant type.
     """
 
-    # TODO: left off here: need to make sure that ref_Sequence_length gets passed to constructor, as it should be
     def __init__(self, params: ArtifactModelParameters, num_read_features: int, num_info_features: int, ref_sequence_length: int, device=torch.device("cpu")):
         super(ArtifactModel, self).__init__()
 
