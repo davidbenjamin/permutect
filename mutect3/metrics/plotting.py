@@ -138,13 +138,13 @@ def tidy_subplots(figure: Figure, axes, x_label: str = None, y_label: str = None
 
     if row_labels is not None:
         assert len(row_labels) == len(axes)
-        for col_idx, label in enumerate(row_labels):
-            axes[0][col_idx].set_title(label)   # note that we use row 0 and set_title to make this a column heading
+        for row_idx, label in enumerate(row_labels):
+            axes[row_idx][0].set_ylabel(label)   # note that we use row 0 and set_title to make this a column heading
 
     if column_labels is not None:
         assert len(column_labels) == len(axes[0])
-        for row_idx, label in enumerate(column_labels):
-            axes[row_idx][0].set_ylabel(label)
+        for col_idx, label in enumerate(column_labels):
+            axes[0][col_idx].set_title(label)
 
     figure.tight_layout()
 
