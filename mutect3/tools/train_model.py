@@ -14,10 +14,9 @@ from mutect3.data.read_set_dataset import ReadSetDataset
 
 
 class TrainingParameters:
-    def __init__(self, batch_size, num_epochs, num_refless_epochs, reweighting_range: float, num_workers: int = 0):
+    def __init__(self, batch_size, num_epochs, reweighting_range: float, num_workers: int = 0):
         self.batch_size = batch_size
         self.num_epochs = num_epochs
-        self.num_refless_epochs = num_refless_epochs
         self.reweighting_range = reweighting_range
         self.num_workers = num_workers
 
@@ -35,10 +34,6 @@ def train_artifact_model(m3_params: ArtifactModelParameters, params: TrainingPar
     print("Training. . .")
     model.train_model(dataset, params.num_epochs, params.batch_size, params.num_workers, summary_writer=summary_writer,
                       reweighting_range=params.reweighting_range, m3_params=m3_params)
-
-    model.train_model(dataset, params.num_refless_epochs, params.batch_size, params.num_workers,
-                      summary_writer=summary_writer,
-                      reweighting_range=params.reweighting_range, m3_params=m3_params, use_ref_reads=False)
 
     print("Calibrating. . .")
     temp_fig_before, temp_curve_before = model.calibration.plot_temperature("Count-Dependent Calibration Before")
@@ -102,9 +97,8 @@ def parse_training_params(args) -> TrainingParameters:
     reweighting_range = getattr(args, constants.REWEIGHTING_RANGE_NAME)
     batch_size = getattr(args, constants.BATCH_SIZE_NAME)
     num_epochs = getattr(args, constants.NUM_EPOCHS_NAME)
-    num_refless_epochs = getattr(args, constants.NUM_REFLESS_EPOCHS_NAME)
     num_workers = getattr(args, constants.NUM_WORKERS_NAME)
-    return TrainingParameters(batch_size, num_epochs, num_refless_epochs, reweighting_range, num_workers=num_workers)
+    return TrainingParameters(batch_size, num_epochs, reweighting_range, num_workers=num_workers)
 
 
 def parse_mutect3_params(args) -> ArtifactModelParameters:
@@ -160,8 +154,6 @@ def parse_arguments():
                              'collating batches, and transferring to GPU.')
     parser.add_argument('--' + constants.NUM_EPOCHS_NAME, type=int, required=True,
                         help='number of epochs for primary training loop')
-    parser.add_argument('--' + constants.NUM_REFLESS_EPOCHS_NAME, type=int, required=True,
-                        help='number of epochs for training only the reference-ignoring aggregation subnetwork.')
 
     parser.add_argument('--' + constants.LEARN_ARTIFACT_SPECTRA_NAME, action='store_true',
                         help='flag to include artifact priors and allele fraction spectra in saved output.  '

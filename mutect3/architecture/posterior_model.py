@@ -212,9 +212,7 @@ class PosteriorModel(torch.nn.Module):
                     missing_loss = -ignored_to_non_ignored_ratio * log_seq_error_prior  
                     loss += missing_loss
 
-                optimizer.zero_grad(set_to_none=True)
-                loss.backward()
-                optimizer.step()
+                utils.backpropagate(optimizer, loss)
 
                 # TODO: INELEGANT! since we can't freeze just the artifact row of log priors, we have to reset it after each batch
                 if artifact_log_priors is not None:

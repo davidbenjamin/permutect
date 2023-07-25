@@ -1,5 +1,7 @@
 from matplotlib import pyplot as plt
+from matplotlib.figure import Figure
 import math
+from typing import List
 
 # one or more simple plots of y data vs x data on shared axes
 from tqdm.autonotebook import tqdm
@@ -23,24 +25,6 @@ def simple_plot_on_axis(ax, x_y_lab_tuples, x_label, y_label):
     ax.set_xlabel(x_label)
     ax.set_ylabel(y_label)
     ax.legend()
-
-
-def simple_bar_plot_on_axis(ax, heights, x_labels, y_label):
-    spacing = 3
-    bar_width = 0.7 * spacing
-
-    x_positions = [spacing*i for i in range(len(heights))]
-    ax.bar(x_positions, heights, width=bar_width, edgecolor='white')
-    ax.set_xticks(x_positions, labels=x_labels)
-    plt.setp(ax.get_xticklabels(), rotation=90)
-    ax.set_ylabel(y_label)
-    # ax.legend()
-
-
-def simple_bar_plot(heights, x_labels, y_label):
-    fig, ax = plt.subplots()
-    simple_bar_plot_on_axis(ax, heights, x_labels, y_label)
-    return fig, ax
 
 
 # apply grouped bar plot to an axis (subplot) object
@@ -70,55 +54,6 @@ def grouped_bar_plot(heights_by_category, x_labels, y_label):
     fig, ax = plt.subplots()
     grouped_bar_plot_on_axis(ax, heights_by_category, x_labels, y_label)
     return fig, ax
-
-
-def histogram(data, title):
-    fig = plt.figure()
-    curve = fig.gca()
-    curve.hist(data, bins=20)
-    curve.set_title(title)
-    return fig, curve
-
-
-def hexbin(x,y):
-    fig = plt.figure()
-    curve = fig.gca()
-    curve.hexbin(x, y)
-    return fig, curve
-
-
-# compute optimal F score over a single epoch pass over the test loader, optionally doing SGD on the AF spectrum
-def plot_roc_curve(model, loader, normal_artifact=False):
-    # tuples of (artifact prob, artifact label 0/1)
-    predictions_and_labels = []
-
-    model.freeze_all()
-    print("Running model over all data to generate ROC curve")
-
-    pbar = tqdm(enumerate(loader), mininterval=10)
-    for _, batch in pbar:
-        labels = batch.labels
-        logits = model(batch, posterior=True, normal_artifact=normal_artifact)
-        for n in range(batch.size()):
-            predictions_and_labels.append((logits[n].item(), labels[n].item()))
-
-    # sort tuples in ascending order of the model prediction
-    predictions_and_labels.sort(key=lambda prediction_and_label: prediction_and_label[0])
-
-    sensitivity = []
-    precision = []
-
-    # start at threshold = -infinity; that is, everything is called an artifact, and pick up one variant at a time
-    total_true = sum([(1 - label) for _, label in predictions_and_labels])
-    tp, fp = 0, 0
-    for _, label in predictions_and_labels:
-        fp = fp + label
-        tp = tp + (1 - label)
-        sensitivity.append(tp / total_true)
-        precision.append(tp / (tp + fp + 0.00001))
-
-    x_y_lab = [(sensitivity, precision, "ROC")]
-    return simple_plot(x_y_lab, x_label="sensitivity", y_label="precision", title="ROC curve according to M3's own probabilities.")
 
 
 # labels are 0 for non-artifact, 1 for artifact
@@ -165,4 +100,51 @@ def get_roc_data(predictions_and_labels):
             thresh_and_accs.append((next_threshold, art_acc, non_art_acc))
             next_threshold = math.ceil(pred_logit)
     return thresh_and_accs, best_threshold
+
+
+def tidy_subplots(figure: Figure, axes, x_label: str = None, y_label: str = None,
+                  column_labels: List[str] = None, row_labels: List[str] = None):
+    """
+    Combines various tidying operations on figures with subplots
+    1.  Removes the individual axis legends and replaces with a single figure legend.  This assumes
+        that all axes have the same lines.
+    2.  Show x (y) labels and tick labels only in bottom row (leftmost column)
+    3.  Apply column headings and row labels
+    4.  Apply overall x and y labels to the figure as a whole
+
+    figure matplotlib.figure.Figure
+    axes:   2D array of matplotlib.axes.Axes
+
+    We assume these have been generated together via figure, axes = plt.subplots(. . .)
+
+    """
+    handles, labels = figure.get_axes()[0].get_legend_handles_labels()
+    figure.legend(handles, labels, loc='upper center')
+
+    for ax in figure.get_axes():
+        ax.label_outer()  # y tick labels only shown in leftmost column, x tick labels only shown on bottom row
+        ax.legend().set_visible(False)  # hide the redundant identical subplot legends
+
+        # remove the subplot labels and title -- these will be given manually to the whole figure and to the outer rows
+        ax.set_xlabel(None)
+        ax.set_ylabel(None)
+        ax.set_title(None)
+
+    if x_label is not None:
+        figure.supxlabel(x_label)
+
+    if y_label is not None:
+        figure.supylabel(y_label)
+
+    if row_labels is not None:
+        assert len(row_labels) == len(axes)
+        for row_idx, label in enumerate(row_labels):
+            axes[row_idx][0].set_ylabel(label)   # note that we use row 0 and set_title to make this a column heading
+
+    if column_labels is not None:
+        assert len(column_labels) == len(axes[0])
+        for col_idx, label in enumerate(column_labels):
+            axes[0][col_idx].set_title(label)
+
+    figure.tight_layout()
 

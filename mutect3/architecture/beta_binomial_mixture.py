@@ -1,6 +1,7 @@
 import math
 
 import torch
+from mutect3 import utils
 from torch import nn, exp, unsqueeze, logsumexp
 from torch.nn.functional import softmax, log_softmax
 
@@ -159,9 +160,7 @@ class BetaBinomialMixture(nn.Module):
                 batch_slice = slice(batch_start, batch_end)
                 loss = -torch.mean(self.forward(inputs_2d_tensor[batch_slice], depths_1d_tensor[batch_slice],
                                                 alt_counts_1d_tensor[batch_slice]))
-                optimizer.zero_grad()
-                loss.backward()
-                optimizer.step()
+                utils.backpropagate(optimizer, loss)
 
     '''
     get raw data for a spectrum plot of probability density vs allele fraction.  
