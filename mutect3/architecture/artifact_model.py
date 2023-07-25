@@ -213,7 +213,7 @@ class ArtifactModel(nn.Module):
         alt_wt_sq_sums = sums_over_chunks(torch.square(alt_wts), alt_count)
 
         # mean embedding of every read, alt and ref, at each datum
-        all_read_means = (sums_over_chunks(phi_reads[:total_ref], ref_count) + sums_over_chunks(weighted_phi_reads[total_ref:], alt_count)) / (alt_count + ref_count)
+        all_read_means = ((0 if ref_count == 0 else sums_over_chunks(phi_reads[:total_ref], ref_count)) + sums_over_chunks(weighted_phi_reads[total_ref:], alt_count)) / (alt_count + ref_count)
 
         # weighted mean is sum of reads in a chunk divided by sum of weights in same chunk
         alt_means = sums_over_chunks(weighted_phi_reads[total_ref:], alt_count) / alt_wt_sums
