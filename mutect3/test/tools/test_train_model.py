@@ -46,7 +46,6 @@ def test_train_model():
     setattr(train_model_args, constants.BATCH_SIZE_NAME, 64)
     setattr(train_model_args, constants.NUM_WORKERS_NAME, 2)
     setattr(train_model_args, constants.NUM_EPOCHS_NAME, 2)
-    setattr(train_model_args, constants.NUM_REFLESS_EPOCHS_NAME, 2)
 
     # path to saved model
     setattr(train_model_args, constants.OUTPUT_NAME, saved_artifact_model.name)

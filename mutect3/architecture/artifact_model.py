@@ -21,6 +21,8 @@ from mutect3.metrics import plotting
 
 warnings.filterwarnings("ignore", message="Setting attributes on ParameterList is not supported.")
 
+NUM_DATA_FOR_TENSORBOARD_PROJECTION=1000
+
 
 def effective_count(weights: torch.Tensor):
     return (torch.square(torch.sum(weights)) / torch.sum(torch.square(weights))).item()
@@ -482,6 +484,9 @@ class ArtifactModel(nn.Module):
                 self.forward_from_phi_reads_to_intermediate_layer_output(phi_reads, batch)
             average_read_embedding_features.append(alt_means)
 
-        summary_writer.add_embedding(torch.vstack(average_read_embedding_features),
-                                     metadata=list(zip([label_metadata, correct_metadata, type_metadata, truncated_count_metadata])),
+        # downsample to a reasonable amount of UMAP data
+        all_metadata=list(zip(label_metadata, correct_metadata, type_metadata, truncated_count_metadata))
+        idx = np.random.choice(len(all_metadata), size=min(NUM_DATA_FOR_TENSORBOARD_PROJECTION, len(all_metadata)), replace=False)
+        summary_writer.add_embedding(torch.vstack(average_read_embedding_features)[idx],
+                                     metadata=[all_metadata[n] for n in idx],
                                      metadata_header=["Labels", "Correctness", "Types", "Counts"])
