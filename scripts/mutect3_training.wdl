@@ -73,7 +73,7 @@ workflow TrainMutect3 {
 
     output {
         File mutect3_model = select_first([TrainMutect3GPU.mutect3_model, TrainMutect3CPU.mutect3_model])
-        Array[File] training_tensorboard = select_first([TrainMutect3GPU.training_tensorboard, TrainMutect3CPU.training_tensorboard])
+        File training_tensorboard_tar = select_first([TrainMutect3GPU.tensorboard_tar, TrainMutect3CPU.tensorboard_tar])
     }
 }
 
@@ -132,6 +132,8 @@ task TrainMutect3GPU {
             ~{"--genomic_span " + genomic_span} \
             ~{learn_artifact_cmd} \
             ~{extra_args}
+
+        tar cvf tensorboard.tar tensorboard/
     >>>
 
     runtime {
@@ -148,7 +150,7 @@ task TrainMutect3GPU {
 
     output {
         File mutect3_model = "mutect3.pt"
-        Array[File] training_tensorboard = glob("tensorboard/*")
+        File tensorboard_tar = "tensorboard.tar"
     }
 }
 
@@ -204,6 +206,8 @@ task TrainMutect3CPU {
             ~{"--genomic_span " + genomic_span} \
             ~{learn_artifact_cmd} \
             ~{extra_args}
+
+        tar cvf tensorboard.tar tensorboard/
     >>>
 
     runtime {
@@ -218,6 +222,6 @@ task TrainMutect3CPU {
 
     output {
         File mutect3_model = "mutect3.pt"
-        Array[File] training_tensorboard = glob("tensorboard/*")
+        File tensorboard_tar = "tensorboard.tar"
     }
 }

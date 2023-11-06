@@ -21,7 +21,7 @@ from mutect3.metrics import plotting
 
 warnings.filterwarnings("ignore", message="Setting attributes on ParameterList is not supported.")
 
-NUM_DATA_FOR_TENSORBOARD_PROJECTION=1000
+NUM_DATA_FOR_TENSORBOARD_PROJECTION=10000
 
 
 def effective_count(weights: torch.Tensor):
@@ -465,6 +465,8 @@ class ArtifactModel(nn.Module):
         type_metadata = []      # list of lists, strings of variant type
         truncated_count_metadata = []   # list of lists
         average_read_embedding_features = []    # list of 2D tensors (to be stacked into a single 2D tensor), average read embedding over batches
+        info_embedding_features = []
+        ref_seq_embedding_features = []
 
         for n, batch in pbar:
             types_one_hot = batch.variant_type_one_hot()
@@ -480,13 +482,35 @@ class ArtifactModel(nn.Module):
             truncated_count_metadata.extend(batch.size() * [str(min(max_count, batch.alt_count))])
 
             phi_reads = self.apply_phi_to_reads(batch)
+
+            omega_info = torch.sigmoid(self.omega(batch.info.to(self._device)))
+            ref_seq_embedding = self.ref_seq_cnn(batch.ref_sequences)
+
             all_read_means, alt_means, omega_info, ref_seq_embedding, effective_alt_counts = \
                 self.forward_from_phi_reads_to_intermediate_layer_output(phi_reads, batch)
             average_read_embedding_features.append(alt_means)
 
+            omega_info = torch.sigmoid(self.omega(batch.info.to(self._device)))
+            info_embedding_features.append(omega_info)
+
+            ref_seq_embedding = self.ref_seq_cnn(batch.ref_sequences)
+            ref_seq_embedding_features.append(ref_seq_embedding)
+
         # downsample to a reasonable amount of UMAP data
         all_metadata=list(zip(label_metadata, correct_metadata, type_metadata, truncated_count_metadata))
         idx = np.random.choice(len(all_metadata), size=min(NUM_DATA_FOR_TENSORBOARD_PROJECTION, len(all_metadata)), replace=False)
+
         summary_writer.add_embedding(torch.vstack(average_read_embedding_features)[idx],
                                      metadata=[all_metadata[n] for n in idx],
-                                     metadata_header=["Labels", "Correctness", "Types", "Counts"])
+                                     metadata_header=["Labels", "Correctness", "Types", "Counts"],
+                                     tag="mean read embedding")
+
+        summary_writer.add_embedding(torch.vstack(info_embedding_features)[idx],
+                                     metadata=[all_metadata[n] for n in idx],
+                                     metadata_header=["Labels", "Correctness", "Types", "Counts"],
+                                     tag="info embedding")
+
+        summary_writer.add_embedding(torch.vstack(ref_seq_embedding_features)[idx],
+                                     metadata=[all_metadata[n] for n in idx],
+                                     metadata_header=["Labels", "Correctness", "Types", "Counts"],
+                                     tag="ref seq embedding")
