@@ -21,6 +21,8 @@ from mutect3.metrics import plotting
 
 warnings.filterwarnings("ignore", message="Setting attributes on ParameterList is not supported.")
 
+NUM_DATA_FOR_TENSORBOARD_PROJECTION=10000
+
 
 def effective_count(weights: torch.Tensor):
     return (torch.square(torch.sum(weights)) / torch.sum(torch.square(weights))).item()
@@ -201,7 +203,7 @@ class ArtifactModel(nn.Module):
         # note that we put the reads on GPU, apply read embedding phi, then put the result back on CPU
         return 2 * (torch.sigmoid(self.phi(batch.reads.to(self._device))) - 0.5)
 
-    def forward_from_phi_reads_to_calibration(self, phi_reads: torch.Tensor, batch: ReadSetBatch, weight_range: float = 0):
+    def forward_from_phi_reads_to_intermediate_layer_output(self, phi_reads: torch.Tensor, batch: ReadSetBatch, weight_range: float = 0):
         weights = torch.ones(len(phi_reads), 1, device=self._device) if weight_range == 0 else (1 + weight_range * (1 - 2 * torch.rand(len(phi_reads), 1, device=self._device)))
         weighted_phi_reads = weights * phi_reads
 
@@ -225,9 +227,14 @@ class ArtifactModel(nn.Module):
         omega_info = torch.sigmoid(self.omega(batch.info.to(self._device)))
 
         ref_seq_embedding = self.ref_seq_cnn(batch.ref_sequences)
+
+        return all_read_means, alt_means, omega_info, ref_seq_embedding, effective_alt_counts
+
+    def forward_from_phi_reads_to_calibration(self, phi_reads: torch.Tensor, batch: ReadSetBatch, weight_range: float = 0):
+        all_read_means, alt_means, omega_info, ref_seq_embedding, effective_alt_counts = self.forward_from_phi_reads_to_intermediate_layer_output(phi_reads, batch, weight_range)
         concatenated = torch.cat((all_read_means, alt_means, omega_info, ref_seq_embedding), dim=1)
         logits = self.rho.forward(concatenated).squeeze(dim=1)  # specify dim so that in edge case of batch size 1 we get 1D tensor, not scalar
-        return logits, ref_count * torch.ones_like(effective_alt_counts), effective_alt_counts
+        return logits, batch.ref_count * torch.ones_like(effective_alt_counts), effective_alt_counts
 
     def forward_from_phi_reads(self, phi_reads: torch.Tensor, batch: ReadSetBatch, weight_range: float = 0):
         logits, ref_counts, effective_alt_counts = self.forward_from_phi_reads_to_calibration(phi_reads, batch, weight_range)
@@ -448,3 +455,62 @@ class ArtifactModel(nn.Module):
         summary_writer.add_figure(prefix + " accuracy by logit output", cal_fig)
         summary_writer.add_figure(prefix + " variant accuracy vs artifact accuracy curve", roc_fig)
         summary_writer.add_figure(prefix + " variant accuracy vs artifact accuracy curves by alt count", roc_by_cnt_fig)
+
+        # now go over just the validation data and generate feature vectors / metadata for tensorboard projectors (UMAP)
+        pbar = tqdm(enumerate(filter(lambda bat: bat.is_labeled(), valid_loader)), mininterval=10)
+
+        # things we will collect for the projections
+        label_metadata = []     # list (extended by each batch) 1 if artifact, 0 if not
+        correct_metadata = []   # list (extended by each batch), 1 if correct prediction, 0 if not
+        type_metadata = []      # list of lists, strings of variant type
+        truncated_count_metadata = []   # list of lists
+        average_read_embedding_features = []    # list of 2D tensors (to be stacked into a single 2D tensor), average read embedding over batches
+        info_embedding_features = []
+        ref_seq_embedding_features = []
+
+        for n, batch in pbar:
+            types_one_hot = batch.variant_type_one_hot()
+            log_prior_odds = torch.sum(log_artifact_to_non_artifact_ratios * types_one_hot, dim=1)
+
+            pred = self.forward(batch)
+            posterior_pred = pred + log_prior_odds
+            correct = ((posterior_pred > 0) == (batch.labels > 0.5)).tolist()
+
+            label_metadata.extend(["artifact" if x > 0.5 else "non-artifact" for x in batch.labels.tolist()])
+            correct_metadata.extend([str(val) for val in correct])
+            type_metadata.extend([Variation(idx).name for idx in batch.variant_types()])
+            truncated_count_metadata.extend(batch.size() * [str(min(max_count, batch.alt_count))])
+
+            phi_reads = self.apply_phi_to_reads(batch)
+
+            omega_info = torch.sigmoid(self.omega(batch.info.to(self._device)))
+            ref_seq_embedding = self.ref_seq_cnn(batch.ref_sequences)
+
+            all_read_means, alt_means, omega_info, ref_seq_embedding, effective_alt_counts = \
+                self.forward_from_phi_reads_to_intermediate_layer_output(phi_reads, batch)
+            average_read_embedding_features.append(alt_means)
+
+            omega_info = torch.sigmoid(self.omega(batch.info.to(self._device)))
+            info_embedding_features.append(omega_info)
+
+            ref_seq_embedding = self.ref_seq_cnn(batch.ref_sequences)
+            ref_seq_embedding_features.append(ref_seq_embedding)
+
+        # downsample to a reasonable amount of UMAP data
+        all_metadata=list(zip(label_metadata, correct_metadata, type_metadata, truncated_count_metadata))
+        idx = np.random.choice(len(all_metadata), size=min(NUM_DATA_FOR_TENSORBOARD_PROJECTION, len(all_metadata)), replace=False)
+
+        summary_writer.add_embedding(torch.vstack(average_read_embedding_features)[idx],
+                                     metadata=[all_metadata[n] for n in idx],
+                                     metadata_header=["Labels", "Correctness", "Types", "Counts"],
+                                     tag="mean read embedding")
+
+        summary_writer.add_embedding(torch.vstack(info_embedding_features)[idx],
+                                     metadata=[all_metadata[n] for n in idx],
+                                     metadata_header=["Labels", "Correctness", "Types", "Counts"],
+                                     tag="info embedding")
+
+        summary_writer.add_embedding(torch.vstack(ref_seq_embedding_features)[idx],
+                                     metadata=[all_metadata[n] for n in idx],
+                                     metadata_header=["Labels", "Correctness", "Types", "Counts"],
+                                     tag="ref seq embedding")
