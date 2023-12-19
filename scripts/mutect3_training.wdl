@@ -10,7 +10,10 @@ workflow TrainMutect3 {
         Int? num_workers
         Float dropout_p
         Float reweighting_range
-        Array[Int] read_layers
+        Int read_embedding_dimension
+        Int num_transformer_heads
+        Int transformer_hidden_dimension
+        Int num_transformer_layers
         Array[Int] info_layers
         Array[Int] aggregation_layers
         Array[String] ref_seq_layer_strings
@@ -37,7 +40,10 @@ workflow TrainMutect3 {
                 num_workers = num_workers,
                 dropout_p = dropout_p,
                 reweighting_range = reweighting_range,
-                read_layers = read_layers,
+                read_embedding_dimension = read_embedding_dimension,
+                num_transformer_heads = num_transformer_heads,
+                transformer_hidden_dimension = transformer_hidden_dimension,
+                num_transformer_layers = num_transformer_layers,
                 info_layers = info_layers,
                 aggregation_layers = aggregation_layers,
                 ref_seq_layer_strings = ref_seq_layer_strings,
@@ -60,7 +66,10 @@ workflow TrainMutect3 {
                 num_workers = num_workers,
                 dropout_p = dropout_p,
                 reweighting_range = reweighting_range,
-                read_layers = read_layers,
+                read_embedding_dimension = read_embedding_dimension,
+                num_transformer_heads = num_transformer_heads,
+                transformer_hidden_dimension = transformer_hidden_dimension,
+                num_transformer_layers = num_transformer_layers,
                 info_layers = info_layers,
                 aggregation_layers = aggregation_layers,
                 ref_seq_layer_strings = ref_seq_layer_strings,
@@ -89,7 +98,10 @@ task TrainMutect3GPU {
         Int? num_workers
         Float dropout_p
         Float reweighting_range
-        Array[Int] read_layers
+        Int read_embedding_dimension
+        Int num_transformer_heads
+        Int transformer_hidden_dimension
+        Int num_transformer_layers
         Array[Int] info_layers
         Array[Int] aggregation_layers
         Array[String] ref_seq_layer_strings
@@ -118,7 +130,10 @@ task TrainMutect3GPU {
         train_model \
             --train_tar ~{train_tar} \
             --artifact_tar ~{artifact_tar} \
-            --read_layers ~{sep=' ' read_layers} \
+            --read_embedding_dimension ~{read_embedding_dimension} \
+            --num_transformer_heads ~{num_transformer_heads} \
+            --transformer_hidden_dimension ~{transformer_hidden_dimension} \
+            --num_transformer_layers ~{num_transformer_layers} \
             --info_layers ~{sep=' ' info_layers} \
             --aggregation_layers ~{sep=' ' aggregation_layers} \
             --ref_seq_layer_strings ~{sep=' ' ref_seq_layer_strings} \
@@ -164,7 +179,10 @@ task TrainMutect3CPU {
         Int? num_workers
         Float dropout_p
         Float reweighting_range
-        Array[Int] read_layers
+        Int read_embedding_dimension
+        Int num_transformer_heads
+        Int transformer_hidden_dimension
+        Int num_transformer_layers
         Array[Int] info_layers
         Array[Int] aggregation_layers
         Array[String] ref_seq_layer_strings
@@ -192,7 +210,10 @@ task TrainMutect3CPU {
         train_model \
             --train_tar ~{train_tar} \
             --artifact_tar ~{artifact_tar} \
-            --read_layers ~{sep=' ' read_layers} \
+            --read_embedding_dimension ~{read_embedding_dimension} \
+            --num_transformer_heads ~{num_transformer_heads} \
+            --transformer_hidden_dimension ~{transformer_hidden_dimension} \
+            --num_transformer_layers ~{num_transformer_layers} \
             --info_layers ~{sep=' ' info_layers} \
             --aggregation_layers ~{sep=' ' aggregation_layers} \
             --ref_seq_layer_strings ~{sep=' ' ref_seq_layer_strings} \

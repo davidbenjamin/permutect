@@ -37,9 +37,23 @@ def sums_over_chunks(tensor2d: Tensor, chunk_size: int):
 
 
 # note that read layers and info layers exclude the input dimension
+# read_embedding_dimension: read tensors are linear-transformed to this dimension before
+#    input to the transformer.  This is also the output dimension of reads from the transformer
+# num_transformer_heads: number of attention heads in the read transformer.  Must be a divisor
+#    of the read_embedding_dimension
+# num_transformer_layers: number of layers of read transformer
 class ArtifactModelParameters:
-    def __init__(self, read_layers, info_layers, aggregation_layers, ref_seq_layers_strings, dropout_p, batch_normalize, learning_rate):
-        self.read_layers = read_layers
+    def __init__(self,
+                 read_embedding_dimension, num_transformer_heads, transformer_hidden_dimension,
+                 num_transformer_layers, info_layers, aggregation_layers,
+                 ref_seq_layers_strings, dropout_p, batch_normalize, learning_rate):
+
+        assert read_embedding_dimension % num_transformer_heads == 0
+
+        self.read_embedding_dimension = read_embedding_dimension
+        self.num_transformer_heads = num_transformer_heads
+        self.transformer_hidden_dimension = transformer_hidden_dimension
+        self.num_transformer_layers = num_transformer_layers
         self.info_layers = info_layers
         self.aggregation_layers = aggregation_layers
         self.ref_seq_layer_strings = ref_seq_layers_strings
