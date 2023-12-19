@@ -13,8 +13,7 @@ from torch.utils.data.sampler import Sampler
 
 from mmap_ninja.ragged import RaggedMmap
 from mutect3 import utils
-from mutect3.data.read_set import ReadSet
-from mutect3.data.read_set import load_list_of_read_sets, ReadSetBatch
+from mutect3.data.read_set import ReadSet, ReadSetBatch, load_list_of_read_sets
 from mutect3.utils import Label
 
 TENSORS_PER_READ_SET = 5
@@ -116,16 +115,6 @@ def make_read_set_generator_from_tarfile(data_tarfile):
 def make_data_loader(dataset: ReadSetDataset, train_or_valid: utils.Epoch, batch_size: int, pin_memory=False, num_workers: int = 0):
     sampler = SemiSupervisedBatchSampler(dataset, batch_size, train_or_valid)
     return DataLoader(dataset=dataset, batch_sampler=sampler, collate_fn=ReadSetBatch, pin_memory=pin_memory, num_workers=num_workers)
-
-
-# TODO: this might belong somewhere else
-def count_data(dataset_file):
-    n = 0
-    with open(dataset_file) as file:
-        for line in file:
-            if Label.is_label(line.strip()):
-                n += 1
-    return n
 
 
 # ex: chunk([a,b,c,d,e], 3) = [[a,b,c], [d,e]]

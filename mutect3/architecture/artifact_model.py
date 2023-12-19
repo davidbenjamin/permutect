@@ -227,7 +227,7 @@ class ArtifactModel(nn.Module):
         # stack side-by-side to get 2D tensor, where each variant row is (ref mean, alt mean, info)
         omega_info = torch.sigmoid(self.omega(batch.get_info_2d().to(self._device)))
 
-        ref_seq_embedding = self.ref_seq_cnn(batch.ref_sequences)
+        ref_seq_embedding = self.ref_seq_cnn(batch.get_ref_sequences_2d())
 
         return all_read_means, alt_means, omega_info, ref_seq_embedding, effective_alt_counts
 
@@ -485,7 +485,7 @@ class ArtifactModel(nn.Module):
             phi_reads = self.apply_phi_to_reads(batch)
 
             omega_info = torch.sigmoid(self.omega(batch.get_info_2d().to(self._device)))
-            ref_seq_embedding = self.ref_seq_cnn(batch.ref_sequences)
+            ref_seq_embedding = self.ref_seq_cnn(batch.get_ref_sequences_2d())
 
             all_read_means, alt_means, omega_info, ref_seq_embedding, effective_alt_counts = \
                 self.forward_from_phi_reads_to_intermediate_layer_output(phi_reads, batch)
@@ -494,7 +494,7 @@ class ArtifactModel(nn.Module):
             omega_info = torch.sigmoid(self.omega(batch.get_info_2d().to(self._device)))
             info_embedding_features.append(omega_info)
 
-            ref_seq_embedding = self.ref_seq_cnn(batch.ref_sequences)
+            ref_seq_embedding = self.ref_seq_cnn(batch.get_ref_sequences_2d())
             ref_seq_embedding_features.append(ref_seq_embedding)
 
         # downsample to a reasonable amount of UMAP data

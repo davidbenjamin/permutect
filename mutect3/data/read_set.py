@@ -112,7 +112,7 @@ class ReadSetBatch:
         #    assert len(datum.ref_tensor) == self.ref_count, "batch may not mix different ref counts"
         #    assert len(datum.alt_tensor) == self.alt_count, "batch may not mix different alt counts"
 
-        self.ref_sequences = torch.from_numpy(np.stack([item.ref_sequence_2d for item in data])).float()
+        self.ref_sequences_2d = torch.from_numpy(np.stack([item.ref_sequence_2d for item in data])).float()
         list_of_ref_tensors = [item.ref_reads_2d for item in data] if self.ref_count > 0 else []
         self.reads_2d = torch.from_numpy(np.vstack(list_of_ref_tensors + [item.alt_reads_2d for item in data])).float()
         self.info_2d = torch.from_numpy(np.vstack([item.info_array_1d for item in data])).float()
@@ -123,7 +123,7 @@ class ReadSetBatch:
 
     # pin memory for all tensors that are sent to the GPU
     def pin_memory(self):
-        self.ref_sequences = self.ref_sequences.pin_memory()
+        self.ref_sequences_2d = self.ref_sequences_2d.pin_memory()
         self.reads_2d = self.reads_2d.pin_memory()
         self.info_2d = self.info_2d.pin_memory()
         self.labels = self.labels.pin_memory()
@@ -135,6 +135,9 @@ class ReadSetBatch:
     def get_info_2d(self) -> Tensor:
         return self.info_2d
 
+    def get_ref_sequences_2d(self) -> Tensor:
+        return self.ref_sequences_2d
+
     def is_labeled(self) -> bool:
         return self.labeled
 
@@ -144,7 +147,7 @@ class ReadSetBatch:
     def variant_type_one_hot(self) -> Tensor:
         return self.info_2d[:, -len(Variation):]
 
-    def variant_type_mask(self, variant_type: Variation):
+    def variant_type_mask(self, variant_type: Variation) -> Tensor:
         return self.info_2d[:, -len(Variation) + variant_type.value] == 1
 
     # return list of variant type integer indices

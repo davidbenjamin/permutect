@@ -30,7 +30,7 @@ def test_read_set_batch():
 
     batch = mutect3.data.read_set.ReadSetBatch(data)
 
-    assert torch.equal(batch.ref_sequences,
+    assert torch.equal(batch.get_ref_sequences_2d(),
                        torch.Tensor([
                            [[1,0,0],[0,1,1],[0,0,0],[0,0,0]],
                            [[0,0,0],[0,0,0],[1,0,1],[0,1,0]],
