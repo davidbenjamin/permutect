@@ -34,9 +34,9 @@ def do_work(training_datasets, training_output_file, chunk_size, artifact_poster
 
     # save all the lists of read sets to tempfiles. . .
     for read_set_list in generate_normalized_data(training_datasets, max_bytes_per_chunk=chunk_size):
-        num_read_features.check(read_set_list[0].alt_tensor.shape[1])
-        num_info_features.check(read_set_list[0].info_tensor.shape[0])
-        ref_sequence_length.check(read_set_list[0].ref_sequence_tensor.shape[-1])
+        num_read_features.check(read_set_list[0].alt_reads_2d.shape[1])
+        num_info_features.check(read_set_list[0].info_array_1d.shape[0])
+        ref_sequence_length.check(read_set_list[0].ref_sequence_2d.shape[-1])
 
         with tempfile.NamedTemporaryFile(delete=False) as train_data_file:
             read_set.save_list_of_read_sets(read_set_list, train_data_file)

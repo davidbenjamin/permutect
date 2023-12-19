@@ -49,7 +49,7 @@ class ReadSetDataset(Dataset):
 
         for n, datum in enumerate(self):
             train_or_valid = utils.Epoch.VALID if random.random() < validation_fraction else utils.Epoch.TRAIN
-            counts = (len(datum.ref_tensor) if datum.ref_tensor is not None else 0, len(datum.alt_tensor))
+            counts = (len(datum.ref_reads_2d) if datum.ref_reads_2d is not None else 0, len(datum.alt_reads_2d))
             (self.unlabeled_indices_by_count if datum.label == Label.UNLABELED else self.labeled_indices_by_count)[train_or_valid][counts].append(n)
 
             if datum.label == Label.ARTIFACT:
@@ -71,10 +71,10 @@ class ReadSetDataset(Dataset):
             possible_ref = self._data[bottom_index]
 
             # The order here corresponds to the order of yield statements within make_flattened_tensor_generator()
-            return ReadSet(ref_sequence_tensor=self._data[bottom_index + 2],
-                           ref_tensor=possible_ref if len(possible_ref) > 0 else None,
-                           alt_tensor=self._data[bottom_index + 1],
-                           info_tensor=self._data[bottom_index + 3],
+            return ReadSet(ref_sequence_2d=self._data[bottom_index + 2],
+                           ref_reads_2d=possible_ref if len(possible_ref) > 0 else None,
+                           alt_reads_2d=self._data[bottom_index + 1],
+                           info_array_1d=self._data[bottom_index + 3],
                            label=utils.Label(self._data[bottom_index + 4][0]))
         else:
             return self._data[index]
@@ -91,10 +91,10 @@ class ReadSetDataset(Dataset):
 # ref tensor, alt tensor, ref sequence tensor, info tensor, label tensor, ref tensor alt tensor. . .
 def make_flattened_tensor_generator(read_set_generator):
     for read_set in read_set_generator:
-        yield read_set.ref_tensor if read_set.ref_tensor is not None else np.empty((0, 0))
-        yield read_set.alt_tensor
-        yield read_set.ref_sequence_tensor
-        yield read_set.info_tensor
+        yield read_set.ref_reads_2d if read_set.ref_reads_2d is not None else np.empty((0, 0))
+        yield read_set.alt_reads_2d
+        yield read_set.ref_sequence_2d
+        yield read_set.info_array_1d
         yield np.array([read_set.label.value])  # single-element tensor of the Label enum
 
 

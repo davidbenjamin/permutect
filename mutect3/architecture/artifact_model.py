@@ -3,10 +3,11 @@ import warnings
 from collections import defaultdict
 
 import torch
+from torch import nn, Tensor
 import numpy as np
 from torch.utils.tensorboard import SummaryWriter
 
-from torch import nn
+
 from tqdm.autonotebook import trange, tqdm
 from itertools import chain
 from matplotlib import pyplot as plt
@@ -24,13 +25,13 @@ warnings.filterwarnings("ignore", message="Setting attributes on ParameterList i
 NUM_DATA_FOR_TENSORBOARD_PROJECTION=10000
 
 
-def effective_count(weights: torch.Tensor):
+def effective_count(weights: Tensor):
     return (torch.square(torch.sum(weights)) / torch.sum(torch.square(weights))).item()
 
 
 # group rows into consecutive chunks to yield a 3D tensor, average over dim=1 to get
 # 2D tensor of sums within each chunk
-def sums_over_chunks(tensor2d: torch.Tensor, chunk_size: int):
+def sums_over_chunks(tensor2d: Tensor, chunk_size: int):
     assert len(tensor2d) % chunk_size == 0
     return torch.sum(tensor2d.reshape([len(tensor2d) // chunk_size, chunk_size, -1]), dim=1)
 
@@ -64,7 +65,7 @@ class Calibration(nn.Module):
         # so we don't need to worry about vectorizing our operations or otherwise making them efficient
         # In matrix form this is, for a batch, with A the matrix of above coefficients
 
-        self.coeffs = nn.Parameter(torch.Tensor([[1.0, 0.001, 0.001, 0.001], [0.001, 0.001, 0.001, 0.001], [0.001, 0.001, 0.001, 0.001], [0.001, 0.001, 0.001, 0.001]]))
+        self.coeffs = nn.Parameter(Tensor([[1.0, 0.001, 0.001, 0.001], [0.001, 0.001, 0.001, 0.001], [0.001, 0.001, 0.001, 0.001], [0.001, 0.001, 0.001, 0.001]]))
 
         # we apply as asymptotic threshold function logit --> M * tanh(logit/M) where M is the maximum absolute
         # value of the thresholded output.  For logits << M this is the identity, and approaching M the asymptote
@@ -76,7 +77,7 @@ class Calibration(nn.Module):
         self.max_alt = nn.Parameter(torch.tensor(20.0))
         self.max_ref = nn.Parameter(torch.tensor(20.0))
 
-    def temperature(self, ref_counts: torch.Tensor, alt_counts: torch.Tensor):
+    def temperature(self, ref_counts: Tensor, alt_counts: Tensor):
         ref_eff = torch.squeeze(self.max_ref * torch.tanh(ref_counts / self.max_ref)) + 0.0001
         alt_eff = torch.squeeze(self.max_alt * torch.tanh(alt_counts / self.max_alt))
 
@@ -96,7 +97,7 @@ class Calibration(nn.Module):
 
         return temperature
 
-    def forward(self, logits, ref_counts: torch.Tensor, alt_counts: torch.Tensor):
+    def forward(self, logits, ref_counts: Tensor, alt_counts: Tensor):
         calibrated_logits = logits * self.temperature(ref_counts, alt_counts)
         return self.max_logit * torch.tanh(calibrated_logits / self.max_logit)
 
@@ -201,9 +202,9 @@ class ArtifactModel(nn.Module):
     # number of reads in the whole batch.  Thus, we have to be careful to downsample within each datum.
     def apply_phi_to_reads(self, batch: ReadSetBatch):
         # note that we put the reads on GPU, apply read embedding phi, then put the result back on CPU
-        return 2 * (torch.sigmoid(self.phi(batch.reads.to(self._device))) - 0.5)
+        return 2 * (torch.sigmoid(self.phi(batch.get_reads_2d().to(self._device))) - 0.5)
 
-    def forward_from_phi_reads_to_intermediate_layer_output(self, phi_reads: torch.Tensor, batch: ReadSetBatch, weight_range: float = 0):
+    def forward_from_phi_reads_to_intermediate_layer_output(self, phi_reads: Tensor, batch: ReadSetBatch, weight_range: float = 0):
         weights = torch.ones(len(phi_reads), 1, device=self._device) if weight_range == 0 else (1 + weight_range * (1 - 2 * torch.rand(len(phi_reads), 1, device=self._device)))
         weighted_phi_reads = weights * phi_reads
 
@@ -224,19 +225,19 @@ class ArtifactModel(nn.Module):
         effective_alt_counts = torch.square(alt_wt_sums) / alt_wt_sq_sums
 
         # stack side-by-side to get 2D tensor, where each variant row is (ref mean, alt mean, info)
-        omega_info = torch.sigmoid(self.omega(batch.info.to(self._device)))
+        omega_info = torch.sigmoid(self.omega(batch.get_info_2d().to(self._device)))
 
         ref_seq_embedding = self.ref_seq_cnn(batch.ref_sequences)
 
         return all_read_means, alt_means, omega_info, ref_seq_embedding, effective_alt_counts
 
-    def forward_from_phi_reads_to_calibration(self, phi_reads: torch.Tensor, batch: ReadSetBatch, weight_range: float = 0):
+    def forward_from_phi_reads_to_calibration(self, phi_reads: Tensor, batch: ReadSetBatch, weight_range: float = 0):
         all_read_means, alt_means, omega_info, ref_seq_embedding, effective_alt_counts = self.forward_from_phi_reads_to_intermediate_layer_output(phi_reads, batch, weight_range)
         concatenated = torch.cat((all_read_means, alt_means, omega_info, ref_seq_embedding), dim=1)
         logits = self.rho.forward(concatenated).squeeze(dim=1)  # specify dim so that in edge case of batch size 1 we get 1D tensor, not scalar
         return logits, batch.ref_count * torch.ones_like(effective_alt_counts), effective_alt_counts
 
-    def forward_from_phi_reads(self, phi_reads: torch.Tensor, batch: ReadSetBatch, weight_range: float = 0):
+    def forward_from_phi_reads(self, phi_reads: Tensor, batch: ReadSetBatch, weight_range: float = 0):
         logits, ref_counts, effective_alt_counts = self.forward_from_phi_reads_to_calibration(phi_reads, batch, weight_range)
         return self.calibration.forward(logits, ref_counts, effective_alt_counts)
 
@@ -286,7 +287,7 @@ class ArtifactModel(nn.Module):
                 nll_loss.record_sum(loss.detach(), len(logits))
 
     def train_model(self, dataset: ReadSetDataset, num_epochs, batch_size, num_workers, summary_writer: SummaryWriter, reweighting_range: float, m3_params: ArtifactModelParameters):
-        bce = torch.nn.BCEWithLogitsLoss(reduction='none')  # no reduction because we may want to first multiply by weights for unbalanced data
+        bce = nn.BCEWithLogitsLoss(reduction='none')  # no reduction because we may want to first multiply by weights for unbalanced data
         train_optimizer = torch.optim.AdamW(self.training_parameters(), lr=m3_params.learning_rate)
 
         labeled_artifact_to_non_artifact_ratios = dataset.artifact_to_non_artifact_ratios()
@@ -483,14 +484,14 @@ class ArtifactModel(nn.Module):
 
             phi_reads = self.apply_phi_to_reads(batch)
 
-            omega_info = torch.sigmoid(self.omega(batch.info.to(self._device)))
+            omega_info = torch.sigmoid(self.omega(batch.get_info_2d().to(self._device)))
             ref_seq_embedding = self.ref_seq_cnn(batch.ref_sequences)
 
             all_read_means, alt_means, omega_info, ref_seq_embedding, effective_alt_counts = \
                 self.forward_from_phi_reads_to_intermediate_layer_output(phi_reads, batch)
             average_read_embedding_features.append(alt_means)
 
-            omega_info = torch.sigmoid(self.omega(batch.info.to(self._device)))
+            omega_info = torch.sigmoid(self.omega(batch.get_info_2d().to(self._device)))
             info_embedding_features.append(omega_info)
 
             ref_seq_embedding = self.ref_seq_cnn(batch.ref_sequences)

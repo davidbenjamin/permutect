@@ -1,5 +1,7 @@
 import numpy as np
 import torch
+from torch import Tensor, IntTensor, FloatTensor
+
 from typing import List
 import sys
 
@@ -24,20 +26,20 @@ def make_sequence_tensor(sequence_string: str) -> np.ndarray:
 
 class ReadSet:
     """
-    :param ref_sequence_tensor  2D tensor with 4 rows, one for each "channel" A,C, G, T, with each column a position, centered
+    :param ref_sequence_2d  2D tensor with 4 rows, one for each "channel" A,C, G, T, with each column a position, centered
                                 at the alignment start of the variant
-    :param ref_tensor   2D tensor, each row corresponding to one read supporting the reference allele
-    :param alt_tensor   2D tensor, each row corresponding to one read supporting the alternate allele
-    :param info_tensor  1D tensor of information about the variant as a whole
+    :param ref_reads_2d   2D tensor, each row corresponding to one read supporting the reference allele
+    :param alt_reads_2d   2D tensor, each row corresponding to one read supporting the alternate allele
+    :param info_array_1d  1D tensor of information about the variant as a whole
     :param label        an object of the Label enum artifact, non-artifact, unlabeled
     """
-    def __init__(self, ref_sequence_tensor: np.ndarray, ref_tensor: np.ndarray, alt_tensor: np.ndarray, info_tensor: np.ndarray, label: utils.Label,
+    def __init__(self, ref_sequence_2d: np.ndarray, ref_reads_2d: np.ndarray, alt_reads_2d: np.ndarray, info_array_1d: np.ndarray, label: utils.Label,
                  variant_string: str = None):
         # Note: if changing any of the data fields below, make sure to modify the size_in_bytes() method below accordingly!
-        self.ref_sequence_tensor = ref_sequence_tensor
-        self.ref_tensor = ref_tensor
-        self.alt_tensor = alt_tensor
-        self.info_tensor = info_tensor
+        self.ref_sequence_2d = ref_sequence_2d
+        self.ref_reads_2d = ref_reads_2d
+        self.alt_reads_2d = alt_reads_2d
+        self.info_array_1d = info_array_1d
         self.label = label
         self.variant_string = variant_string
 
@@ -49,10 +51,10 @@ class ReadSet:
         return cls(make_sequence_tensor(ref_sequence_string), ref_tensor, alt_tensor, info_tensor, label, variant_string)
 
     def size_in_bytes(self):
-        return (self.ref_tensor.nbytes if self.ref_tensor is not None else 0) + self.alt_tensor.nbytes + self.info_tensor.nbytes + sys.getsizeof(self.label)
+        return (self.ref_reads_2d.nbytes if self.ref_reads_2d is not None else 0) + self.alt_reads_2d.nbytes + self.info_array_1d.nbytes + sys.getsizeof(self.label)
 
     def variant_type_one_hot(self):
-        return self.info_tensor[-len(Variation):]
+        return self.info_array_1d[-len(Variation):]
 
 
 def save_list_of_read_sets(read_sets: List[ReadSet], file):
@@ -62,11 +64,11 @@ def save_list_of_read_sets(read_sets: List[ReadSet], file):
     :param file:
     :return:
     """
-    ref_sequence_tensors = [datum.ref_sequence_tensor for datum in read_sets]
-    ref_tensors = [datum.ref_tensor for datum in read_sets]
-    alt_tensors = [datum.alt_tensor for datum in read_sets]
-    info_tensors = [datum.info_tensor for datum in read_sets]
-    labels = torch.IntTensor([datum.label.value for datum in read_sets])
+    ref_sequence_tensors = [datum.ref_sequence_2d for datum in read_sets]
+    ref_tensors = [datum.ref_reads_2d for datum in read_sets]
+    alt_tensors = [datum.alt_reads_2d for datum in read_sets]
+    info_tensors = [datum.info_array_1d for datum in read_sets]
+    labels = IntTensor([datum.label.value for datum in read_sets])
 
     torch.save([ref_sequence_tensors, ref_tensors, alt_tensors, info_tensors, labels], file)
 
@@ -102,19 +104,19 @@ class ReadSetBatch:
 
     def __init__(self, data: List[ReadSet]):
         self.labeled = data[0].label != Label.UNLABELED
-        self.ref_count = len(data[0].ref_tensor) if data[0].ref_tensor is not None else 0
-        self.alt_count = len(data[0].alt_tensor)
+        self.ref_count = len(data[0].ref_reads_2d) if data[0].ref_reads_2d is not None else 0
+        self.alt_count = len(data[0].alt_reads_2d)
 
         # for datum in data:
         #    assert (datum.label() != Label.UNLABELED) == self.labeled, "Batch may not mix labeled and unlabeled"
         #    assert len(datum.ref_tensor) == self.ref_count, "batch may not mix different ref counts"
         #    assert len(datum.alt_tensor) == self.alt_count, "batch may not mix different alt counts"
 
-        self.ref_sequences = torch.from_numpy(np.stack([item.ref_sequence_tensor for item in data])).float()
-        list_of_ref_tensors = [item.ref_tensor for item in data] if self.ref_count > 0 else []
-        self.reads = torch.from_numpy(np.vstack(list_of_ref_tensors + [item.alt_tensor for item in data])).float()
-        self.info = torch.from_numpy(np.vstack([item.info_tensor for item in data])).float()
-        self.labels = torch.FloatTensor([1.0 if item.label == Label.ARTIFACT else 0.0 for item in data]) if self.labeled else None
+        self.ref_sequences = torch.from_numpy(np.stack([item.ref_sequence_2d for item in data])).float()
+        list_of_ref_tensors = [item.ref_reads_2d for item in data] if self.ref_count > 0 else []
+        self.reads_2d = torch.from_numpy(np.vstack(list_of_ref_tensors + [item.alt_reads_2d for item in data])).float()
+        self.info_2d = torch.from_numpy(np.vstack([item.info_array_1d for item in data])).float()
+        self.labels = FloatTensor([1.0 if item.label == Label.ARTIFACT else 0.0 for item in data]) if self.labeled else None
         self._size = len(data)
 
         self.variant_strings = None if data[0].variant_string is None else [datum.variant_string for datum in data]
@@ -122,10 +124,16 @@ class ReadSetBatch:
     # pin memory for all tensors that are sent to the GPU
     def pin_memory(self):
         self.ref_sequences = self.ref_sequences.pin_memory()
-        self.reads = self.reads.pin_memory()
-        self.info = self.info.pin_memory()
+        self.reads_2d = self.reads_2d.pin_memory()
+        self.info_2d = self.info_2d.pin_memory()
         self.labels = self.labels.pin_memory()
         return self
+
+    def get_reads_2d(self) -> Tensor:
+        return self.reads_2d
+
+    def get_info_2d(self) -> Tensor:
+        return self.info_2d
 
     def is_labeled(self) -> bool:
         return self.labeled
@@ -133,11 +141,11 @@ class ReadSetBatch:
     def size(self) -> int:
         return self._size
 
-    def variant_type_one_hot(self):
-        return self.info[:, -len(Variation):]
+    def variant_type_one_hot(self) -> Tensor:
+        return self.info_2d[:, -len(Variation):]
 
     def variant_type_mask(self, variant_type: Variation):
-        return self.info[:, -len(Variation) + variant_type.value] == 1
+        return self.info_2d[:, -len(Variation) + variant_type.value] == 1
 
     # return list of variant type integer indices
     def variant_types(self):
