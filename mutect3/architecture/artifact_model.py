@@ -154,10 +154,22 @@ class ArtifactModel(nn.Module):
         self._num_info_features = num_info_features
         self._ref_sequence_length = ref_sequence_length
 
-        # phi is the read embedding
-        read_layers = [self._num_read_features] + params.read_layers
-        self.phi = MLP(read_layers, batch_normalize=params.batch_normalize, dropout_p=params.dropout_p)
-        self.phi.to(self._device)
+        # linear transformation to convert read tensors from their initial dimensionality
+        # to the embedding dimension eg data of shape [num_batches -- optional] x num_reads x read dimension
+        # maps to data of shape [num_batches] x num_reads x embedding dimension)
+        self.initial_read_embedding = torch.nn.Linear(in_features=num_read_features, out_features=params.read_embedding_dimension)
+        self.initial_read_embedding.to(self._device)
+
+        self.read_embedding_dimension = params.read_embedding_dimension
+        self.num_transformer_heads = params.num_transformer_heads
+        self.transformer_hidden_dimension = params.transformer_hidden_dimension
+        self.num_transformer_layers = params.num_transformer_layers
+
+        self.transformer_encoder_layer = torch.nn.TransformerEncoderLayer(d_model=params.read_embedding_dimension,
+            nhead=params.num_transformer_heads, batch_first=True, dim_feedforward=params.transformer_hidden_dimension,
+            dropout=params.dropout_p)
+        self.transformer_encoder = torch.nn.TransformerEncoder(self.transformer_encoder_layer, num_layers=params.num_transformer_layers)
+        self.transformer_encoder.to(self._device)
 
         # omega is the universal embedding of info field variant-level data
         info_layers = [self._num_info_features] + params.info_layers
@@ -168,7 +180,7 @@ class ArtifactModel(nn.Module):
         self.ref_seq_cnn.to(self._device)
 
         # rho is the universal aggregation function
-        ref_alt_info_ref_seq_embedding_dimension = 2 * self.phi.output_dimension() + self.omega.output_dimension() + self.ref_seq_cnn.output_dimension()
+        ref_alt_info_ref_seq_embedding_dimension = 2 * self.read_embedding_dimension + self.omega.output_dimension() + self.ref_seq_cnn.output_dimension()
         alt_info_ref_seq_embedding_dimension = self.phi.output_dimension() + self.omega.output_dimension() + self.ref_seq_cnn.output_dimension()
 
         # The [1] is for the output of binary classification, represented as a single artifact/non-artifact logit
@@ -189,7 +201,8 @@ class ArtifactModel(nn.Module):
         return self._ref_sequence_length
 
     def training_parameters(self):
-        return chain(self.phi.parameters(), self.omega.parameters(), self.rho.parameters(), self.calibration.parameters())
+        return chain(self.initial_read_embedding.parameters(),self.transformer_encoder.parameters(),
+                     self.omega.parameters(), self.rho.parameters(), self.calibration.parameters())
 
     def calibration_parameters(self):
         return self.calibration.parameters()
@@ -207,18 +220,38 @@ class ArtifactModel(nn.Module):
 
     # returns 1D tensor of length batch_size of log odds ratio (logits) between artifact and non-artifact
     def forward(self, batch: ReadSetBatch):
-        phi_reads = self.apply_phi_to_reads(batch)
-        return self.forward_from_phi_reads(phi_reads=phi_reads, batch=batch)
+        phi_reads = self.apply_transformer_to_reads(batch)
+        return self.forward_from_transformed_reads(phi_reads=phi_reads, batch=batch)
 
     # for the sake of recycling the read embeddings when training with data augmentation, we split the forward pass
     # into 1) the expensive and recyclable embedding of every single read and 2) everything else
     # note that apply_phi_to_reads returns a 2D tensor of N x E, where E is the embedding dimensions and N is the total
     # number of reads in the whole batch.  Thus, we have to be careful to downsample within each datum.
-    def apply_phi_to_reads(self, batch: ReadSetBatch):
-        # note that we put the reads on GPU, apply read embedding phi, then put the result back on CPU
-        return 2 * (torch.sigmoid(self.phi(batch.get_reads_2d().to(self._device))) - 0.5)
+    def apply_transformer_to_reads(self, batch: ReadSetBatch):
+        initial_embedded_reads = self.initial_read_embedding(batch.get_reads_2d().to(self._device))
 
-    def forward_from_phi_reads_to_intermediate_layer_output(self, phi_reads: Tensor, batch: ReadSetBatch, weight_range: float = 0):
+        # we have a 2D tensor where each row is a read, but we want to group them into read sets
+        # since reads from different read sets should not see each other (also, refs and alts
+        # shouldn't either)
+        # thus we take the alt/ref reads and reshape into 3D tensors of shape
+        # (batch_size x batch alt/ref count x read embedding dimension), then apply the
+        # transformer
+
+        ref_count, alt_count = batch.ref_count, batch.alt_count
+        total_ref = ref_count * batch.size()
+        ref_reads_3d = None if total_ref == 0 else initial_embedded_reads[:total_ref].reshape(batch.size(), ref_count, self.read_embedding_dimension)
+        alt_reads_3d = initial_embedded_reads[total_ref:].reshape(batch.size(), alt_count, self.read_embedding_dimension)
+
+        transformed_alt_reads_2d = self.transformer_encoder(alt_reads_3d).reshape(alt_count, self.read_embedding_dimension)
+        transformed_ref_reads_2d = None if total_ref == 0 else self.transformer_encoder(ref_reads_3d).reshape(alt_count, self.read_embedding_dimension)
+
+        transformed_reads_2d = transformed_alt_reads_2d if total_ref == 0 else \
+            torch.vstack([transformed_ref_reads_2d, transformed_alt_reads_2d])
+
+        # TODO: do we need the sigmoid?? We have not evaluated this for the transformer
+        return 2 * (torch.sigmoid(transformed_reads_2d) - 0.5)
+
+    def forward_from_transformed_reads_to_intermediate_layer_output(self, phi_reads: Tensor, batch: ReadSetBatch, weight_range: float = 0):
         weights = torch.ones(len(phi_reads), 1, device=self._device) if weight_range == 0 else (1 + weight_range * (1 - 2 * torch.rand(len(phi_reads), 1, device=self._device)))
         weighted_phi_reads = weights * phi_reads
 
@@ -245,14 +278,14 @@ class ArtifactModel(nn.Module):
 
         return all_read_means, alt_means, omega_info, ref_seq_embedding, effective_alt_counts
 
-    def forward_from_phi_reads_to_calibration(self, phi_reads: Tensor, batch: ReadSetBatch, weight_range: float = 0):
-        all_read_means, alt_means, omega_info, ref_seq_embedding, effective_alt_counts = self.forward_from_phi_reads_to_intermediate_layer_output(phi_reads, batch, weight_range)
+    def forward_from_transformed_reads_to_calibration(self, phi_reads: Tensor, batch: ReadSetBatch, weight_range: float = 0):
+        all_read_means, alt_means, omega_info, ref_seq_embedding, effective_alt_counts = self.forward_from_transformed_reads_to_intermediate_layer_output(phi_reads, batch, weight_range)
         concatenated = torch.cat((all_read_means, alt_means, omega_info, ref_seq_embedding), dim=1)
         logits = self.rho.forward(concatenated).squeeze(dim=1)  # specify dim so that in edge case of batch size 1 we get 1D tensor, not scalar
         return logits, batch.ref_count * torch.ones_like(effective_alt_counts), effective_alt_counts
 
-    def forward_from_phi_reads(self, phi_reads: Tensor, batch: ReadSetBatch, weight_range: float = 0):
-        logits, ref_counts, effective_alt_counts = self.forward_from_phi_reads_to_calibration(phi_reads, batch, weight_range)
+    def forward_from_transformed_reads(self, phi_reads: Tensor, batch: ReadSetBatch, weight_range: float = 0):
+        logits, ref_counts, effective_alt_counts = self.forward_from_transformed_reads_to_calibration(phi_reads, batch, weight_range)
         return self.calibration.forward(logits, ref_counts, effective_alt_counts)
 
     def learn_calibration(self, dataset: ReadSetDataset, num_epochs, batch_size, num_workers):
@@ -275,8 +308,8 @@ class ArtifactModel(nn.Module):
         for n, batch in pbar:
             if not batch.is_labeled():
                 continue
-            phi_reads = self.apply_phi_to_reads(batch)
-            logits, ref_counts, alt_counts = self.forward_from_phi_reads_to_calibration(phi_reads, batch)
+            phi_reads = self.apply_transformer_to_reads(batch)
+            logits, ref_counts, alt_counts = self.forward_from_transformed_reads_to_calibration(phi_reads, batch)
             labels = batch.labels.to(self._device)
 
             # TODO: more code duplication between here and train_model
@@ -333,11 +366,11 @@ class ArtifactModel(nn.Module):
                 loader = train_loader if epoch_type == utils.Epoch.TRAIN else valid_loader
                 pbar = tqdm(enumerate(loader), mininterval=10)
                 for n, batch in pbar:
-                    phi_reads = self.apply_phi_to_reads(batch)
+                    phi_reads = self.apply_transformer_to_reads(batch)
 
-                    orig_pred = self.forward_from_phi_reads(phi_reads, batch, weight_range=0)
-                    aug1_pred = self.forward_from_phi_reads(phi_reads, batch, weight_range=reweighting_range)
-                    aug2_pred = self.forward_from_phi_reads(phi_reads, batch, weight_range=reweighting_range)
+                    orig_pred = self.forward_from_transformed_reads(phi_reads, batch, weight_range=0)
+                    aug1_pred = self.forward_from_transformed_reads(phi_reads, batch, weight_range=reweighting_range)
+                    aug2_pred = self.forward_from_transformed_reads(phi_reads, batch, weight_range=reweighting_range)
 
                     if batch.is_labeled():
                         labels = batch.labels
@@ -496,13 +529,13 @@ class ArtifactModel(nn.Module):
             type_metadata.extend([Variation(idx).name for idx in batch.variant_types()])
             truncated_count_metadata.extend(batch.size() * [str(min(max_count, batch.alt_count))])
 
-            phi_reads = self.apply_phi_to_reads(batch)
+            phi_reads = self.apply_transformer_to_reads(batch)
 
             omega_info = torch.sigmoid(self.omega(batch.get_info_2d().to(self._device)))
             ref_seq_embedding = self.ref_seq_cnn(batch.get_ref_sequences_2d())
 
             all_read_means, alt_means, omega_info, ref_seq_embedding, effective_alt_counts = \
-                self.forward_from_phi_reads_to_intermediate_layer_output(phi_reads, batch)
+                self.forward_from_transformed_reads_to_intermediate_layer_output(phi_reads, batch)
             average_read_embedding_features.append(alt_means)
 
             omega_info = torch.sigmoid(self.omega(batch.get_info_2d().to(self._device)))
