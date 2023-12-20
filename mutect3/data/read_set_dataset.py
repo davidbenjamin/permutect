@@ -56,9 +56,9 @@ class ReadSetDataset(Dataset):
             elif datum.label != Label.UNLABELED:
                 self.non_artifact_totals += datum.variant_type_one_hot()
 
-        self.num_read_features = self[0].alt_tensor.shape[1]
-        self.num_info_features = len(self[0].info_tensor)
-        self.ref_sequence_length = self[0].ref_sequence_tensor.shape[-1]
+        self.num_read_features = self[0].alt_reads_2d.shape[1]
+        self.num_info_features = len(self[0].info_array_1d)
+        self.ref_sequence_length = self[0].ref_sequence_2d.shape[-1]
 
     def __len__(self):
         return len(self._data) // TENSORS_PER_READ_SET if self._memory_map_mode else len(self.data)

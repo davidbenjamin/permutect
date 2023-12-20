@@ -181,7 +181,6 @@ class ArtifactModel(nn.Module):
 
         # rho is the universal aggregation function
         ref_alt_info_ref_seq_embedding_dimension = 2 * self.read_embedding_dimension + self.omega.output_dimension() + self.ref_seq_cnn.output_dimension()
-        alt_info_ref_seq_embedding_dimension = self.phi.output_dimension() + self.omega.output_dimension() + self.ref_seq_cnn.output_dimension()
 
         # The [1] is for the output of binary classification, represented as a single artifact/non-artifact logit
         self.rho = MLP([ref_alt_info_ref_seq_embedding_dimension] + params.aggregation_layers + [1], batch_normalize=params.batch_normalize,
@@ -220,8 +219,8 @@ class ArtifactModel(nn.Module):
 
     # returns 1D tensor of length batch_size of log odds ratio (logits) between artifact and non-artifact
     def forward(self, batch: ReadSetBatch):
-        phi_reads = self.apply_transformer_to_reads(batch)
-        return self.forward_from_transformed_reads(phi_reads=phi_reads, batch=batch)
+        transformed_reads = self.apply_transformer_to_reads(batch)
+        return self.forward_from_transformed_reads(transformed_reads=transformed_reads, batch=batch)
 
     # for the sake of recycling the read embeddings when training with data augmentation, we split the forward pass
     # into 1) the expensive and recyclable embedding of every single read and 2) everything else
@@ -238,12 +237,12 @@ class ArtifactModel(nn.Module):
         # transformer
 
         ref_count, alt_count = batch.ref_count, batch.alt_count
-        total_ref = ref_count * batch.size()
+        total_ref, total_alt = ref_count * batch.size(), alt_count * batch.size()
         ref_reads_3d = None if total_ref == 0 else initial_embedded_reads[:total_ref].reshape(batch.size(), ref_count, self.read_embedding_dimension)
         alt_reads_3d = initial_embedded_reads[total_ref:].reshape(batch.size(), alt_count, self.read_embedding_dimension)
 
-        transformed_alt_reads_2d = self.transformer_encoder(alt_reads_3d).reshape(alt_count, self.read_embedding_dimension)
-        transformed_ref_reads_2d = None if total_ref == 0 else self.transformer_encoder(ref_reads_3d).reshape(alt_count, self.read_embedding_dimension)
+        transformed_alt_reads_2d = self.transformer_encoder(alt_reads_3d).reshape(total_alt, self.read_embedding_dimension)
+        transformed_ref_reads_2d = None if total_ref == 0 else self.transformer_encoder(ref_reads_3d).reshape(total_ref, self.read_embedding_dimension)
 
         transformed_reads_2d = transformed_alt_reads_2d if total_ref == 0 else \
             torch.vstack([transformed_ref_reads_2d, transformed_alt_reads_2d])
@@ -284,8 +283,8 @@ class ArtifactModel(nn.Module):
         logits = self.rho.forward(concatenated).squeeze(dim=1)  # specify dim so that in edge case of batch size 1 we get 1D tensor, not scalar
         return logits, batch.ref_count * torch.ones_like(effective_alt_counts), effective_alt_counts
 
-    def forward_from_transformed_reads(self, phi_reads: Tensor, batch: ReadSetBatch, weight_range: float = 0):
-        logits, ref_counts, effective_alt_counts = self.forward_from_transformed_reads_to_calibration(phi_reads, batch, weight_range)
+    def forward_from_transformed_reads(self, transformed_reads: Tensor, batch: ReadSetBatch, weight_range: float = 0):
+        logits, ref_counts, effective_alt_counts = self.forward_from_transformed_reads_to_calibration(transformed_reads, batch, weight_range)
         return self.calibration.forward(logits, ref_counts, effective_alt_counts)
 
     def learn_calibration(self, dataset: ReadSetDataset, num_epochs, batch_size, num_workers):
