@@ -165,11 +165,15 @@ class ArtifactModel(nn.Module):
         self.transformer_hidden_dimension = params.transformer_hidden_dimension
         self.num_transformer_layers = params.num_transformer_layers
 
-        self.transformer_encoder_layer = torch.nn.TransformerEncoderLayer(d_model=params.read_embedding_dimension,
-            nhead=params.num_transformer_heads, batch_first=True, dim_feedforward=params.transformer_hidden_dimension,
-            dropout=params.dropout_p)
-        self.transformer_encoder = torch.nn.TransformerEncoder(self.transformer_encoder_layer, num_layers=params.num_transformer_layers)
-        self.transformer_encoder.to(self._device)
+        self.alt_transformer_encoder_layer = torch.nn.TransformerEncoderLayer(d_model=params.read_embedding_dimension,
+            nhead=params.num_transformer_heads, batch_first=True, dim_feedforward=params.transformer_hidden_dimension, dropout=params.dropout_p)
+        self.alt_transformer_encoder = torch.nn.TransformerEncoder(self.alt_transformer_encoder_layer, num_layers=params.num_transformer_layers)
+        self.alt_transformer_encoder.to(self._device)
+
+        self.ref_transformer_encoder_layer = torch.nn.TransformerEncoderLayer(d_model=params.read_embedding_dimension,
+             nhead=params.num_transformer_heads, batch_first=True, dim_feedforward=params.transformer_hidden_dimension, dropout=params.dropout_p)
+        self.ref_transformer_encoder = torch.nn.TransformerEncoder(self.alt_transformer_encoder_layer, num_layers=params.num_transformer_layers)
+        self.ref_transformer_encoder.to(self._device)
 
         # omega is the universal embedding of info field variant-level data
         info_layers = [self._num_info_features] + params.info_layers
@@ -200,7 +204,7 @@ class ArtifactModel(nn.Module):
         return self._ref_sequence_length
 
     def training_parameters(self):
-        return chain(self.initial_read_embedding.parameters(),self.transformer_encoder.parameters(),
+        return chain(self.initial_read_embedding.parameters(), self.alt_transformer_encoder.parameters(), self.ref_transformer_encoder.parameters(),
                      self.omega.parameters(), self.rho.parameters(), self.calibration.parameters())
 
     def calibration_parameters(self):
@@ -241,8 +245,8 @@ class ArtifactModel(nn.Module):
         ref_reads_3d = None if total_ref == 0 else initial_embedded_reads[:total_ref].reshape(batch.size(), ref_count, self.read_embedding_dimension)
         alt_reads_3d = initial_embedded_reads[total_ref:].reshape(batch.size(), alt_count, self.read_embedding_dimension)
 
-        transformed_alt_reads_2d = self.transformer_encoder(alt_reads_3d).reshape(total_alt, self.read_embedding_dimension)
-        transformed_ref_reads_2d = None if total_ref == 0 else self.transformer_encoder(ref_reads_3d).reshape(total_ref, self.read_embedding_dimension)
+        transformed_alt_reads_2d = self.alt_transformer_encoder(alt_reads_3d).reshape(total_alt, self.read_embedding_dimension)
+        transformed_ref_reads_2d = None if total_ref == 0 else self.ref_transformer_encoder(ref_reads_3d).reshape(total_ref, self.read_embedding_dimension)
 
         transformed_reads_2d = transformed_alt_reads_2d if total_ref == 0 else \
             torch.vstack([transformed_ref_reads_2d, transformed_alt_reads_2d])
