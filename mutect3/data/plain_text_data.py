@@ -180,8 +180,8 @@ def generate_normalized_data(dataset_files, max_bytes_per_chunk: int, include_va
 
 
 def normalize_buffer(buffer, read_medians_override=None, read_iqrs_override=None, info_medians_override=None, info_iqrs_override=None):
-    all_ref = np.vstack([datum.ref_tensor for datum in buffer if datum.ref_tensor is not None])
-    all_info = np.vstack([datum.info_tensor for datum in buffer])
+    all_ref = np.vstack([datum.ref_reads_2d for datum in buffer if datum.ref_reads_2d is not None])
+    all_info = np.vstack([datum.info_array_1d for datum in buffer])
 
     read_medians, read_iqrs = medians_and_iqrs(all_ref) if read_medians_override is None else (read_medians_override, read_iqrs_override)
     info_medians, info_iqrs = medians_and_iqrs(all_info) if info_medians_override is None else (info_medians_override, info_iqrs_override)
@@ -191,12 +191,12 @@ def normalize_buffer(buffer, read_medians_override=None, read_iqrs_override=None
 
     # normalize by subtracting medium and dividing by quantile range
     for datum in buffer:
-        datum.ref_tensor = None if datum.ref_tensor is None else restore_binary_columns(normalized=(datum.ref_tensor - read_medians) / read_iqrs,
-            original=datum.ref_tensor, binary_columns=binary_read_columns)
-        datum.alt_tensor = restore_binary_columns(normalized=(datum.alt_tensor - read_medians) / read_iqrs,
-            original=datum.alt_tensor, binary_columns=binary_read_columns)
-        datum.info_tensor = restore_binary_columns(normalized=(datum.info_tensor - info_medians) / info_iqrs,
-            original=datum.info_tensor, binary_columns=binary_info_columns)
+        datum.ref_reads_2d = None if datum.ref_reads_2d is None else restore_binary_columns(normalized=(datum.ref_reads_2d - read_medians) / read_iqrs,
+                                                                                            original=datum.ref_reads_2d, binary_columns=binary_read_columns)
+        datum.alt_reads_2d = restore_binary_columns(normalized=(datum.alt_reads_2d - read_medians) / read_iqrs,
+                                                    original=datum.alt_reads_2d, binary_columns=binary_read_columns)
+        datum.info_array_1d = restore_binary_columns(normalized=(datum.info_array_1d - info_medians) / info_iqrs,
+                                                     original=datum.info_array_1d, binary_columns=binary_info_columns)
 
 
 # check whether all elements are 0 or 1

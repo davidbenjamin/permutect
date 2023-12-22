@@ -11,7 +11,12 @@ INPUT_NAME = 'input'
 OUTPUT_NAME = 'output'
 ARTIFACT_POSTERIOR_OUTPUT_NAME = 'artifact_posterior_output'
 OUTPUT_DIR_NAME = 'output_dir'
-READ_LAYERS_NAME = 'read_layers'
+
+READ_EMBEDDING_DIMENSION_NAME = 'read_embedding_dimension'
+NUM_TRANSFORMER_HEADS_NAME = 'num_transformer_heads'
+TRANSFORMER_HIDDEN_DIMENSION_NAME = 'transformer_hidden_dimension'
+NUM_TRANSFORMER_LAYERS_NAME = 'num_transformer_layers'
+
 INFO_LAYERS_NAME = 'info_layers'
 AGGREGATION_LAYERS_NAME = 'aggregation_layers'
 REF_SEQ_LAYER_STRINGS_NAME = 'ref_seq_layer_strings'

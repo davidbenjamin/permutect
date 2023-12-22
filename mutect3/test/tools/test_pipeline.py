@@ -31,7 +31,10 @@ def test_on_dream1():
 
     # STEP 2: train a model
     train_model_args = Namespace()
-    setattr(train_model_args, constants.READ_LAYERS_NAME, [30, 30, 30])
+    setattr(train_model_args, constants.READ_EMBEDDING_DIMENSION_NAME, 18)
+    setattr(train_model_args, constants.NUM_TRANSFORMER_HEADS_NAME, 3)
+    setattr(train_model_args, constants.TRANSFORMER_HIDDEN_DIMENSION_NAME, 20)
+    setattr(train_model_args, constants.NUM_TRANSFORMER_LAYERS_NAME, 3)
     setattr(train_model_args, constants.INFO_LAYERS_NAME, [30, 30, 30])
     setattr(train_model_args, constants.AGGREGATION_LAYERS_NAME, [30, 30, 30, 30])
     cnn_layer_strings = ['convolution/kernel_size=3/out_channels=64',

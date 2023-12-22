@@ -22,7 +22,10 @@ def test_train_model():
 
     # STEP 2: train a model
     train_model_args = Namespace()
-    setattr(train_model_args, constants.READ_LAYERS_NAME, [20, 20])
+    setattr(train_model_args, constants.READ_EMBEDDING_DIMENSION_NAME, 18)
+    setattr(train_model_args, constants.NUM_TRANSFORMER_HEADS_NAME, 3)
+    setattr(train_model_args, constants.TRANSFORMER_HIDDEN_DIMENSION_NAME, 20)
+    setattr(train_model_args, constants.NUM_TRANSFORMER_LAYERS_NAME, 2)
     setattr(train_model_args, constants.INFO_LAYERS_NAME, [20, 20])
     setattr(train_model_args, constants.AGGREGATION_LAYERS_NAME, [20, 20, 20])
     cnn_layer_strings = ['convolution/kernel_size=3/out_channels=64',
@@ -85,8 +88,10 @@ def test_train_model():
 
 
 def test_training(dataset):
-    m3_params = artifact_model.ArtifactModelParameters(read_layers=[20, 20, 20], info_layers=[20, 20], aggregation_layers=[20, 20],
-                                                       dropout_p=0.0, batch_normalize=False, learning_rate=0.001)
+    m3_params = artifact_model.ArtifactModelParameters(read_embedding_dimension=12, num_transformer_heads=3,
+                 transformer_hidden_dimension=20, num_transformer_layers=2,
+        info_layers=[20, 20], aggregation_layers=[20, 20],
+        dropout_p=0.0, batch_normalize=False, learning_rate=0.001)
     training_params = train_model.TrainingParameters(batch_size=64, num_epochs=5, reweighting_range=0.3)
 
     with tempfile.TemporaryDirectory() as tensorboard_dir:

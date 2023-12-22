@@ -13,8 +13,7 @@ from torch.utils.data.sampler import Sampler
 
 from mmap_ninja.ragged import RaggedMmap
 from mutect3 import utils
-from mutect3.data.read_set import ReadSet
-from mutect3.data.read_set import load_list_of_read_sets, ReadSetBatch
+from mutect3.data.read_set import ReadSet, ReadSetBatch, load_list_of_read_sets
 from mutect3.utils import Label
 
 TENSORS_PER_READ_SET = 5
@@ -49,7 +48,7 @@ class ReadSetDataset(Dataset):
 
         for n, datum in enumerate(self):
             train_or_valid = utils.Epoch.VALID if random.random() < validation_fraction else utils.Epoch.TRAIN
-            counts = (len(datum.ref_tensor) if datum.ref_tensor is not None else 0, len(datum.alt_tensor))
+            counts = (len(datum.ref_reads_2d) if datum.ref_reads_2d is not None else 0, len(datum.alt_reads_2d))
             (self.unlabeled_indices_by_count if datum.label == Label.UNLABELED else self.labeled_indices_by_count)[train_or_valid][counts].append(n)
 
             if datum.label == Label.ARTIFACT:
@@ -57,9 +56,9 @@ class ReadSetDataset(Dataset):
             elif datum.label != Label.UNLABELED:
                 self.non_artifact_totals += datum.variant_type_one_hot()
 
-        self.num_read_features = self[0].alt_tensor.shape[1]
-        self.num_info_features = len(self[0].info_tensor)
-        self.ref_sequence_length = self[0].ref_sequence_tensor.shape[-1]
+        self.num_read_features = self[0].alt_reads_2d.shape[1]
+        self.num_info_features = len(self[0].info_array_1d)
+        self.ref_sequence_length = self[0].ref_sequence_2d.shape[-1]
 
     def __len__(self):
         return len(self._data) // TENSORS_PER_READ_SET if self._memory_map_mode else len(self.data)
@@ -71,10 +70,10 @@ class ReadSetDataset(Dataset):
             possible_ref = self._data[bottom_index]
 
             # The order here corresponds to the order of yield statements within make_flattened_tensor_generator()
-            return ReadSet(ref_sequence_tensor=self._data[bottom_index + 2],
-                           ref_tensor=possible_ref if len(possible_ref) > 0 else None,
-                           alt_tensor=self._data[bottom_index + 1],
-                           info_tensor=self._data[bottom_index + 3],
+            return ReadSet(ref_sequence_2d=self._data[bottom_index + 2],
+                           ref_reads_2d=possible_ref if len(possible_ref) > 0 else None,
+                           alt_reads_2d=self._data[bottom_index + 1],
+                           info_array_1d=self._data[bottom_index + 3],
                            label=utils.Label(self._data[bottom_index + 4][0]))
         else:
             return self._data[index]
@@ -91,10 +90,10 @@ class ReadSetDataset(Dataset):
 # ref tensor, alt tensor, ref sequence tensor, info tensor, label tensor, ref tensor alt tensor. . .
 def make_flattened_tensor_generator(read_set_generator):
     for read_set in read_set_generator:
-        yield read_set.ref_tensor if read_set.ref_tensor is not None else np.empty((0, 0))
-        yield read_set.alt_tensor
-        yield read_set.ref_sequence_tensor
-        yield read_set.info_tensor
+        yield read_set.ref_reads_2d if read_set.ref_reads_2d is not None else np.empty((0, 0))
+        yield read_set.alt_reads_2d
+        yield read_set.ref_sequence_2d
+        yield read_set.info_array_1d
         yield np.array([read_set.label.value])  # single-element tensor of the Label enum
 
 
@@ -116,16 +115,6 @@ def make_read_set_generator_from_tarfile(data_tarfile):
 def make_data_loader(dataset: ReadSetDataset, train_or_valid: utils.Epoch, batch_size: int, pin_memory=False, num_workers: int = 0):
     sampler = SemiSupervisedBatchSampler(dataset, batch_size, train_or_valid)
     return DataLoader(dataset=dataset, batch_sampler=sampler, collate_fn=ReadSetBatch, pin_memory=pin_memory, num_workers=num_workers)
-
-
-# TODO: this might belong somewhere else
-def count_data(dataset_file):
-    n = 0
-    with open(dataset_file) as file:
-        for line in file:
-            if Label.is_label(line.strip()):
-                n += 1
-    return n
 
 
 # ex: chunk([a,b,c,d,e], 3) = [[a,b,c], [d,e]]
