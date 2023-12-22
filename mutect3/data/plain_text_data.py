@@ -32,6 +32,7 @@ GTCCTGGACACGCTGTTGGCC
 """
 import numpy as np
 import psutil
+from sklearn.preprocessing import QuantileTransformer
 
 from mutect3 import utils
 from mutect3.data.posterior import PosteriorDatum
@@ -159,8 +160,10 @@ def generate_normalized_data(dataset_files, max_bytes_per_chunk: int, include_va
     """
     for dataset_file in dataset_files:
         buffer, bytes_in_buffer = [], 0
-        read_medians, read_iqrs, info_medians, info_iqrs = None, None, None, None
+        read_quantile_transform = QuantileTransformer(n_quantiles=100, output_distribution='normal')
+        info_quantile_transform = QuantileTransformer(n_quantiles=100, output_distribution='normal')
 
+        num_buffers_filled = 0
         for read_set in read_data(dataset_file, posterior=False, include_variant_string=include_variant_string):
             buffer.append(read_set)
             bytes_in_buffer += read_set.size_in_bytes()
@@ -168,38 +171,70 @@ def generate_normalized_data(dataset_files, max_bytes_per_chunk: int, include_va
                 print("memory usage percent: " + str(psutil.virtual_memory().percent))
                 print("bytes in chunk: " + str(bytes_in_buffer))
 
-                normalize_buffer(buffer)
+                normalize_buffer(buffer, read_quantile_transform, info_quantile_transform)
                 yield buffer
+                num_buffers_filled += 1
                 buffer, bytes_in_buffer = [], 0
         # There will be some data left over, in general.  Since it's small, use the last buffer's
-        # medians and IQRs if available for better statistical power if it's from the same text file
+        # quantile transforms for better statistical power if it's from the same text file
         if buffer:
-            normalize_buffer(buffer, read_medians_override=read_medians, read_iqrs_override=read_iqrs,
-                         info_medians_override=info_medians, info_iqrs_override=info_iqrs)
+            normalize_buffer(buffer, read_quantile_transform, info_quantile_transform, refit_transforms=(num_buffers_filled==0))
             yield buffer
 
 
-def normalize_buffer(buffer, read_medians_override=None, read_iqrs_override=None, info_medians_override=None, info_iqrs_override=None):
-    all_ref = np.vstack([datum.ref_reads_2d for datum in buffer if datum.ref_reads_2d is not None])
-    all_info = np.vstack([datum.info_array_1d for datum in buffer])
+def normalize_buffer(buffer, read_quantile_transform, info_quantile_transform, refit_transforms=True):
+    # 2D array.  Rows are ref/alt reads, columns are read features
+    all_ref = np.vstack([datum.ref_tensor for datum in buffer if datum.ref_tensor is not None])
+    all_alt = np.vstack([datum.alt_tensor for datum in buffer])
 
-    read_medians, read_iqrs = medians_and_iqrs(all_ref) if read_medians_override is None else (read_medians_override, read_iqrs_override)
-    info_medians, info_iqrs = medians_and_iqrs(all_info) if info_medians_override is None else (info_medians_override, info_iqrs_override)
+    # 2D array.  Rows are read sets, columns are info features
+    all_info = np.vstack([datum.info_tensor for datum in buffer])
 
     binary_read_columns = binary_column_indices(all_ref)
     binary_info_columns = binary_column_indices(all_info)
 
-    # normalize by subtracting medium and dividing by quantile range
-    for datum in buffer:
-        datum.ref_reads_2d = None if datum.ref_reads_2d is None else restore_binary_columns(normalized=(datum.ref_reads_2d - read_medians) / read_iqrs,
-                                                                                            original=datum.ref_reads_2d, binary_columns=binary_read_columns)
-        datum.alt_reads_2d = restore_binary_columns(normalized=(datum.alt_reads_2d - read_medians) / read_iqrs,
-                                                    original=datum.alt_reads_2d, binary_columns=binary_read_columns)
-        datum.info_array_1d = restore_binary_columns(normalized=(datum.info_array_1d - info_medians) / info_iqrs,
-                                                     original=datum.info_array_1d, binary_columns=binary_info_columns)
+    if refit_transforms:    # fit quantiles column by column (aka feature by feature)
+        read_quantile_transform.fit(all_ref)
+        info_quantile_transform.fit(all_info)
+
+    # it's more efficient to apply the quantile transform to all reads at once, then split it back into read sets
+    all_ref_transformed = transform_except_for_binary_columns(all_ref, read_quantile_transform, binary_read_columns)
+    all_alt_transformed = transform_except_for_binary_columns(all_alt, read_quantile_transform, binary_read_columns)
+    all_info_transformed = transform_except_for_binary_columns(all_info, info_quantile_transform, binary_info_columns)
+
+    ref_counts = np.array([0 if datum.ref_tensor is None else len(datum.ref_tensor) for datum in buffer])
+    alt_counts = np.array([len(datum.alt_tensor) for datum in buffer])
+
+    ref_index_ranges = np.cumsum(ref_counts)
+    alt_index_ranges = np.cumsum(alt_counts)
+
+    for n, datum in enumerate(buffer):
+        datum.ref_tensor = None if datum.ref_tensor is None else all_ref_transformed[0 if n == 0 else ref_index_ranges[n-1]:ref_index_ranges[n]]
+        datum.alt_tensor = all_alt_transformed[0 if n == 0 else alt_index_ranges[n-1]:alt_index_ranges[n]]
+        datum.info_tensor = all_info_transformed[n]
 
 
-# check whether all elements are 0 or 1
+def line_to_tensor(line: str) -> np.ndarray:
+    tokens = line.strip().split()
+    floats = [float(token) for token in tokens]
+    return np.clip(np.array(floats), -MAX_VALUE, MAX_VALUE)
+
+
+def read_2d_tensor(file, num_lines: int) -> np.ndarray:
+    if num_lines == 0:
+        return None
+    lines = [file.readline() for _ in range(num_lines)]
+    return np.vstack([line_to_tensor(line) for line in lines])
+
+
+def read_integers(line: str):
+    return map(int, line.strip().split())
+
+
+def read_float(line: str):
+    return float(line.strip().split()[0])
+
+
 def is_binary(column_tensor_1d: np.ndarray):
     assert len(column_tensor_1d.shape) == 1
     return all(el.item() == 0 or el.item() == 1 for el in column_tensor_1d)
@@ -223,31 +258,5 @@ def restore_binary_columns(normalized, original, binary_columns):
     return result
 
 
-def medians_and_iqrs(tensor_2d: np.ndarray):
-    # column medians etc
-    medians = np.quantile(tensor_2d, q=0.5, axis=0)
-    val = 0.05
-    iqrs = (np.quantile(tensor_2d, 1 - val, axis=0) - np.quantile(tensor_2d, val, axis=0)) + EPSILON
-
-    return medians, iqrs
-
-
-def line_to_tensor(line: str) -> np.ndarray:
-    tokens = line.strip().split()
-    floats = [float(token) for token in tokens]
-    return np.clip(np.array(floats), -MAX_VALUE, MAX_VALUE)
-
-
-def read_2d_tensor(file, num_lines: int) -> np.ndarray:
-    if num_lines == 0:
-        return None
-    lines = [file.readline() for _ in range(num_lines)]
-    return np.vstack([line_to_tensor(line) for line in lines])
-
-
-def read_integers(line: str):
-    return map(int, line.strip().split())
-
-
-def read_float(line: str):
-    return float(line.strip().split()[0])
+def transform_except_for_binary_columns(tensor_2d, quantile_transform: QuantileTransformer, binary_column_indices):
+    return restore_binary_columns(quantile_transform.transform(tensor_2d), tensor_2d, binary_column_indices)
