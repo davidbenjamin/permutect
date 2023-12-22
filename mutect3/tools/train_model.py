@@ -113,9 +113,10 @@ def parse_mutect3_params(args) -> ArtifactModelParameters:
     dropout_p = getattr(args, constants.DROPOUT_P_NAME)
     batch_normalize = getattr(args, constants.BATCH_NORMALIZE_NAME)
     learning_rate = getattr(args, constants.LEARNING_RATE_NAME)
+    alt_downsample = getattr(args, constants.ALT_DOWNSAMPLE_NAME)
     return ArtifactModelParameters(read_embedding_dimension, num_transformer_heads, transformer_hidden_dimension,
                  num_transformer_layers, info_layers, aggregation_layers, ref_seq_layer_strings, dropout_p,
-        batch_normalize, learning_rate)
+        batch_normalize, learning_rate, alt_downsample)
 
 
 def parse_arguments():
@@ -144,6 +145,8 @@ def parse_arguments():
                         help='dropout probability')
     parser.add_argument('--' + constants.LEARNING_RATE_NAME, type=float, default=0.001, required=False,
                         help='learning rate')
+    parser.add_argument('--' + constants.ALT_DOWNSAMPLE_NAME, type=int, default=100, required=False,
+                        help='max number of alt reads to downsample to inside the model')
     parser.add_argument('--' + constants.BATCH_NORMALIZE_NAME, action='store_true',
                         help='flag to turn on batch normalization')
 

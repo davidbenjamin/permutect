@@ -27,7 +27,7 @@ SMALL_MODEL_PARAMS = ArtifactModelParameters(read_embedding_dimension=12,
     num_transformer_heads=3, transformer_hidden_dimension=10, num_transformer_layers=2,
     info_layers=[5, 5], aggregation_layers=[5, 5, 5, 5],
     ref_seq_layers_strings=REF_SEQ_LAYER_STRINGS,
-    dropout_p=0.2, batch_normalize=False, learning_rate=0.001)
+    dropout_p=0.2, batch_normalize=False, learning_rate=0.001, alt_downsample=20)
 
 
 # Note that the test methods in this class also cover batching, samplers, datasets, and data loaders

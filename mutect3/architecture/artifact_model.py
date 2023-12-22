@@ -46,7 +46,8 @@ class ArtifactModelParameters:
     def __init__(self,
                  read_embedding_dimension, num_transformer_heads, transformer_hidden_dimension,
                  num_transformer_layers, info_layers, aggregation_layers,
-                 ref_seq_layers_strings, dropout_p, batch_normalize, learning_rate):
+                 ref_seq_layers_strings, dropout_p, batch_normalize, learning_rate,
+                 alt_downsample):
 
         assert read_embedding_dimension % num_transformer_heads == 0
 
@@ -60,6 +61,7 @@ class ArtifactModelParameters:
         self.dropout_p = dropout_p
         self.batch_normalize = batch_normalize
         self.learning_rate = learning_rate
+        self.alt_downsample = alt_downsample
 
 
 class Calibration(nn.Module):
@@ -153,6 +155,7 @@ class ArtifactModel(nn.Module):
         self._num_read_features = num_read_features
         self._num_info_features = num_info_features
         self._ref_sequence_length = ref_sequence_length
+        self.alt_downsample = params.alt_downsample
 
         # linear transformation to convert read tensors from their initial dimensionality
         # to the embedding dimension eg data of shape [num_batches -- optional] x num_reads x read dimension
@@ -245,6 +248,11 @@ class ArtifactModel(nn.Module):
         ref_reads_3d = None if total_ref == 0 else initial_embedded_reads[:total_ref].reshape(batch.size(), ref_count, self.read_embedding_dimension)
         alt_reads_3d = initial_embedded_reads[total_ref:].reshape(batch.size(), alt_count, self.read_embedding_dimension)
 
+        if self.alt_downsample < alt_count:
+            alt_read_indices = torch.randperm(alt_count)[:self.alt_downsample]
+            alt_reads_3d = alt_reads_3d[:, alt_read_indices, :]   # downsample only along the middle (read) dimension
+            total_alt = batch.size() * self.alt_downsample
+
         transformed_alt_reads_2d = self.alt_transformer_encoder(alt_reads_3d).reshape(total_alt, self.read_embedding_dimension)
         transformed_ref_reads_2d = None if total_ref == 0 else self.ref_transformer_encoder(ref_reads_3d).reshape(total_ref, self.read_embedding_dimension)
 
@@ -258,7 +266,7 @@ class ArtifactModel(nn.Module):
         weights = torch.ones(len(phi_reads), 1, device=self._device) if weight_range == 0 else (1 + weight_range * (1 - 2 * torch.rand(len(phi_reads), 1, device=self._device)))
         weighted_phi_reads = weights * phi_reads
 
-        ref_count, alt_count = batch.ref_count, batch.alt_count
+        ref_count, alt_count = batch.ref_count, min(batch.alt_count, self.alt_downsample)
         total_ref = ref_count * batch.size()
 
         alt_wts = weights[total_ref:]
