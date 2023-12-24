@@ -9,6 +9,7 @@ workflow TrainMutect3 {
         Int batch_size
         Int? num_workers
         Float dropout_p
+        Int? alt_downsample
         Float reweighting_range
         Int read_embedding_dimension
         Int num_transformer_heads
@@ -39,6 +40,7 @@ workflow TrainMutect3 {
                 batch_size = batch_size,
                 num_workers = num_workers,
                 dropout_p = dropout_p,
+                alt_downsample = alt_downsample,
                 reweighting_range = reweighting_range,
                 read_embedding_dimension = read_embedding_dimension,
                 num_transformer_heads = num_transformer_heads,
@@ -65,6 +67,7 @@ workflow TrainMutect3 {
                 batch_size = batch_size,
                 num_workers = num_workers,
                 dropout_p = dropout_p,
+                alt_downsample = alt_downsample,
                 reweighting_range = reweighting_range,
                 read_embedding_dimension = read_embedding_dimension,
                 num_transformer_heads = num_transformer_heads,
@@ -97,6 +100,7 @@ task TrainMutect3GPU {
         Int batch_size
         Int? num_workers
         Float dropout_p
+        Int? alt_downsample
         Float reweighting_range
         Int read_embedding_dimension
         Int num_transformer_heads
@@ -138,6 +142,7 @@ task TrainMutect3GPU {
             --aggregation_layers ~{sep=' ' aggregation_layers} \
             --ref_seq_layer_strings ~{sep=' ' ref_seq_layer_strings} \
             --dropout_p ~{dropout_p} \
+            ~{"--alt_downsample " + alt_downsample} \
             --reweighting_range ~{reweighting_range} \
             --batch_size ~{batch_size} \
             ~{"--num_workers " + num_workers} \
@@ -178,6 +183,7 @@ task TrainMutect3CPU {
         Int batch_size
         Int? num_workers
         Float dropout_p
+        Int? alt_downsample
         Float reweighting_range
         Int read_embedding_dimension
         Int num_transformer_heads
@@ -218,6 +224,7 @@ task TrainMutect3CPU {
             --aggregation_layers ~{sep=' ' aggregation_layers} \
             --ref_seq_layer_strings ~{sep=' ' ref_seq_layer_strings} \
             --dropout_p ~{dropout_p} \
+            ~{"--alt_downsample " + alt_downsample} \
             --reweighting_range ~{reweighting_range} \
             --batch_size ~{batch_size} \
             ~{"--num_workers " + num_workers} \

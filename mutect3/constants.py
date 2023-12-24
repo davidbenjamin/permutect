@@ -22,6 +22,7 @@ AGGREGATION_LAYERS_NAME = 'aggregation_layers'
 REF_SEQ_LAYER_STRINGS_NAME = 'ref_seq_layer_strings'
 DROPOUT_P_NAME = 'dropout_p'
 LEARNING_RATE_NAME = 'learning_rate'
+ALT_DOWNSAMPLE_NAME = 'alt_downsample'
 BATCH_NORMALIZE_NAME = 'batch_normalize'
 LEARN_ARTIFACT_SPECTRA_NAME = 'learn_artifact_spectra'
 

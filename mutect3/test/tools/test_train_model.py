@@ -35,6 +35,7 @@ def test_train_model():
                      'linear/out_features=10']
     setattr(train_model_args, constants.REF_SEQ_LAYER_STRINGS_NAME, cnn_layer_strings)
     setattr(train_model_args, constants.DROPOUT_P_NAME, 0.0)
+    setattr(train_model_args, constants.ALT_DOWNSAMPLE_NAME, 20)
     setattr(train_model_args, constants.LEARNING_RATE_NAME, 0.001)
     setattr(train_model_args, constants.BATCH_NORMALIZE_NAME, False)
     setattr(train_model_args, constants.LEARN_ARTIFACT_SPECTRA_NAME, True)  # could go either way
@@ -71,27 +72,11 @@ def test_train_model():
     h = 99
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 def test_training(dataset):
     m3_params = artifact_model.ArtifactModelParameters(read_embedding_dimension=12, num_transformer_heads=3,
                  transformer_hidden_dimension=20, num_transformer_layers=2,
         info_layers=[20, 20], aggregation_layers=[20, 20],
-        dropout_p=0.0, batch_normalize=False, learning_rate=0.001)
+        dropout_p=0.0, batch_normalize=False, learning_rate=0.001, alt_downsample=20)
     training_params = train_model.TrainingParameters(batch_size=64, num_epochs=5, reweighting_range=0.3)
 
     with tempfile.TemporaryDirectory() as tensorboard_dir:
