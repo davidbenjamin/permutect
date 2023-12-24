@@ -573,3 +573,20 @@ class ArtifactModel(nn.Module):
                                      metadata=[all_metadata[n] for n in idx],
                                      metadata_header=["Labels", "Correctness", "Types", "Counts"],
                                      tag="ref seq embedding")
+
+        # read average embeddings stratified by variant type
+        for variant_type in Variation:
+            variant_name = variant_type.name
+            indices = [n for n, type_name in enumerate(type_metadata) if type_name == variant_name]
+            summary_writer.add_embedding(torch.vstack(average_read_embedding_features)[indices],
+                                         metadata=[all_metadata[n] for n in indices],
+                                         metadata_header=["Labels", "Correctness", "Types", "Counts"],
+                                         tag="mean read embedding for variant type " + variant_name)
+
+        # read average embeddings stratified by alt count
+        for count in range(2, 11):
+            indices = [n for n, alt_count in enumerate(truncated_count_metadata) if alt_count == count]
+            summary_writer.add_embedding(torch.vstack(average_read_embedding_features)[indices],
+                                        metadata=[all_metadata[n] for n in indices],
+                                        metadata_header=["Labels", "Correctness", "Types", "Counts"],
+                                        tag="mean read embedding for alt count " + str(count))
