@@ -589,8 +589,8 @@ class ArtifactModel(nn.Module):
 
         # done collecting data
 
-        mag_hist_fig, mag_hist_axes = plt.subplots(max_count, len(Variation), sharex='all', sharey='all',
-                                                       squeeze=False, figsize=(20, 6), dpi=100)
+        mag_hist_fig, mag_hist_axes = plt.subplots(max_count, len(Variation), sharex='all', sharey='none',
+                                                       squeeze=False, figsize=(20, 30), dpi=100)
 
         for col_idx, var_type in enumerate(Variation):
             for count in range(1, max_count+1):
@@ -602,7 +602,7 @@ class ArtifactModel(nn.Module):
             plotting.simple_histograms_on_axis(mag_hist_axes[row_idx, col_idx], [non_artifact_mags, artifact_mags], ["good", "bad"], 100)
 
         variation_types = [var_type.name for var_type in Variation]
-        plotting.tidy_subplots(mag_hist_fig, mag_hist_axes, x_label="X label", y_label="Y label",
+        plotting.tidy_subplots(mag_hist_fig, mag_hist_axes, x_label="L2 norm of mean read embedding", y_label="",
                                row_labels=["alt count " + str(count) for count in range(1, max_count+1)], column_labels=variation_types)
         summary_writer.add_figure("magnitude histograms", mag_hist_fig)
 
