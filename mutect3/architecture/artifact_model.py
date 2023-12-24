@@ -539,6 +539,7 @@ class ArtifactModel(nn.Module):
         summary_writer.add_figure(prefix + " variant accuracy vs artifact accuracy curves by alt count", roc_by_cnt_fig)
 
         # now go over just the validation data and generate feature vectors / metadata for tensorboard projectors (UMAP)
+        # also generate histograms of magnitudes of average read embeddings
         pbar = tqdm(enumerate(filter(lambda bat: bat.is_labeled(), valid_loader)), mininterval=10)
 
         # things we will collect for the projections
@@ -549,6 +550,10 @@ class ArtifactModel(nn.Module):
         average_read_embedding_features = []    # list of 2D tensors (to be stacked into a single 2D tensor), average read embedding over batches
         info_embedding_features = []
         ref_seq_embedding_features = []
+
+        # indexed by variant type, then alt count, and each entry is a pair of lists of magnitudes for the histogram,
+        # the first list being for non-artifact and the second for artifact
+        mag_hist_by_type_cnt = {var_type: [([], []) for _ in range(max_count + 1)] for var_type in Variation}
 
         for n, batch in pbar:
             types_one_hot = batch.variant_type_one_hot()
@@ -574,6 +579,32 @@ class ArtifactModel(nn.Module):
 
             ref_seq_embedding = self.ref_seq_cnn(batch.get_ref_sequences_2d())
             ref_seq_embedding_features.append(ref_seq_embedding)
+
+            # code for the magnitude histograms
+            for variant_type, mean_alt_embedding, label in zip(batch.variant_types(), alt_means, batch.labels.tolist()):
+                truncated_count = min(max_count, batch.alt_count)
+                is_artifact_index = 0 if label < 0.5 else 1
+                embedding_norm = mean_alt_embedding.norm(dim=0, p=2).item()
+                mag_hist_by_type_cnt[variant_type][truncated_count][is_artifact_index].append(embedding_norm)
+
+        # done collecting data
+
+        mag_hist_fig, mag_hist_axes = plt.subplots(max_count, len(Variation), sharex='all', sharey='all',
+                                                       squeeze=False, figsize=(20, 6), dpi=100)
+
+        for col_idx, var_type in enumerate(Variation):
+            for count in range(1, max_count+1):
+                # data for one particular subplot (row = count, column = variant type)
+                row_idx = count - 1
+                non_artifact_mags = mag_hist_by_type_cnt[var_type][count][0]
+                artifact_mags = mag_hist_by_type_cnt[var_type][count][1]
+
+            plotting.simple_histograms_on_axis(mag_hist_axes[row_idx, col_idx], [non_artifact_mags, artifact_mags], ["good", "bad"], 100)
+
+        variation_types = [var_type.name for var_type in Variation]
+        plotting.tidy_subplots(mag_hist_fig, mag_hist_axes, x_label="X label", y_label="Y label",
+                               row_labels=["alt count " + str(count) for count in range(1, max_count+1)], column_labels=variation_types)
+        summary_writer.add_figure("magnitude histograms", mag_hist_fig)
 
         # downsample to a reasonable amount of UMAP data
         all_metadata=list(zip(label_metadata, correct_metadata, type_metadata, truncated_count_metadata))

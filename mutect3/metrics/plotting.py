@@ -27,6 +27,10 @@ def simple_plot_on_axis(ax, x_y_lab_tuples, x_label, y_label):
     ax.legend()
 
 
+def simple_histograms_on_axis(ax, list_of_histogram_data, list_of_labels, num_bins):
+    ax.hist(list_of_histogram_data, bins=num_bins, alpha=0.5, label=list_of_labels)
+
+
 # apply grouped bar plot to an axis (subplot) object
 # heights by category is a dict of category to bar heights, where the nth bar height
 # corresponds to the nth x label
