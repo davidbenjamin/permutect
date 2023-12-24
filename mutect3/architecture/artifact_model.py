@@ -374,6 +374,9 @@ class ArtifactModel(nn.Module):
                 labeled_loss = utils.StreamingAverage(device=self._device)
                 unlabeled_loss = utils.StreamingAverage(device=self._device)
 
+                labeled_loss_by_type = {variant_type: utils.StreamingAverage(device=self._device) for variant_type in Variation}
+                labeled_loss_by_count = {count: utils.StreamingAverage(device=self._device) for count in range(1,15)}
+
                 loader = train_loader if epoch_type == utils.Epoch.TRAIN else valid_loader
                 pbar = tqdm(enumerate(loader), mininterval=10)
                 for n, batch in pbar:
@@ -399,8 +402,21 @@ class ArtifactModel(nn.Module):
                         loss_balancing_factors = labels * torch.sum(labeled_artifact_weights_by_type * types_one_hot, dim=1) + \
                             (1 - labels) * torch.sum(labeled_non_artifact_weights_by_type * types_one_hot, dim=1)
 
-                        loss = torch.sum(loss_balancing_factors * (bce(orig_pred, labels) + bce(aug1_pred, labels) + bce(aug2_pred, labels)))
+                        separate_losses = loss_balancing_factors * (bce(orig_pred, labels) + bce(aug1_pred, labels) + bce(aug2_pred, labels))
+                        loss = torch.sum(separate_losses)
                         labeled_loss.record_sum(loss.detach(), batch.size())
+
+                        if batch.alt_count < 15:
+                            labeled_loss_by_count[batch.alt_count].record_sum(loss.detach(), batch.size())
+
+                        losses_masked_by_type = separate_losses.reshape(batch.size(), 1) * types_one_hot
+                        counts_by_type = torch.sum(types_one_hot, dim=0)
+                        total_loss_by_type = torch.sum(losses_masked_by_type, dim=0)
+                        variant_types = list(Variation)
+                        for variant_type_idx in range(len(Variation)):
+                            count_for_type = int(counts_by_type[variant_type_idx].item())
+                            loss_for_type = total_loss_by_type[variant_type_idx].item()
+                            labeled_loss_by_type[variant_types[variant_type_idx]].record_sum(loss_for_type, count_for_type)
                     else:
                         # unlabeled loss: consistency cross entropy between original and both augmented copies
                         loss1 = bce(aug1_pred, torch.sigmoid(orig_pred.detach()))
@@ -417,6 +433,13 @@ class ArtifactModel(nn.Module):
                 # done with one epoch type -- training or validation -- for this epoch
                 summary_writer.add_scalar(epoch_type.name + "/Labeled Loss", labeled_loss.get(), epoch)
                 summary_writer.add_scalar(epoch_type.name + "/Unlabeled Loss", unlabeled_loss.get(), epoch)
+
+                for count, loss in labeled_loss_by_count.items():
+                    summary_writer.add_scalar(epoch_type.name + "/Labeled Loss/By Count/" + str(count), loss.get(), epoch)
+
+                for var_type, loss in labeled_loss_by_type.items():
+                    summary_writer.add_scalar(epoch_type.name + "/Labeled Loss/By Type/" + var_type.name, loss.get(), epoch)
+
                 print("Labeled loss for epoch " + str(epoch) + " of " + epoch_type.name + ": " + str(labeled_loss.get()))
             # done with training and validation for this epoch
             # note that we have not learned the AF spectrum yet
@@ -542,9 +565,6 @@ class ArtifactModel(nn.Module):
 
             phi_reads = self.apply_transformer_to_reads(batch)
 
-            omega_info = torch.sigmoid(self.omega(batch.get_info_2d().to(self._device)))
-            ref_seq_embedding = self.ref_seq_cnn(batch.get_ref_sequences_2d())
-
             all_read_means, alt_means, omega_info, ref_seq_embedding, effective_alt_counts = \
                 self.forward_from_transformed_reads_to_intermediate_layer_output(phi_reads, batch)
             average_read_embedding_features.append(alt_means)
@@ -585,8 +605,9 @@ class ArtifactModel(nn.Module):
 
         # read average embeddings stratified by alt count
         for count in range(2, 11):
-            indices = [n for n, alt_count in enumerate(truncated_count_metadata) if alt_count == count]
-            summary_writer.add_embedding(torch.vstack(average_read_embedding_features)[indices],
+            indices = [n for n, alt_count in enumerate(truncated_count_metadata) if alt_count == str(count)]
+            if indices:
+                summary_writer.add_embedding(torch.vstack(average_read_embedding_features)[indices],
                                         metadata=[all_metadata[n] for n in indices],
                                         metadata_header=["Labels", "Correctness", "Types", "Counts"],
                                         tag="mean read embedding for alt count " + str(count))
