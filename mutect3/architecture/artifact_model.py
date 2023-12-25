@@ -206,9 +206,11 @@ class ArtifactModel(nn.Module):
         # rho is the universal aggregation function
         ref_alt_info_ref_seq_embedding_dimension = 2 * self.read_embedding_dimension + self.omega.output_dimension() + self.ref_seq_cnn.output_dimension()
 
+        # we have a different aggregation subnetwork for each variant type.  Everything below, in particular the read
+        # transformers, is shared
         # The [1] is for the output of binary classification, represented as a single artifact/non-artifact logit
-        self.rho = MLP([ref_alt_info_ref_seq_embedding_dimension] + params.aggregation_layers + [1], batch_normalize=params.batch_normalize,
-                       dropout_p=params.dropout_p)
+        self.rho = nn.ModuleList([MLP([ref_alt_info_ref_seq_embedding_dimension] + params.aggregation_layers + [1], batch_normalize=params.batch_normalize,
+                       dropout_p=params.dropout_p) for variant_type in Variation])
         self.rho.to(self._device)
 
         self.calibration = Calibration()
@@ -309,7 +311,18 @@ class ArtifactModel(nn.Module):
     def forward_from_transformed_reads_to_calibration(self, phi_reads: Tensor, batch: ReadSetBatch, weight_range: float = 0):
         all_read_means, alt_means, omega_info, ref_seq_embedding, effective_alt_counts = self.forward_from_transformed_reads_to_intermediate_layer_output(phi_reads, batch, weight_range)
         concatenated = torch.cat((all_read_means, alt_means, omega_info, ref_seq_embedding), dim=1)
+
+        logits = torch.zeros(batch.size())
+        one_hot_types_2d = batch.variant_type_one_hot()
+
+        for n, _ in enumerate(Variation):
+            # multiply the result of this variant type's aggregation layers by its
+            # one-hot mask.  Yes, this is wasteful because we apply every aggregation to every datum.
+            # TODO: make this more efficient.
+            logits += one_hot_types_2d[n] * self.rho[n].forward(concatenated).squeeze(dim=1)
+
         logits = self.rho.forward(concatenated).squeeze(dim=1)  # specify dim so that in edge case of batch size 1 we get 1D tensor, not scalar
+
         return logits, batch.ref_count * torch.ones_like(effective_alt_counts), effective_alt_counts
 
     def forward_from_transformed_reads(self, transformed_reads: Tensor, batch: ReadSetBatch, weight_range: float = 0):
