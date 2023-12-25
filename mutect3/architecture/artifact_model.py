@@ -321,8 +321,6 @@ class ArtifactModel(nn.Module):
             # TODO: make this more efficient.
             logits += one_hot_types_2d[:, n] * self.rho[n].forward(concatenated).squeeze(dim=1)
 
-        logits = self.rho.forward(concatenated).squeeze(dim=1)  # specify dim so that in edge case of batch size 1 we get 1D tensor, not scalar
-
         return logits, batch.ref_count * torch.ones_like(effective_alt_counts), effective_alt_counts
 
     def forward_from_transformed_reads(self, transformed_reads: Tensor, batch: ReadSetBatch, weight_range: float = 0):
