@@ -278,8 +278,7 @@ class ArtifactModel(nn.Module):
         transformed_reads_2d = transformed_alt_reads_2d if total_ref == 0 else \
             torch.vstack([transformed_ref_reads_2d, transformed_alt_reads_2d])
 
-        # TODO: do we need the sigmoid?? We have not evaluated this for the transformer
-        return 2 * (torch.sigmoid(transformed_reads_2d) - 0.5)
+        return transformed_reads_2d
 
     def forward_from_transformed_reads_to_intermediate_layer_output(self, phi_reads: Tensor, batch: ReadSetBatch, weight_range: float = 0):
         weights = torch.ones(len(phi_reads), 1, device=self._device) if weight_range == 0 else (1 + weight_range * (1 - 2 * torch.rand(len(phi_reads), 1, device=self._device)))
@@ -302,7 +301,7 @@ class ArtifactModel(nn.Module):
         effective_alt_counts = torch.square(alt_wt_sums) / alt_wt_sq_sums
 
         # stack side-by-side to get 2D tensor, where each variant row is (ref mean, alt mean, info)
-        omega_info = torch.sigmoid(self.omega(batch.get_info_2d().to(self._device)))
+        omega_info = self.omega(batch.get_info_2d().to(self._device))
 
         ref_seq_embedding = self.ref_seq_cnn(batch.get_ref_sequences_2d())
 
@@ -598,7 +597,7 @@ class ArtifactModel(nn.Module):
                 self.forward_from_transformed_reads_to_intermediate_layer_output(phi_reads, batch)
             average_read_embedding_features.append(alt_means)
 
-            omega_info = torch.sigmoid(self.omega(batch.get_info_2d().to(self._device)))
+            omega_info = self.omega(batch.get_info_2d().to(self._device))
             info_embedding_features.append(omega_info)
 
             ref_seq_embedding = self.ref_seq_cnn(batch.get_ref_sequences_2d())
