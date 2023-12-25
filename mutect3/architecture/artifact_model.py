@@ -1,6 +1,7 @@
 # bug before PyTorch 1.7.1 that warns when constructing ParameterList
 import warnings
 from collections import defaultdict
+import math
 
 import torch
 from torch import nn, Tensor
@@ -23,6 +24,22 @@ from mutect3.metrics import plotting
 warnings.filterwarnings("ignore", message="Setting attributes on ParameterList is not supported.")
 
 NUM_DATA_FOR_TENSORBOARD_PROJECTION=10000
+
+def round_up_to_nearest_three(x: int):
+    return math.ceil(x / 3) * 3
+
+
+def multiple_of_three_bin_index(x: int):
+    return (round_up_to_nearest_three(x)//3) - 1    # -1 because zero is not a bin
+
+
+def multiple_of_three_bin_index_to_count(idx: int):
+    return 3 * (idx + 1)
+
+
+MAX_COUNT = 18  # counts above this will be truncated
+MAX_LOGIT = 6
+NUM_COUNT_BINS = round_up_to_nearest_three(MAX_COUNT) // 3    # zero is not a bin
 
 
 def effective_count(weights: Tensor):
@@ -375,7 +392,7 @@ class ArtifactModel(nn.Module):
                 unlabeled_loss = utils.StreamingAverage(device=self._device)
 
                 labeled_loss_by_type = {variant_type: utils.StreamingAverage(device=self._device) for variant_type in Variation}
-                labeled_loss_by_count = {count: utils.StreamingAverage(device=self._device) for count in range(1,15)}
+                labeled_loss_by_count = {bin_idx: utils.StreamingAverage(device=self._device) for bin_idx in range(NUM_COUNT_BINS)}
 
                 loader = train_loader if epoch_type == utils.Epoch.TRAIN else valid_loader
                 pbar = tqdm(enumerate(loader), mininterval=10)
@@ -406,8 +423,8 @@ class ArtifactModel(nn.Module):
                         loss = torch.sum(separate_losses)
                         labeled_loss.record_sum(loss.detach(), batch.size())
 
-                        if batch.alt_count < 15:
-                            labeled_loss_by_count[batch.alt_count].record_sum(loss.detach(), batch.size())
+                        if batch.alt_count <= MAX_COUNT:
+                            labeled_loss_by_count[multiple_of_three_bin_index(batch.alt_count)].record_sum(loss.detach(), batch.size())
 
                         losses_masked_by_type = separate_losses.reshape(batch.size(), 1) * types_one_hot
                         counts_by_type = torch.sum(types_one_hot, dim=0)
@@ -434,8 +451,8 @@ class ArtifactModel(nn.Module):
                 summary_writer.add_scalar(epoch_type.name + "/Labeled Loss", labeled_loss.get(), epoch)
                 summary_writer.add_scalar(epoch_type.name + "/Unlabeled Loss", unlabeled_loss.get(), epoch)
 
-                for count, loss in labeled_loss_by_count.items():
-                    summary_writer.add_scalar(epoch_type.name + "/Labeled Loss/By Count/" + str(count), loss.get(), epoch)
+                for bin_idx, loss in labeled_loss_by_count.items():
+                    summary_writer.add_scalar(epoch_type.name + "/Labeled Loss/By Count/" + str(multiple_of_three_bin_index_to_count(bin_idx)), loss.get(), epoch)
 
                 for var_type, loss in labeled_loss_by_type.items():
                     summary_writer.add_scalar(epoch_type.name + "/Labeled Loss/By Type/" + var_type.name, loss.get(), epoch)
@@ -454,12 +471,9 @@ class ArtifactModel(nn.Module):
         self.cpu()
         self._device = "cpu"
 
-        max_count = 20  # counts above this will be truncated
-        max_logit = 6
-
         # round logit to nearest int, truncate to range, ending up with bins 0. . . 2*max_logit
-        logit_to_bin = lambda logit: min(max(round(logit), -max_logit), max_logit) + max_logit
-        bin_center = lambda bin_idx: bin_idx - max_logit
+        logit_to_bin = lambda logit: min(max(round(logit), -MAX_LOGIT), MAX_LOGIT) + MAX_LOGIT
+        bin_center = lambda bin_idx: bin_idx - MAX_LOGIT
 
         # grid of figures -- rows are loaders, columns are variant types
         # each subplot has two line graphs of accuracy vs alt count, one each for artifact, non-artifact
@@ -471,13 +485,13 @@ class ArtifactModel(nn.Module):
         log_artifact_to_non_artifact_ratios = torch.from_numpy(np.log(dataset.artifact_to_non_artifact_ratios()))
         for loader_idx, (loader_name, loader) in enumerate(loaders_by_name.items()):
             # indexed by variant type, then logit bin
-            acc_vs_logit = {var_type: [utils.StreamingAverage() for _ in range(2*max_logit + 1)] for var_type in Variation}
+            acc_vs_logit = {var_type: [utils.StreamingAverage() for _ in range(2 * MAX_LOGIT + 1)] for var_type in Variation}
 
             # indexed by variant type, then call type (artifact vs variant), then count bin
-            acc_vs_cnt = {var_type: defaultdict(lambda: [utils.StreamingAverage() for _ in range(max_count + 1)]) for var_type in Variation}
+            acc_vs_cnt = {var_type: defaultdict(lambda: [utils.StreamingAverage() for _ in range(NUM_COUNT_BINS)]) for var_type in Variation}
 
             roc_data = {var_type: [] for var_type in Variation}     # variant type -> (predicted logit, actual label)
-            roc_data_by_cnt = {var_type: [[] for _ in range(max_count + 1)] for var_type in Variation}  # variant type, count -> (predicted logit, actual label)
+            roc_data_by_cnt = {var_type: [[] for _ in range(NUM_COUNT_BINS)] for var_type in Variation}  # variant type, count -> (predicted logit, actual label)
 
             pbar = tqdm(enumerate(filter(lambda bat: bat.is_labeled(), loader)), mininterval=10)
             for n, batch in pbar:
@@ -494,21 +508,21 @@ class ArtifactModel(nn.Module):
                 correct = ((posterior_pred > 0) == (batch.labels > 0.5)).tolist()
 
                 for variant_type, predicted_logit, posterior_logit, label, correct_call in zip(batch.variant_types(), pred.tolist(), posterior_pred.tolist(), batch.labels.tolist(), correct):
-                    truncated_count = min(max_count, batch.alt_count)
-                    acc_vs_cnt[variant_type][Call.SOMATIC if label < 0.5 else Call.ARTIFACT][truncated_count].record(correct_call)
+                    count_bin_index = multiple_of_three_bin_index(min(MAX_COUNT, batch.alt_count))
+                    acc_vs_cnt[variant_type][Call.SOMATIC if label < 0.5 else Call.ARTIFACT][count_bin_index].record(correct_call)
                     acc_vs_logit[variant_type][logit_to_bin(posterior_logit)].record(correct_call)
 
                     roc_data[variant_type].append((predicted_logit, label))
-                    roc_data_by_cnt[variant_type][truncated_count].append((predicted_logit, label))
+                    roc_data_by_cnt[variant_type][count_bin_index].append((predicted_logit, label))
 
             # done collecting data for this particular loader, now fill in subplots for this loader's row
             for var_type in Variation:
                 # data for one particular subplot (row = train / valid, column = variant type)
 
-                non_empty_count_bins = [count for count in range(max_count + 1) if not acc_vs_cnt[var_type][label][count].is_empty()]
-                non_empty_logit_bins = [idx for idx in range(2*max_logit + 1) if not acc_vs_logit[var_type][idx].is_empty()]
-                acc_vs_cnt_x_y_lab_tuples = [(non_empty_count_bins,
-                                   [acc_vs_cnt[var_type][label][count].get() for count in non_empty_count_bins],
+                non_empty_count_bins = [idx for idx in range(NUM_COUNT_BINS) if not acc_vs_cnt[var_type][label][idx].is_empty()]
+                non_empty_logit_bins = [idx for idx in range(2 * MAX_LOGIT + 1) if not acc_vs_logit[var_type][idx].is_empty()]
+                acc_vs_cnt_x_y_lab_tuples = [([multiple_of_three_bin_index_to_count(idx) for idx in non_empty_count_bins],
+                                   [acc_vs_cnt[var_type][label][idx].get() for idx in non_empty_count_bins],
                                    label.name) for label in acc_vs_cnt[var_type].keys()]
                 acc_vs_logit_x_y_lab_tuple = [([bin_center(idx) for idx in non_empty_logit_bins],
                                               [acc_vs_logit[var_type][idx].get() for idx in non_empty_logit_bins],
@@ -517,9 +531,8 @@ class ArtifactModel(nn.Module):
                 plotting.simple_plot_on_axis(acc_vs_cnt_axes[loader_idx, var_type], acc_vs_cnt_x_y_lab_tuples, None, None)
                 plotting.plot_accuracy_vs_accuracy_roc_on_axis([roc_data[var_type]], [None], roc_axes[loader_idx, var_type])
 
-                roc_alt_counts = [2, 3, 4, 5, 7, 10, 15]
-                plotting.plot_accuracy_vs_accuracy_roc_on_axis([roc_data_by_cnt[var_type][alt_count] for alt_count in roc_alt_counts],
-                                                               [str(alt_count) for alt_count in roc_alt_counts], roc_by_cnt_axes[loader_idx, var_type])
+                plotting.plot_accuracy_vs_accuracy_roc_on_axis(roc_data_by_cnt[var_type],
+                                                               [str(multiple_of_three_bin_index_to_count(idx)) for idx in range(NUM_COUNT_BINS)], roc_by_cnt_axes[loader_idx, var_type])
 
                 # now the plot versus output logit
                 plotting.simple_plot_on_axis(cal_axes[loader_idx, var_type], acc_vs_logit_x_y_lab_tuple, None, None)
@@ -553,7 +566,7 @@ class ArtifactModel(nn.Module):
 
         # indexed by variant type, then alt count, and each entry is a pair of lists of magnitudes for the histogram,
         # the first list being for non-artifact and the second for artifact
-        mag_hist_by_type_cnt = {var_type: [([], []) for _ in range(max_count + 1)] for var_type in Variation}
+        mag_hist_by_type_cnt = {var_type: [([], []) for _ in range(NUM_COUNT_BINS)] for var_type in Variation}
 
         for n, batch in pbar:
             types_one_hot = batch.variant_type_one_hot()
@@ -566,7 +579,7 @@ class ArtifactModel(nn.Module):
             label_metadata.extend(["artifact" if x > 0.5 else "non-artifact" for x in batch.labels.tolist()])
             correct_metadata.extend([str(val) for val in correct])
             type_metadata.extend([Variation(idx).name for idx in batch.variant_types()])
-            truncated_count_metadata.extend(batch.size() * [str(min(max_count, batch.alt_count))])
+            truncated_count_metadata.extend(batch.size() * [str(round_up_to_nearest_three(min(MAX_COUNT, batch.alt_count)))])
 
             phi_reads = self.apply_transformer_to_reads(batch)
 
@@ -582,27 +595,26 @@ class ArtifactModel(nn.Module):
 
             # code for the magnitude histograms
             for variant_type, mean_alt_embedding, label in zip(batch.variant_types(), alt_means, batch.labels.tolist()):
-                truncated_count = min(max_count, batch.alt_count)
+                bin_idx = multiple_of_three_bin_index(min(MAX_COUNT, batch.alt_count))
                 is_artifact_index = 0 if label < 0.5 else 1
                 embedding_norm = mean_alt_embedding.norm(dim=0, p=2).item()
-                mag_hist_by_type_cnt[variant_type][truncated_count][is_artifact_index].append(embedding_norm)
+                mag_hist_by_type_cnt[variant_type][bin_idx][is_artifact_index].append(embedding_norm)
 
         # done collecting data
 
-        mag_hist_fig, mag_hist_axes = plt.subplots(max_count, len(Variation), sharex='none', sharey='none',
-                                                       squeeze=False, figsize=(20, 30), dpi=100)
+        mag_hist_fig, mag_hist_axes = plt.subplots(NUM_COUNT_BINS, len(Variation), sharex='none', sharey='none',
+                                                   squeeze=False, figsize=(15, 15), dpi=100)
 
         for col_idx, var_type in enumerate(Variation):
-            for count in range(1, max_count+1):
-                # data for one particular subplot (row = count, column = variant type)
-                row_idx = count - 1
-                non_artifact_mags = mag_hist_by_type_cnt[var_type][count][0]
-                artifact_mags = mag_hist_by_type_cnt[var_type][count][1]
-                plotting.simple_histograms_on_axis(mag_hist_axes[row_idx, col_idx], [non_artifact_mags, artifact_mags], ["good", "bad"], 100)
+            for count_bin_idx in range(NUM_COUNT_BINS):
+                # data for one particular subplot (row = count bin, column = variant type)
+                non_artifact_mags = mag_hist_by_type_cnt[var_type][count_bin_idx][0]
+                artifact_mags = mag_hist_by_type_cnt[var_type][count_bin_idx][1]
+                plotting.simple_histograms_on_axis(mag_hist_axes[count_bin_idx, col_idx], [non_artifact_mags, artifact_mags], ["good", "bad"], 100)
 
         variation_types = [var_type.name for var_type in Variation]
         plotting.tidy_subplots(mag_hist_fig, mag_hist_axes, x_label="L2 norm of mean read embedding", y_label="",
-                               row_labels=["alt count " + str(count) for count in range(1, max_count+1)], column_labels=variation_types)
+                               row_labels=["alt count " + str(multiple_of_three_bin_index_to_count(idx)) for idx in range(NUM_COUNT_BINS)], column_labels=variation_types)
         summary_writer.add_figure("magnitude histograms", mag_hist_fig)
 
         # downsample to a reasonable amount of UMAP data
@@ -634,10 +646,13 @@ class ArtifactModel(nn.Module):
                                          tag="mean read embedding for variant type " + variant_name)
 
         # read average embeddings stratified by alt count
-        for count in range(2, 11):
+        for count_bin_idx in range(NUM_COUNT_BINS):
+            count = multiple_of_three_bin_index_to_count(count_bin_idx)
             indices = [n for n, alt_count in enumerate(truncated_count_metadata) if alt_count == str(count)]
             if indices:
                 summary_writer.add_embedding(torch.vstack(average_read_embedding_features)[indices],
                                         metadata=[all_metadata[n] for n in indices],
                                         metadata_header=["Labels", "Correctness", "Types", "Counts"],
                                         tag="mean read embedding for alt count " + str(count))
+
+
