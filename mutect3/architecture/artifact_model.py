@@ -319,7 +319,7 @@ class ArtifactModel(nn.Module):
             # multiply the result of this variant type's aggregation layers by its
             # one-hot mask.  Yes, this is wasteful because we apply every aggregation to every datum.
             # TODO: make this more efficient.
-            logits += one_hot_types_2d[n] * self.rho[n].forward(concatenated).squeeze(dim=1)
+            logits += one_hot_types_2d[:, n] * self.rho[n].forward(concatenated).squeeze(dim=1)
 
         logits = self.rho.forward(concatenated).squeeze(dim=1)  # specify dim so that in edge case of batch size 1 we get 1D tensor, not scalar
 
