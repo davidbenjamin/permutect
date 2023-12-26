@@ -2,6 +2,7 @@
 import warnings
 from collections import defaultdict
 import math
+from typing import List
 
 import torch
 from torch import nn, Tensor
@@ -620,11 +621,12 @@ class ArtifactModel(nn.Module):
                 # data for one particular subplot (row = count bin, column = variant type)
                 non_artifact_mags = mag_hist_by_type_cnt[var_type][count_bin_idx][0]
                 artifact_mags = mag_hist_by_type_cnt[var_type][count_bin_idx][1]
-                plotting.simple_histograms_on_axis(mag_hist_axes[count_bin_idx, col_idx], [non_artifact_mags, artifact_mags], ["good", "bad"], 100)
+                plotting.simple_histograms_on_axis(mag_hist_axes[count_bin_idx, col_idx], [non_artifact_mags, artifact_mags], ["good", "bad"], 25)
 
         variation_types = [var_type.name for var_type in Variation]
         plotting.tidy_subplots(mag_hist_fig, mag_hist_axes, x_label="L2 norm of mean read embedding", y_label="",
-                               row_labels=["alt count " + str(multiple_of_three_bin_index_to_count(idx)) for idx in range(NUM_COUNT_BINS)], column_labels=variation_types)
+                               row_labels=["alt count " + str(multiple_of_three_bin_index_to_count(idx)) for idx in range(NUM_COUNT_BINS)],
+                               column_labels=variation_types, keep_axes_tick_labels=True)
         summary_writer.add_figure("magnitude histograms", mag_hist_fig)
 
         # downsample to a reasonable amount of UMAP data
@@ -650,6 +652,7 @@ class ArtifactModel(nn.Module):
         for variant_type in Variation:
             variant_name = variant_type.name
             indices = [n for n, type_name in enumerate(type_metadata) if type_name == variant_name]
+            indices = sample_indices_for_tensorboard(indices)
             summary_writer.add_embedding(torch.vstack(average_read_embedding_features)[indices],
                                          metadata=[all_metadata[n] for n in indices],
                                          metadata_header=["Labels", "Correctness", "Types", "Counts"],
@@ -659,10 +662,20 @@ class ArtifactModel(nn.Module):
         for count_bin_idx in range(NUM_COUNT_BINS):
             count = multiple_of_three_bin_index_to_count(count_bin_idx)
             indices = [n for n, alt_count in enumerate(truncated_count_metadata) if alt_count == str(count)]
-            if indices:
+            indices = sample_indices_for_tensorboard(indices)
+            if len(indices) > 0:
                 summary_writer.add_embedding(torch.vstack(average_read_embedding_features)[indices],
                                         metadata=[all_metadata[n] for n in indices],
                                         metadata_header=["Labels", "Correctness", "Types", "Counts"],
                                         tag="mean read embedding for alt count " + str(count))
 
+
+def sample_indices_for_tensorboard(indices: List[int]):
+    indices_np = np.array(indices)
+
+    if len(indices_np) <= NUM_DATA_FOR_TENSORBOARD_PROJECTION:
+        return indices_np
+
+    idx = np.random.choice(len(indices_np), size=NUM_DATA_FOR_TENSORBOARD_PROJECTION, replace=False)
+    return indices_np[idx]
 

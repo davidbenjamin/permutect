@@ -107,7 +107,7 @@ def get_roc_data(predictions_and_labels):
 
 
 def tidy_subplots(figure: Figure, axes, x_label: str = None, y_label: str = None,
-                  column_labels: List[str] = None, row_labels: List[str] = None):
+                  column_labels: List[str] = None, row_labels: List[str] = None, keep_axes_tick_labels=False):
     """
     Combines various tidying operations on figures with subplots
     1.  Removes the individual axis legends and replaces with a single figure legend.  This assumes
@@ -126,7 +126,8 @@ def tidy_subplots(figure: Figure, axes, x_label: str = None, y_label: str = None
     figure.legend(handles, labels, loc='upper center')
 
     for ax in figure.get_axes():
-        ax.label_outer()  # y tick labels only shown in leftmost column, x tick labels only shown on bottom row
+        if not keep_axes_tick_labels:
+            ax.label_outer()  # y tick labels only shown in leftmost column, x tick labels only shown on bottom row
         ax.legend().set_visible(False)  # hide the redundant identical subplot legends
 
         # remove the subplot labels and title -- these will be given manually to the whole figure and to the outer rows
