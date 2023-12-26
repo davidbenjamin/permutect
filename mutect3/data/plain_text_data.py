@@ -31,6 +31,7 @@ GTCCTGGACACGCTGTTGGCC
 -0.000
 """
 import numpy as np
+import scipy.stats as stats
 import psutil
 from sklearn.preprocessing import QuantileTransformer
 
@@ -226,9 +227,11 @@ def normalize_buffer(buffer, read_quantile_transform, info_quantile_transform, r
         alt_medians = np.median(datum.alt_reads_2d, axis=0)
         alt_means = np.mean(datum.alt_reads_2d, axis=0)
 
-        extra_info = binary_read_column_mask * alt_means + (1 - binary_read_column_mask) * alt_medians
-        datum.info_array_1d = np.hstack([extra_info, all_info_transformed[n]])
+        median_info = binary_read_column_mask * alt_means + (1 - binary_read_column_mask) * alt_medians
 
+        mann_whitney_pvalues = num_read_features*[1] if datum.ref_reads_2d is None else [stats.mannwhitneyu(x=alt_column, y=ref_column, alternative='two-sided').pvalue for alt_column, ref_column in zip(datum.alt_reads_2d.T, datum.ref_reads_2d.T)]
+        mann_whitney_info = -np.log(np.array(mann_whitney_pvalues))
+        datum.info_array_1d = np.hstack([median_info, mann_whitney_info, all_info_transformed[n]])
 
 def line_to_tensor(line: str) -> np.ndarray:
     tokens = line.strip().split()
