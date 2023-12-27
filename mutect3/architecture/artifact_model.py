@@ -15,6 +15,7 @@ from itertools import chain
 from matplotlib import pyplot as plt
 
 from mutect3.architecture.mlp import MLP
+from mutect3.architecture.vae import VAE
 from mutect3.architecture.dna_sequence_convolution import DNASequenceConvolution
 from mutect3.data.read_set import ReadSetBatch
 from mutect3.data.read_set_dataset import ReadSetDataset, make_data_loader
@@ -175,6 +176,8 @@ class ArtifactModel(nn.Module):
         self._ref_sequence_length = ref_sequence_length
         self.alt_downsample = params.alt_downsample
 
+        self.info_vae = VAE(device=device, input_dim=num_info_features, hidden_dim=num_info_features//2, latent_dim=10)
+
         # linear transformation to convert read tensors from their initial dimensionality
         # to the embedding dimension eg data of shape [num_batches -- optional] x num_reads x read dimension
         # maps to data of shape [num_batches] x num_reads x embedding dimension)
@@ -197,7 +200,8 @@ class ArtifactModel(nn.Module):
         self.ref_transformer_encoder.to(self._device)
 
         # omega is the universal embedding of info field variant-level data
-        info_layers = [self._num_info_features] + params.info_layers
+        # it comes after the info_vae
+        info_layers = [self.info_vae.latent_dim] + params.info_layers
         self.omega = MLP(info_layers, batch_normalize=params.batch_normalize, dropout_p=params.dropout_p)
         self.omega.to(self._device)
 
@@ -226,6 +230,7 @@ class ArtifactModel(nn.Module):
     def ref_sequence_length(self) -> int:
         return self._ref_sequence_length
 
+    # note that info_vae is not part of this -- it is pre-trained, unsupervised
     def training_parameters(self):
         return chain(self.initial_read_embedding.parameters(), self.alt_transformer_encoder.parameters(), self.ref_transformer_encoder.parameters(),
                      self.omega.parameters(), self.rho.parameters(), self.calibration.parameters())
@@ -302,7 +307,8 @@ class ArtifactModel(nn.Module):
         effective_alt_counts = torch.square(alt_wt_sums) / alt_wt_sq_sums
 
         # stack side-by-side to get 2D tensor, where each variant row is (ref mean, alt mean, info)
-        omega_info = self.omega(batch.get_info_2d().to(self._device))
+        compressed_info = self.info_vae.compress(batch.get_info_2d().to(self._device))
+        omega_info = self.omega(compressed_info)
 
         ref_seq_embedding = self.ref_seq_cnn(batch.get_ref_sequences_2d())
 
@@ -394,6 +400,10 @@ class ArtifactModel(nn.Module):
 
         train_loader = make_data_loader(dataset, utils.Epoch.TRAIN, batch_size, self._device.type == 'cuda', num_workers)
         valid_loader = make_data_loader(dataset, utils.Epoch.VALID, batch_size, self._device.type == 'cuda', num_workers)
+
+        # pretrain the INFO VAE
+        for epoch in trange(1, 6, desc="Autoencoder training epoch"):
+            self.info_vae.train_model_one_epoch(turn_loader_into_info_generator(train_loader))
 
         for epoch in trange(1, num_epochs + 1, desc="Epoch"):
             for epoch_type in [utils.Epoch.TRAIN, utils.Epoch.VALID]:
@@ -610,7 +620,8 @@ class ArtifactModel(nn.Module):
                 self.forward_from_transformed_reads_to_intermediate_layer_output(read_embeddings, batch)
             average_read_embedding_features.append(alt_means)
 
-            omega_info = self.omega(batch.get_info_2d().to(self._device))
+            compressed_info = self.info_vae.compress(batch.get_info_2d().to(self._device))
+            omega_info = self.omega(compressed_info)
             info_embedding_features.append(omega_info)
 
             ref_seq_embedding = self.ref_seq_cnn(batch.get_ref_sequences_2d())
@@ -700,4 +711,9 @@ def sample_indices_for_tensorboard(indices: List[int]):
 
     idx = np.random.choice(len(indices_np), size=NUM_DATA_FOR_TENSORBOARD_PROJECTION, replace=False)
     return indices_np[idx]
+
+
+def turn_loader_into_info_generator(loader):
+    for batch in loader:
+        yield batch.get_info_2d()
 
