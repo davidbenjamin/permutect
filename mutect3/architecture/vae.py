@@ -4,17 +4,23 @@ import math
 
 from tqdm.autonotebook import trange, tqdm
 from mutect3 import utils
+from mutect3.architecture.mlp import MLP
+from typing import List
 
 
-# mainly copied from https://medium.com/@rekalantar/variational-auto-encoder-vae-pytorch-tutorial-dce2d2fe0f5f
 class VAE(nn.Module):
 
-    def __init__(self, device, input_dim: int, hidden_dim: int, latent_dim: int):
+    # layer sizes starting from the input dimension and ending with the latent dimension
+    def __init__(self, layer_sizes: List[int], device, batch_normalize=False):
         super(VAE, self).__init__()
         self.device = device
-        self.input_dim = input_dim
-        self.hidden_dim = hidden_dim
-        self.latent_dim = latent_dim
+        self.input_dim = layer_sizes[0]
+        self.latent_dim = layer_sizes[-1]
+
+        self.encoder = MLP(layer_sizes, batch_normalize=batch_normalize)
+        self.encoder.to(self.device)
+        self.decoder = MLP(layer_sizes[::-1], batch_normalize=batch_normalize)
+        self.decoder.to(self.device)
 
         # this has nothing to do with stochastically generating the latent representation z
         # from the mean and log variance output by the encoder.  Rather it is a model parameter
@@ -29,39 +35,23 @@ class VAE(nn.Module):
         self.mean_scale = nn.Parameter(torch.tensor(1.0))
         self.logvar_scale = nn.Parameter(torch.tensor(1.0))
 
-        # encoder
-        self.encoder = nn.Sequential(
-            nn.Linear(input_dim, hidden_dim),
-            nn.LeakyReLU(0.2),
-            nn.Linear(hidden_dim, hidden_dim),
-            nn.LeakyReLU(0.2)
-        )
-
         # latent mean and variance
-        self.mean_layer = nn.Linear(hidden_dim, latent_dim)
-        self.logvar_layer = nn.Linear(hidden_dim, latent_dim)
+        self.mean_layer = nn.Linear(self.latent_dim, self.latent_dim)
+        self.mean_layer.to(self.device)
+        self.logvar_layer = nn.Linear(self.latent_dim, self.latent_dim)
+        self.logvar_layer.to(self.device)
 
-        # decoder
-        self.decoder = nn.Sequential(
-            nn.Linear(latent_dim, hidden_dim),
-            nn.LeakyReLU(0.2),
-            nn.Linear(hidden_dim, hidden_dim),
-            nn.LeakyReLU(0.2),
-            nn.Linear(hidden_dim, input_dim)
-        )
-
+    # return the mean and standard deviation of the embedding into latent space
     def encode(self, x):
         hidden = self.encoder(x)
         return self.mean_scale * torch.sigmoid(self.mean_layer(hidden)), self.logvar_scale * torch.sigmoid(self.logvar_layer(hidden))
 
     def compress(self, x):
-        mean, logvar = self.encode(x)
-        return mean
+        return self.encoder(x)
 
     def sample(self, mean, std):
         epsilon = torch.randn_like(std).to(self.device)
-        z = mean + std * epsilon
-        return z
+        return mean + std * epsilon
 
     def decode(self, x):
         return self.decoder(x)

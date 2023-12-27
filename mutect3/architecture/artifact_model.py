@@ -176,7 +176,8 @@ class ArtifactModel(nn.Module):
         self._ref_sequence_length = ref_sequence_length
         self.alt_downsample = params.alt_downsample
 
-        self.info_vae = VAE(device=device, input_dim=num_info_features, hidden_dim=num_info_features//2, latent_dim=10)
+        info_layers = [num_info_features] + params.info_layers
+        self.info_vae = VAE(layer_sizes=info_layers, device=device)
 
         # linear transformation to convert read tensors from their initial dimensionality
         # to the embedding dimension eg data of shape [num_batches -- optional] x num_reads x read dimension
@@ -199,17 +200,11 @@ class ArtifactModel(nn.Module):
         self.ref_transformer_encoder = torch.nn.TransformerEncoder(self.alt_transformer_encoder_layer, num_layers=params.num_transformer_layers)
         self.ref_transformer_encoder.to(self._device)
 
-        # omega is the universal embedding of info field variant-level data
-        # it comes after the info_vae
-        info_layers = [self.info_vae.latent_dim] + params.info_layers
-        self.omega = MLP(info_layers, batch_normalize=params.batch_normalize, dropout_p=params.dropout_p)
-        self.omega.to(self._device)
-
         self.ref_seq_cnn = DNASequenceConvolution(params.ref_seq_layer_strings, ref_sequence_length)
         self.ref_seq_cnn.to(self._device)
 
         # rho is the universal aggregation function
-        ref_alt_info_ref_seq_embedding_dimension = 2 * self.read_embedding_dimension + self.omega.output_dimension() + self.ref_seq_cnn.output_dimension()
+        ref_alt_info_ref_seq_embedding_dimension = 2 * self.read_embedding_dimension + self.info_vae.latent_dim + self.ref_seq_cnn.output_dimension()
 
         # we have a different aggregation subnetwork for each variant type.  Everything below, in particular the read
         # transformers, is shared
@@ -233,7 +228,7 @@ class ArtifactModel(nn.Module):
     # note that info_vae is not part of this -- it is pre-trained, unsupervised
     def training_parameters(self):
         return chain(self.initial_read_embedding.parameters(), self.alt_transformer_encoder.parameters(), self.ref_transformer_encoder.parameters(),
-                     self.omega.parameters(), self.rho.parameters(), self.calibration.parameters())
+                     self.rho.parameters(), self.calibration.parameters())
 
     def calibration_parameters(self):
         return self.calibration.parameters()
@@ -308,15 +303,14 @@ class ArtifactModel(nn.Module):
 
         # stack side-by-side to get 2D tensor, where each variant row is (ref mean, alt mean, info)
         compressed_info = self.info_vae.compress(batch.get_info_2d().to(self._device))
-        omega_info = self.omega(compressed_info)
 
         ref_seq_embedding = self.ref_seq_cnn(batch.get_ref_sequences_2d())
 
-        return all_read_means, alt_means, omega_info, ref_seq_embedding, effective_alt_counts
+        return all_read_means, alt_means, compressed_info, ref_seq_embedding, effective_alt_counts
 
     def forward_from_transformed_reads_to_calibration(self, phi_reads: Tensor, batch: ReadSetBatch, weight_range: float = 0):
-        all_read_means, alt_means, omega_info, ref_seq_embedding, effective_alt_counts = self.forward_from_transformed_reads_to_intermediate_layer_output(phi_reads, batch, weight_range)
-        concatenated = torch.cat((all_read_means, alt_means, omega_info, ref_seq_embedding), dim=1)
+        all_read_means, alt_means, compressed_info, ref_seq_embedding, effective_alt_counts = self.forward_from_transformed_reads_to_intermediate_layer_output(phi_reads, batch, weight_range)
+        concatenated = torch.cat((all_read_means, alt_means, compressed_info, ref_seq_embedding), dim=1)
 
         logits = torch.zeros(batch.size())
         one_hot_types_2d = batch.variant_type_one_hot()
@@ -402,7 +396,7 @@ class ArtifactModel(nn.Module):
         valid_loader = make_data_loader(dataset, utils.Epoch.VALID, batch_size, self._device.type == 'cuda', num_workers)
 
         # pretrain the INFO VAE
-        for epoch in trange(1, 6, desc="Autoencoder training epoch"):
+        for epoch in trange(1, 10, desc="Autoencoder training epoch"):
             self.info_vae.train_model_one_epoch(turn_loader_into_info_generator(train_loader))
 
         for epoch in trange(1, num_epochs + 1, desc="Epoch"):
@@ -616,13 +610,10 @@ class ArtifactModel(nn.Module):
             # dim = 1 means average over all alt reads in each datum -- now it's a 1D tensor by batch index
             mean_of_alt_embedding_norms = alt_read_embedding_norms.mean(dim=1)
 
-            all_read_means, alt_means, omega_info, ref_seq_embedding, effective_alt_counts = \
+            all_read_means, alt_means, compressed_info, ref_seq_embedding, effective_alt_counts = \
                 self.forward_from_transformed_reads_to_intermediate_layer_output(read_embeddings, batch)
             average_read_embedding_features.append(alt_means)
-
-            compressed_info = self.info_vae.compress(batch.get_info_2d().to(self._device))
-            omega_info = self.omega(compressed_info)
-            info_embedding_features.append(omega_info)
+            info_embedding_features.append(compressed_info)
 
             ref_seq_embedding = self.ref_seq_cnn(batch.get_ref_sequences_2d())
             ref_seq_embedding_features.append(ref_seq_embedding)
