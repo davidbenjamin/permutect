@@ -153,6 +153,8 @@ def generate_artifact_posterior_data(dataset_files, num_data_per_chunk: int):
 def generate_normalized_data(dataset_files, max_bytes_per_chunk: int, include_variant_string: bool = False):
     """
     given text dataset files, generate normalized lists of read sets that fit in memory
+
+    In addition to quantile-normalizing read tensors it also enlarges the info tensors
     :param dataset_files:
     :param max_bytes_per_chunk:
     :param include_variant_string: include the variant string in generated ReadSet data
@@ -182,15 +184,23 @@ def generate_normalized_data(dataset_files, max_bytes_per_chunk: int, include_va
             yield buffer
 
 
+# this normalizes the buffer and also prepends new features to the info tensor
 def normalize_buffer(buffer, read_quantile_transform, info_quantile_transform, refit_transforms=True):
     # 2D array.  Rows are ref/alt reads, columns are read features
-    all_ref = np.vstack([datum.ref_tensor for datum in buffer if datum.ref_tensor is not None])
-    all_alt = np.vstack([datum.alt_tensor for datum in buffer])
+    all_ref = np.vstack([datum.ref_reads_2d for datum in buffer if datum.ref_reads_2d is not None])
+    all_alt = np.vstack([datum.alt_reads_2d for datum in buffer])
 
     # 2D array.  Rows are read sets, columns are info features
-    all_info = np.vstack([datum.info_tensor for datum in buffer])
+    all_info = np.vstack([datum.info_array_1d for datum in buffer])
 
+    num_read_features = all_ref.shape[1]
     binary_read_columns = binary_column_indices(all_ref)
+    non_binary_read_columns = binary_column_indices(all_ref)
+
+    # 1 if is binary, 0 if not binary
+    binary_read_column_mask = np.zeros(num_read_features)
+    binary_read_column_mask[binary_read_columns] = 1
+
     binary_info_columns = binary_column_indices(all_info)
 
     if refit_transforms:    # fit quantiles column by column (aka feature by feature)
@@ -202,16 +212,22 @@ def normalize_buffer(buffer, read_quantile_transform, info_quantile_transform, r
     all_alt_transformed = transform_except_for_binary_columns(all_alt, read_quantile_transform, binary_read_columns)
     all_info_transformed = transform_except_for_binary_columns(all_info, info_quantile_transform, binary_info_columns)
 
-    ref_counts = np.array([0 if datum.ref_tensor is None else len(datum.ref_tensor) for datum in buffer])
-    alt_counts = np.array([len(datum.alt_tensor) for datum in buffer])
+    ref_counts = np.array([0 if datum.ref_reads_2d is None else len(datum.ref_reads_2d) for datum in buffer])
+    alt_counts = np.array([len(datum.alt_reads_2d) for datum in buffer])
 
     ref_index_ranges = np.cumsum(ref_counts)
     alt_index_ranges = np.cumsum(alt_counts)
 
     for n, datum in enumerate(buffer):
-        datum.ref_tensor = None if datum.ref_tensor is None else all_ref_transformed[0 if n == 0 else ref_index_ranges[n-1]:ref_index_ranges[n]]
-        datum.alt_tensor = all_alt_transformed[0 if n == 0 else alt_index_ranges[n-1]:alt_index_ranges[n]]
-        datum.info_tensor = all_info_transformed[n]
+        datum.ref_reads_2d = None if datum.ref_reads_2d is None else all_ref_transformed[0 if n == 0 else ref_index_ranges[n-1]:ref_index_ranges[n]]
+        datum.alt_reads_2d = all_alt_transformed[0 if n == 0 else alt_index_ranges[n-1]:alt_index_ranges[n]]
+
+        # medians are an appropriate outlier-tolerant summary, except for binary columns where the mean makes more sense
+        alt_medians = np.median(datum.alt_reads_2d, axis=0)
+        alt_means = np.mean(datum.alt_reads_2d, axis=0)
+
+        extra_info = binary_read_column_mask * alt_means + (1 - binary_read_column_mask) * alt_medians
+        datum.info_array_1d = np.hstack([extra_info, all_info_transformed[n]])
 
 
 def line_to_tensor(line: str) -> np.ndarray:
@@ -243,6 +259,11 @@ def is_binary(column_tensor_1d: np.ndarray):
 def binary_column_indices(tensor_2d: np.ndarray):
     assert len(tensor_2d.shape) == 2
     return [n for n in range(tensor_2d.shape[1]) if is_binary(tensor_2d[:, n])]
+
+
+def non_binary_column_indices(tensor_2d: np.ndarray):
+    assert len(tensor_2d.shape) == 2
+    return [n for n in range(tensor_2d.shape[1]) if not is_binary(tensor_2d[:, n])]
 
 
 # copy the unnormalized values of binary features (columns)
