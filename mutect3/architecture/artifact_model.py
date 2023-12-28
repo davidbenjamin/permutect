@@ -210,9 +210,14 @@ class ArtifactModel(nn.Module):
         # we have a different aggregation subnetwork for each variant type.  Everything below, in particular the read
         # transformers, is shared
         # The [1] is for the output of binary classification, represented as a single artifact/non-artifact logit
-        self.rho = nn.ModuleList([MLP([ref_alt_info_ref_seq_embedding_dimension] + params.aggregation_layers + [1], batch_normalize=params.batch_normalize,
+        self.refined_dimension = params.aggregation_layers[-1]
+        self.rho = nn.ModuleList([MLP([ref_alt_info_ref_seq_embedding_dimension] + params.aggregation_layers, batch_normalize=params.batch_normalize,
                        dropout_p=params.dropout_p) for variant_type in Variation])
         self.rho.to(self._device)
+
+        # after rho is applied to each alt read and averaged, pass the average to a final linear logit layer
+        self.final_logit = nn.Linear(in_features=self.refined_dimension, out_features=1)
+        self.final_logit.to(self._device)
 
         self.calibration = Calibration()
         self.calibration.to(self._device)
@@ -228,7 +233,7 @@ class ArtifactModel(nn.Module):
 
     def training_parameters(self):
         return chain(self.initial_read_embedding.parameters(), self.alt_transformer_encoder.parameters(), self.ref_transformer_encoder.parameters(),
-                     self.omega.parameters(), self.rho.parameters(), self.calibration.parameters())
+                     self.omega.parameters(), self.rho.parameters(), self.final_logit.parameters(), self.calibration.parameters())
 
     def calibration_parameters(self):
         return self.calibration.parameters()
@@ -281,45 +286,54 @@ class ArtifactModel(nn.Module):
 
         return transformed_reads_2d
 
-    def forward_from_transformed_reads_to_intermediate_layer_output(self, phi_reads: Tensor, batch: ReadSetBatch, weight_range: float = 0):
-        weights = torch.ones(len(phi_reads), 1, device=self._device) if weight_range == 0 else (1 + weight_range * (1 - 2 * torch.rand(len(phi_reads), 1, device=self._device)))
-        weighted_phi_reads = weights * phi_reads
+    # input: reads that have passed through the alt/ref transformers
+    # output: reads that have been refined through the rho subnetwork that sees the transformed alts along with ref, alt, and info
+    def forward_from_transformed_reads_to_refined_reads(self, transformed_reads: Tensor, batch: ReadSetBatch, weight_range: float = 0):
+        weights = torch.ones(len(transformed_reads), 1, device=self._device) if weight_range == 0 else (1 + weight_range * (1 - 2 * torch.rand(len(transformed_reads), 1, device=self._device)))
 
         ref_count, alt_count = batch.ref_count, min(batch.alt_count, self.alt_downsample)
-        total_ref = ref_count * batch.size()
+        total_ref, total_alt = ref_count * batch.size(), alt_count * batch.size()
 
         alt_wts = weights[total_ref:]
         alt_wt_sums = sums_over_chunks(alt_wts, alt_count)
         alt_wt_sq_sums = sums_over_chunks(torch.square(alt_wts), alt_count)
 
         # mean embedding of every read, alt and ref, at each datum
-        all_read_means = ((0 if ref_count == 0 else sums_over_chunks(phi_reads[:total_ref], ref_count)) + sums_over_chunks(weighted_phi_reads[total_ref:], alt_count)) / (alt_count + ref_count)
-
-        # weighted mean is sum of reads in a chunk divided by sum of weights in same chunk
-        alt_means = sums_over_chunks(weighted_phi_reads[total_ref:], alt_count) / alt_wt_sums
-
-        # these are fed to the calibration, since reweighting effectively reduces the read counts
-        effective_alt_counts = torch.square(alt_wt_sums) / alt_wt_sq_sums
-
-        # stack side-by-side to get 2D tensor, where each variant row is (ref mean, alt mean, info)
+        all_read_means = ((0 if ref_count == 0 else sums_over_chunks(transformed_reads[:total_ref], ref_count)) + sums_over_chunks(transformed_reads[total_ref:], alt_count)) / (alt_count + ref_count)
         omega_info = self.omega(batch.get_info_2d().to(self._device))
-
         ref_seq_embedding = self.ref_seq_cnn(batch.get_ref_sequences_2d())
 
-        return all_read_means, alt_means, omega_info, ref_seq_embedding, effective_alt_counts
+        # dimension is batch_size x ref transformer output size + omega output size + ref seq embedding size
+        extra_tensor_2d = torch.hstack([all_read_means, omega_info, ref_seq_embedding])
+        extra_tensor_2d = torch.repeat_interleave(extra_tensor_2d, repeats=alt_count, dim=0)
 
-    def forward_from_transformed_reads_to_calibration(self, phi_reads: Tensor, batch: ReadSetBatch, weight_range: float = 0):
-        all_read_means, alt_means, omega_info, ref_seq_embedding, effective_alt_counts = self.forward_from_transformed_reads_to_intermediate_layer_output(phi_reads, batch, weight_range)
-        concatenated = torch.cat((all_read_means, alt_means, omega_info, ref_seq_embedding), dim=1)
+        # the alt reads have not been averaged yet to we need to copy each row of the extra tensor batch.alt_count times
+        padded_transformed_alt_reads = torch.hstack([transformed_reads[total_ref:], extra_tensor_2d])
 
-        logits = torch.zeros(batch.size())
+        # now we refine the alt reads -- no need to separate between read sets yet as this broadcasts over every read
+        refined = torch.zeros(total_alt, self.refined_dimension)
         one_hot_types_2d = batch.variant_type_one_hot()
-
         for n, _ in enumerate(Variation):
             # multiply the result of this variant type's aggregation layers by its
             # one-hot mask.  Yes, this is wasteful because we apply every aggregation to every datum.
             # TODO: make this more efficient.
-            logits += one_hot_types_2d[:, n] * self.rho[n].forward(concatenated).squeeze(dim=1)
+            mask = torch.repeat_interleave(one_hot_types_2d[:, n], repeats=alt_count).reshape(total_alt, 1)  # 2D column tensor
+            refined += mask * self.rho[n].forward(padded_transformed_alt_reads)
+
+        weighted_refined = alt_wts * refined
+        # weighted mean is sum of reads in a chunk divided by sum of weights in same chunk
+        alt_means = sums_over_chunks(weighted_refined, alt_count) / alt_wt_sums
+
+        # these are fed to the calibration, since reweighting effectively reduces the read counts
+        effective_alt_counts = torch.square(alt_wt_sums) / alt_wt_sq_sums
+
+        # note all_read_means pertains to transformer; alt_means pertains to refined
+        return all_read_means, alt_means, omega_info, ref_seq_embedding, effective_alt_counts
+
+    def forward_from_transformed_reads_to_calibration(self, phi_reads: Tensor, batch: ReadSetBatch, weight_range: float = 0):
+        all_read_means, alt_means, omega_info, ref_seq_embedding, effective_alt_counts = self.forward_from_transformed_reads_to_refined_reads(phi_reads, batch, weight_range)
+
+        logits = self.final_logit(alt_means).reshape(batch.size())
 
         return logits, batch.ref_count * torch.ones_like(effective_alt_counts), effective_alt_counts
 
@@ -347,8 +361,8 @@ class ArtifactModel(nn.Module):
         for n, batch in pbar:
             if not batch.is_labeled():
                 continue
-            phi_reads = self.apply_transformer_to_reads(batch)
-            logits, ref_counts, alt_counts = self.forward_from_transformed_reads_to_calibration(phi_reads, batch)
+            transformed_reads = self.apply_transformer_to_reads(batch)
+            logits, ref_counts, alt_counts = self.forward_from_transformed_reads_to_calibration(transformed_reads, batch)
             labels = batch.labels.to(self._device)
 
             # TODO: more code duplication between here and train_model
@@ -408,11 +422,11 @@ class ArtifactModel(nn.Module):
                 loader = train_loader if epoch_type == utils.Epoch.TRAIN else valid_loader
                 pbar = tqdm(enumerate(loader), mininterval=10)
                 for n, batch in pbar:
-                    phi_reads = self.apply_transformer_to_reads(batch)
+                    transformed_reads = self.apply_transformer_to_reads(batch)
 
-                    orig_pred = self.forward_from_transformed_reads(phi_reads, batch, weight_range=0)
-                    aug1_pred = self.forward_from_transformed_reads(phi_reads, batch, weight_range=reweighting_range)
-                    aug2_pred = self.forward_from_transformed_reads(phi_reads, batch, weight_range=reweighting_range)
+                    orig_pred = self.forward_from_transformed_reads(transformed_reads, batch, weight_range=0)
+                    aug1_pred = self.forward_from_transformed_reads(transformed_reads, batch, weight_range=reweighting_range)
+                    aug2_pred = self.forward_from_transformed_reads(transformed_reads, batch, weight_range=reweighting_range)
 
                     if batch.is_labeled():
                         labels = batch.labels
@@ -607,13 +621,10 @@ class ArtifactModel(nn.Module):
             mean_of_alt_embedding_norms = alt_read_embedding_norms.mean(dim=1)
 
             all_read_means, alt_means, omega_info, ref_seq_embedding, effective_alt_counts = \
-                self.forward_from_transformed_reads_to_intermediate_layer_output(read_embeddings, batch)
+                self.forward_from_transformed_reads_to_refined_reads(read_embeddings, batch)
             average_read_embedding_features.append(alt_means)
 
-            omega_info = self.omega(batch.get_info_2d().to(self._device))
             info_embedding_features.append(omega_info)
-
-            ref_seq_embedding = self.ref_seq_cnn(batch.get_ref_sequences_2d())
             ref_seq_embedding_features.append(ref_seq_embedding)
 
             # code for the magnitude histograms
