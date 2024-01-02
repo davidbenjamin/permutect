@@ -288,7 +288,7 @@ class ArtifactModel(nn.Module):
 
     # input: reads that have passed through the alt/ref transformers
     # output: reads that have been refined through the rho subnetwork that sees the transformed alts along with ref, alt, and info
-    def forward_from_transformed_reads_to_refined_reads(self, transformed_reads: Tensor, batch: ReadSetBatch, weight_range: float = 0):
+    def forward_from_transformed_reads_to_refined_reads(self, transformed_reads: Tensor, batch: ReadSetBatch, weight_range: float = 0, extra_output=False):
         weights = torch.ones(len(transformed_reads), 1, device=self._device) if weight_range == 0 else (1 + weight_range * (1 - 2 * torch.rand(len(transformed_reads), 1, device=self._device)))
 
         ref_count, alt_count = batch.ref_count, min(batch.alt_count, self.alt_downsample)
@@ -311,27 +311,33 @@ class ArtifactModel(nn.Module):
         padded_transformed_alt_reads = torch.hstack([transformed_reads[total_ref:], extra_tensor_2d])
 
         # now we refine the alt reads -- no need to separate between read sets yet as this broadcasts over every read
-        refined = torch.zeros(total_alt, self.refined_dimension)
+        refined_alt = torch.zeros(total_alt, self.refined_dimension)
         one_hot_types_2d = batch.variant_type_one_hot()
         for n, _ in enumerate(Variation):
             # multiply the result of this variant type's aggregation layers by its
             # one-hot mask.  Yes, this is wasteful because we apply every aggregation to every datum.
             # TODO: make this more efficient.
             mask = torch.repeat_interleave(one_hot_types_2d[:, n], repeats=alt_count).reshape(total_alt, 1)  # 2D column tensor
-            refined += mask * self.rho[n].forward(padded_transformed_alt_reads)
+            refined_alt += mask * self.rho[n].forward(padded_transformed_alt_reads)
 
-        weighted_refined = alt_wts * refined
+        weighted_refined = alt_wts * refined_alt
         # weighted mean is sum of reads in a chunk divided by sum of weights in same chunk
         alt_means = sums_over_chunks(weighted_refined, alt_count) / alt_wt_sums
 
         # these are fed to the calibration, since reweighting effectively reduces the read counts
         effective_alt_counts = torch.square(alt_wt_sums) / alt_wt_sq_sums
 
+        # 3D tensors -- batch size x alt count x transformed / refined dimension
+        # TODO: maybe I should output these regardless -- they probably get garbage-collected all the same
+        # TODO: with no hit in performance
+        transformed_alt_output = transformed_reads[total_ref:].reshape(batch.size(), alt_count, -1) if extra_output else None
+        refined_alt_output = refined_alt.reshape(batch.size(), alt_count, -1) if extra_output else None
+
         # note all_read_means pertains to transformer; alt_means pertains to refined
-        return all_read_means, alt_means, omega_info, ref_seq_embedding, effective_alt_counts
+        return all_read_means, alt_means, omega_info, ref_seq_embedding, effective_alt_counts, transformed_alt_output, refined_alt_output
 
     def forward_from_transformed_reads_to_calibration(self, phi_reads: Tensor, batch: ReadSetBatch, weight_range: float = 0):
-        all_read_means, alt_means, omega_info, ref_seq_embedding, effective_alt_counts = self.forward_from_transformed_reads_to_refined_reads(phi_reads, batch, weight_range)
+        all_read_means, alt_means, omega_info, ref_seq_embedding, effective_alt_counts, _, _ = self.forward_from_transformed_reads_to_refined_reads(phi_reads, batch, weight_range)
 
         logits = self.final_logit(alt_means).reshape(batch.size())
 
@@ -589,11 +595,19 @@ class ArtifactModel(nn.Module):
         info_embedding_features = []
         ref_seq_embedding_features = []
 
-        # indexed by variant type, then alt count, and each entry is a pair of lists of magnitudes for the histogram,
-        # the first list being for non-artifact and the second for artifact
-        # two similar things: the L2 norm of the read embedding means, and the mean of the L2 norms of read embeddings
-        L2_of_mean_hist_by_type_cnt = {var_type: [([], []) for _ in range(NUM_COUNT_BINS)] for var_type in Variation}
-        mean_of_L2_hist_by_type_cnt = {var_type: [([], []) for _ in range(NUM_COUNT_BINS)] for var_type in Variation}
+
+        # we output array figures of histograms.  The rows of each histogram are (rounded) alt counts, the columns
+        # are variant types, and each subplot has overlapping histograms for non-artifacts and artifacts.
+
+        # There are several figures of this type, which for now we enocde as tuples.  The first element is 0, 1, 2 for L0, L1, or L2 norm
+        # the second is a boolean norm first for whether we take the norm then the means (if true) or vice versa (if false)
+        # the third is a boolean for transformed (True) or refined (False)
+        norm_types = [1, 2, 100]
+        norm_first_values = [True, False]
+        trans_or_refined_values = [True, False]
+        histogram_tuples = [(x, y, z) for x in norm_types for y in norm_first_values for z in trans_or_refined_values]
+
+        hists_by_type_cnt = [{var_type: [([], []) for _ in range(NUM_COUNT_BINS)] for var_type in Variation} for tup in histogram_tuples]
 
         for n, batch in pbar:
             types_one_hot = batch.variant_type_one_hot()
@@ -620,47 +634,46 @@ class ArtifactModel(nn.Module):
             # dim = 1 means average over all alt reads in each datum -- now it's a 1D tensor by batch index
             mean_of_alt_embedding_norms = alt_read_embedding_norms.mean(dim=1)
 
-            all_read_means, alt_means, omega_info, ref_seq_embedding, effective_alt_counts = \
-                self.forward_from_transformed_reads_to_refined_reads(read_embeddings, batch)
+            all_read_means, alt_means, omega_info, ref_seq_embedding, effective_alt_counts, transformed_alt_3d, refined_alt_3d = \
+                self.forward_from_transformed_reads_to_refined_reads(read_embeddings, batch, extra_output=True)
             average_read_embedding_features.append(alt_means)
-
             info_embedding_features.append(omega_info)
             ref_seq_embedding_features.append(ref_seq_embedding)
 
-            # code for the magnitude histograms
-            for variant_type, mean_alt_embedding, label, mean_of_norms, in zip(batch.variant_types(), alt_means, batch.labels.tolist(), mean_of_alt_embedding_norms):
-                bin_idx = multiple_of_three_bin_index(min(MAX_COUNT, batch.alt_count))
-                is_artifact_index = 0 if label < 0.5 else 1
-                norm_of_mean_embedding = mean_alt_embedding.norm(dim=0, p=2).item()
+            # code for the norm histograms
+            for n, (norm_type, norm_first, transformed_vs_refined) in enumerate(histogram_tuples):
+                tensor_3d = transformed_alt_3d if transformed_vs_refined else refined_alt_3d
 
-                L2_of_mean_hist_by_type_cnt[variant_type][bin_idx][is_artifact_index].append(norm_of_mean_embedding)
-                mean_of_L2_hist_by_type_cnt[variant_type][bin_idx][is_artifact_index].append(mean_of_norms.item())
+                # norm over representation dimension (2), then mean over read index (1) if norm_first
+                # else mean over read index (1) then norm over the new representation dimension (1)
+                output_1d = (tensor_3d.norm(dim=2, p=norm_type).mean(dim=1) if norm_first else \
+                    tensor_3d.mean(dim=1).norm(dim=1, p=norm_type)) if norm_type < 100 else \
+                    (tensor_3d.max(dim=2).values.mean(dim=1) if norm_first else tensor_3d.mean(dim=1).max(dim=1).values)
+
+                for variant_type,  label, output_value, in zip(batch.variant_types(), batch.labels.tolist(), output_1d):
+                    bin_idx = multiple_of_three_bin_index(min(MAX_COUNT, batch.alt_count))
+                    is_artifact_index = 0 if label < 0.5 else 1
+                    hists_by_type_cnt[n][variant_type][bin_idx][is_artifact_index].append(output_value.item())
 
         # done collecting data
 
-        L2_of_mean_fig, L2_of_mean_axes = plt.subplots(NUM_COUNT_BINS, len(Variation), sharex='none', sharey='none',
+        for n, (norm_type, norm_first, transformed_vs_refined) in enumerate(histogram_tuples):
+            hist_fig, hist_axes = plt.subplots(NUM_COUNT_BINS, len(Variation), sharex='none', sharey='none',
                                                    squeeze=False, figsize=(15, 15), dpi=100)
 
-        # THIS IS DIFFERENT!!!!
-        mean_of_L2_fig, mean_of_L2_axes = plt.subplots(NUM_COUNT_BINS, len(Variation), sharex='none', sharey='none',
-                                                       squeeze=False, figsize=(15, 15), dpi=100)
+            name1 = "L" + str(norm_type) + " norm"
+            name2 = ("mean of " + name1) if norm_first else (name1 + " of mean")
+            name3 = name2 + " transformed" if transformed_vs_refined else " refined"
 
-        for col_idx, var_type in enumerate(Variation):
-            for row_idx in range(NUM_COUNT_BINS):
-                # data for one particular subplot (row = count bin, column = variant type)
-                plotting.simple_histograms_on_axis(L2_of_mean_axes[row_idx, col_idx], L2_of_mean_hist_by_type_cnt[var_type][row_idx], ["good", "bad"], 25)
-                plotting.simple_histograms_on_axis(mean_of_L2_axes[row_idx, col_idx], mean_of_L2_hist_by_type_cnt[var_type][row_idx], ["good", "bad"], 25)
-        variation_types = [var_type.name for var_type in Variation]
-        plotting.tidy_subplots(L2_of_mean_fig, L2_of_mean_axes, x_label="L2 norm of mean read embedding", y_label="",
-                               row_labels=["alt count " + str(multiple_of_three_bin_index_to_count(idx)) for idx in range(NUM_COUNT_BINS)],
-                               column_labels=variation_types, keep_axes_tick_labels=True)
-        summary_writer.add_figure("L2 of mean read embedding", L2_of_mean_fig)
-
-        plotting.tidy_subplots(mean_of_L2_fig, mean_of_L2_axes, x_label="mean of L2 norms of read embeddings", y_label="",
-                               row_labels=["alt count " + str(multiple_of_three_bin_index_to_count(idx)) for idx in
-                                           range(NUM_COUNT_BINS)],
-                               column_labels=variation_types, keep_axes_tick_labels=True)
-        summary_writer.add_figure("mean of L2 norm of read embeddings", mean_of_L2_fig)
+            for col_idx, var_type in enumerate(Variation):
+                for row_idx in range(NUM_COUNT_BINS):
+                    # data for one particular subplot (row = count bin, column = variant type)
+                    plotting.simple_histograms_on_axis(hist_axes[row_idx, col_idx], hists_by_type_cnt[n][var_type][row_idx], ["good", "bad"], 25)
+            variation_types = [var_type.name for var_type in Variation]
+            plotting.tidy_subplots(hist_fig, hist_axes, x_label=name3, y_label="",
+                                   row_labels=["alt count " + str(multiple_of_three_bin_index_to_count(idx)) for idx in range(NUM_COUNT_BINS)],
+                                   column_labels=variation_types, keep_axes_tick_labels=True)
+            summary_writer.add_figure(name3, hist_fig)
 
         # downsample to a reasonable amount of UMAP data
         all_metadata=list(zip(label_metadata, correct_metadata, type_metadata, truncated_count_metadata))
