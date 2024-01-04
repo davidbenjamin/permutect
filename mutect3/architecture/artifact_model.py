@@ -186,14 +186,16 @@ class ArtifactModel(nn.Module):
         self.transformer_hidden_dimension = params.transformer_hidden_dimension
         self.num_transformer_layers = params.num_transformer_layers
 
-        self.alt_transformer_encoder_layer = torch.nn.TransformerEncoderLayer(d_model=params.read_embedding_dimension,
+        alt_transformer_encoder_layer = torch.nn.TransformerEncoderLayer(d_model=params.read_embedding_dimension,
             nhead=params.num_transformer_heads, batch_first=True, dim_feedforward=params.transformer_hidden_dimension, dropout=params.dropout_p)
-        self.alt_transformer_encoder = torch.nn.TransformerEncoder(self.alt_transformer_encoder_layer, num_layers=params.num_transformer_layers)
+        alt_encoder_norm = torch.nn.LayerNorm(params.read_embedding_dimension)
+        self.alt_transformer_encoder = torch.nn.TransformerEncoder(alt_transformer_encoder_layer, num_layers=params.num_transformer_layers, norm=alt_encoder_norm)
         self.alt_transformer_encoder.to(self._device)
 
-        self.ref_transformer_encoder_layer = torch.nn.TransformerEncoderLayer(d_model=params.read_embedding_dimension,
+        ref_transformer_encoder_layer = torch.nn.TransformerEncoderLayer(d_model=params.read_embedding_dimension,
              nhead=params.num_transformer_heads, batch_first=True, dim_feedforward=params.transformer_hidden_dimension, dropout=params.dropout_p)
-        self.ref_transformer_encoder = torch.nn.TransformerEncoder(self.alt_transformer_encoder_layer, num_layers=params.num_transformer_layers)
+        ref_encoder_norm = torch.nn.LayerNorm(params.read_embedding_dimension)
+        self.ref_transformer_encoder = torch.nn.TransformerEncoder(ref_transformer_encoder_layer, num_layers=params.num_transformer_layers, norm=ref_encoder_norm)
         self.ref_transformer_encoder.to(self._device)
 
         # omega is the universal embedding of info field variant-level data
