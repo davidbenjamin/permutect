@@ -356,14 +356,14 @@ class ArtifactModel(nn.Module):
         utils.unfreeze(self.calibration_parameters())
 
         # TODO: code duplication between here and train_model
-        labeled_artifact_to_non_artifact_ratios = dataset.artifact_to_non_artifact_ratios()
-        labeled_artifact_weights_by_type = torch.from_numpy(1 / np.sqrt(labeled_artifact_to_non_artifact_ratios)).to(self._device)
-        labeled_non_artifact_weights_by_type = torch.from_numpy(np.sqrt(labeled_artifact_to_non_artifact_ratios)).to(self._device)
+        # These are 1D tensors, one element per variant type
+        artifact_to_non_artifact_ratios = torch.from_numpy(dataset.artifact_to_non_artifact_ratios()).to(self._device)
+        artifact_to_non_artifact_log_prior_ratios = torch.log(artifact_to_non_artifact_ratios)
 
         # gather uncalibrated logits -- everything computed by the frozen part of the model -- so that we only
         # do forward and backward passes on the calibration submodule
         print("Computing uncalibrated part of model. . .")
-        uncalibrated_logits_ref_alt_counts_labels_weights = []
+        uncalibrated_logits_ref_alt_counts_labels_prior_ratios = []
         valid_loader = make_data_loader(dataset, utils.Epoch.VALID, batch_size, self._device.type == 'cuda', num_workers)
         pbar = tqdm(enumerate(valid_loader), mininterval=10)
         for n, batch in pbar:
@@ -375,10 +375,9 @@ class ArtifactModel(nn.Module):
 
             # TODO: more code duplication between here and train_model
             types_one_hot = batch.variant_type_one_hot()
-            weights = labels * torch.sum(labeled_artifact_weights_by_type * types_one_hot, dim=1) + \
-                                     (1 - labels) * torch.sum(labeled_non_artifact_weights_by_type * types_one_hot, dim=1)
+            log_prior_ratios = torch.sum(artifact_to_non_artifact_log_prior_ratios * types_one_hot, dim=1)
 
-            uncalibrated_logits_ref_alt_counts_labels_weights.append((logits.detach(), ref_counts.detach(), alt_counts.detach(), labels, weights))
+            uncalibrated_logits_ref_alt_counts_labels_prior_ratios.append((logits.detach(), ref_counts.detach(), alt_counts.detach(), labels, log_prior_ratios))
 
         print("Training calibration. . .")
         optimizer = torch.optim.Adam(self.calibration_parameters())
@@ -386,11 +385,12 @@ class ArtifactModel(nn.Module):
         for epoch in trange(1, num_epochs + 1, desc="Calibration epoch"):
             nll_loss = utils.StreamingAverage(device=self._device)
 
-            pbar = tqdm(enumerate(uncalibrated_logits_ref_alt_counts_labels_weights), mininterval=10)
-            for n, (logits, ref_counts, alt_counts, labels, weights) in pbar:
+            pbar = tqdm(enumerate(uncalibrated_logits_ref_alt_counts_labels_prior_ratios), mininterval=10)
+            for n, (logits, ref_counts, alt_counts, labels, log_prior_ratios) in pbar:
                 pred = self.calibration.forward(logits, ref_counts, alt_counts)
+                post_pred = pred + log_prior_ratios
 
-                loss = torch.sum(weights * bce(pred, labels))
+                loss = torch.sum(bce(post_pred, labels))
                 utils.backpropagate(optimizer, loss)
                 nll_loss.record_sum(loss.detach(), len(logits))
 
@@ -398,10 +398,8 @@ class ArtifactModel(nn.Module):
         bce = nn.BCEWithLogitsLoss(reduction='none')  # no reduction because we may want to first multiply by weights for unbalanced data
         train_optimizer = torch.optim.AdamW(self.training_parameters(), lr=m3_params.learning_rate)
 
-        labeled_artifact_to_non_artifact_ratios = dataset.artifact_to_non_artifact_ratios()
-
-        labeled_artifact_weights_by_type = torch.from_numpy(1 / np.sqrt(labeled_artifact_to_non_artifact_ratios)).to(self._device)
-        labeled_non_artifact_weights_by_type = torch.from_numpy(np.sqrt(labeled_artifact_to_non_artifact_ratios)).to(self._device)
+        artifact_to_non_artifact_ratios = torch.from_numpy(dataset.artifact_to_non_artifact_ratios()).to(self._device)
+        artifact_to_non_artifact_log_prior_ratios = torch.log(artifact_to_non_artifact_ratios)
 
         # balance training by weighting the loss function
         # if total unlabeled is less than total labeled, we do not compensate, since labeled data are more informative
@@ -449,10 +447,11 @@ class ArtifactModel(nn.Module):
                         # taking the sum over each row then gives the weights
 
                         types_one_hot = batch.variant_type_one_hot()
-                        loss_balancing_factors = labels * torch.sum(labeled_artifact_weights_by_type * types_one_hot, dim=1) + \
-                            (1 - labels) * torch.sum(labeled_non_artifact_weights_by_type * types_one_hot, dim=1)
 
-                        separate_losses = loss_balancing_factors * (bce(orig_pred, labels) + bce(aug1_pred, labels) + bce(aug2_pred, labels))
+                        log_prior_ratios = torch.sum(artifact_to_non_artifact_log_prior_ratios * types_one_hot, dim=1)
+                        orig_post, aug1_post, aug2_post = orig_pred + log_prior_ratios, aug1_pred + log_prior_ratios, aug2_pred + log_prior_ratios
+
+                        separate_losses = (bce(orig_post, labels) + bce(aug1_post, labels) + bce(aug2_post, labels))
                         loss = torch.sum(separate_losses)
                         labeled_loss.record_sum(loss.detach(), batch.size())
 
