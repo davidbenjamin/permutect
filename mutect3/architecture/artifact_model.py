@@ -366,7 +366,7 @@ class ArtifactModel(nn.Module):
         print("Computing uncalibrated part of model. . .")
         uncalibrated_logits_ref_alt_counts_labels_prior_ratios = []
         valid_loader = make_data_loader(dataset, utils.Epoch.VALID, batch_size, self._device.type == 'cuda', num_workers)
-        pbar = tqdm(enumerate(valid_loader), mininterval=10)
+        pbar = tqdm(enumerate(valid_loader), mininterval=60)
         for n, batch in pbar:
             if not batch.is_labeled():
                 continue
@@ -386,7 +386,7 @@ class ArtifactModel(nn.Module):
         for epoch in trange(1, num_epochs + 1, desc="Calibration epoch"):
             nll_loss = utils.StreamingAverage(device=self._device)
 
-            pbar = tqdm(enumerate(uncalibrated_logits_ref_alt_counts_labels_prior_ratios), mininterval=10)
+            pbar = tqdm(enumerate(uncalibrated_logits_ref_alt_counts_labels_prior_ratios), mininterval=60)
             for n, (logits, ref_counts, alt_counts, labels, log_prior_ratios) in pbar:
                 pred = self.calibration.forward(logits, ref_counts, alt_counts)
                 post_pred = pred + log_prior_ratios
@@ -427,7 +427,7 @@ class ArtifactModel(nn.Module):
                 labeled_loss_by_count = {bin_idx: utils.StreamingAverage(device=self._device) for bin_idx in range(NUM_COUNT_BINS)}
 
                 loader = train_loader if epoch_type == utils.Epoch.TRAIN else valid_loader
-                pbar = tqdm(enumerate(loader), mininterval=10)
+                pbar = tqdm(enumerate(loader), mininterval=60)
                 for n, batch in pbar:
                     transformed_reads = self.apply_transformer_to_reads(batch)
 
@@ -526,7 +526,7 @@ class ArtifactModel(nn.Module):
             roc_data = {var_type: [] for var_type in Variation}     # variant type -> (predicted logit, actual label)
             roc_data_by_cnt = {var_type: [[] for _ in range(NUM_COUNT_BINS)] for var_type in Variation}  # variant type, count -> (predicted logit, actual label)
 
-            pbar = tqdm(enumerate(filter(lambda bat: bat.is_labeled(), loader)), mininterval=10)
+            pbar = tqdm(enumerate(filter(lambda bat: bat.is_labeled(), loader)), mininterval=60)
             for n, batch in pbar:
                 # In training we minimize the cross entropy loss wrt the posterior probability, accounting for priors;
                 # Here we are considering artifacts and non-artifacts separately and use the uncorrected likelihood logits
@@ -579,7 +579,7 @@ class ArtifactModel(nn.Module):
 
         # now go over just the validation data and generate feature vectors / metadata for tensorboard projectors (UMAP)
         # also generate histograms of magnitudes of average read embeddings
-        pbar = tqdm(enumerate(filter(lambda bat: bat.is_labeled(), valid_loader)), mininterval=10)
+        pbar = tqdm(enumerate(filter(lambda bat: bat.is_labeled(), valid_loader)), mininterval=60)
 
         # things we will collect for the projections
         label_metadata = []     # list (extended by each batch) 1 if artifact, 0 if not
@@ -589,7 +589,6 @@ class ArtifactModel(nn.Module):
         average_read_embedding_features = []    # list of 2D tensors (to be stacked into a single 2D tensor), average read embedding over batches
         info_embedding_features = []
         ref_seq_embedding_features = []
-
 
         # we output array figures of histograms.  The rows of each histogram are (rounded) alt counts, the columns
         # are variant types, and each subplot has overlapping histograms for non-artifacts and artifacts.
