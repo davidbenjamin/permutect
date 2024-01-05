@@ -127,6 +127,7 @@ class Calibration(nn.Module):
         assert X.shape == (basis_size, batch_size)
 
         temperature = torch.sum(X, dim=0)
+
         assert temperature.shape == (batch_size, )
 
         return temperature
@@ -516,8 +517,8 @@ class ArtifactModel(nn.Module):
 
         log_artifact_to_non_artifact_ratios = torch.from_numpy(np.log(dataset.artifact_to_non_artifact_ratios()))
         for loader_idx, (loader_name, loader) in enumerate(loaders_by_name.items()):
-            # indexed by variant type, then logit bin
-            acc_vs_logit = {var_type: [utils.StreamingAverage() for _ in range(2 * MAX_LOGIT + 1)] for var_type in Variation}
+            # indexed by variant type, then count bin, then logit bin
+            acc_vs_logit = {var_type: [[utils.StreamingAverage() for _ in range(2 * MAX_LOGIT + 1)] for _ in range(NUM_COUNT_BINS)] for var_type in Variation}
 
             # indexed by variant type, then call type (artifact vs variant), then count bin
             acc_vs_cnt = {var_type: defaultdict(lambda: [utils.StreamingAverage() for _ in range(NUM_COUNT_BINS)]) for var_type in Variation}
@@ -542,7 +543,7 @@ class ArtifactModel(nn.Module):
                 for variant_type, predicted_logit, posterior_logit, label, correct_call in zip(batch.variant_types(), pred.tolist(), posterior_pred.tolist(), batch.labels.tolist(), correct):
                     count_bin_index = multiple_of_three_bin_index(min(MAX_COUNT, batch.alt_count))
                     acc_vs_cnt[variant_type][Call.SOMATIC if label < 0.5 else Call.ARTIFACT][count_bin_index].record(correct_call)
-                    acc_vs_logit[variant_type][logit_to_bin(posterior_logit)].record(correct_call)
+                    acc_vs_logit[variant_type][count_bin_index][logit_to_bin(posterior_logit)].record(correct_call)
 
                     roc_data[variant_type].append((predicted_logit, label))
                     roc_data_by_cnt[variant_type][count_bin_index].append((predicted_logit, label))
@@ -552,13 +553,13 @@ class ArtifactModel(nn.Module):
                 # data for one particular subplot (row = train / valid, column = variant type)
 
                 non_empty_count_bins = [idx for idx in range(NUM_COUNT_BINS) if not acc_vs_cnt[var_type][label][idx].is_empty()]
-                non_empty_logit_bins = [idx for idx in range(2 * MAX_LOGIT + 1) if not acc_vs_logit[var_type][idx].is_empty()]
+                non_empty_logit_bins = [[idx for idx in range(2 * MAX_LOGIT + 1) if not acc_vs_logit[var_type][count_idx][idx].is_empty()] for count_idx in range(NUM_COUNT_BINS)]
                 acc_vs_cnt_x_y_lab_tuples = [([multiple_of_three_bin_index_to_count(idx) for idx in non_empty_count_bins],
                                    [acc_vs_cnt[var_type][label][idx].get() for idx in non_empty_count_bins],
                                    label.name) for label in acc_vs_cnt[var_type].keys()]
-                acc_vs_logit_x_y_lab_tuple = [([bin_center(idx) for idx in non_empty_logit_bins],
-                                              [acc_vs_logit[var_type][idx].get() for idx in non_empty_logit_bins],
-                                              None)]
+                acc_vs_logit_x_y_lab_tuples = [([bin_center(idx) for idx in non_empty_logit_bins[count_idx]],
+                                              [acc_vs_logit[var_type][count_idx][idx].get() for idx in non_empty_logit_bins[count_idx]],
+                                              str(multiple_of_three_bin_index_to_count(count_idx))) for count_idx in range(NUM_COUNT_BINS)]
 
                 plotting.simple_plot_on_axis(acc_vs_cnt_axes[loader_idx, var_type], acc_vs_cnt_x_y_lab_tuples, None, None)
                 plotting.plot_accuracy_vs_accuracy_roc_on_axis([roc_data[var_type]], [None], roc_axes[loader_idx, var_type])
@@ -567,7 +568,7 @@ class ArtifactModel(nn.Module):
                                                                [str(multiple_of_three_bin_index_to_count(idx)) for idx in range(NUM_COUNT_BINS)], roc_by_cnt_axes[loader_idx, var_type])
 
                 # now the plot versus output logit
-                plotting.simple_plot_on_axis(cal_axes[loader_idx, var_type], acc_vs_logit_x_y_lab_tuple, None, None)
+                plotting.simple_plot_on_axis(cal_axes[loader_idx, var_type], acc_vs_logit_x_y_lab_tuples, None, None)
 
         # done collecting stats for all loaders and filling in subplots
 
