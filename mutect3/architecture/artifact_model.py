@@ -625,16 +625,6 @@ class ArtifactModel(nn.Module):
 
             read_embeddings = self.apply_transformer_to_reads(batch)
 
-            # recall, this concatenates all alt reads in the batch, then we reshape to a 3D tensor where 1st index is
-            # datum within batch, 2nd is alt read within the datum
-            alt_read_embeddings = read_embeddings[(batch.ref_count * batch.size()):].reshape(batch.size(), batch.alt_count, -1)
-
-            # p = 2 means L2 norm, dim = 2 means norm each read vector to yield a 2D tensor
-            alt_read_embedding_norms = alt_read_embeddings.norm(dim=2, p=2)
-
-            # dim = 1 means average over all alt reads in each datum -- now it's a 1D tensor by batch index
-            mean_of_alt_embedding_norms = alt_read_embedding_norms.mean(dim=1)
-
             all_read_means, alt_means, omega_info, ref_seq_embedding, effective_alt_counts, transformed_alt_3d, refined_alt_3d = \
                 self.forward_from_transformed_reads_to_refined_reads(read_embeddings, batch, extra_output=True)
             average_read_embedding_features.append(alt_means)
