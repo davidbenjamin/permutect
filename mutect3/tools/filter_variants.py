@@ -200,7 +200,7 @@ def apply_filtering_to_vcf(input_vcf, output_vcf, error_probability_threshold, p
     encoding_to_log_priors = {}
     encoding_to_spectra_lls = {}
     encoding_to_normal_lls = {}
-    pbar = tqdm(enumerate(posterior_loader), mininterval=10)
+    pbar = tqdm(enumerate(posterior_loader), mininterval=60)
     for n, batch in pbar:
         # posterior, along with intermediate tensors for debugging/interpretation
         log_priors, spectra_lls, normal_lls, log_posteriors = \
@@ -239,7 +239,7 @@ def apply_filtering_to_vcf(input_vcf, output_vcf, error_probability_threshold, p
             unfiltered_vcf.add_filter_to_header({'ID': filter_name, 'Description': filter_name})
 
     writer = cyvcf2.Writer(output_vcf, unfiltered_vcf)  # input vcf is a template for the header
-    pbar = tqdm(enumerate(unfiltered_vcf), mininterval=10)
+    pbar = tqdm(enumerate(unfiltered_vcf), mininterval=60)
     for n, v in pbar:
         filters = filters_to_keep_from_m2(v)
 
