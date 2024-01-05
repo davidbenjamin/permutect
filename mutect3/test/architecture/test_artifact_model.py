@@ -39,7 +39,6 @@ def train_model_and_write_summary(m3_params: ArtifactModelParameters, training_p
 
     model.train_model(big_dataset, training_params.num_epochs, summary_writer=summary_writer,
                       reweighting_range=training_params.reweighting_range, m3_params=m3_params)
-    model.learn_calibration(big_dataset.generate_batches(utils.Epoch.VALID), num_epochs=50)
     model.evaluate_model_after_training({"training": big_dataset.generate_batches(utils.Epoch.TRAIN)}, summary_writer, "training data: ")
     return model
 
@@ -55,7 +54,6 @@ def test_big_data():
         model = ArtifactModel(params=params, num_read_features=big_dataset.num_read_features, num_info_features=big_dataset.num_info_features, ref_sequence_length=big_dataset.ref_sequence_length).float()
         model.train_model(big_dataset, training_params.num_epochs, summary_writer=summary_writer,
                           reweighting_range=training_params.reweighting_range, m3_params=params)
-        model.learn_calibration(big_dataset.generate_batches(utils.Epoch.VALID), num_epochs=50)
         model.evaluate_model_after_training({"training": big_dataset.generate_batches(utils.Epoch.TRAIN)}, summary_writer, "training data: ")
 
         events = EventAccumulator(tensorboard_dir)

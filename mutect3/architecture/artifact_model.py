@@ -24,7 +24,8 @@ from mutect3.metrics import plotting
 
 warnings.filterwarnings("ignore", message="Setting attributes on ParameterList is not supported.")
 
-NUM_DATA_FOR_TENSORBOARD_PROJECTION=10000
+NUM_DATA_FOR_TENSORBOARD_PROJECTION = 10000
+
 
 def round_up_to_nearest_three(x: int):
     return math.ceil(x / 3) * 3
@@ -222,7 +223,8 @@ class ArtifactModel(nn.Module):
         self.final_logit = nn.Linear(in_features=self.refined_dimension, out_features=1)
         self.final_logit.to(self._device)
 
-        self.calibration = Calibration()
+        # one Calibration module for each variant type; that is, calibration depends on both count and type
+        self.calibration = nn.ModuleList([Calibration() for variant_type in Variation])
         self.calibration.to(self._device)
 
     def num_read_features(self) -> int:
@@ -348,52 +350,15 @@ class ArtifactModel(nn.Module):
 
     def forward_from_transformed_reads(self, transformed_reads: Tensor, batch: ReadSetBatch, weight_range: float = 0):
         logits, ref_counts, effective_alt_counts = self.forward_from_transformed_reads_to_calibration(transformed_reads, batch, weight_range)
-        return self.calibration.forward(logits, ref_counts, effective_alt_counts)
 
-    def learn_calibration(self, dataset: ReadSetDataset, num_epochs, batch_size, num_workers):
+        result = torch.zeros_like(logits)
 
-        self.train(False)
-        utils.freeze(self.parameters())
-        utils.unfreeze(self.calibration_parameters())
+        one_hot_types_2d = batch.variant_type_one_hot()
+        for n, _ in enumerate(Variation):
+            mask = one_hot_types_2d[:, n]
+            result += mask * self.calibration[n].forward(logits, ref_counts, effective_alt_counts)
 
-        # TODO: code duplication between here and train_model
-        # These are 1D tensors, one element per variant type
-        artifact_to_non_artifact_ratios = torch.from_numpy(dataset.artifact_to_non_artifact_ratios()).to(self._device)
-        artifact_to_non_artifact_log_prior_ratios = torch.log(artifact_to_non_artifact_ratios)
-
-        # gather uncalibrated logits -- everything computed by the frozen part of the model -- so that we only
-        # do forward and backward passes on the calibration submodule
-        print("Computing uncalibrated part of model. . .")
-        uncalibrated_logits_ref_alt_counts_labels_prior_ratios = []
-        valid_loader = make_data_loader(dataset, utils.Epoch.VALID, batch_size, self._device.type == 'cuda', num_workers)
-        pbar = tqdm(enumerate(valid_loader), mininterval=60)
-        for n, batch in pbar:
-            if not batch.is_labeled():
-                continue
-            transformed_reads = self.apply_transformer_to_reads(batch)
-            logits, ref_counts, alt_counts = self.forward_from_transformed_reads_to_calibration(transformed_reads, batch)
-            labels = batch.labels.to(self._device)
-
-            # TODO: more code duplication between here and train_model
-            types_one_hot = batch.variant_type_one_hot()
-            log_prior_ratios = torch.sum(artifact_to_non_artifact_log_prior_ratios * types_one_hot, dim=1)
-
-            uncalibrated_logits_ref_alt_counts_labels_prior_ratios.append((logits.detach(), ref_counts.detach(), alt_counts.detach(), labels, log_prior_ratios))
-
-        print("Training calibration. . .")
-        optimizer = torch.optim.Adam(self.calibration_parameters())
-        bce = nn.BCEWithLogitsLoss(reduction='none')  # no reduction because we may want to first multiply by weights for unbalanced data
-        for epoch in trange(1, num_epochs + 1, desc="Calibration epoch"):
-            nll_loss = utils.StreamingAverage(device=self._device)
-
-            pbar = tqdm(enumerate(uncalibrated_logits_ref_alt_counts_labels_prior_ratios), mininterval=60)
-            for n, (logits, ref_counts, alt_counts, labels, log_prior_ratios) in pbar:
-                pred = self.calibration.forward(logits, ref_counts, alt_counts)
-                post_pred = pred + log_prior_ratios
-
-                loss = torch.sum(bce(post_pred, labels))
-                utils.backpropagate(optimizer, loss)
-                nll_loss.record_sum(loss.detach(), len(logits))
+        return result
 
     def train_model(self, dataset: ReadSetDataset, num_epochs, batch_size, num_workers, summary_writer: SummaryWriter, reweighting_range: float, m3_params: ArtifactModelParameters):
         bce = nn.BCEWithLogitsLoss(reduction='none')  # no reduction because we may want to first multiply by weights for unbalanced data
@@ -419,6 +384,10 @@ class ArtifactModel(nn.Module):
         for epoch in trange(1, num_epochs + 1, desc="Epoch"):
             for epoch_type in [utils.Epoch.TRAIN, utils.Epoch.VALID]:
                 self.set_epoch_type(epoch_type)
+
+                # calibration is only learned on validation data and on the first several training epochs
+                if epoch_type == utils.Epoch.TRAIN and epoch < 5:
+                    utils.freeze(self.calibration_parameters())
 
                 labeled_loss = utils.StreamingAverage(device=self._device)
                 unlabeled_loss = utils.StreamingAverage(device=self._device)

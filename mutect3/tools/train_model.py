@@ -11,6 +11,7 @@ from mutect3 import constants, utils
 from mutect3.architecture.artifact_model import ArtifactModelParameters, ArtifactModel
 from mutect3.architecture.posterior_model import initialize_artifact_spectra, plot_artifact_spectra
 from mutect3.data.read_set_dataset import ReadSetDataset
+from mutect3.utils import Variation
 
 
 class TrainingParameters:
@@ -35,12 +36,9 @@ def train_artifact_model(m3_params: ArtifactModelParameters, params: TrainingPar
     model.train_model(dataset, params.num_epochs, params.batch_size, params.num_workers, summary_writer=summary_writer,
                       reweighting_range=params.reweighting_range, m3_params=m3_params)
 
-    print("Calibrating. . .")
-    temp_fig_before, temp_curve_before = model.calibration.plot_temperature("Count-Dependent Calibration Before")
-    model.learn_calibration(dataset, num_epochs=50, batch_size=params.batch_size, num_workers=params.num_workers)
-    temp_fig_after, temp_curve_after = model.calibration.plot_temperature("Count-Dependent Calibration After")
-    summary_writer.add_figure("calibration before", temp_fig_before)
-    summary_writer.add_figure("calibration after", temp_fig_after)
+    for n, var_type in enumerate(Variation):
+        temp_fig, temp_curve = model.calibration[n].plot_temperature("Calibration for " + var_type.name)
+        summary_writer.add_figure("calibration for " + var_type.name, temp_fig)
 
     print("Evaluating trained model. . .")
     model.evaluate_model_after_training(dataset, params.batch_size, params.num_workers, summary_writer)
