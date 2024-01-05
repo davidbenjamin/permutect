@@ -360,9 +360,6 @@ class ArtifactModel(nn.Module):
 
         return result
 
-    def learn_calibration(self, dataset: ReadSetDataset, num_epochs, batch_size, num_workers):
-        pass
-
     def train_model(self, dataset: ReadSetDataset, num_epochs, batch_size, num_workers, summary_writer: SummaryWriter, reweighting_range: float, m3_params: ArtifactModelParameters):
         bce = nn.BCEWithLogitsLoss(reduction='none')  # no reduction because we may want to first multiply by weights for unbalanced data
         train_optimizer = torch.optim.AdamW(self.training_parameters(), lr=m3_params.learning_rate)
@@ -387,6 +384,10 @@ class ArtifactModel(nn.Module):
         for epoch in trange(1, num_epochs + 1, desc="Epoch"):
             for epoch_type in [utils.Epoch.TRAIN, utils.Epoch.VALID]:
                 self.set_epoch_type(epoch_type)
+
+                # calibration is only learned on validation data and on the first several training epochs
+                if epoch_type == utils.Epoch.TRAIN and epoch < 5:
+                    utils.freeze(self.calibration_parameters())
 
                 labeled_loss = utils.StreamingAverage(device=self._device)
                 unlabeled_loss = utils.StreamingAverage(device=self._device)
