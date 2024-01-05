@@ -24,7 +24,8 @@ from mutect3.metrics import plotting
 
 warnings.filterwarnings("ignore", message="Setting attributes on ParameterList is not supported.")
 
-NUM_DATA_FOR_TENSORBOARD_PROJECTION=10000
+NUM_DATA_FOR_TENSORBOARD_PROJECTION = 10000
+
 
 def round_up_to_nearest_three(x: int):
     return math.ceil(x / 3) * 3
@@ -222,7 +223,8 @@ class ArtifactModel(nn.Module):
         self.final_logit = nn.Linear(in_features=self.refined_dimension, out_features=1)
         self.final_logit.to(self._device)
 
-        self.calibration = Calibration()
+        # one Calibration module for each variant type; that is, calibration depends on both count and type
+        self.calibration = nn.ModuleList([Calibration() for variant_type in Variation])
         self.calibration.to(self._device)
 
     def num_read_features(self) -> int:
@@ -348,7 +350,15 @@ class ArtifactModel(nn.Module):
 
     def forward_from_transformed_reads(self, transformed_reads: Tensor, batch: ReadSetBatch, weight_range: float = 0):
         logits, ref_counts, effective_alt_counts = self.forward_from_transformed_reads_to_calibration(transformed_reads, batch, weight_range)
-        return self.calibration.forward(logits, ref_counts, effective_alt_counts)
+
+        result = torch.zeros_like(logits)
+
+        one_hot_types_2d = batch.variant_type_one_hot()
+        for n, _ in enumerate(Variation):
+            mask = one_hot_types_2d[:, n]
+            result += mask * self.calibration[n].forward(logits, ref_counts, effective_alt_counts)
+
+        return result
 
     def learn_calibration(self, dataset: ReadSetDataset, num_epochs, batch_size, num_workers):
 
