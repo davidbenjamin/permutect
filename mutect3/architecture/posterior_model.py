@@ -57,6 +57,7 @@ def plot_artifact_spectra(artifact_spectra: BetaBinomialMixture):
         ax.label_outer()
     return art_spectra_fig, art_spectra_axs
 
+
 class PosteriorModel(torch.nn.Module):
     """
 
