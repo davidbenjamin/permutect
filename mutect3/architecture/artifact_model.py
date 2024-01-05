@@ -138,7 +138,7 @@ class Calibration(nn.Module):
 
     def plot_temperature(self, title):
         x_y_lab_tuples = []
-        alt_counts = torch.range(1, 100)
+        alt_counts = torch.range(1, 50)
         for ref_count in [1, 5, 10, 25]:
             ref_counts = ref_count * torch.ones_like(alt_counts)
             temps = self.temperature(ref_counts, alt_counts).detach()
