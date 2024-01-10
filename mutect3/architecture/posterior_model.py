@@ -244,37 +244,47 @@ class PosteriorModel(torch.nn.Module):
                 prior_fig, prior_ax = plotting.grouped_bar_plot(log_prior_bar_plot_data, [v_type.name for v_type in Variation], "log priors")
                 summary_writer.add_figure("log priors", prior_fig, epoch)
 
-    def calculate_probability_threshold(self, loader, summary_writer: SummaryWriter = None, germline_mode: bool = False):
+    # map of Variant type to probability threshold that maximizes F1 score
+    # loader is a Dataloader whose collate_fn is the PosteriorBatch constructor
+    def calculate_probability_thresholds(self, loader, summary_writer: SummaryWriter = None, germline_mode: bool = False):
         self.train(False)
-        error_probs = []    # includes both artifact and seq errors
+        error_probs_by_type = {var_type: [] for var_type in Variation}   # includes both artifact and seq errors
 
         pbar = tqdm(enumerate(loader), mininterval=10)
         for n, batch in pbar:
             # 0th column is true variant, subtract it from 1 to get error prob
-            error_probs.extend(self.error_probabilities(batch, germline_mode).tolist())
+            error_probs = self.error_probabilities(batch, germline_mode).tolist()
+            types = [posterior_datum.variant_type for posterior_datum in batch.original_list()]
 
-        error_probs.sort()
-        total_variants = len(error_probs) - sum(error_probs)
+            for var_type, error_prob in zip(types, error_probs):
+                error_probs_by_type[var_type].append(error_prob)
 
-        # start by rejecting everything, then raise threshold one datum at a time
-        threshold, tp, fp, best_f = 0.0, 0, 0, 0
+        thresholds_by_type = {}
+        for error_probs in error_probs_by_type.values():
+            error_probs.sort()
+            total_variants = len(error_probs) - sum(error_probs)
 
-        sens, prec = [], []
-        for prob in error_probs:
-            tp += (1 - prob)
-            fp += prob
-            sens.append(tp/(total_variants+0.0001))
-            prec.append(tp/(tp+fp+0.0001))
-            current_f = utils.f_score(tp, fp, total_variants)
+            # start by rejecting everything, then raise threshold one datum at a time
+            threshold, tp, fp, best_f = 0.0, 0, 0, 0
 
-            if current_f > best_f:
-                best_f = current_f
-                threshold = prob
+            sens, prec = [], []
+            for prob in error_probs:
+                tp += (1 - prob)
+                fp += prob
+                sens.append(tp/(total_variants+0.0001))
+                prec.append(tp/(tp+fp+0.0001))
+                current_f = utils.f_score(tp, fp, total_variants)
 
-        if summary_writer is not None:
-            x_y_lab = [(sens, prec, "theoretical ROC curve according to M3's posterior probabilities")]
-            fig, curve = plotting.simple_plot(x_y_lab, x_label="sensitivity", y_label="precision",
-                                              title="theoretical ROC curve according to M3's posterior probabilities")
-            summary_writer.add_figure("theoretical ROC curve", fig)
+                if current_f > best_f:
+                    best_f = current_f
+                    threshold = prob
 
-        return threshold
+            thresholds_by_type[var_type] = threshold
+
+            if summary_writer is not None:
+                x_y_lab = [(sens, prec, "theoretical ROC for " + var_type.name)]
+                fig, curve = plotting.simple_plot(x_y_lab, x_label="sensitivity", y_label="precision",
+                                                  title=("theoretical ROC for " + var_type.name))
+                summary_writer.add_figure("theoretical ROC for " + var_type.name, fig)
+
+        return thresholds_by_type
