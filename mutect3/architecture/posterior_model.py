@@ -298,12 +298,12 @@ class PosteriorModel(torch.nn.Module):
                 x_y_lab_tuples.append((sens, prec, str(multiple_of_three_bin_index_to_count(count_bin))))
 
             # plot all count ROC curves for this variant type
-            plotting.simple_plot_on_axis(roc_by_cnt_axes[1, var_type], x_y_lab_tuples, None, None)
+            plotting.simple_plot_on_axis(roc_by_cnt_axes[0, var_type], x_y_lab_tuples, None, None)
 
             # aggregated over all counts
             error_probs = error_probs_by_type[var_type]
             sens, prec, threshold = compute_roc_data_and_threshold(error_probs)
-            plotting.simple_plot_on_axis(roc_axes[1, var_type], [(sens, prec, "")], None, None)
+            plotting.simple_plot_on_axis(roc_axes[0, var_type], [(sens, prec, "")], None, None)
             thresholds_by_type[var_type] = threshold
 
 
