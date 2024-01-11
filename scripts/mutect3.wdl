@@ -13,6 +13,7 @@ workflow Mutect3 {
         File ref_fai
         File ref_dict
         Int scatter_count
+        Int? num_spectrum_iterations
         File primary_bam
         File primary_bai
         File? control_bam
@@ -94,6 +95,7 @@ workflow Mutect3 {
             maf_segments = Mutect2.maf_segments,
             mutect_stats = Mutect2.mutect_stats,
             batch_size = batch_size,
+            num_spectrum_iterations = num_spectrum_iterations,
             chunk_size = chunk_size,
             m3_filtering_extra_args = m3_filtering_extra_args,
             mutect3_docker = mutect3_docker,
@@ -124,6 +126,7 @@ task Mutect3Filtering {
         File? maf_segments
         File? normal_maf_segments
         File mutect_stats
+        Int? num_spectrum_iterations
         Int batch_size
         Int chunk_size
         String? m3_filtering_extra_args
@@ -146,7 +149,7 @@ task Mutect3Filtering {
         genomic_span=`grep "callable" ~{mutect_stats} | while read name value; do echo $value; done`
 
         filter_variants --input ~{mutect2_vcf} --test_dataset ~{test_dataset} --m3_model ~{mutect3_model} --output mutect3-filtered.vcf \
-            --batch_size ~{batch_size} --chunk_size ~{chunk_size} ~{"--maf_segments " + maf_segments} ~{"--normal_maf_segments " + normal_maf_segments} --genomic_span $genomic_span ~{m3_filtering_extra_args}
+            --batch_size ~{batch_size} --chunk_size ~{chunk_size} ~{"--num_spectrum_iterations " + num_spectrum_iterations} ~{"--maf_segments " + maf_segments} ~{"--normal_maf_segments " + normal_maf_segments} --genomic_span $genomic_span ~{m3_filtering_extra_args}
     >>>
 
     runtime {

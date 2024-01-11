@@ -13,8 +13,31 @@ from mutect3.architecture.beta_binomial_mixture import BetaBinomialMixture, Feat
 from mutect3.data.posterior import PosteriorBatch
 from mutect3.metrics import plotting
 from mutect3.utils import Variation, Call
+from mutect3.architecture.artifact_model import MAX_COUNT, NUM_COUNT_BINS, round_up_to_nearest_three, multiple_of_three_bin_index, multiple_of_three_bin_index_to_count
 
 HOM_ALPHA, HOM_BETA = torch.Tensor([98.0]), torch.Tensor([2.0])
+
+
+def compute_roc_data_and_threshold(error_probs):
+    error_probs.sort()
+    total_variants = len(error_probs) - sum(error_probs)
+
+    # start by rejecting everything, then raise threshold one datum at a time
+    threshold, tp, fp, best_f = 0.0, 0, 0, 0
+
+    sens, prec = [], []
+    for prob in error_probs:
+        tp += (1 - prob)
+        fp += prob
+        sens.append(tp / (total_variants + 0.0001))
+        prec.append(tp / (tp + fp + 0.0001))
+        current_f = utils.f_score(tp, fp, total_variants)
+
+        if current_f > best_f:
+            best_f = current_f
+            threshold = prob
+
+    return sens, prec, threshold
 
 
 # TODO: write unit test asserting that this comes out to zero when counts are zero
@@ -244,37 +267,53 @@ class PosteriorModel(torch.nn.Module):
                 prior_fig, prior_ax = plotting.grouped_bar_plot(log_prior_bar_plot_data, [v_type.name for v_type in Variation], "log priors")
                 summary_writer.add_figure("log priors", prior_fig, epoch)
 
-    def calculate_probability_threshold(self, loader, summary_writer: SummaryWriter = None, germline_mode: bool = False):
+    # map of Variant type to probability threshold that maximizes F1 score
+    # loader is a Dataloader whose collate_fn is the PosteriorBatch constructor
+    def calculate_probability_thresholds(self, loader, summary_writer: SummaryWriter = None, germline_mode: bool = False):
         self.train(False)
-        error_probs = []    # includes both artifact and seq errors
+        error_probs_by_type = {var_type: [] for var_type in Variation}   # includes both artifact and seq errors
+
+        error_probs_by_type_by_cnt = {var_type: [[] for _ in range(NUM_COUNT_BINS)] for var_type in Variation}
 
         pbar = tqdm(enumerate(loader), mininterval=10)
         for n, batch in pbar:
+            alt_counts = batch.alt_counts.tolist()
             # 0th column is true variant, subtract it from 1 to get error prob
-            error_probs.extend(self.error_probabilities(batch, germline_mode).tolist())
+            error_probs = self.error_probabilities(batch, germline_mode).tolist()
+            types = [posterior_datum.variant_type for posterior_datum in batch.original_list()]
 
-        error_probs.sort()
-        total_variants = len(error_probs) - sum(error_probs)
+            for var_type, alt_count, error_prob in zip(types, alt_counts, error_probs):
+                error_probs_by_type[var_type].append(error_prob)
+                error_probs_by_type_by_cnt[var_type][multiple_of_three_bin_index(min(alt_count, MAX_COUNT))].append(error_prob)
 
-        # start by rejecting everything, then raise threshold one datum at a time
-        threshold, tp, fp, best_f = 0.0, 0, 0, 0
+        thresholds_by_type = {}
+        roc_fig, roc_axes = plt.subplots(1, len(Variation), sharex='all', sharey='all', squeeze=False)
+        roc_by_cnt_fig, roc_by_cnt_axes = plt.subplots(1, len(Variation), sharex='all', sharey='all', squeeze=False, figsize=(10, 6), dpi=100)
+        for var_type in Variation:
+            # stratified by alt count
+            x_y_lab_tuples = []
+            for count_bin in range(NUM_COUNT_BINS):
+                error_probs = error_probs_by_type_by_cnt[var_type][count_bin]
+                sens, prec, _ = compute_roc_data_and_threshold(error_probs) # we don't need the threshold here
+                x_y_lab_tuples.append((sens, prec, str(multiple_of_three_bin_index_to_count(count_bin))))
 
-        sens, prec = [], []
-        for prob in error_probs:
-            tp += (1 - prob)
-            fp += prob
-            sens.append(tp/(total_variants+0.0001))
-            prec.append(tp/(tp+fp+0.0001))
-            current_f = utils.f_score(tp, fp, total_variants)
+            # plot all count ROC curves for this variant type
+            plotting.simple_plot_on_axis(roc_by_cnt_axes[0, var_type], x_y_lab_tuples, None, None)
 
-            if current_f > best_f:
-                best_f = current_f
-                threshold = prob
+            # aggregated over all counts
+            error_probs = error_probs_by_type[var_type]
+            sens, prec, threshold = compute_roc_data_and_threshold(error_probs)
+            plotting.simple_plot_on_axis(roc_axes[0, var_type], [(sens, prec, "")], None, None)
+            thresholds_by_type[var_type] = threshold
 
+
+        variation_types = [var_type.name for var_type in Variation]
+        plotting.tidy_subplots(roc_by_cnt_fig, roc_by_cnt_axes, x_label="sensitivity", y_label="precision",
+                               row_labels=[""], column_labels=variation_types)
+        plotting.tidy_subplots(roc_fig, roc_axes, x_label="sensitivity", y_label="precision",
+                               row_labels=[""], column_labels=variation_types)
         if summary_writer is not None:
-            x_y_lab = [(sens, prec, "theoretical ROC curve according to M3's posterior probabilities")]
-            fig, curve = plotting.simple_plot(x_y_lab, x_label="sensitivity", y_label="precision",
-                                              title="theoretical ROC curve according to M3's posterior probabilities")
-            summary_writer.add_figure("theoretical ROC curve", fig)
+            summary_writer.add_figure("theoretical ROC by variant type ", roc_fig)
+            summary_writer.add_figure("theoretical ROC by variant type and alt count ", roc_by_cnt_fig)
 
-        return threshold
+        return thresholds_by_type

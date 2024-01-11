@@ -13,7 +13,7 @@ from mutect3.architecture.artifact_model import ArtifactModel
 from mutect3.architecture.posterior_model import PosteriorModel
 from mutect3.data import read_set_dataset, plain_text_data
 from mutect3.data.posterior import PosteriorDataset
-from mutect3.utils import Call, encode_datum, encode_variant
+from mutect3.utils import Call, encode_datum, encode_variant, find_variant_type
 
 TRUSTED_M2_FILTERS = {'contamination'}
 
@@ -144,9 +144,9 @@ def make_filtered_vcf(saved_artifact_model, initial_log_variant_prior: float, in
         artifact_log_priors=artifact_log_priors, artifact_spectra_state_dict=artifact_spectra_state_dict)
 
     print("Calculating optimal logit threshold")
-    error_probability_threshold = posterior_model.calculate_probability_threshold(posterior_data_loader, summary_writer, germline_mode=germline_mode)
-    print("Optimal probability threshold: " + str(error_probability_threshold))
-    apply_filtering_to_vcf(input_vcf, output_vcf, error_probability_threshold, posterior_data_loader, posterior_model, germline_mode=germline_mode)
+    error_probability_thresholds = posterior_model.calculate_probability_thresholds(posterior_data_loader, summary_writer, germline_mode=germline_mode)
+    print("Optimal probability threshold: " + str(error_probability_thresholds))
+    apply_filtering_to_vcf(input_vcf, output_vcf, error_probability_thresholds, posterior_data_loader, posterior_model, germline_mode=germline_mode)
 
 
 def make_posterior_data_loader(dataset_file, input_vcf, artifact_model: ArtifactModel, batch_size: int, chunk_size: int):
@@ -192,7 +192,8 @@ def make_posterior_data_loader(dataset_file, input_vcf, artifact_model: Artifact
     return posterior_dataset.make_data_loader(batch_size)
 
 
-def apply_filtering_to_vcf(input_vcf, output_vcf, error_probability_threshold, posterior_loader, posterior_model, germline_mode: bool = False):
+# error probability thresholds is a dict from Variant type to error probability threshold (float)
+def apply_filtering_to_vcf(input_vcf, output_vcf, error_probability_thresholds, posterior_loader, posterior_model, germline_mode: bool = False):
     print("Computing final error probabilities")
     passing_call_type = Call.GERMLINE if germline_mode else Call.SOMATIC
     encoding_to_post_prob = {}
@@ -254,7 +255,8 @@ def apply_filtering_to_vcf(input_vcf, output_vcf, error_probability_threshold, p
             v.INFO[NORMAL_LOG_LIKELIHOOD_INFO_KEY] = ','.join(map(lambda ll: "{:.3f}".format(ll), encoding_to_normal_lls[encoding]))
 
             error_prob = 1 - post_probs[passing_call_type]
-            if error_prob > error_probability_threshold:
+            # TODO: threshold by variant type
+            if error_prob > error_probability_thresholds[find_variant_type(v)]:
                 # get the error type with the largest posterior probability
                 highest_prob_indices = torch.topk(torch.Tensor(post_probs), 2).indices.tolist()
                 highest_prob_index = highest_prob_indices[1] if highest_prob_indices[0] == passing_call_type else highest_prob_indices[0]

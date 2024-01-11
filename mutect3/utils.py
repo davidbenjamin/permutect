@@ -178,6 +178,12 @@ def encode_variant(v: cyvcf2.Variant, zero_based=False):
     return encode(v.CHROM, start, alt)
 
 
+def find_variant_type(v: cyvcf2.Variant):
+    alt = v.ALT[0]  # TODO: we're assuming biallelic
+    ref = v.REF
+    return Variation.get_type(ref, alt)
+
+
 def extract_to_temp_dir(tar_file, directory):
     tar = tarfile.open(tar_file)
     tar.extractall(directory)
