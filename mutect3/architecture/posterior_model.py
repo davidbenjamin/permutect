@@ -284,7 +284,7 @@ class PosteriorModel(torch.nn.Module):
 
             for var_type, alt_count, error_prob in zip(types, alt_counts, error_probs):
                 error_probs_by_type[var_type].append(error_prob)
-                error_probs_by_type_by_cnt[var_type][multiple_of_three_bin_index(alt_count)].append(error_prob)
+                error_probs_by_type_by_cnt[var_type][multiple_of_three_bin_index(min(alt_count, MAX_COUNT))].append(error_prob)
 
         thresholds_by_type = {}
         roc_fig, roc_axes = plt.subplots(1, len(Variation), sharex='all', sharey='all', squeeze=False)
