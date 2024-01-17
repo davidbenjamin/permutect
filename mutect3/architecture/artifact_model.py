@@ -15,6 +15,7 @@ from itertools import chain
 from matplotlib import pyplot as plt
 
 from mutect3.architecture.mlp import MLP
+from mutect3.architecture.monotonic import MonoDense
 from mutect3.architecture.dna_sequence_convolution import DNASequenceConvolution
 from mutect3.data.read_set import ReadSetBatch
 from mutect3.data.read_set_dataset import ReadSetDataset, make_data_loader
@@ -88,55 +89,33 @@ class Calibration(nn.Module):
     def __init__(self):
         super(Calibration, self).__init__()
 
-        # temperature is of form
-        # a_11 f_1(alt) * f_1(ref) + a_12 f_1(alt)*f_2(ref) . . . + a_NN f_NN(alt) f_NN(ref)
-        # where coefficients are all positive and
-        # f_1(x) = 1
-        # f_2(x) = x^(1/4)
-        # f_3(x) = x^(1/3)
-        # f_4(x) = x^(1/2)
-
-        # now, remember that alt and ref counts are constant within a batch, so that means temperature is constant within a batch!
-        # so we don't need to worry about vectorizing our operations or otherwise making them efficient
-        # In matrix form this is, for a batch, with A the matrix of above coefficients
-
-        self.coeffs = nn.Parameter(Tensor([[1.0, 0.001, 0.001, 0.001], [0.001, 0.001, 0.001, 0.001], [0.001, 0.001, 0.001, 0.001], [0.001, 0.001, 0.001, 0.001]]))
-
-        # we apply as asymptotic threshold function logit --> M * tanh(logit/M) where M is the maximum absolute
-        # value of the thresholded output.  For logits << M this is the identity, and approaching M the asymptote
-        # gradually turns on.  This is a continuous way to truncate the model's confidence and is part of calibration.
-        # We initialize it to something large.
-        self.max_logit = nn.Parameter(torch.tensor(10.0))
+        # calibration takes [logit, ref count, alt count] as input and maps it to [calibrated logit]
+        # it is monotonically increasing in each input
+        # we initialize it to calibrated logit = input logit
 
         # likewise, we cap the effective alt and ref counts to avoid arbitrarily large confidence
         self.max_alt = nn.Parameter(torch.tensor(20.0))
         self.max_ref = nn.Parameter(torch.tensor(20.0))
 
-    def temperature(self, ref_counts: Tensor, alt_counts: Tensor):
-        ref_eff = torch.squeeze(self.max_ref * torch.tanh(ref_counts / self.max_ref)) + 0.0001
-        alt_eff = torch.squeeze(self.max_alt * torch.tanh(alt_counts / self.max_alt))
+        self.monotonic = MonoDense(3, [12, 12, 12, 1], 3, 0)    # monotonically increasing in each input
 
-        batch_size = len(ref_counts)
-        basis_size = len(self.coeffs)
+    # TODO: this is no longer a multiplicative temperature scaling but simply a remapped new logit
+    def temperature(self, logits: Tensor, ref_counts: Tensor, alt_counts: Tensor):
 
-        F_alt = torch.vstack((torch.ones_like(alt_eff), alt_eff**(1/4), alt_eff**(1/3), alt_eff**(1/2)))
-        F_ref = torch.vstack((torch.ones_like(ref_eff), ref_eff ** (1 / 4), ref_eff ** (1 / 3), ref_eff ** (1 / 2)))
-        assert F_alt.shape == (basis_size, batch_size)
-        assert F_ref.shape == (basis_size, batch_size)
+        # scale counts and make everything batch size x 1 column tensors
+        ref_eff = torch.tanh(ref_counts / self.max_ref).reshape(-1, 1)
+        alt_eff = torch.tanh(alt_counts / self.max_alt).reshape(-1, 1)
+        logits_2d = logits.reshape(-1, 1)
 
-        X = torch.matmul(self.coeffs, F_alt) * F_ref
-        assert X.shape == (basis_size, batch_size)
+        input_2d = torch.hstack(logits_2d, ref_eff, alt_eff)
 
-        temperature = torch.sum(X, dim=0)
-
-        assert temperature.shape == (batch_size, )
-
-        return temperature
+        return self.monotonic.forward(input_2d).squeeze()
 
     def forward(self, logits, ref_counts: Tensor, alt_counts: Tensor):
-        calibrated_logits = logits * self.temperature(ref_counts, alt_counts)
+        calibrated_logits = self.temperature(logits, ref_counts, alt_counts)
         return self.max_logit * torch.tanh(calibrated_logits / self.max_logit)
 
+    # TODO: this is now a fundmanetally different p[lot because we don't do temperature scaling
     def plot_temperature(self, title):
         x_y_lab_tuples = []
         alt_counts = torch.range(1, 50)
