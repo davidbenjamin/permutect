@@ -16,8 +16,13 @@ class MonoDenseLayer(nn.Module):
     2) Input vectors are assumed ordered with increasing features, then decreasing, then unconstrained
     """
 
-    def __init__(self, input_dimension: int, output_dimension: int, num_increasing: int, num_decreasing):
+    def __init__(self, input_dimension: int, output_dimension: int, num_increasing: int, num_decreasing: int, omit_activation: bool = False):
         super(MonoDenseLayer, self).__init__()
+
+        # TODO: this need not be hard-coded as ReLU
+        self.convex_activation = torch.relu
+
+        self.omit_activation = omit_activation
 
         self.num_constrained = num_increasing + num_decreasing
         num_free = input_dimension - self.num_constrained
@@ -33,13 +38,10 @@ class MonoDenseLayer(nn.Module):
         self.mask = torch.ones(input_dimension)
         self.mask[num_increasing: num_increasing + num_decreasing] = -self.mask[num_increasing: self.num_constrained]
 
-        # it's redundant that both weight matrices W are linear layers containing
-        # TODO: we can't use a linear layer because we have to take the absolute value
-        # TODO: instead we must go to a raw weight matrix and bias froms cratch
-        self.monotonic_W = nn.Parameter(torch.empty((output_dimension, input_dimension)))
+        self.monotonic_W = nn.Parameter(torch.empty((output_dimension, self.num_constrained)))
         nn.init.kaiming_uniform_(self.monotonic_W, a=math.sqrt(5))
 
-        self.free_W = nn.Parameter(torch.empty((output_dimension, input_dimension))) if num_free > 0 else None
+        self.free_W = nn.Parameter(torch.empty((output_dimension, input_dimension - self.num_constrained))) if num_free > 0 else None
         if self.free_W is not None:
             nn.init.kaiming_uniform_(self.free_W, a=math.sqrt(5))
 
@@ -52,9 +54,12 @@ class MonoDenseLayer(nn.Module):
 
         # note that monotonicity is enforced by taking the absolute value of the monotonic weight matrix
         monotonic_contribution = F.linear(flipped[:, :self.num_constrained], torch.abs(self.monotonic_W))
-        free_contribution = F.linear(flipped[:, self.num_constrained:], self.free_W)
+        free_contribution = F.linear(flipped[:, self.num_constrained:], self.free_W) if self.free_W is not None else 0
 
         before_activation = monotonic_contribution + free_contribution + self.b
+
+        if self.omit_activation:
+            return before_activation
 
         # as in the paper, we apply three nonlinear activation functions: 1) an ordinary convex activation g(x) which
         # could be a ReLU, leaky ReLU, tanh etc; 2) the concave reflection -g(-x); 3) g(x+1)-g(1) (if x < 0) or g(1) - g(1-x) (if x > 0)
@@ -84,12 +89,13 @@ class MonoDense(nn.Module):
         self.layers = torch.nn.Sequential()
 
         for layer, dim in enumerate(output_dimensions):
+            omit_activation = (layer == len(output_dimensions) - 1)
             if layer == 0:
-                self.layers.append(MonoDenseLayer(input_dimension, dim, num_increasing, num_decreasing))
+                self.layers.append(MonoDenseLayer(input_dimension, dim, num_increasing, num_decreasing, omit_activation=omit_activation))
             else:
                 # note how layers after the first are pure monotonically increasing
                 input_dim_to_layer = output_dimensions[layer-1]
-                self.layers.append(MonoDenseLayer(input_dim_to_layer, dim, input_dim_to_layer, 0))
+                self.layers.append(MonoDenseLayer(input_dim_to_layer, dim, input_dim_to_layer, 0, omit_activation=omit_activation))
 
     def forward(self, x):
         return self.layers.forward(x)
