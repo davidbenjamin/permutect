@@ -37,8 +37,8 @@ def train_artifact_model(m3_params: ArtifactModelParameters, params: TrainingPar
                       reweighting_range=params.reweighting_range, m3_params=m3_params)
 
     for n, var_type in enumerate(Variation):
-        temp_fig, temp_curve = model.calibration[n].plot_temperature("Calibration for " + var_type.name)
-        summary_writer.add_figure("calibration for " + var_type.name, temp_fig)
+        cal_fig, cal_axes = model.calibration[n].plot_calibration()
+        summary_writer.add_figure("calibration for " + var_type.name, cal_fig)
 
     print("Evaluating trained model. . .")
     model.evaluate_model_after_training(dataset, params.batch_size, params.num_workers, summary_writer)

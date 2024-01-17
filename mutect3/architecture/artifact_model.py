@@ -100,31 +100,37 @@ class Calibration(nn.Module):
         self.monotonic = MonoDense(3, [12, 12, 12, 1], 3, 0)    # monotonically increasing in each input
 
     # TODO: this is no longer a multiplicative temperature scaling but simply a remapped new logit
-    def temperature(self, logits: Tensor, ref_counts: Tensor, alt_counts: Tensor):
+    def calibrated_logits(self, logits: Tensor, ref_counts: Tensor, alt_counts: Tensor):
 
         # scale counts and make everything batch size x 1 column tensors
         ref_eff = torch.tanh(ref_counts / self.max_ref).reshape(-1, 1)
         alt_eff = torch.tanh(alt_counts / self.max_alt).reshape(-1, 1)
         logits_2d = logits.reshape(-1, 1)
 
-        input_2d = torch.hstack(logits_2d, ref_eff, alt_eff)
+        input_2d = torch.hstack([logits_2d, ref_eff, alt_eff])
 
         return self.monotonic.forward(input_2d).squeeze()
 
     def forward(self, logits, ref_counts: Tensor, alt_counts: Tensor):
-        calibrated_logits = self.temperature(logits, ref_counts, alt_counts)
-        return self.max_logit * torch.tanh(calibrated_logits / self.max_logit)
+        return self.calibrated_logits(logits, ref_counts, alt_counts)
 
     # TODO: this is now a fundmanetally different p[lot because we don't do temperature scaling
-    def plot_temperature(self, title):
-        x_y_lab_tuples = []
-        alt_counts = torch.range(1, 50)
-        for ref_count in [1, 5, 10, 25]:
-            ref_counts = ref_count * torch.ones_like(alt_counts)
-            temps = self.temperature(ref_counts, alt_counts).detach()
-            x_y_lab_tuples.append((alt_counts.numpy(), temps.numpy(), str(ref_count) + " ref reads"))
+    def plot_calibration(self):
+        alt_counts = [1, 3, 5, 10, 15, 20]
+        ref_counts = [1, 3, 5, 10, 15, 20]
+        logits = torch.range(-10, 10, 0.1)
+        cal_fig,cal_axes = plt.subplots(len(alt_counts), len(ref_counts), sharex='all', sharey='all',
+                                        squeeze=False, figsize=(10, 6), dpi=100)
 
-        return plotting.simple_plot(x_y_lab_tuples, "alt count", "temperature", title)
+        for row_idx, alt_count in enumerate(alt_counts):
+            for col_idx, ref_count in enumerate(ref_counts):
+                calibrated = self.forward(logits, ref_count * torch.ones_like(logits), alt_count * torch.ones_like(logits))
+                plotting.simple_plot_on_axis(cal_axes[row_idx, col_idx], [(logits, calibrated, "")], None, None)
+
+        plotting.tidy_subplots(cal_fig, cal_axes, x_label="alt count", y_label="ref count",
+                               row_labels=[str(n) for n in ref_counts], column_labels=[str(n) for n in alt_counts])
+
+        return cal_fig, cal_axes
 
 
 class ArtifactModel(nn.Module):
