@@ -98,7 +98,14 @@ class Calibration(nn.Module):
         self.max_alt = nn.Parameter(torch.tensor(20.0))
         self.max_ref = nn.Parameter(torch.tensor(20.0))
 
-        self.monotonic = MonoDense(4, hidden_layer_sizes + [1], 3, 0)    # monotonically increasing in each input
+        # because calibration is monotonic in the magnitude of the logit, not the logit itself i.e. more reads pushes
+        # the logit away from zero, not simply up, we have two monotonic networks, one for positive and one for negative
+
+        # for positive input logit the calibrated logit grows more positive with the input and the read support
+        self.monotonic_positive = MonoDense(3, hidden_layer_sizes + [1], 3, 0)
+
+        # for negative input logit the calibrated logit grows more negative with the read support
+        self.monotonic_negative = MonoDense(3, hidden_layer_sizes + [1], 1, 2)  # monotonically increasing in each input
 
     def calibrated_logits(self, logits: Tensor, ref_counts: Tensor, alt_counts: Tensor):
 
@@ -106,13 +113,10 @@ class Calibration(nn.Module):
         ref_eff = torch.tanh(ref_counts / self.max_ref).reshape(-1, 1)
         alt_eff = torch.tanh(alt_counts / self.max_alt).reshape(-1, 1)
         logits_2d = logits.reshape(-1, 1)
-        signs_2d = torch.sgn(logits).reshape(-1,1)
+        input_2d = torch.hstack([logits_2d, ref_eff, alt_eff])
 
-        # we want confidence to be monotonic i.e. a positive (negative) logit should be calibrated as more positive (negative)
-        # with increasing counts and with increasing positivity (negativity)of the pre-calibrated logits.  To achieve this
-        # we run a monotonic model on the absolute value of the logits, then restore the sign
-        input_2d = torch.hstack([torch.abs(logits_2d), ref_eff, alt_eff, signs_2d])
-        return self.monotonic.forward(input_2d).squeeze() * torch.sgn(logits)
+        is_positive = torch.where(logits > 0, 1.0, 0.0)
+        return self.monotonic_positive.forward(input_2d).squeeze() * is_positive + self.monotonic_negative.forward(input_2d).squeeze() * (1 - is_positive)
 
     def forward(self, logits, ref_counts: Tensor, alt_counts: Tensor):
         return self.calibrated_logits(logits, ref_counts, alt_counts)
