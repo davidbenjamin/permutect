@@ -345,9 +345,10 @@ class ArtifactModel(nn.Module):
 
         return result
 
-    def train_model(self, dataset: ReadSetDataset, num_epochs, batch_size, num_workers, summary_writer: SummaryWriter, reweighting_range: float, m3_params: ArtifactModelParameters):
+    def train_model(self, dataset: ReadSetDataset, num_epochs, num_calibration_epochs, batch_size, num_workers, summary_writer: SummaryWriter, reweighting_range: float, m3_params: ArtifactModelParameters):
         bce = nn.BCEWithLogitsLoss(reduction='none')  # no reduction because we may want to first multiply by weights for unbalanced data
         train_optimizer = torch.optim.AdamW(self.training_parameters(), lr=m3_params.learning_rate)
+        calibration_optimizer = torch.optim.AdamW(self.calibration_parameters(), lr=m3_params.learning_rate)
 
         artifact_to_non_artifact_ratios = torch.from_numpy(dataset.artifact_to_non_artifact_ratios()).to(self._device)
         artifact_to_non_artifact_log_prior_ratios = torch.log(artifact_to_non_artifact_ratios)
@@ -366,13 +367,12 @@ class ArtifactModel(nn.Module):
         train_loader = make_data_loader(dataset, utils.Epoch.TRAIN, batch_size, self._device.type == 'cuda', num_workers)
         valid_loader = make_data_loader(dataset, utils.Epoch.VALID, batch_size, self._device.type == 'cuda', num_workers)
 
-        for epoch in trange(1, num_epochs + 1, desc="Epoch"):
-            for epoch_type in [utils.Epoch.TRAIN, utils.Epoch.VALID]:
+        for epoch in trange(1, num_epochs + 1 + num_calibration_epochs, desc="Epoch"):
+            is_calibration_epoch = epoch > num_epochs
+            for epoch_type in ([utils.Epoch.VALID] if is_calibration_epoch else [utils.Epoch.TRAIN, utils.Epoch.VALID]):
                 self.set_epoch_type(epoch_type)
-
-                # calibration is only learned on validation data and on the first several training epochs
-                if epoch_type == utils.Epoch.TRAIN and epoch < 5:
-                    utils.freeze(self.calibration_parameters())
+                if is_calibration_epoch:
+                    utils.unfreeze(self.calibration_parameters())  # unfreeze calibration but everything else stays frozen
 
                 labeled_loss = utils.StreamingAverage(device=self._device)
                 unlabeled_loss = utils.StreamingAverage(device=self._device)
@@ -433,6 +433,8 @@ class ArtifactModel(nn.Module):
 
                     if epoch_type == utils.Epoch.TRAIN:
                         utils.backpropagate(train_optimizer, loss)
+                    if is_calibration_epoch:
+                        utils.backpropagate(calibration_optimizer, loss)
 
                 # done with one epoch type -- training or validation -- for this epoch
                 summary_writer.add_scalar(epoch_type.name + "/Labeled Loss", labeled_loss.get(), epoch)

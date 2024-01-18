@@ -6,6 +6,7 @@ workflow TrainMutect3 {
         File train_tar
         File artifact_tar
         Int num_epochs
+        Int num_calibration_epochs
         Int batch_size
         Int? num_workers
         Float dropout_p
@@ -38,6 +39,7 @@ workflow TrainMutect3 {
                 preemptible = preemptible,
                 max_retries = max_retries,
                 num_epochs = num_epochs,
+                num_calibration_epochs = num_calibration_epochs,
                 batch_size = batch_size,
                 num_workers = num_workers,
                 dropout_p = dropout_p,
@@ -66,6 +68,7 @@ workflow TrainMutect3 {
                 preemptible = preemptible,
                 max_retries = max_retries,
                 num_epochs = num_epochs,
+                num_calibration_epochs = num_calibration_epochs,
                 batch_size = batch_size,
                 num_workers = num_workers,
                 dropout_p = dropout_p,
@@ -100,6 +103,7 @@ task TrainMutect3GPU {
         File artifact_tar
 
         Int num_epochs
+        Int num_calibration_epochs
         Int batch_size
         Int? num_workers
         Float dropout_p
@@ -152,6 +156,7 @@ task TrainMutect3GPU {
             --batch_size ~{batch_size} \
             ~{"--num_workers " + num_workers} \
             --num_epochs ~{num_epochs} \
+            --num_calibration_epochs ~{num_calibration_epochs} \
             --output mutect3.pt \
             --tensorboard_dir tensorboard \
             ~{"--genomic_span " + genomic_span} \
@@ -185,6 +190,7 @@ task TrainMutect3CPU {
         File artifact_tar
 
         Int num_epochs
+        Int num_calibration_epochs
         Int batch_size
         Int? num_workers
         Float dropout_p
@@ -236,6 +242,7 @@ task TrainMutect3CPU {
             --batch_size ~{batch_size} \
             ~{"--num_workers " + num_workers} \
             --num_epochs ~{num_epochs} \
+            --num_calibration_epochs ~{num_calibration_epochs} \
             --output mutect3.pt \
             --tensorboard_dir tensorboard \
             ~{"--genomic_span " + genomic_span} \
