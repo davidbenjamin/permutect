@@ -98,7 +98,7 @@ class Calibration(nn.Module):
         self.max_alt = nn.Parameter(torch.tensor(20.0))
         self.max_ref = nn.Parameter(torch.tensor(20.0))
 
-        self.monotonic = MonoDense(3, hidden_layer_sizes + [1], 3, 0)    # monotonically increasing in each input
+        self.monotonic = MonoDense(4, hidden_layer_sizes + [1], 3, 0)    # monotonically increasing in each input
 
     def calibrated_logits(self, logits: Tensor, ref_counts: Tensor, alt_counts: Tensor):
 
@@ -106,11 +106,12 @@ class Calibration(nn.Module):
         ref_eff = torch.tanh(ref_counts / self.max_ref).reshape(-1, 1)
         alt_eff = torch.tanh(alt_counts / self.max_alt).reshape(-1, 1)
         logits_2d = logits.reshape(-1, 1)
+        signs_2d = torch.sgn(logits).reshape(-1,1)
 
         # we want confidence to be monotonic i.e. a positive (negative) logit should be calibrated as more positive (negative)
         # with increasing counts and with increasing positivity (negativity)of the pre-calibrated logits.  To achieve this
         # we run a monotonic model on the absolute value of the logits, then restore the sign
-        input_2d = torch.hstack([torch.abs(logits_2d), ref_eff, alt_eff])
+        input_2d = torch.hstack([torch.abs(logits_2d), ref_eff, alt_eff, signs_2d])
         return self.monotonic.forward(input_2d).squeeze() * torch.sgn(logits)
 
     def forward(self, logits, ref_counts: Tensor, alt_counts: Tensor):
