@@ -25,7 +25,7 @@ REF_SEQ_LAYER_STRINGS = ['convolution/kernel_size=3/out_channels=64',
                      'linear/out_features=10']
 SMALL_MODEL_PARAMS = ArtifactModelParameters(read_embedding_dimension=12,
     num_transformer_heads=3, transformer_hidden_dimension=10, num_transformer_layers=2,
-    info_layers=[5, 5], aggregation_layers=[5, 5, 5, 5],
+    info_layers=[5, 5], aggregation_layers=[5, 5, 5, 5], calibration_layers=[6],
     ref_seq_layers_strings=REF_SEQ_LAYER_STRINGS,
     dropout_p=0.2, batch_normalize=False, learning_rate=0.001, alt_downsample=20)
 

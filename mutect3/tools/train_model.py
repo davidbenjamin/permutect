@@ -107,13 +107,14 @@ def parse_mutect3_params(args) -> ArtifactModelParameters:
 
     info_layers = getattr(args, constants.INFO_LAYERS_NAME)
     aggregation_layers = getattr(args, constants.AGGREGATION_LAYERS_NAME)
+    calibration_layers = getattr(args, constants.CALIBRATION_LAYERS_NAME)
     ref_seq_layer_strings = getattr(args, constants.REF_SEQ_LAYER_STRINGS_NAME)
     dropout_p = getattr(args, constants.DROPOUT_P_NAME)
     batch_normalize = getattr(args, constants.BATCH_NORMALIZE_NAME)
     learning_rate = getattr(args, constants.LEARNING_RATE_NAME)
     alt_downsample = getattr(args, constants.ALT_DOWNSAMPLE_NAME)
     return ArtifactModelParameters(read_embedding_dimension, num_transformer_heads, transformer_hidden_dimension,
-                 num_transformer_layers, info_layers, aggregation_layers, ref_seq_layer_strings, dropout_p,
+                 num_transformer_layers, info_layers, aggregation_layers, calibration_layers, ref_seq_layer_strings, dropout_p,
         batch_normalize, learning_rate, alt_downsample)
 
 
@@ -135,6 +136,9 @@ def parse_arguments():
     parser.add_argument('--' + constants.AGGREGATION_LAYERS_NAME, nargs='+', type=int, required=True,
                         help='dimensions of hidden layers in the aggregation subnetwork, excluding the dimension of input from lower subnetworks '
                              'and the dimension (1) of the output logit.  Negative values indicate residual skip connections')
+    parser.add_argument('--' + constants.CALIBRATION_LAYERS_NAME, nargs='+', type=int, required=True,
+                        help='dimensions of hidden layers in the calibration subnetwork, excluding the dimension (1) of input logit and) '
+                             'and the dimension (also 1) of the output logit.')
     parser.add_argument('--' + constants.REF_SEQ_LAYER_STRINGS_NAME, nargs='+', type=str, required=True,
                         help='list of strings specifying convolution layers of the reference sequence embedding.  For example '
                              'convolution/kernel_size=3/out_channels=64 pool/kernel_size=2 leaky_relu '

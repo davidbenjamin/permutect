@@ -19,6 +19,7 @@ NUM_TRANSFORMER_LAYERS_NAME = 'num_transformer_layers'
 
 INFO_LAYERS_NAME = 'info_layers'
 AGGREGATION_LAYERS_NAME = 'aggregation_layers'
+CALIBRATION_LAYERS_NAME = 'calibration_layers'
 REF_SEQ_LAYER_STRINGS_NAME = 'ref_seq_layer_strings'
 DROPOUT_P_NAME = 'dropout_p'
 LEARNING_RATE_NAME = 'learning_rate'

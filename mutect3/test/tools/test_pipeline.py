@@ -37,6 +37,7 @@ def test_on_dream1():
     setattr(train_model_args, constants.NUM_TRANSFORMER_LAYERS_NAME, 3)
     setattr(train_model_args, constants.INFO_LAYERS_NAME, [30, 30, 30])
     setattr(train_model_args, constants.AGGREGATION_LAYERS_NAME, [30, 30, 30, 30])
+    setattr(train_model_args, constants.CALIBRATION_LAYERS_NAME, [6,6])
     cnn_layer_strings = ['convolution/kernel_size=3/out_channels=64',
                      'pool/kernel_size=2',
                      'leaky_relu',

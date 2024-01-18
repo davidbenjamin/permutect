@@ -65,7 +65,7 @@ def sums_over_chunks(tensor2d: Tensor, chunk_size: int):
 class ArtifactModelParameters:
     def __init__(self,
                  read_embedding_dimension, num_transformer_heads, transformer_hidden_dimension,
-                 num_transformer_layers, info_layers, aggregation_layers,
+                 num_transformer_layers, info_layers, aggregation_layers, calibration_layers,
                  ref_seq_layers_strings, dropout_p, batch_normalize, learning_rate,
                  alt_downsample):
 
@@ -77,6 +77,7 @@ class ArtifactModelParameters:
         self.num_transformer_layers = num_transformer_layers
         self.info_layers = info_layers
         self.aggregation_layers = aggregation_layers
+        self.calibration_layers = calibration_layers
         self.ref_seq_layer_strings = ref_seq_layers_strings
         self.dropout_p = dropout_p
         self.batch_normalize = batch_normalize
@@ -86,7 +87,7 @@ class ArtifactModelParameters:
 
 class Calibration(nn.Module):
 
-    def __init__(self):
+    def __init__(self, hidden_layer_sizes: List[int]):
         super(Calibration, self).__init__()
 
         # calibration takes [logit, ref count, alt count] as input and maps it to [calibrated logit]
@@ -97,7 +98,7 @@ class Calibration(nn.Module):
         self.max_alt = nn.Parameter(torch.tensor(20.0))
         self.max_ref = nn.Parameter(torch.tensor(20.0))
 
-        self.monotonic = MonoDense(3, [12, 12, 12, 1], 3, 0)    # monotonically increasing in each input
+        self.monotonic = MonoDense(3, hidden_layer_sizes + [1], 3, 0)    # monotonically increasing in each input
 
     # TODO: this is no longer a multiplicative temperature scaling but simply a remapped new logit
     def calibrated_logits(self, logits: Tensor, ref_counts: Tensor, alt_counts: Tensor):
@@ -114,7 +115,6 @@ class Calibration(nn.Module):
     def forward(self, logits, ref_counts: Tensor, alt_counts: Tensor):
         return self.calibrated_logits(logits, ref_counts, alt_counts)
 
-    # TODO: this is now a fundmanetally different p[lot because we don't do temperature scaling
     def plot_calibration(self):
         alt_counts = [1, 3, 5, 10, 15, 20]
         ref_counts = [1, 3, 5, 10, 15, 20]
@@ -209,7 +209,7 @@ class ArtifactModel(nn.Module):
         self.final_logit.to(self._device)
 
         # one Calibration module for each variant type; that is, calibration depends on both count and type
-        self.calibration = nn.ModuleList([Calibration() for variant_type in Variation])
+        self.calibration = nn.ModuleList([Calibration(params.calibration_layers) for variant_type in Variation])
         self.calibration.to(self._device)
 
     def num_read_features(self) -> int:
