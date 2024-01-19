@@ -6,6 +6,7 @@ workflow TrainMutect3 {
         File train_tar
         File artifact_tar
         Int num_epochs
+        Int num_calibration_epochs
         Int batch_size
         Int? num_workers
         Float dropout_p
@@ -17,6 +18,7 @@ workflow TrainMutect3 {
         Int num_transformer_layers
         Array[Int] info_layers
         Array[Int] aggregation_layers
+        Array[Int] calibration_layers
         Array[String] ref_seq_layer_strings
         String? train_m3_extra_args
         Boolean use_gpu
@@ -37,6 +39,7 @@ workflow TrainMutect3 {
                 preemptible = preemptible,
                 max_retries = max_retries,
                 num_epochs = num_epochs,
+                num_calibration_epochs = num_calibration_epochs,
                 batch_size = batch_size,
                 num_workers = num_workers,
                 dropout_p = dropout_p,
@@ -48,6 +51,7 @@ workflow TrainMutect3 {
                 num_transformer_layers = num_transformer_layers,
                 info_layers = info_layers,
                 aggregation_layers = aggregation_layers,
+                calibration_layers = calibration_layers,
                 ref_seq_layer_strings = ref_seq_layer_strings,
                 extra_args = train_m3_extra_args,
                 learn_artifact_spectra = learn_artifact_spectra,
@@ -64,6 +68,7 @@ workflow TrainMutect3 {
                 preemptible = preemptible,
                 max_retries = max_retries,
                 num_epochs = num_epochs,
+                num_calibration_epochs = num_calibration_epochs,
                 batch_size = batch_size,
                 num_workers = num_workers,
                 dropout_p = dropout_p,
@@ -75,6 +80,7 @@ workflow TrainMutect3 {
                 num_transformer_layers = num_transformer_layers,
                 info_layers = info_layers,
                 aggregation_layers = aggregation_layers,
+                calibration_layers = calibration_layers,
                 ref_seq_layer_strings = ref_seq_layer_strings,
                 extra_args = train_m3_extra_args,
                 learn_artifact_spectra = learn_artifact_spectra,
@@ -97,6 +103,7 @@ task TrainMutect3GPU {
         File artifact_tar
 
         Int num_epochs
+        Int num_calibration_epochs
         Int batch_size
         Int? num_workers
         Float dropout_p
@@ -108,6 +115,7 @@ task TrainMutect3GPU {
         Int num_transformer_layers
         Array[Int] info_layers
         Array[Int] aggregation_layers
+        Array[Int] calibration_layers
         Array[String] ref_seq_layer_strings
         Boolean learn_artifact_spectra
         Float? genomic_span
@@ -140,6 +148,7 @@ task TrainMutect3GPU {
             --num_transformer_layers ~{num_transformer_layers} \
             --info_layers ~{sep=' ' info_layers} \
             --aggregation_layers ~{sep=' ' aggregation_layers} \
+            --calibration_layers ~{sep=' ' calibration_layers} \
             --ref_seq_layer_strings ~{sep=' ' ref_seq_layer_strings} \
             --dropout_p ~{dropout_p} \
             ~{"--alt_downsample " + alt_downsample} \
@@ -147,6 +156,7 @@ task TrainMutect3GPU {
             --batch_size ~{batch_size} \
             ~{"--num_workers " + num_workers} \
             --num_epochs ~{num_epochs} \
+            --num_calibration_epochs ~{num_calibration_epochs} \
             --output mutect3.pt \
             --tensorboard_dir tensorboard \
             ~{"--genomic_span " + genomic_span} \
@@ -180,6 +190,7 @@ task TrainMutect3CPU {
         File artifact_tar
 
         Int num_epochs
+        Int num_calibration_epochs
         Int batch_size
         Int? num_workers
         Float dropout_p
@@ -191,6 +202,7 @@ task TrainMutect3CPU {
         Int num_transformer_layers
         Array[Int] info_layers
         Array[Int] aggregation_layers
+        Array[Int] calibration_layers
         Array[String] ref_seq_layer_strings
         Boolean learn_artifact_spectra
         Float? genomic_span
@@ -222,6 +234,7 @@ task TrainMutect3CPU {
             --num_transformer_layers ~{num_transformer_layers} \
             --info_layers ~{sep=' ' info_layers} \
             --aggregation_layers ~{sep=' ' aggregation_layers} \
+            --calibration_layers ~{sep=' ' calibration_layers} \
             --ref_seq_layer_strings ~{sep=' ' ref_seq_layer_strings} \
             --dropout_p ~{dropout_p} \
             ~{"--alt_downsample " + alt_downsample} \
@@ -229,6 +242,7 @@ task TrainMutect3CPU {
             --batch_size ~{batch_size} \
             ~{"--num_workers " + num_workers} \
             --num_epochs ~{num_epochs} \
+            --num_calibration_epochs ~{num_calibration_epochs} \
             --output mutect3.pt \
             --tensorboard_dir tensorboard \
             ~{"--genomic_span " + genomic_span} \

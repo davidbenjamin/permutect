@@ -15,9 +15,10 @@ from mutect3.utils import Variation
 
 
 class TrainingParameters:
-    def __init__(self, batch_size, num_epochs, reweighting_range: float, num_workers: int = 0):
+    def __init__(self, batch_size, num_epochs, num_calibration_epochs, reweighting_range: float, num_workers: int = 0):
         self.batch_size = batch_size
         self.num_epochs = num_epochs
+        self.num_calibration_epochs = num_calibration_epochs
         self.reweighting_range = reweighting_range
         self.num_workers = num_workers
 
@@ -33,12 +34,12 @@ def train_artifact_model(m3_params: ArtifactModelParameters, params: TrainingPar
                           device=device).float()
 
     print("Training. . .")
-    model.train_model(dataset, params.num_epochs, params.batch_size, params.num_workers, summary_writer=summary_writer,
+    model.train_model(dataset, params.num_epochs, params.num_calibration_epochs, params.batch_size, params.num_workers, summary_writer=summary_writer,
                       reweighting_range=params.reweighting_range, m3_params=m3_params)
 
     for n, var_type in enumerate(Variation):
-        temp_fig, temp_curve = model.calibration[n].plot_temperature("Calibration for " + var_type.name)
-        summary_writer.add_figure("calibration for " + var_type.name, temp_fig)
+        cal_fig, cal_axes = model.calibration[n].plot_calibration()
+        summary_writer.add_figure("calibration for " + var_type.name, cal_fig)
 
     print("Evaluating trained model. . .")
     model.evaluate_model_after_training(dataset, params.batch_size, params.num_workers, summary_writer)
@@ -95,8 +96,9 @@ def parse_training_params(args) -> TrainingParameters:
     reweighting_range = getattr(args, constants.REWEIGHTING_RANGE_NAME)
     batch_size = getattr(args, constants.BATCH_SIZE_NAME)
     num_epochs = getattr(args, constants.NUM_EPOCHS_NAME)
+    num_calibration_epochs = getattr(args, constants.NUM_CALIBRATION_EPOCHS_NAME)
     num_workers = getattr(args, constants.NUM_WORKERS_NAME)
-    return TrainingParameters(batch_size, num_epochs, reweighting_range, num_workers=num_workers)
+    return TrainingParameters(batch_size, num_epochs, num_calibration_epochs, reweighting_range, num_workers=num_workers)
 
 
 def parse_mutect3_params(args) -> ArtifactModelParameters:
@@ -107,13 +109,14 @@ def parse_mutect3_params(args) -> ArtifactModelParameters:
 
     info_layers = getattr(args, constants.INFO_LAYERS_NAME)
     aggregation_layers = getattr(args, constants.AGGREGATION_LAYERS_NAME)
+    calibration_layers = getattr(args, constants.CALIBRATION_LAYERS_NAME)
     ref_seq_layer_strings = getattr(args, constants.REF_SEQ_LAYER_STRINGS_NAME)
     dropout_p = getattr(args, constants.DROPOUT_P_NAME)
     batch_normalize = getattr(args, constants.BATCH_NORMALIZE_NAME)
     learning_rate = getattr(args, constants.LEARNING_RATE_NAME)
     alt_downsample = getattr(args, constants.ALT_DOWNSAMPLE_NAME)
     return ArtifactModelParameters(read_embedding_dimension, num_transformer_heads, transformer_hidden_dimension,
-                 num_transformer_layers, info_layers, aggregation_layers, ref_seq_layer_strings, dropout_p,
+                 num_transformer_layers, info_layers, aggregation_layers, calibration_layers, ref_seq_layer_strings, dropout_p,
         batch_normalize, learning_rate, alt_downsample)
 
 
@@ -135,6 +138,9 @@ def parse_arguments():
     parser.add_argument('--' + constants.AGGREGATION_LAYERS_NAME, nargs='+', type=int, required=True,
                         help='dimensions of hidden layers in the aggregation subnetwork, excluding the dimension of input from lower subnetworks '
                              'and the dimension (1) of the output logit.  Negative values indicate residual skip connections')
+    parser.add_argument('--' + constants.CALIBRATION_LAYERS_NAME, nargs='+', type=int, required=True,
+                        help='dimensions of hidden layers in the calibration subnetwork, excluding the dimension (1) of input logit and) '
+                             'and the dimension (also 1) of the output logit.')
     parser.add_argument('--' + constants.REF_SEQ_LAYER_STRINGS_NAME, nargs='+', type=str, required=True,
                         help='list of strings specifying convolution layers of the reference sequence embedding.  For example '
                              'convolution/kernel_size=3/out_channels=64 pool/kernel_size=2 leaky_relu '
@@ -165,6 +171,8 @@ def parse_arguments():
                              'collating batches, and transferring to GPU.')
     parser.add_argument('--' + constants.NUM_EPOCHS_NAME, type=int, required=True,
                         help='number of epochs for primary training loop')
+    parser.add_argument('--' + constants.NUM_CALIBRATION_EPOCHS_NAME, type=int, required=True,
+                        help='number of calibration epochs following primary training loop')
 
     parser.add_argument('--' + constants.LEARN_ARTIFACT_SPECTRA_NAME, action='store_true',
                         help='flag to include artifact priors and allele fraction spectra in saved output.  '

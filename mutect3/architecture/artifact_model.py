@@ -15,6 +15,7 @@ from itertools import chain
 from matplotlib import pyplot as plt
 
 from mutect3.architecture.mlp import MLP
+from mutect3.architecture.monotonic import MonoDense
 from mutect3.architecture.dna_sequence_convolution import DNASequenceConvolution
 from mutect3.data.read_set import ReadSetBatch
 from mutect3.data.read_set_dataset import ReadSetDataset, make_data_loader
@@ -64,7 +65,7 @@ def sums_over_chunks(tensor2d: Tensor, chunk_size: int):
 class ArtifactModelParameters:
     def __init__(self,
                  read_embedding_dimension, num_transformer_heads, transformer_hidden_dimension,
-                 num_transformer_layers, info_layers, aggregation_layers,
+                 num_transformer_layers, info_layers, aggregation_layers, calibration_layers,
                  ref_seq_layers_strings, dropout_p, batch_normalize, learning_rate,
                  alt_downsample):
 
@@ -76,6 +77,7 @@ class ArtifactModelParameters:
         self.num_transformer_layers = num_transformer_layers
         self.info_layers = info_layers
         self.aggregation_layers = aggregation_layers
+        self.calibration_layers = calibration_layers
         self.ref_seq_layer_strings = ref_seq_layers_strings
         self.dropout_p = dropout_p
         self.batch_normalize = batch_normalize
@@ -85,67 +87,56 @@ class ArtifactModelParameters:
 
 class Calibration(nn.Module):
 
-    def __init__(self):
+    def __init__(self, hidden_layer_sizes: List[int]):
         super(Calibration, self).__init__()
 
-        # temperature is of form
-        # a_11 f_1(alt) * f_1(ref) + a_12 f_1(alt)*f_2(ref) . . . + a_NN f_NN(alt) f_NN(ref)
-        # where coefficients are all positive and
-        # f_1(x) = 1
-        # f_2(x) = x^(1/4)
-        # f_3(x) = x^(1/3)
-        # f_4(x) = x^(1/2)
-
-        # now, remember that alt and ref counts are constant within a batch, so that means temperature is constant within a batch!
-        # so we don't need to worry about vectorizing our operations or otherwise making them efficient
-        # In matrix form this is, for a batch, with A the matrix of above coefficients
-
-        self.coeffs = nn.Parameter(Tensor([[1.0, 0.001, 0.001, 0.001], [0.001, 0.001, 0.001, 0.001], [0.001, 0.001, 0.001, 0.001], [0.001, 0.001, 0.001, 0.001]]))
-
-        # we apply as asymptotic threshold function logit --> M * tanh(logit/M) where M is the maximum absolute
-        # value of the thresholded output.  For logits << M this is the identity, and approaching M the asymptote
-        # gradually turns on.  This is a continuous way to truncate the model's confidence and is part of calibration.
-        # We initialize it to something large.
-        self.max_logit = nn.Parameter(torch.tensor(10.0))
+        # calibration takes [logit, ref count, alt count] as input and maps it to [calibrated logit]
+        # it is monotonically increasing in each input
+        # we initialize it to calibrated logit = input logit
 
         # likewise, we cap the effective alt and ref counts to avoid arbitrarily large confidence
         self.max_alt = nn.Parameter(torch.tensor(20.0))
         self.max_ref = nn.Parameter(torch.tensor(20.0))
 
-    def temperature(self, ref_counts: Tensor, alt_counts: Tensor):
-        ref_eff = torch.squeeze(self.max_ref * torch.tanh(ref_counts / self.max_ref)) + 0.0001
-        alt_eff = torch.squeeze(self.max_alt * torch.tanh(alt_counts / self.max_alt))
+        # because calibration is monotonic in the magnitude of the logit, not the logit itself i.e. more reads pushes
+        # the logit away from zero, not simply up, we have two monotonic networks, one for positive and one for negative
 
-        batch_size = len(ref_counts)
-        basis_size = len(self.coeffs)
+        # for positive input logit the calibrated logit grows more positive with the input and the read support
+        self.monotonic_positive = MonoDense(3, hidden_layer_sizes + [1], 3, 0)
 
-        F_alt = torch.vstack((torch.ones_like(alt_eff), alt_eff**(1/4), alt_eff**(1/3), alt_eff**(1/2)))
-        F_ref = torch.vstack((torch.ones_like(ref_eff), ref_eff ** (1 / 4), ref_eff ** (1 / 3), ref_eff ** (1 / 2)))
-        assert F_alt.shape == (basis_size, batch_size)
-        assert F_ref.shape == (basis_size, batch_size)
+        # for negative input logit the calibrated logit grows more negative with the read support
+        self.monotonic_negative = MonoDense(3, hidden_layer_sizes + [1], 1, 2)  # monotonically increasing in each input
 
-        X = torch.matmul(self.coeffs, F_alt) * F_ref
-        assert X.shape == (basis_size, batch_size)
+    def calibrated_logits(self, logits: Tensor, ref_counts: Tensor, alt_counts: Tensor):
 
-        temperature = torch.sum(X, dim=0)
+        # scale counts and make everything batch size x 1 column tensors
+        ref_eff = torch.tanh(ref_counts / self.max_ref).reshape(-1, 1)
+        alt_eff = torch.tanh(alt_counts / self.max_alt).reshape(-1, 1)
+        logits_2d = logits.reshape(-1, 1)
+        input_2d = torch.hstack([logits_2d, ref_eff, alt_eff])
 
-        assert temperature.shape == (batch_size, )
-
-        return temperature
+        is_positive = torch.where(logits > 0, 1.0, 0.0)
+        return self.monotonic_positive.forward(input_2d).squeeze() * is_positive + self.monotonic_negative.forward(input_2d).squeeze() * (1 - is_positive)
 
     def forward(self, logits, ref_counts: Tensor, alt_counts: Tensor):
-        calibrated_logits = logits * self.temperature(ref_counts, alt_counts)
-        return self.max_logit * torch.tanh(calibrated_logits / self.max_logit)
+        return self.calibrated_logits(logits, ref_counts, alt_counts)
 
-    def plot_temperature(self, title):
-        x_y_lab_tuples = []
-        alt_counts = torch.range(1, 50)
-        for ref_count in [1, 5, 10, 25]:
-            ref_counts = ref_count * torch.ones_like(alt_counts)
-            temps = self.temperature(ref_counts, alt_counts).detach()
-            x_y_lab_tuples.append((alt_counts.numpy(), temps.numpy(), str(ref_count) + " ref reads"))
+    def plot_calibration(self):
+        alt_counts = [1, 3, 5, 10, 15, 20]
+        ref_counts = [1, 3, 5, 10, 15, 20]
+        logits = torch.range(-10, 10, 0.1)
+        cal_fig,cal_axes = plt.subplots(len(alt_counts), len(ref_counts), sharex='all', sharey='all',
+                                        squeeze=False, figsize=(10, 6), dpi=100)
 
-        return plotting.simple_plot(x_y_lab_tuples, "alt count", "temperature", title)
+        for row_idx, alt_count in enumerate(alt_counts):
+            for col_idx, ref_count in enumerate(ref_counts):
+                calibrated = self.forward(logits, ref_count * torch.ones_like(logits), alt_count * torch.ones_like(logits))
+                plotting.simple_plot_on_axis(cal_axes[row_idx, col_idx], [(logits.detach(), calibrated.detach(), "")], None, None)
+
+        plotting.tidy_subplots(cal_fig, cal_axes, x_label="alt count", y_label="ref count",
+                               row_labels=[str(n) for n in ref_counts], column_labels=[str(n) for n in alt_counts])
+
+        return cal_fig, cal_axes
 
 
 class ArtifactModel(nn.Module):
@@ -224,7 +215,7 @@ class ArtifactModel(nn.Module):
         self.final_logit.to(self._device)
 
         # one Calibration module for each variant type; that is, calibration depends on both count and type
-        self.calibration = nn.ModuleList([Calibration() for variant_type in Variation])
+        self.calibration = nn.ModuleList([Calibration(params.calibration_layers) for variant_type in Variation])
         self.calibration.to(self._device)
 
     def num_read_features(self) -> int:
@@ -360,9 +351,10 @@ class ArtifactModel(nn.Module):
 
         return result
 
-    def train_model(self, dataset: ReadSetDataset, num_epochs, batch_size, num_workers, summary_writer: SummaryWriter, reweighting_range: float, m3_params: ArtifactModelParameters):
+    def train_model(self, dataset: ReadSetDataset, num_epochs, num_calibration_epochs, batch_size, num_workers, summary_writer: SummaryWriter, reweighting_range: float, m3_params: ArtifactModelParameters):
         bce = nn.BCEWithLogitsLoss(reduction='none')  # no reduction because we may want to first multiply by weights for unbalanced data
         train_optimizer = torch.optim.AdamW(self.training_parameters(), lr=m3_params.learning_rate)
+        calibration_optimizer = torch.optim.AdamW(self.calibration_parameters(), lr=m3_params.learning_rate)
 
         artifact_to_non_artifact_ratios = torch.from_numpy(dataset.artifact_to_non_artifact_ratios()).to(self._device)
         artifact_to_non_artifact_log_prior_ratios = torch.log(artifact_to_non_artifact_ratios)
@@ -381,13 +373,12 @@ class ArtifactModel(nn.Module):
         train_loader = make_data_loader(dataset, utils.Epoch.TRAIN, batch_size, self._device.type == 'cuda', num_workers)
         valid_loader = make_data_loader(dataset, utils.Epoch.VALID, batch_size, self._device.type == 'cuda', num_workers)
 
-        for epoch in trange(1, num_epochs + 1, desc="Epoch"):
-            for epoch_type in [utils.Epoch.TRAIN, utils.Epoch.VALID]:
+        for epoch in trange(1, num_epochs + 1 + num_calibration_epochs, desc="Epoch"):
+            is_calibration_epoch = epoch > num_epochs
+            for epoch_type in ([utils.Epoch.VALID] if is_calibration_epoch else [utils.Epoch.TRAIN, utils.Epoch.VALID]):
                 self.set_epoch_type(epoch_type)
-
-                # calibration is only learned on validation data and on the first several training epochs
-                if epoch_type == utils.Epoch.TRAIN and epoch < 5:
-                    utils.freeze(self.calibration_parameters())
+                if is_calibration_epoch:
+                    utils.unfreeze(self.calibration_parameters())  # unfreeze calibration but everything else stays frozen
 
                 labeled_loss = utils.StreamingAverage(device=self._device)
                 unlabeled_loss = utils.StreamingAverage(device=self._device)
@@ -448,6 +439,8 @@ class ArtifactModel(nn.Module):
 
                     if epoch_type == utils.Epoch.TRAIN:
                         utils.backpropagate(train_optimizer, loss)
+                    if is_calibration_epoch:
+                        utils.backpropagate(calibration_optimizer, loss)
 
                 # done with one epoch type -- training or validation -- for this epoch
                 summary_writer.add_scalar(epoch_type.name + "/Labeled Loss", labeled_loss.get(), epoch)

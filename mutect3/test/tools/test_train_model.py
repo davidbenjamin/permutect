@@ -28,6 +28,7 @@ def test_train_model():
     setattr(train_model_args, constants.NUM_TRANSFORMER_LAYERS_NAME, 2)
     setattr(train_model_args, constants.INFO_LAYERS_NAME, [20, 20])
     setattr(train_model_args, constants.AGGREGATION_LAYERS_NAME, [20, 20, 20])
+    setattr(train_model_args, constants.CALIBRATION_LAYERS_NAME, [6,6])
     cnn_layer_strings = ['convolution/kernel_size=3/out_channels=64',
                      'pool/kernel_size=2',
                      'leaky_relu',
@@ -50,6 +51,7 @@ def test_train_model():
     setattr(train_model_args, constants.BATCH_SIZE_NAME, 64)
     setattr(train_model_args, constants.NUM_WORKERS_NAME, 2)
     setattr(train_model_args, constants.NUM_EPOCHS_NAME, 2)
+    setattr(train_model_args, constants.NUM_CALIBRATION_EPOCHS_NAME, 1)
 
     # path to saved model
     setattr(train_model_args, constants.OUTPUT_NAME, saved_artifact_model.name)
@@ -75,9 +77,9 @@ def test_train_model():
 def test_training(dataset):
     m3_params = artifact_model.ArtifactModelParameters(read_embedding_dimension=12, num_transformer_heads=3,
                  transformer_hidden_dimension=20, num_transformer_layers=2,
-        info_layers=[20, 20], aggregation_layers=[20, 20],
+        info_layers=[20, 20], aggregation_layers=[20, 20], calibration_layers=[6],
         dropout_p=0.0, batch_normalize=False, learning_rate=0.001, alt_downsample=20)
-    training_params = train_model.TrainingParameters(batch_size=64, num_epochs=5, reweighting_range=0.3)
+    training_params = train_model.TrainingParameters(batch_size=64, num_epochs=5, num_calibration_epochs=2, reweighting_range=0.3)
 
     with tempfile.TemporaryDirectory() as tensorboard_dir:
         summary_writer = SummaryWriter(tensorboard_dir)
