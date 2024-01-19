@@ -20,7 +20,7 @@ def parse_arguments():
 
 
 def main_without_parsing(args):
-    data_tarfile = getattr(args, constants.TRAIN_TAR_NAME)
+    data_tarfile = getattr(args, constants.EVALUATION_TAR_NAME)
     saved_artifact_model = getattr(args, constants.M3_MODEL_NAME)
     tensorboard_dir = getattr(args, constants.TENSORBOARD_DIR_NAME)
     batch_size = getattr(args, constants.BATCH_SIZE_NAME)
