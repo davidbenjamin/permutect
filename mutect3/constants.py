@@ -29,6 +29,7 @@ LEARN_ARTIFACT_SPECTRA_NAME = 'learn_artifact_spectra'
 
 TRAINING_DATASETS_NAME = 'training_datasets'
 TRAIN_TAR_NAME = 'train_tar'
+EVALUATION_TAR_NAME = 'evaluation_tar'
 ARTIFACT_TAR_NAME = 'artifact_tar'
 TEST_DATASET_NAME = 'test_dataset'
 NORMAL_ARTIFACT_DATASETS_NAME = 'normal_artifact_datasets'
