@@ -107,7 +107,7 @@ def read_data(dataset_file, posterior: bool, round_down: bool = True, include_va
                     file.readline()
                 depth, alt_count, normal_depth, normal_alt_count = read_integers(file.readline())
                 seq_error_log_likelihood = read_float(file.readline())
-                normal_seq_error_log_likelihood = -read_float(file.readline())  # the GATK emits the negative of what should really be output
+                normal_seq_error_log_likelihood = read_float(file.readline())
 
                 if alt_tensor_size > 0 and passes_label_filter:
                     yield PosteriorDatum(contig, position, ref_allele, alt_allele, depth, alt_count, normal_depth,
