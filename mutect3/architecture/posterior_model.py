@@ -184,7 +184,12 @@ class PosteriorModel(torch.nn.Module):
         one_hot_types_2d = batch.variant_type_one_hot()
         for n, _ in enumerate(Variation):
             mask = one_hot_types_2d[:, n]
-            normal_artifact_log_likelihoods += mask * self.normal_artifact_spectra[n].forward(batch.alt_counts, batch.ref_counts(), batch.normal_alt_counts, batch.normal_ref_counts())
+            assert mask.dim() == 1
+            assert len(mask) == batch.size()
+            na_log_lls_for_this_type = self.normal_artifact_spectra[n].forward(batch.alt_counts, batch.ref_counts(), batch.normal_alt_counts, batch.normal_ref_counts())
+            assert na_log_lls_for_this_type.dim() == 1
+            assert len(na_log_lls_for_this_type) == batch.size()
+            normal_artifact_log_likelihoods += mask * na_log_lls_for_this_type
 
         # We assign half of the joint likelihood to tumor and half to normal
         spectra_log_likelihoods[:, Call.NORMAL_ARTIFACT] = normal_artifact_log_likelihoods / 2
