@@ -27,7 +27,7 @@ class NormalArtifactSpectrum(nn.Module):
             + torch.reshape(normal_ref_1d, (batch_size, 1)) * torch.log(1 - normal_fractions_2d)
 
         # average over sample dimension
-        log_likelihoods_1d = torch.logsumexp(log_likelihoods_2d, dim=1) - torch.log(self.num_samples)
+        log_likelihoods_1d = torch.logsumexp(log_likelihoods_2d, dim=1) - math.log(self.num_samples)
 
         # zero likelihood if no alt in normal
         no_alt_in_normal_mask = normal_alt_1d < 1
