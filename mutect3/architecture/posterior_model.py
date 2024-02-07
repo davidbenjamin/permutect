@@ -10,6 +10,7 @@ from tqdm.autonotebook import trange, tqdm
 
 from mutect3 import utils
 from mutect3.architecture.beta_binomial_mixture import BetaBinomialMixture, FeaturelessBetaBinomialMixture
+from mutect3.architecture.normal_artifact_spectrum import NormalArtifactSpectrum
 from mutect3.data.posterior import PosteriorBatch
 from mutect3.metrics import plotting
 from mutect3.utils import Variation, Call
@@ -110,6 +111,9 @@ class PosteriorModel(torch.nn.Module):
         # normal sequencing error spectra for each variant type.
         self.normal_seq_error_spectra = initialize_normal_seq_error_spectra()
 
+        # TODO: num_samples is hard-coded magic constant!!!
+        self.normal_artifact_spectra = torch.nn.ModuleList([NormalArtifactSpectrum(num_samples=20) for variant_type in Variation])
+
         # pre-softmax priors [log P(variant), log P(artifact), log P(seq error)] for each variant type
         # linear layer with no bias to select the appropriate priors given one-hot variant encoding
         # in torch linear layers the weight is indexed by out-features, then in-features, so indices are
@@ -165,10 +169,6 @@ class PosteriorModel(torch.nn.Module):
         # note that the call to make_unnormalized_priors ensures that no_germline_mode works
         log_priors = torch.nn.functional.log_softmax(self.make_unnormalized_priors(types, batch.allele_frequencies), dim=1)
 
-        # TODO: self.normal_artifact_joint_spectra doesn't exist yet
-        joint_tumor_normal_artifact_spectra_log_likelihoods = self.normal_artifact_joint_spectra.forward(batch.depths,
-            batch.alt_counts, batch.normal_depths, batch.normal_alt_counts)
-
         spectra_log_likelihoods = torch.zeros_like(log_priors)
         spectra_log_likelihoods[:, Call.SOMATIC] = self.somatic_spectrum.forward(batch.depths, batch.alt_counts)
         spectra_log_likelihoods[:, Call.ARTIFACT] = self.artifact_spectra.forward(types, batch.depths, batch.alt_counts)
@@ -177,12 +177,18 @@ class PosteriorModel(torch.nn.Module):
         normal_log_likelihoods = torch.zeros_like(log_priors)
         normal_seq_error_log_likelihoods = self.normal_seq_error_log_likelihoods.forward(types, batch.normal_depths, batch.normal_alt_counts)
         normal_log_likelihoods[:, Call.SOMATIC] = normal_seq_error_log_likelihoods
-        normal_log_likelihoods[:, Call.ARTIFACT] = normal_seq_error_log_likelihoods   # TODO: what about artifact in both tumor and normal?
+        normal_log_likelihoods[:, Call.ARTIFACT] = normal_seq_error_log_likelihoods 
         normal_log_likelihoods[:, Call.SEQ_ERROR] = normal_seq_error_log_likelihoods
 
+        normal_artifact_log_likelihoods = torch.zeros_like(log_priors)
+        one_hot_types_2d = batch.variant_type_one_hot()
+        for n, _ in enumerate(Variation):
+            mask = one_hot_types_2d[:, n]
+            normal_artifact_log_likelihoods += mask * self.normal_artifact_spectra[n].forward(batch.alt_counts, batch.ref_counts(), batch.normal_alt_counts, batch.normal_ref_counts())
+
         # We assign half of the joint likelihood to tumor and half to normal
-        spectra_log_likelihoods[:, Call.NORMAL_ARTIFACT] = joint_tumor_normal_artifact_spectra_log_likelihoods / 2
-        normal_log_likelihoods[:, Call.NORMAL_ARTIFACT] = joint_tumor_normal_artifact_spectra_log_likelihoods / 2
+        spectra_log_likelihoods[:, Call.NORMAL_ARTIFACT] = normal_artifact_log_likelihoods / 2
+        normal_log_likelihoods[:, Call.NORMAL_ARTIFACT] = normal_artifact_log_likelihoods / 2
 
         # since this is a default dict, if there's no segmentation for the contig we will get no overlaps but not an error
         # In our case there is either one or zero overlaps, and overlaps have the form
@@ -234,7 +240,8 @@ class PosteriorModel(torch.nn.Module):
 
         artifact_spectra_params_to_learn = self.artifact_spectra.parameters() if artifact_spectra_state_dict is None else []
         spectra_and_prior_params = chain(self.somatic_spectrum.parameters(), artifact_spectra_params_to_learn,
-                                         self._unnormalized_priors.parameters(), self.normal_seq_error_spectra.parameters())
+                                         self._unnormalized_priors.parameters(), self.normal_seq_error_spectra.parameters(),
+                                         self.normal_artifact_spectra.parameters())
         optimizer = torch.optim.Adam(spectra_and_prior_params)
 
         for epoch in trange(1, num_iterations + 1, desc="AF spectra epoch"):
