@@ -31,4 +31,4 @@ class NormalArtifactSpectrum(nn.Module):
 
         # zero likelihood if no alt in normal
         no_alt_in_normal_mask = normal_alt_1d < 1
-        return -9999 * no_alt_in_normal_mask + log_likelihoods_1d * (1 - no_alt_in_normal_mask)
+        return -9999 * no_alt_in_normal_mask + log_likelihoods_1d * torch.logical_not(no_alt_in_normal_mask)
