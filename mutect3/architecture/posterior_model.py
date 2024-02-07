@@ -122,6 +122,7 @@ class PosteriorModel(torch.nn.Module):
             initial[Call.ARTIFACT] = artifact_log_prior
             initial[Call.SEQ_ERROR] = 0
             initial[Call.GERMLINE] = -9999 if self.no_germline_mode else 0
+            initial[Call.NORMAL_ARTIFACT] = artifact_log_prior
             self._unnormalized_priors.weight.copy_(initial)
 
     def make_unnormalized_priors(self, variant_types_one_hot_2d: torch.Tensor, allele_frequencies_1d: torch.Tensor) -> torch.Tensor:
@@ -164,6 +165,10 @@ class PosteriorModel(torch.nn.Module):
         # note that the call to make_unnormalized_priors ensures that no_germline_mode works
         log_priors = torch.nn.functional.log_softmax(self.make_unnormalized_priors(types, batch.allele_frequencies), dim=1)
 
+        # TODO: self.normal_artifact_joint_spectra doesn't exist yet
+        joint_tumor_normal_artifact_spectra_log_likelihoods = self.normal_artifact_joint_spectra.forward(batch.depths,
+            batch.alt_counts, batch.normal_depths, batch.normal_alt_counts)
+
         spectra_log_likelihoods = torch.zeros_like(log_priors)
         spectra_log_likelihoods[:, Call.SOMATIC] = self.somatic_spectrum.forward(batch.depths, batch.alt_counts)
         spectra_log_likelihoods[:, Call.ARTIFACT] = self.artifact_spectra.forward(types, batch.depths, batch.alt_counts)
@@ -174,6 +179,10 @@ class PosteriorModel(torch.nn.Module):
         normal_log_likelihoods[:, Call.SOMATIC] = normal_seq_error_log_likelihoods
         normal_log_likelihoods[:, Call.ARTIFACT] = normal_seq_error_log_likelihoods   # TODO: what about artifact in both tumor and normal?
         normal_log_likelihoods[:, Call.SEQ_ERROR] = normal_seq_error_log_likelihoods
+
+        # We assign half of the joint likelihood to tumor and half to normal
+        spectra_log_likelihoods[:, Call.NORMAL_ARTIFACT] = joint_tumor_normal_artifact_spectra_log_likelihoods / 2
+        normal_log_likelihoods[:, Call.NORMAL_ARTIFACT] = joint_tumor_normal_artifact_spectra_log_likelihoods / 2
 
         # since this is a default dict, if there's no segmentation for the contig we will get no overlaps but not an error
         # In our case there is either one or zero overlaps, and overlaps have the form
@@ -187,6 +196,7 @@ class PosteriorModel(torch.nn.Module):
 
         log_posteriors = log_priors + spectra_log_likelihoods + normal_log_likelihoods
         log_posteriors[:, Call.ARTIFACT] += batch.artifact_logits
+        log_posteriors[:, Call.NORMAL_ARTIFACT] += batch.artifact_logits
 
         return log_priors, spectra_log_likelihoods, normal_log_likelihoods, log_posteriors
 
@@ -220,6 +230,7 @@ class PosteriorModel(torch.nn.Module):
         if artifact_log_priors is not None:
             with torch.no_grad():
                 self._unnormalized_priors.weight[Call.ARTIFACT] = artifact_log_priors
+                self._unnormalized_priors.weight[Call.NORMAL_ARTIFACT] = artifact_log_priors
 
         artifact_spectra_params_to_learn = self.artifact_spectra.parameters() if artifact_spectra_state_dict is None else []
         spectra_and_prior_params = chain(self.somatic_spectrum.parameters(), artifact_spectra_params_to_learn,

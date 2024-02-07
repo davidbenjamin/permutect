@@ -70,6 +70,7 @@ class Call(enum.IntEnum):
     ARTIFACT = 1
     SEQ_ERROR = 2
     GERMLINE = 3
+    NORMAL_ARTIFACT = 4
 
 
 class Epoch(enum.IntEnum):
