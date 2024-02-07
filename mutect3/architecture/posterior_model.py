@@ -66,6 +66,11 @@ def initialize_artifact_spectra():
     return BetaBinomialMixture(input_size=len(Variation), num_components=5)
 
 
+# TODO: max_mean is hard-coded magic constant!!
+def initialize_normal_seq_error_spectra():
+    return BetaBinomialMixture(input_size=len(Variation), num_components=1, max_mean=0.01)
+
+
 def plot_artifact_spectra(artifact_spectra: BetaBinomialMixture):
     # plot AF spectra in two-column grid with as many rows as needed
     art_spectra_fig, art_spectra_axs = plt.subplots(ceil(len(Variation) / 2), 2, sharex='all', sharey='all')
@@ -101,6 +106,9 @@ class PosteriorModel(torch.nn.Module):
 
         # artifact spectra for each variant type.  Variant type encoded as one-hot input vector.
         self.artifact_spectra = initialize_artifact_spectra()
+
+        # normal sequencing error spectra for each variant type.
+        self.normal_seq_error_spectra = initialize_normal_seq_error_spectra()
 
         # pre-softmax priors [log P(variant), log P(artifact), log P(seq error)] for each variant type
         # linear layer with no bias to select the appropriate priors given one-hot variant encoding
@@ -162,9 +170,10 @@ class PosteriorModel(torch.nn.Module):
         spectra_log_likelihoods[:, Call.SEQ_ERROR] = batch.seq_error_log_likelihoods
 
         normal_log_likelihoods = torch.zeros_like(log_priors)
-        normal_log_likelihoods[:, Call.SOMATIC] = batch.normal_seq_error_log_likelihoods
-        normal_log_likelihoods[:, Call.ARTIFACT] = batch.normal_seq_error_log_likelihoods   # TODO: what about artifact in both tumor and normal?
-        normal_log_likelihoods[:, Call.SEQ_ERROR] = batch.normal_seq_error_log_likelihoods
+        normal_seq_error_log_likelihoods = self.normal_seq_error_log_likelihoods.forward(types, batch.normal_depths, batch.normal_alt_counts)
+        normal_log_likelihoods[:, Call.SOMATIC] = normal_seq_error_log_likelihoods
+        normal_log_likelihoods[:, Call.ARTIFACT] = normal_seq_error_log_likelihoods   # TODO: what about artifact in both tumor and normal?
+        normal_log_likelihoods[:, Call.SEQ_ERROR] = normal_seq_error_log_likelihoods
 
         # since this is a default dict, if there's no segmentation for the contig we will get no overlaps but not an error
         # In our case there is either one or zero overlaps, and overlaps have the form
@@ -214,7 +223,7 @@ class PosteriorModel(torch.nn.Module):
 
         artifact_spectra_params_to_learn = self.artifact_spectra.parameters() if artifact_spectra_state_dict is None else []
         spectra_and_prior_params = chain(self.somatic_spectrum.parameters(), artifact_spectra_params_to_learn,
-                                         self._unnormalized_priors.parameters())
+                                         self._unnormalized_priors.parameters(), self.normal_seq_error_spectra.parameters())
         optimizer = torch.optim.Adam(spectra_and_prior_params)
 
         for epoch in trange(1, num_iterations + 1, desc="AF spectra epoch"):
@@ -250,6 +259,9 @@ class PosteriorModel(torch.nn.Module):
 
                 art_spectra_fig, art_spectra_axs = plot_artifact_spectra(self.artifact_spectra)
                 summary_writer.add_figure("Artifact AF Spectra", art_spectra_fig, epoch)
+
+                normal_seq_error_spectra_fig, normal_seq_error_spectra_axs = plot_artifact_spectra(self.normal_seq_error_spectra)
+                summary_writer.add_figure("Normal Seq Error AF Spectra", normal_seq_error_spectra_fig, epoch)
 
                 var_spectra_fig, var_spectra_axs = plt.subplots()
                 frac, dens = self.somatic_spectrum.spectrum_density_vs_fraction()
