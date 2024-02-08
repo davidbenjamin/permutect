@@ -90,7 +90,7 @@ class BetaBinomialMixture(nn.Module):
         assert input_1d.dim() == 1
 
         input_2d = input_1d.unsqueeze(dim=0)
-        means = torch.sigmoid(self.mean_pre_sigmoid(input_2d)).squeeze()
+        means = self.max_mean * torch.sigmoid(self.mean_pre_sigmoid(input_2d)).squeeze()
         concentrations = torch.exp(self.concentration_pre_exp(input_2d)).squeeze()
         alphas = means * concentrations
         betas = (1 - means) * concentrations
