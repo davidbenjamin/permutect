@@ -180,7 +180,7 @@ class PosteriorModel(torch.nn.Module):
         normal_log_likelihoods[:, Call.ARTIFACT] = normal_seq_error_log_likelihoods
         normal_log_likelihoods[:, Call.SEQ_ERROR] = normal_seq_error_log_likelihoods
 
-        normal_artifact_log_likelihoods = torch.zeros_like(log_priors)
+        normal_artifact_log_likelihoods = torch.zeros(batch.size())
         one_hot_types_2d = batch.variant_type_one_hot()
         for n, _ in enumerate(Variation):
             mask = one_hot_types_2d[:, n]
