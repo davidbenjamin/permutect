@@ -283,6 +283,19 @@ class PosteriorModel(torch.nn.Module):
                 art_spectra_fig, art_spectra_axs = plot_artifact_spectra(self.artifact_spectra)
                 summary_writer.add_figure("Artifact AF Spectra", art_spectra_fig, epoch)
 
+                # DEBUG DELETE LATER
+                print("normal seq error weights pre softmax weight, bias: ")
+                print(self.normal_seq_error_spectra.weights_pre_softmax.weight)
+                print(self.normal_seq_error_spectra.weights_pre_softmax.bias)
+
+                print("normal seq error concentration pre exp weight, bias: ")
+                print(self.normal_seq_error_spectra.concentration_pre_exp.weight)
+                print(self.normal_seq_error_spectra.concentration_pre_exp.weight)
+
+                print("normal seq error mean pre sigmoid weight, bias: ")
+                print(self.normal_seq_error_spectra.mean_pre_sigmoid.weight)
+                print(self.normal_seq_error_spectra.mean_pre_sigmoid.weight)
+
                 normal_seq_error_spectra_fig, normal_seq_error_spectra_axs = plot_artifact_spectra(self.normal_seq_error_spectra)
                 summary_writer.add_figure("Normal Seq Error AF Spectra", normal_seq_error_spectra_fig, epoch)
 
