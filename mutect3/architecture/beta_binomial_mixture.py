@@ -166,6 +166,15 @@ class BetaBinomialMixture(nn.Module):
                                                 alt_counts_1d_tensor[batch_slice]))
                 utils.backpropagate(optimizer, loss)
 
+                # DEBUG ERASE LATER
+                if loss.isnan().any():
+                    print("epoch = " + str(epoch))
+                    print("batch slice " + str(batch_slice))
+                    print("depths = " + str(depths_1d_tensor[batch_slice]))
+                    print("alt counts = " + str(alt_counts_1d_tensor[batch_slice]))
+                    assert 5 < 4, "CRASH!!!"
+
+
     '''
     get raw data for a spectrum plot of probability density vs allele fraction.  
     here x is a 1D tensor, a single datum/row of the 2D tensors as above
