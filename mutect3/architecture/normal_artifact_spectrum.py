@@ -27,8 +27,8 @@ class NormalArtifactSpectrum(nn.Module):
             + torch.reshape(normal_alt_1d, (batch_size, 1)) * torch.log(normal_fractions_2d) \
             + torch.reshape(normal_ref_1d, (batch_size, 1)) * torch.log(1 - normal_fractions_2d)
 
-        if torch.rand(1) < 0.001:
-            print("debug once every 1000 batches or so. . . ")
+        if torch.rand(1) < 0.0001:
+            print("debug once every 10000 batches or so. . . ")
             print("average tumor f: " + str(torch.mean(tumor_fractions_2d)))
             print("average normal f: " + str(torch.mean(normal_fractions_2d)))
             print("min tumor f: " + str(torch.min(tumor_fractions_2d)))
@@ -36,14 +36,18 @@ class NormalArtifactSpectrum(nn.Module):
 
         # DEBUG, DELETE LATER
         if log_likelihoods_2d.isnan().any():
+            offending_index = log_likelihoods_2d.isnan().nonzero()[0]
+            offending_row = offending_index[0].item()
             print("normal artifact likelihoods contain a nan")
-            print("tumor fractions sampled: " + str(tumor_fractions_2d))
-            print("normal fractions sampled: " + str(normal_fractions_2d))
+            print("offending indices: " + str(log_likelihoods_2d.isnan().nonzero()))
+            print("tumor fractions sampled: " + str(tumor_fractions_2d[offending_row]))
+            print("normal fractions sampled: " + str(normal_fractions_2d[offending_row]))
             print("log tumor, log 1 - tumor, log normal, log 1 - normal:")
-            print(torch.log(tumor_fractions_2d))
-            print(torch.log(1 - tumor_fractions_2d))
-            print(torch.log(normal_fractions_2d))
-            print(torch.log(1 - normal_fractions_2d))
+            print(torch.log(tumor_fractions_2d[offending_row]))
+            print(torch.log(1 - tumor_fractions_2d[offending_row]))
+            print(torch.log(normal_fractions_2d[offending_row]))
+            print(torch.log(1 - normal_fractions_2d[offending_row]))
+            assert 5 < 4, "CRASH!!! normal artifact spectrum yields nan in forward pass"
 
         # average over sample dimension
         log_likelihoods_1d = torch.logsumexp(log_likelihoods_2d, dim=1) - math.log(self.num_samples)

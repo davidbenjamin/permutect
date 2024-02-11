@@ -172,7 +172,7 @@ class BetaBinomialMixture(nn.Module):
                     print("batch slice " + str(batch_slice))
                     print("depths = " + str(depths_1d_tensor[batch_slice]))
                     print("alt counts = " + str(alt_counts_1d_tensor[batch_slice]))
-                    assert 5 < 4, "CRASH!!!"
+                    assert 5 < 4, "LOSS contains nan while fitting beta binomial, CRASH!!!"
 
 
     '''
