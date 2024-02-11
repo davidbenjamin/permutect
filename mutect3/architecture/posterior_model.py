@@ -282,6 +282,35 @@ class PosteriorModel(torch.nn.Module):
 
                 utils.backpropagate(optimizer, loss)
 
+                # DEBUG, DELETE LATER
+                for variant_index, variant_type in enumerate(Variation):
+                    linear = self.normal_artifact_spectra[variant_index].W
+                    if linear.weight.isnan().any():
+                        print("backprop yields nan in weights for " + variant_type.name)
+                        print("epoch = " + str(epoch))
+                        print("batch number " + str(n))
+                        print("batch size " + str(batch.size()))
+                        print("depths = " + str(batch.depths))
+                        print("alt counts = " + str(batch.alt_counts))
+                        print("normal depths = " + str(batch.normal_depths))
+                        print("normal alt counts = " + str(batch.normal_alt_counts))
+                        print("relative posteriors = " + str(relative_posteriors))
+                        print("ingredients = " + str(self.log_posterior_and_ingredients(batch)))
+                        assert 5 < 4, "CRASH BEFORE BACKPROP!!!"
+                    if linear.bias.isnan().any():
+                        print("backprop yields nan in bias for " + variant_type.name)
+                        print("epoch = " + str(epoch))
+                        print("batch number " + str(n))
+                        print("batch size " + str(batch.size()))
+                        print("depths = " + str(batch.depths))
+                        print("alt counts = " + str(batch.alt_counts))
+                        print("normal depths = " + str(batch.normal_depths))
+                        print("normal alt counts = " + str(batch.normal_alt_counts))
+                        print("relative posteriors = " + str(relative_posteriors))
+                        print("ingredients = " + str(self.log_posterior_and_ingredients(batch)))
+                        assert 5 < 4, "CRASH BEFORE BACKPROP!!!"
+
+
                 # TODO: INELEGANT! since we can't freeze just the artifact row of log priors, we have to reset it after each batch
                 if artifact_log_priors is not None:
                     with torch.no_grad():
