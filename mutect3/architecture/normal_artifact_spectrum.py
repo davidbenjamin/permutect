@@ -27,12 +27,14 @@ class NormalArtifactSpectrum(nn.Module):
             + torch.reshape(normal_alt_1d, (batch_size, 1)) * torch.log(normal_fractions_2d) \
             + torch.reshape(normal_ref_1d, (batch_size, 1)) * torch.log(1 - normal_fractions_2d)
 
-        if torch.rand(1) < 0.0001:
-            print("debug once every 10000 batches or so. . . ")
+        if torch.rand(1) < 0.001:
+            print("debug once every 1000 batches or so. . . ")
             print("average tumor f: " + str(torch.mean(tumor_fractions_2d)))
             print("average normal f: " + str(torch.mean(normal_fractions_2d)))
             print("min tumor f: " + str(torch.min(tumor_fractions_2d)))
             print("min normal f: " + str(torch.min(normal_fractions_2d)))
+            print("weights are " + str(self.W.weight))
+            print("bias is " + str(self.W.bias))
 
         # DEBUG, DELETE LATER
         if log_likelihoods_2d.isnan().any():

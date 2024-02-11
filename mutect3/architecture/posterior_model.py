@@ -287,6 +287,7 @@ class PosteriorModel(torch.nn.Module):
                     linear = self.normal_artifact_spectra[variant_index].W
                     if linear.weight.isnan().any():
                         print("backprop yields nan in weights for " + variant_type.name)
+                        print("weights are " + str(linear.weight))
                         print("epoch = " + str(epoch))
                         print("batch number " + str(n))
                         print("batch size " + str(batch.size()))
@@ -299,6 +300,7 @@ class PosteriorModel(torch.nn.Module):
                         assert 5 < 4, "CRASH BEFORE BACKPROP!!!"
                     if linear.bias.isnan().any():
                         print("backprop yields nan in bias for " + variant_type.name)
+                        print("biases are " + str(linear.bias))
                         print("epoch = " + str(epoch))
                         print("batch number " + str(n))
                         print("batch size " + str(batch.size()))
