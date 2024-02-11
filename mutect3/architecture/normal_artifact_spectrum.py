@@ -3,6 +3,8 @@ import math
 import torch
 from torch import nn
 
+EPSILON = 0.001
+
 
 class NormalArtifactSpectrum(nn.Module):
     def __init__(self, num_samples: int):
@@ -19,8 +21,10 @@ class NormalArtifactSpectrum(nn.Module):
         batch_size = len(tumor_alt_1d)
         gaussian_3d = torch.randn(batch_size, self.num_samples, 2)
         correlated_gaussian_3d = self.W.forward(gaussian_3d)
-        tumor_fractions_2d = torch.sigmoid(correlated_gaussian_3d[:, :, 0])
-        normal_fractions_2d = torch.sigmoid(correlated_gaussian_3d[:, :, 1])
+
+        # to prevent nans, map onto [EPSILON, 1 - EPSILON]
+        tumor_fractions_2d = EPSILON + (1 - 2*EPSILON)*torch.sigmoid(correlated_gaussian_3d[:, :, 0])
+        normal_fractions_2d = EPSILON + (1 - 2*EPSILON)*torch.sigmoid(correlated_gaussian_3d[:, :, 1])
 
         log_likelihoods_2d = torch.reshape(tumor_alt_1d, (batch_size, 1)) * torch.log(tumor_fractions_2d) \
             + torch.reshape(tumor_ref_1d, (batch_size, 1)) * torch.log(1 - tumor_fractions_2d) \
