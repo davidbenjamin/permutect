@@ -326,22 +326,8 @@ class PosteriorModel(torch.nn.Module):
                 art_spectra_fig, art_spectra_axs = plot_artifact_spectra(self.artifact_spectra)
                 summary_writer.add_figure("Artifact AF Spectra", art_spectra_fig, epoch)
 
-                # DEBUG DELETE LATER
-                try:
-                    normal_seq_error_spectra_fig, normal_seq_error_spectra_axs = plot_artifact_spectra(self.normal_seq_error_spectra)
-                    summary_writer.add_figure("Normal Seq Error AF Spectra", normal_seq_error_spectra_fig, epoch)
-                except:
-                    print("normal seq error weights pre softmax weight, bias: ")
-                    print(self.normal_seq_error_spectra.weights_pre_softmax.weight)
-                    print(self.normal_seq_error_spectra.weights_pre_softmax.bias)
-
-                    print("normal seq error concentration pre exp weight, bias: ")
-                    print(self.normal_seq_error_spectra.concentration_pre_exp.weight)
-                    print(self.normal_seq_error_spectra.concentration_pre_exp.weight)
-
-                    print("normal seq error mean pre sigmoid weight, bias: ")
-                    print(self.normal_seq_error_spectra.mean_pre_sigmoid.weight)
-                    print(self.normal_seq_error_spectra.mean_pre_sigmoid.weight)
+                normal_seq_error_spectra_fig, normal_seq_error_spectra_axs = plot_artifact_spectra(self.normal_seq_error_spectra)
+                summary_writer.add_figure("Normal Seq Error AF Spectra", normal_seq_error_spectra_fig, epoch)
 
                 var_spectra_fig, var_spectra_axs = plt.subplots()
                 frac, dens = self.somatic_spectrum.spectrum_density_vs_fraction()
@@ -353,7 +339,7 @@ class PosteriorModel(torch.nn.Module):
                 log_prior_bar_plot_data = defaultdict(list)
                 for variant_type in Variation:
                     log_priors = torch.nn.functional.log_softmax(self.make_unnormalized_priors(torch.from_numpy(variant_type.one_hot_tensor()).float().unsqueeze(dim=0), torch.Tensor([0.001])), dim=1)
-                    for call_type in (Call.SOMATIC, Call.ARTIFACT):
+                    for call_type in (Call.SOMATIC, Call.ARTIFACT, Call.NORMAL_ARTIFACT):
                         log_prior_bar_plot_data[call_type.name].append(log_priors.squeeze().detach()[call_type])
 
                 prior_fig, prior_ax = plotting.grouped_bar_plot(log_prior_bar_plot_data, [v_type.name for v_type in Variation], "log priors")
