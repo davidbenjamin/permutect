@@ -258,18 +258,6 @@ class PosteriorModel(torch.nn.Module):
                 log_evidence = torch.logsumexp(relative_posteriors, dim=1)
                 loss = -torch.mean(log_evidence)
 
-                if loss.isnan().any():
-                    print("epoch = " + str(epoch))
-                    print("batch number " + str(n))
-                    print("batch size " + str(batch.size()))
-                    print("depths = " + str(batch.depths))
-                    print("alt counts = " + str(batch.alt_counts))
-                    print("normal depths = " + str(batch.normal_depths))
-                    print("normal alt counts = " + str(batch.normal_alt_counts))
-                    print("relative posteriors = " + str(relative_posteriors))
-                    print("ingredients = " + str(self.log_posterior_and_ingredients(batch)))
-                    assert 5 < 4, "CRASH BEFORE BACKPROP!!!"
-
                 # note that we don't multiply by batch size because we take the mean of log evidence above
                 # however, we must sum over variant types since each ignored site is simultaneously a missing non-SNV,
                 # a missing non-INSERTION etc
@@ -281,37 +269,6 @@ class PosteriorModel(torch.nn.Module):
                     loss += missing_loss
 
                 utils.backpropagate(optimizer, loss)
-
-                # DEBUG, DELETE LATER
-                for variant_index, variant_type in enumerate(Variation):
-                    linear = self.normal_artifact_spectra[variant_index].W
-                    if linear.weight.isnan().any():
-                        print("backprop yields nan in weights for " + variant_type.name)
-                        print("weights are " + str(linear.weight))
-                        print("epoch = " + str(epoch))
-                        print("batch number " + str(n))
-                        print("batch size " + str(batch.size()))
-                        print("depths = " + str(batch.depths))
-                        print("alt counts = " + str(batch.alt_counts))
-                        print("normal depths = " + str(batch.normal_depths))
-                        print("normal alt counts = " + str(batch.normal_alt_counts))
-                        print("relative posteriors = " + str(relative_posteriors))
-                        print("ingredients = " + str(self.log_posterior_and_ingredients(batch)))
-                        assert 5 < 4, "CRASH BEFORE BACKPROP!!!"
-                    if linear.bias.isnan().any():
-                        print("backprop yields nan in bias for " + variant_type.name)
-                        print("biases are " + str(linear.bias))
-                        print("epoch = " + str(epoch))
-                        print("batch number " + str(n))
-                        print("batch size " + str(batch.size()))
-                        print("depths = " + str(batch.depths))
-                        print("alt counts = " + str(batch.alt_counts))
-                        print("normal depths = " + str(batch.normal_depths))
-                        print("normal alt counts = " + str(batch.normal_alt_counts))
-                        print("relative posteriors = " + str(relative_posteriors))
-                        print("ingredients = " + str(self.log_posterior_and_ingredients(batch)))
-                        assert 5 < 4, "CRASH BEFORE BACKPROP!!!"
-
 
                 # TODO: INELEGANT! since we can't freeze just the artifact row of log priors, we have to reset it after each batch
                 if artifact_log_priors is not None:
@@ -344,6 +301,14 @@ class PosteriorModel(torch.nn.Module):
 
                 prior_fig, prior_ax = plotting.grouped_bar_plot(log_prior_bar_plot_data, [v_type.name for v_type in Variation], "log priors")
                 summary_writer.add_figure("log priors", prior_fig, epoch)
+
+                # normal artifact joint tumor-normal spectra
+                na_fig, na_axes = plt.subplots(1, len(Variation), sharex='all', sharey='all', squeeze=False)
+                for variant_index, variant_type in enumerate(Variation):
+                    self.normal_artifact_spectra[variant_index].density_plot_on_axis(na_axes[0, variant_index])
+                plotting.tidy_subplots(na_fig, na_axes, x_label="tumor fraction", y_label="normal fraction",
+                                       row_labels=[""], column_labels=[var_type.name for var_type in Variation])
+                summary_writer.add_figure("normal artifact spectra", na_fig, epoch)
 
     # map of Variant type to probability threshold that maximizes F1 score
     # loader is a Dataloader whose collate_fn is the PosteriorBatch constructor
