@@ -17,6 +17,13 @@ class NormalArtifactSpectrum(nn.Module):
 
         self.W = nn.Linear(in_features=2, out_features=2)
 
+        # this initializes to be sort of uniform on [0,1]x[0,1], with some bias toward lower allele fractions
+        # if we don't initialize carefully all the weight is near (0.5,0.5) and the model gives basically zero
+        # likelihood to low allele fractions
+        with torch.no_grad():
+            self.W.weight.copy_(torch.Tensor([[1.7, 0], [0, 1.7]]))
+            self.W.bias.copy_(torch.Tensor([-0.1, -0.1]))
+
     def forward(self, tumor_alt_1d: torch.Tensor, tumor_ref_1d: torch.Tensor, normal_alt_1d: torch.Tensor, normal_ref_1d: torch.Tensor):
         if torch.sum(normal_alt_1d) < 1:    # shortcut if no normal alts in the whole batch
             print("debug, no normal alts in batch")
