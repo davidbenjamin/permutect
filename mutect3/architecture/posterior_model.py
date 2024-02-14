@@ -10,7 +10,7 @@ from tqdm.autonotebook import trange, tqdm
 
 from mutect3 import utils
 from mutect3.architecture.beta_binomial_mixture import BetaBinomialMixture, FeaturelessBetaBinomialMixture
-from mutect3.architecture.normal_artifact_spectrum import NormalArtifactSpectrum
+from mutect3.architecture.normal_seq_error_spectrum import NormalSeqErrorSpectrum
 from mutect3.data.posterior import PosteriorBatch
 from mutect3.metrics import plotting
 from mutect3.utils import Variation, Call
@@ -113,7 +113,7 @@ class PosteriorModel(torch.nn.Module):
         self.artifact_spectra = initialize_artifact_spectra()
 
         # normal sequencing error spectra for each variant type.
-        self.normal_seq_error_spectra = initialize_normal_seq_error_spectra()
+        self.normal_seq_error_spectra = torch.nn.ModuleList([NormalSeqErrorSpectrum(num_samples=50, max_mean=0.01) for _ in Variation])
 
         self.normal_artifact_spectra = initialize_normal_artifact_spectra()
 
@@ -183,14 +183,20 @@ class PosteriorModel(torch.nn.Module):
         spectra_log_likelihoods[:, Call.SEQ_ERROR] = batch.seq_error_log_likelihoods
 
         normal_log_likelihoods = torch.zeros_like(log_priors)
-        normal_seq_error_log_likelihoods = self.normal_seq_error_spectra.forward(types, batch.normal_depths, batch.normal_alt_counts)
+        normal_seq_error_log_likelihoods = torch.zeros_like(batch.alt_counts)
+
+        for var_index, _ in enumerate(Variation):
+            mask = types[:, var_index]
+            normal_seq_error_log_likelihoods += mask * self.normal_seq_error_spectra[var_index].forward(batch.normal_alt_counts, batch.normal_ref_counts())
+
         normal_log_likelihoods[:, Call.SOMATIC] = normal_seq_error_log_likelihoods
         normal_log_likelihoods[:, Call.ARTIFACT] = normal_seq_error_log_likelihoods
+        normal_log_likelihoods[:, Call.SEQ_ERROR] = normal_seq_error_log_likelihoods
 
         no_alt_in_normal_mask = batch.normal_alt_counts < 1
         normal_log_likelihoods[:, Call.NORMAL_ARTIFACT] = -9999 * no_alt_in_normal_mask + \
             torch.logical_not(no_alt_in_normal_mask) * self.normal_artifact_spectra.forward(types, batch.normal_depths, batch.normal_alt_counts)
-        normal_log_likelihoods[:, Call.SEQ_ERROR] = normal_seq_error_log_likelihoods
+
 
         #normal_artifact_log_likelihoods = torch.zeros(batch.size())
         #one_hot_types_2d = batch.variant_type_one_hot()
@@ -290,11 +296,15 @@ class PosteriorModel(torch.nn.Module):
             if summary_writer is not None:
                 summary_writer.add_scalar("spectrum negative log evidence", epoch_loss.get(), epoch)
 
+                for variant_index, variant_type in enumerate(Variation):
+                    mean = self.normal_seq_error_spectra[variant_index].mean
+                    summary_writer.add_scalar("normal seq error mean fraction for " + variant_type.name, mean, epoch)
+
                 art_spectra_fig, art_spectra_axs = plot_artifact_spectra(self.artifact_spectra)
                 summary_writer.add_figure("Artifact AF Spectra", art_spectra_fig, epoch)
 
-                normal_seq_error_spectra_fig, normal_seq_error_spectra_axs = plot_artifact_spectra(self.normal_seq_error_spectra)
-                summary_writer.add_figure("Normal Seq Error AF Spectra", normal_seq_error_spectra_fig, epoch)
+                #normal_seq_error_spectra_fig, normal_seq_error_spectra_axs = plot_artifact_spectra(self.normal_seq_error_spectra)
+                #summary_writer.add_figure("Normal Seq Error AF Spectra", normal_seq_error_spectra_fig, epoch)
 
                 normal_artifact_spectra_fig, normal_artifact_spectra_axs = plot_artifact_spectra(self.normal_artifact_spectra)
                 summary_writer.add_figure("Normal Artifact AF Spectra", normal_artifact_spectra_fig, epoch)
