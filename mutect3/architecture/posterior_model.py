@@ -71,6 +71,10 @@ def initialize_artifact_spectra():
 def initialize_normal_seq_error_spectra():
     return BetaBinomialMixture(input_size=len(Variation), num_components=1, max_mean=0.01)
 
+# TODO: max_mean is hard-coded magic constant!!
+def initialize_normal_artifact_spectra():
+    return BetaBinomialMixture(input_size=len(Variation), num_components=1, max_mean=0.1)
+
 
 def plot_artifact_spectra(artifact_spectra: BetaBinomialMixture):
     # plot AF spectra in two-column grid with as many rows as needed
@@ -111,8 +115,10 @@ class PosteriorModel(torch.nn.Module):
         # normal sequencing error spectra for each variant type.
         self.normal_seq_error_spectra = initialize_normal_seq_error_spectra()
 
+        self.normal_artifact_spectra = initialize_normal_artifact_spectra()
+
         # TODO: num_samples is hard-coded magic constant!!!
-        self.normal_artifact_spectra = torch.nn.ModuleList([NormalArtifactSpectrum(num_samples=20) for variant_type in Variation])
+        # self.normal_artifact_spectra = torch.nn.ModuleList([NormalArtifactSpectrum(num_samples=20) for variant_type in Variation])
 
         # pre-softmax priors [log P(variant), log P(artifact), log P(seq error)] for each variant type
         # linear layer with no bias to select the appropriate priors given one-hot variant encoding
@@ -171,29 +177,30 @@ class PosteriorModel(torch.nn.Module):
 
         spectra_log_likelihoods = torch.zeros_like(log_priors)
         spectra_log_likelihoods[:, Call.SOMATIC] = self.somatic_spectrum.forward(batch.depths, batch.alt_counts)
-        spectra_log_likelihoods[:, Call.ARTIFACT] = self.artifact_spectra.forward(types, batch.depths, batch.alt_counts)
+        tumor_artifact_spectrum_log_likelihood = self.artifact_spectra.forward(types, batch.depths, batch.alt_counts)
+        spectra_log_likelihoods[:, Call.ARTIFACT] = tumor_artifact_spectrum_log_likelihood
+        spectra_log_likelihoods[:, Call.NORMAL_ARTIFACT] = tumor_artifact_spectrum_log_likelihood # yup, it's the same spectrum
         spectra_log_likelihoods[:, Call.SEQ_ERROR] = batch.seq_error_log_likelihoods
 
         normal_log_likelihoods = torch.zeros_like(log_priors)
         normal_seq_error_log_likelihoods = self.normal_seq_error_spectra.forward(types, batch.normal_depths, batch.normal_alt_counts)
         normal_log_likelihoods[:, Call.SOMATIC] = normal_seq_error_log_likelihoods
         normal_log_likelihoods[:, Call.ARTIFACT] = normal_seq_error_log_likelihoods
+        normal_log_likelihoods[:, Call.NORMAL_ARTIFACT] = self.normal_artifact_spectra.forward(types, batch.normal_depths, batch.normal_alt_counts)
         normal_log_likelihoods[:, Call.SEQ_ERROR] = normal_seq_error_log_likelihoods
 
-        normal_artifact_log_likelihoods = torch.zeros(batch.size())
-        one_hot_types_2d = batch.variant_type_one_hot()
-        for n, _ in enumerate(Variation):
-            mask = one_hot_types_2d[:, n]
-            assert mask.dim() == 1
-            assert len(mask) == batch.size()
-            na_log_lls_for_this_type = self.normal_artifact_spectra[n].forward(batch.alt_counts, batch.ref_counts(), batch.normal_alt_counts, batch.normal_ref_counts())
-            assert na_log_lls_for_this_type.dim() == 1
-            assert len(na_log_lls_for_this_type) == batch.size()
-            normal_artifact_log_likelihoods += mask * na_log_lls_for_this_type
+        #normal_artifact_log_likelihoods = torch.zeros(batch.size())
+        #one_hot_types_2d = batch.variant_type_one_hot()
+        #for n, _ in enumerate(Variation):
+        #    mask = one_hot_types_2d[:, n]
+        #    assert mask.dim() == 1
+        #    assert len(mask) == batch.size()
+        #    na_log_lls_for_this_type = self.normal_artifact_spectra[n].forward(batch.alt_counts, batch.ref_counts(), batch.normal_alt_counts, batch.normal_ref_counts())
+        #    assert na_log_lls_for_this_type.dim() == 1
+        #    assert len(na_log_lls_for_this_type) == batch.size()
+        #    normal_artifact_log_likelihoods += mask * na_log_lls_for_this_type
 
         # We assign half of the joint likelihood to tumor and half to normal
-        spectra_log_likelihoods[:, Call.NORMAL_ARTIFACT] = normal_artifact_log_likelihoods / 2
-        normal_log_likelihoods[:, Call.NORMAL_ARTIFACT] = normal_artifact_log_likelihoods / 2
 
         # since this is a default dict, if there's no segmentation for the contig we will get no overlaps but not an error
         # In our case there is either one or zero overlaps, and overlaps have the form
@@ -286,6 +293,9 @@ class PosteriorModel(torch.nn.Module):
                 normal_seq_error_spectra_fig, normal_seq_error_spectra_axs = plot_artifact_spectra(self.normal_seq_error_spectra)
                 summary_writer.add_figure("Normal Seq Error AF Spectra", normal_seq_error_spectra_fig, epoch)
 
+                normal_artifact_spectra_fig, normal_artifact_spectra_axs = plot_artifact_spectra(self.normal_artifact_spectra)
+                summary_writer.add_figure("Normal Artifact AF Spectra", normal_artifact_spectra_fig, epoch)
+
                 var_spectra_fig, var_spectra_axs = plt.subplots()
                 frac, dens = self.somatic_spectrum.spectrum_density_vs_fraction()
                 var_spectra_axs.plot(frac.numpy(), dens.numpy())
@@ -303,12 +313,12 @@ class PosteriorModel(torch.nn.Module):
                 summary_writer.add_figure("log priors", prior_fig, epoch)
 
                 # normal artifact joint tumor-normal spectra
-                na_fig, na_axes = plt.subplots(1, len(Variation), sharex='all', sharey='all', squeeze=False)
-                for variant_index, variant_type in enumerate(Variation):
-                    self.normal_artifact_spectra[variant_index].density_plot_on_axis(na_axes[0, variant_index])
-                plotting.tidy_subplots(na_fig, na_axes, x_label="tumor fraction", y_label="normal fraction",
-                                       row_labels=[""], column_labels=[var_type.name for var_type in Variation])
-                summary_writer.add_figure("normal artifact spectra", na_fig, epoch)
+                # na_fig, na_axes = plt.subplots(1, len(Variation), sharex='all', sharey='all', squeeze=False)
+                # for variant_index, variant_type in enumerate(Variation):
+                #    self.normal_artifact_spectra[variant_index].density_plot_on_axis(na_axes[0, variant_index])
+                # plotting.tidy_subplots(na_fig, na_axes, x_label="tumor fraction", y_label="normal fraction",
+                #                       row_labels=[""], column_labels=[var_type.name for var_type in Variation])
+                # summary_writer.add_figure("normal artifact spectra", na_fig, epoch)
 
     # map of Variant type to probability threshold that maximizes F1 score
     # loader is a Dataloader whose collate_fn is the PosteriorBatch constructor
