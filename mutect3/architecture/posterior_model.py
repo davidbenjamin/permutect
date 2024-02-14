@@ -186,7 +186,10 @@ class PosteriorModel(torch.nn.Module):
         normal_seq_error_log_likelihoods = self.normal_seq_error_spectra.forward(types, batch.normal_depths, batch.normal_alt_counts)
         normal_log_likelihoods[:, Call.SOMATIC] = normal_seq_error_log_likelihoods
         normal_log_likelihoods[:, Call.ARTIFACT] = normal_seq_error_log_likelihoods
-        normal_log_likelihoods[:, Call.NORMAL_ARTIFACT] = self.normal_artifact_spectra.forward(types, batch.normal_depths, batch.normal_alt_counts)
+
+        no_alt_in_normal_mask = batch.normal_alt_counts < 1
+        normal_log_likelihoods[:, Call.NORMAL_ARTIFACT] = -9999 * no_alt_in_normal_mask + \
+            torch.logical_not(no_alt_in_normal_mask) * self.normal_artifact_spectra.forward(types, batch.normal_depths, batch.normal_alt_counts)
         normal_log_likelihoods[:, Call.SEQ_ERROR] = normal_seq_error_log_likelihoods
 
         #normal_artifact_log_likelihoods = torch.zeros(batch.size())
