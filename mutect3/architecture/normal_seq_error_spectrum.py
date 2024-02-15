@@ -8,10 +8,14 @@ import numpy as np
 
 EPSILON = 0.001
 
+# the mean of a half-normal distribution is related to the standard deviation sigma of its corresponding normal distribution by
+# sigma = mean * sqrt(pi/2)
+SQRT_PI_OVER_2 = math.sqrt(math.pi / 2)
+
 
 # we can't use a beta binomial for normal seq error because betas have such long tails that even if we constrain the mean
-# to be small there is too large a probability of a large allele fraction.  Here we assume an underlying exponential distribution on
-# the allele fraction ie it is an exponential-binomial.  Since these are not conjugate we have to explicitly sample and
+# to be small there is too large a probability of a large allele fraction.  Here we assume an underlying half normal distribution on
+# the allele fraction ie it is a half normal-binomial.  Since these are not conjugate we have to explicitly sample and
 # essentially perform a brute force Monte Carlo integral.
 class NormalSeqErrorSpectrum(nn.Module):
     def __init__(self, num_samples: int, max_mean: float):
@@ -39,9 +43,12 @@ class NormalSeqErrorSpectrum(nn.Module):
 
     def get_fractions(self, batch_size, num_samples):
         actual_mean = self.max_mean * torch.tanh(self.mean / self.max_mean)
-        uniform_samples = torch.rand(batch_size, num_samples)
-        # map from U([0,1]) samples to exponential distribution samples by applying the inverse CDF
-        fractions_2d = -actual_mean * torch.log(uniform_samples)
+        actual_sigma = SQRT_PI_OVER_2 * actual_mean
+        normal_samples = torch.randn(batch_size, num_samples)
+        half_normal_samples = torch.abs(normal_samples)
+        fractions_2d_unbounded = actual_sigma * half_normal_samples
+        # apply tanh to constrain fractions to [0, 1)
+        fractions_2d = torch.tanh(fractions_2d_unbounded)
         return fractions_2d
 
     # TODO: move this method to plotting
