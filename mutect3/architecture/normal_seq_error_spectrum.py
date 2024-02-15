@@ -23,7 +23,7 @@ class NormalSeqErrorSpectrum(nn.Module):
 
         # this is 1/lambda parameter
         # TODO: magic constant initialization!!!
-        self.mean = torch.nn.Parameter(torch.Tensor(0.001))
+        self.mean = torch.nn.Parameter(torch.tensor(0.001))
 
     def forward(self, alt_counts_1d: torch.Tensor, ref_counts_1d: torch.Tensor):
         batch_size = len(alt_counts_1d)
