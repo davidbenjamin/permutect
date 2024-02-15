@@ -30,7 +30,6 @@ class NormalSeqErrorSpectrum(nn.Module):
         self.mean_pre_sigmoid = torch.nn.Parameter(torch.tensor(0.0))
 
     def forward(self, alt_counts_1d: torch.Tensor, ref_counts_1d: torch.Tensor):
-        print("mean pre sigmoid " + str(self.mean_pre_sigmoid))
         batch_size = len(alt_counts_1d)
         fractions_2d = self.get_fractions(batch_size, self.num_samples)
 
