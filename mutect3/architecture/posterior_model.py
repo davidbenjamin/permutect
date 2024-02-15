@@ -187,7 +187,9 @@ class PosteriorModel(torch.nn.Module):
 
         for var_index, _ in enumerate(Variation):
             mask = types[:, var_index]
-            normal_seq_error_log_likelihoods += mask * self.normal_seq_error_spectra[var_index].forward(batch.normal_alt_counts, batch.normal_ref_counts())
+            log_likelihoods_for_this_type = self.normal_seq_error_spectra[var_index].forward(batch.normal_alt_counts, batch.normal_ref_counts())
+            contribution = mask * log_likelihoods_for_this_type
+            normal_seq_error_log_likelihoods += contribution
 
         normal_log_likelihoods[:, Call.SOMATIC] = normal_seq_error_log_likelihoods
         normal_log_likelihoods[:, Call.ARTIFACT] = normal_seq_error_log_likelihoods
