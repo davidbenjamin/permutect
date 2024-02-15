@@ -6,7 +6,7 @@ from torch import nn
 import matplotlib.pyplot as plt
 import numpy as np
 
-EPSILON = 0.001
+EPSILON = 0.0001
 
 # the mean of a half-normal distribution is related to the standard deviation sigma of its corresponding normal distribution by
 # sigma = mean * sqrt(pi/2)
@@ -62,8 +62,8 @@ class NormalSeqErrorSpectrum(nn.Module):
         normal_samples = torch.randn(batch_size, num_samples)
         half_normal_samples = torch.abs(normal_samples)
         fractions_2d_unbounded = actual_sigma * half_normal_samples
-        # apply tanh to constrain fractions to [0, 1)
-        fractions_2d = torch.tanh(fractions_2d_unbounded)
+        # apply tanh to constrain fractions to [0, 1), and then to [EPSILON, 1 - EPSILON] for numerical stability
+        fractions_2d = EPSILON + (1 - 2*EPSILON)*torch.tanh(fractions_2d_unbounded)
         return fractions_2d
 
     # TODO: move this method to plotting
