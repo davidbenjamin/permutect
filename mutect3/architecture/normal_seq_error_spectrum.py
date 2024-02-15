@@ -27,7 +27,7 @@ class NormalSeqErrorSpectrum(nn.Module):
 
         # this is 1/lambda parameter
         # TODO: magic constant initialization!!!
-        self.log_mean = torch.nn.Parameter(torch.log(torch.tensor(0.001)))
+        self.mean_pre_sigmoid = torch.nn.Parameter(torch.tensor(0.0))
 
     def forward(self, alt_counts_1d: torch.Tensor, ref_counts_1d: torch.Tensor):
         batch_size = len(alt_counts_1d)
@@ -46,13 +46,14 @@ class NormalSeqErrorSpectrum(nn.Module):
             print("fractions: " + str(fractions_2d.detach().numpy()))
             print("min fraction: " + str(torch.min(fractions_2d)))
             print("max fraction: " + str(torch.max(fractions_2d)))
+            print("mean pre sigmoid " + str(self.mean_pre_sigmoid))
 
             assert 5 < 4, "NAN CRASH!!!"
 
         return log_likelihoods_1d
 
     def get_fractions(self, batch_size, num_samples):
-        actual_mean = self.max_mean * torch.tanh(torch.exp(self.log_mean) / self.max_mean)
+        actual_mean = torch.sigmoid(self.mean_pre_sigmoid) * self.max_mean
         actual_sigma = SQRT_PI_OVER_2 * actual_mean
         normal_samples = torch.randn(batch_size, num_samples)
         half_normal_samples = torch.abs(normal_samples)
