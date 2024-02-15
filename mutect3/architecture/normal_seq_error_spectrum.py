@@ -53,6 +53,9 @@ class NormalSeqErrorSpectrum(nn.Module):
 
         return log_likelihoods_1d
 
+    def get_mean(self):
+        return torch.sigmoid(self.mean_pre_sigmoid) * self.max_mean
+
     def get_fractions(self, batch_size, num_samples):
         actual_mean = torch.sigmoid(self.mean_pre_sigmoid) * self.max_mean
         actual_sigma = SQRT_PI_OVER_2 * actual_mean

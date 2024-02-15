@@ -298,7 +298,7 @@ class PosteriorModel(torch.nn.Module):
                 summary_writer.add_scalar("spectrum negative log evidence", epoch_loss.get(), epoch)
 
                 for variant_index, variant_type in enumerate(Variation):
-                    mean = self.normal_seq_error_spectra[variant_index].mean
+                    mean = self.normal_seq_error_spectra[variant_index].get_mean()
                     summary_writer.add_scalar("normal seq error mean fraction for " + variant_type.name, mean, epoch)
 
                 art_spectra_fig, art_spectra_axs = plot_artifact_spectra(self.artifact_spectra)
