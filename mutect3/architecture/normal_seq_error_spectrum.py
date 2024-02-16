@@ -50,7 +50,9 @@ class NormalSeqErrorSpectrum(nn.Module):
 
             assert 5 < 4, "NAN CRASH!!!"
 
-        return log_likelihoods_1d
+        combinatorial_term = torch.lgamma(alt_counts_1d + ref_counts_1d + 1) - torch.lgamma(alt_counts_1d + 1) - torch.lgamma(ref_counts_1d + 1)
+
+        return combinatorial_term + log_likelihoods_1d
 
     def get_mean(self):
         return torch.sigmoid(self.mean_pre_sigmoid) * self.max_mean

@@ -55,9 +55,10 @@ def germline_log_likelihood(afs, mafs, alt_counts, ref_counts):
 
     depths = alt_counts + ref_counts
 
+    combinatorial_term = torch.lgamma(depths + 1) - torch.lgamma(alt_counts + 1) - torch.lgamma(ref_counts + 1)
     # the following should both be 1D tensors of length batch size
-    alt_minor_ll = log_half_het_prop + alt_counts * log_mafs + ref_counts * log_1m_mafs
-    alt_major_ll = log_half_het_prop + ref_counts * log_mafs + alt_counts * log_1m_mafs
+    alt_minor_ll = combinatorial_term + log_half_het_prop + alt_counts * log_mafs + ref_counts * log_1m_mafs
+    alt_major_ll = combinatorial_term + log_half_het_prop + ref_counts * log_mafs + alt_counts * log_1m_mafs
     hom_ll = torch.log(hom_proportion) + utils.beta_binomial(depths, alt_counts, HOM_ALPHA, HOM_BETA)
 
     return torch.logsumexp(torch.vstack((alt_minor_ll, alt_major_ll, hom_ll)), dim=0)
@@ -109,7 +110,7 @@ class PosteriorModel(torch.nn.Module):
         self.artifact_spectra = initialize_artifact_spectra()
 
         # normal sequencing error spectra for each variant type.
-        self.normal_seq_error_spectra = torch.nn.ModuleList([NormalSeqErrorSpectrum(num_samples=50, max_mean=0.01) for _ in Variation])
+        self.normal_seq_error_spectra = torch.nn.ModuleList([NormalSeqErrorSpectrum(num_samples=50, max_mean=0.001) for _ in Variation])
 
         self.normal_artifact_spectra = initialize_normal_artifact_spectra()
 
@@ -171,12 +172,19 @@ class PosteriorModel(torch.nn.Module):
         # note that the call to make_unnormalized_priors ensures that no_germline_mode works
         log_priors = torch.nn.functional.log_softmax(self.make_unnormalized_priors(types, batch.allele_frequencies), dim=1)
 
-        spectra_log_likelihoods = torch.zeros_like(log_priors)
-        spectra_log_likelihoods[:, Call.SOMATIC] = self.somatic_spectrum.forward(batch.depths, batch.alt_counts)
+        # defined as log [ int_0^1 Binom(alt count | depth, f) df ], including the combinatorial N choose N_alt factor
+        flat_prior_spectra_log_likelihoods = -torch.log(batch.depths + 1)
+        somatic_spectrum_log_likelihoods = self.somatic_spectrum.forward(batch.depths, batch.alt_counts)
         tumor_artifact_spectrum_log_likelihood = self.artifact_spectra.forward(types, batch.depths, batch.alt_counts)
-        spectra_log_likelihoods[:, Call.ARTIFACT] = tumor_artifact_spectrum_log_likelihood
-        spectra_log_likelihoods[:, Call.NORMAL_ARTIFACT] = tumor_artifact_spectrum_log_likelihood # yup, it's the same spectrum
-        spectra_log_likelihoods[:, Call.SEQ_ERROR] = batch.seq_error_log_likelihoods
+
+        spectra_log_likelihoods = torch.zeros_like(log_priors)
+
+        # essentially, this corrects the TLOD from M2, computed with a flat prior, to account for the precises somatic spectrum
+        spectra_log_likelihoods[:, Call.SOMATIC] = somatic_spectrum_log_likelihoods - flat_prior_spectra_log_likelihoods
+        spectra_log_likelihoods[:, Call.ARTIFACT] = tumor_artifact_spectrum_log_likelihood - flat_prior_spectra_log_likelihoods
+        spectra_log_likelihoods[:, Call.NORMAL_ARTIFACT] = tumor_artifact_spectrum_log_likelihood - flat_prior_spectra_log_likelihoods # yup, it's the same spectrum
+        spectra_log_likelihoods[:, Call.SEQ_ERROR] = -batch.tlods_from_m2
+        # spectra_log_likelihoods[:, Call.GERMLINE] is computed below
 
         normal_log_likelihoods = torch.zeros_like(log_priors)
         normal_seq_error_log_likelihoods = torch.zeros_like(batch.alt_counts).float()
@@ -194,20 +202,6 @@ class PosteriorModel(torch.nn.Module):
         normal_log_likelihoods[:, Call.NORMAL_ARTIFACT] = -9999 * no_alt_in_normal_mask + \
             torch.logical_not(no_alt_in_normal_mask) * self.normal_artifact_spectra.forward(types, batch.normal_depths, batch.normal_alt_counts)
 
-
-        #normal_artifact_log_likelihoods = torch.zeros(batch.size())
-        #one_hot_types_2d = batch.variant_type_one_hot()
-        #for n, _ in enumerate(Variation):
-        #    mask = one_hot_types_2d[:, n]
-        #    assert mask.dim() == 1
-        #    assert len(mask) == batch.size()
-        #    na_log_lls_for_this_type = self.normal_artifact_spectra[n].forward(batch.alt_counts, batch.ref_counts(), batch.normal_alt_counts, batch.normal_ref_counts())
-        #    assert na_log_lls_for_this_type.dim() == 1
-        #    assert len(na_log_lls_for_this_type) == batch.size()
-        #    normal_artifact_log_likelihoods += mask * na_log_lls_for_this_type
-
-        # We assign half of the joint likelihood to tumor and half to normal
-
         # since this is a default dict, if there's no segmentation for the contig we will get no overlaps but not an error
         # In our case there is either one or zero overlaps, and overlaps have the form
         segmentation_overlaps = [self.segmentation[item.contig][item.position] for item in batch.original_list()]
@@ -215,7 +209,10 @@ class PosteriorModel(torch.nn.Module):
         mafs = torch.Tensor([list(overlaps)[0].data if overlaps else 0.5 for overlaps in segmentation_overlaps])
         normal_mafs = torch.Tensor([list(overlaps)[0].data if overlaps else 0.5 for overlaps in normal_segmentation_overlaps])
         afs = batch.allele_frequencies
-        spectra_log_likelihoods[:, Call.GERMLINE] = germline_log_likelihood(afs, mafs, batch.alt_counts, batch.ref_counts())
+        spectra_log_likelihoods[:, Call.GERMLINE] = germline_log_likelihood(afs, mafs, batch.alt_counts, batch.ref_counts()) - flat_prior_spectra_log_likelihoods
+
+        # it is correct not to subtract the flat prior likelihood from the normal term because this is an absolute likelihood, not
+        # relative to seq error as the M2 TLOD is defined
         normal_log_likelihoods[:, Call.GERMLINE] = germline_log_likelihood(afs, normal_mafs, batch.normal_alt_counts, batch.normal_ref_counts())
 
         log_posteriors = log_priors + spectra_log_likelihoods + normal_log_likelihoods

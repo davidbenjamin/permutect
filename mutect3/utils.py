@@ -122,7 +122,8 @@ def f_score(tp, fp, total_true):
 # unsqueezing is necessary
 # NOTE: this excludes the nCk factor
 def beta_binomial(n, k, alpha, beta):
-    return torch.lgamma(k + alpha) + torch.lgamma(n - k + beta) + torch.lgamma(alpha + beta) \
+    combinatorial_term = torch.lgamma(n + 1) - torch.lgamma(n - k + 1) - torch.lgamma(k + 1)
+    return combinatorial_term + torch.lgamma(k + alpha) + torch.lgamma(n - k + beta) + torch.lgamma(alpha + beta) \
            - torch.lgamma(n + alpha + beta) - torch.lgamma(alpha) - torch.lgamma(beta)
 
 
