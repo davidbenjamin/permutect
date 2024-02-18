@@ -25,7 +25,7 @@ class PosteriorDatum:
         self.normal_alt_count = normal_alt_count
 
         self.seq_error_log_likelihood = seq_error_log_likelihood
-        self.tlod_from_m2 = seq_error_log_likelihood - math.log(depth + 1)
+        self.tlod_from_m2 = -seq_error_log_likelihood - math.log(depth + 1)
         self.normal_seq_error_log_likelihood = normal_seq_error_log_likelihood
 
         self.allele_frequency = allele_frequency
