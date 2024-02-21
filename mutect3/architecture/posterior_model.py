@@ -280,18 +280,6 @@ class PosteriorModel(torch.nn.Module):
 
                 utils.backpropagate(optimizer, loss)
 
-                # DEBUG DELETE LATER
-                for var_idx, var_type in enumerate(Variation):
-                    if self.normal_seq_error_spectra[var_idx].mean_pre_sigmoid.isnan():
-                        print("normal seq error spectrum for " + var_type.name + " has become nan after gradient step.")
-
-                        if loss.isnan():
-                            print("The loss was a nan")
-                        else:
-                            print("the loss was not a nan: " + str(loss))
-
-                        assert 5 < 4, "CRASH!!!"
-
                 # TODO: INELEGANT! since we can't freeze just the artifact row of log priors, we have to reset it after each batch
                 if artifact_log_priors is not None:
                     with torch.no_grad():
