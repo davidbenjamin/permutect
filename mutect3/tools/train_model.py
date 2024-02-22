@@ -1,7 +1,5 @@
 import argparse
 import tempfile
-import tarfile
-import os
 import pickle
 
 import torch
@@ -11,6 +9,7 @@ from mutect3 import constants, utils
 from mutect3.architecture.artifact_model import ArtifactModelParameters, ArtifactModel
 from mutect3.architecture.posterior_model import initialize_artifact_spectra, plot_artifact_spectra
 from mutect3.data.read_set_dataset import ReadSetDataset
+from mutect3.tools.filter_variants import load_artifact_model
 from mutect3.utils import Variation
 
 
@@ -23,19 +22,21 @@ class TrainingParameters:
         self.num_workers = num_workers
 
 
-def train_artifact_model(m3_params: ArtifactModelParameters, params: TrainingParameters, summary_writer: SummaryWriter, data_tarfile):
+def train_artifact_model(m3_params: ArtifactModelParameters, params: TrainingParameters, summary_writer: SummaryWriter, data_tarfile,
+                         pretrained_model: ArtifactModel = None):
     use_gpu = torch.cuda.is_available()
     device = torch.device('cuda' if use_gpu else 'cpu')
 
     dataset = ReadSetDataset(data_tarfile=data_tarfile, num_folds=10)
 
-    model = ArtifactModel(params=m3_params, num_read_features=dataset.num_read_features,
-                          num_info_features=dataset.num_info_features, ref_sequence_length=dataset.ref_sequence_length,
-                          device=device).float()
+    use_pretrained = (pretrained_model is not None)
+    model = load_artifact_model(pretrained_model)[0] if use_pretrained else \
+        ArtifactModel(params=m3_params, num_read_features=dataset.num_read_features, num_info_features=dataset.num_info_features,
+                      ref_sequence_length=dataset.ref_sequence_length, device=device).float()
 
     print("Training. . .")
     model.train_model(dataset, params.num_epochs, params.num_calibration_epochs, params.batch_size, params.num_workers, summary_writer=summary_writer,
-                      reweighting_range=params.reweighting_range, m3_params=m3_params)
+                      reweighting_range=params.reweighting_range, m3_params=m3_params, freeze_lower_layers=use_pretrained)
 
     for n, var_type in enumerate(Variation):
         cal_fig, cal_axes = model.calibration[n].plot_calibration()
@@ -167,6 +168,7 @@ def add_artifact_model_training_hyperparameters_to_parser(parser):
 
 def add_artifact_model_hyperparameters_to_parser(parser):
     # architecture hyperparameters
+    parser.add_argument('--' + constants.PRETRAINED_MODEL_NAME, required=False, type=str, help='optional pretrained Mutect3 artifact model from train_model.py')
     parser.add_argument('--' + constants.READ_EMBEDDING_DIMENSION_NAME, type=int, required=True,
                         help='dimension of read embedding output by the transformer')
     parser.add_argument('--' + constants.NUM_TRANSFORMER_HEADS_NAME, type=int, required=True,
@@ -207,9 +209,11 @@ def main_without_parsing(args):
     genomic_span = getattr(args, constants.GENOMIC_SPAN_NAME)
 
     tarfile_data = getattr(args, constants.TRAIN_TAR_NAME)
+    pretrained_model = getattr(args, constants.PRETRAINED_MODEL_NAME)
     tensorboard_dir = getattr(args, constants.TENSORBOARD_DIR_NAME)
     summary_writer = SummaryWriter(tensorboard_dir)
-    model = train_artifact_model(m3_params=m3_params, data_tarfile=tarfile_data, params=training_params, summary_writer=summary_writer)
+    model = train_artifact_model(m3_params=m3_params, data_tarfile=tarfile_data, params=training_params,
+                                 summary_writer=summary_writer, pretrained_model=pretrained_model)
 
     artifact_tarfile_data = getattr(args, constants.ARTIFACT_TAR_NAME)
     artifact_log_priors, artifact_spectra = learn_artifact_priors_and_spectra(artifact_tarfile_data, genomic_span) if learn_artifact_spectra else (None, None)
