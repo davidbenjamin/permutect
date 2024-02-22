@@ -1,4 +1,5 @@
 import random
+import math
 from typing import List, Iterable
 
 from torch import Tensor, IntTensor, BoolTensor, vstack, from_numpy
@@ -24,6 +25,7 @@ class PosteriorDatum:
         self.normal_alt_count = normal_alt_count
 
         self.seq_error_log_likelihood = seq_error_log_likelihood
+        self.tlod_from_m2 = -seq_error_log_likelihood - math.log(depth + 1)
         self.normal_seq_error_log_likelihood = normal_seq_error_log_likelihood
 
         self.allele_frequency = allele_frequency
@@ -50,6 +52,7 @@ class PosteriorBatch:
         self._variant_type_one_hot = vstack([from_numpy(item.variant_type.one_hot_tensor()) for item in self._original_list]).float()
 
         self.seq_error_log_likelihoods = Tensor([item.seq_error_log_likelihood for item in self._original_list])
+        self.tlods_from_m2 = Tensor([item.tlod_from_m2 for item in self._original_list])
         self.normal_seq_error_log_likelihoods = Tensor([item.normal_seq_error_log_likelihood for item in self._original_list])
         self.allele_frequencies = Tensor([item.allele_frequency for item in self._original_list])
         self.artifact_logits = Tensor([item.artifact_logit for item in self._original_list])

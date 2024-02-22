@@ -17,12 +17,16 @@ class BetaBinomialMixture(nn.Module):
     vector of beta shape parameters of each component.  Due to batching these are all represented as 2D tensors.
 
     The computed likelihoods take in a 1D batch of total counts n and 1D batch of "success" counts k.
+
+    It optionally has a max mean that scales every mean to some amount less than or equal to 1, which is useful when we want
+    to force the mixture to represent only small fractions
     """
 
-    def __init__(self, input_size: int, num_components: int):
+    def __init__(self, input_size: int, num_components: int, max_mean: float = 1):
         super(BetaBinomialMixture, self).__init__()
         self.num_components = num_components
         self.input_size = input_size
+        self.max_mean = max_mean
 
         self.weights_pre_softmax = nn.Linear(in_features=input_size, out_features=num_components, bias=False)
         self.mean_pre_sigmoid = nn.Linear(in_features=input_size, out_features=num_components, bias=False)
@@ -65,7 +69,7 @@ class BetaBinomialMixture(nn.Module):
         log_weights = log_softmax(self.weights_pre_softmax(x), dim=1)
 
         # 2D tensors -- 1st dim batch, 2nd dim mixture component
-        means = torch.sigmoid(self.mean_pre_sigmoid(x))
+        means = self.max_mean * torch.sigmoid(self.mean_pre_sigmoid(x))
         concentrations = torch.exp(self.concentration_pre_exp(x))
         alphas = means * concentrations
         betas = (1 - means) * concentrations
@@ -86,7 +90,7 @@ class BetaBinomialMixture(nn.Module):
         assert input_1d.dim() == 1
 
         input_2d = input_1d.unsqueeze(dim=0)
-        means = torch.sigmoid(self.mean_pre_sigmoid(input_2d)).squeeze()
+        means = self.max_mean * torch.sigmoid(self.mean_pre_sigmoid(input_2d)).squeeze()
         concentrations = torch.exp(self.concentration_pre_exp(input_2d)).squeeze()
         alphas = means * concentrations
         betas = (1 - means) * concentrations
@@ -134,7 +138,7 @@ class BetaBinomialMixture(nn.Module):
 
         # get 1D tensors of one selected alpha and beta shape parameter per datum / row, then sample a fraction from each
         # It may be very wasteful computing everything and only using one component, but this is just for unit testing
-        means = torch.sigmoid(self.mean_pre_sigmoid(x).detach()).gather(dim=1, index=component_indices).squeeze()
+        means = self.max_mean * torch.sigmoid(self.mean_pre_sigmoid(x).detach()).gather(dim=1, index=component_indices).squeeze()
         concentrations = torch.exp(self.concentration_pre_exp(x).detach()).gather(dim=1, index=component_indices).squeeze()
         alphas = means * concentrations
         betas = (1 - means) * concentrations
@@ -171,7 +175,7 @@ class BetaBinomialMixture(nn.Module):
 
         unsqueezed = x.unsqueeze(dim=0)  # this and the three following tensors are 2D tensors with one row
         log_weights = log_softmax(self.weights_pre_softmax(unsqueezed).detach(), dim=1)
-        means = torch.sigmoid(self.mean_pre_sigmoid(unsqueezed).detach())
+        means = self.max_mean * torch.sigmoid(self.mean_pre_sigmoid(unsqueezed).detach())
         concentrations = torch.exp(self.concentration_pre_exp(unsqueezed).detach())
         alphas = means * concentrations
         betas = (1 - means) * concentrations
