@@ -391,28 +391,13 @@ class ArtifactModel(nn.Module):
                 for n, batch in pbar:
                     transformed_reads = self.apply_transformer_to_reads(batch)
 
-                    orig_pred = self.forward_from_transformed_reads(transformed_reads, batch, weight_range=0)
-                    aug1_pred = self.forward_from_transformed_reads(transformed_reads, batch, weight_range=reweighting_range)
-                    aug2_pred = self.forward_from_transformed_reads(transformed_reads, batch, weight_range=reweighting_range)
+                    logits = self.forward_from_transformed_reads(transformed_reads, batch, weight_range=reweighting_range)
+                    types_one_hot = batch.variant_type_one_hot()
+                    log_prior_ratios = torch.sum(artifact_to_non_artifact_log_prior_ratios * types_one_hot, dim=1)
+                    posterior_logits = logits + log_prior_ratios
 
                     if batch.is_labeled():
-                        labels = batch.labels
-                        # labeled loss: cross entropy for original and both augmented copies
-
-                        # the variant-dependent weights multiply the (unreduced) bces inside the torch.sum below
-                        # how does this work? Well the weights buy type vectors are 1D row vectors eg [SNV weight, INS weight, DEL weight]
-                        # and if we broadcast multiply them by the 1-hot variant vectors we get eg
-                        # [[SNV weight, 0, 0],
-                        #   [0, 0, DEL weight],
-                        #   [0, INS weight, 0]]
-                        # taking the sum over each row then gives the weights
-
-                        types_one_hot = batch.variant_type_one_hot()
-
-                        log_prior_ratios = torch.sum(artifact_to_non_artifact_log_prior_ratios * types_one_hot, dim=1)
-                        orig_post, aug1_post, aug2_post = orig_pred + log_prior_ratios, aug1_pred + log_prior_ratios, aug2_pred + log_prior_ratios
-
-                        separate_losses = (bce(orig_post, labels) + bce(aug1_post, labels) + bce(aug2_post, labels))
+                        separate_losses = bce(posterior_logits, batch.labels)
                         loss = torch.sum(separate_losses)
                         labeled_loss.record_sum(loss.detach(), batch.size())
 
@@ -428,11 +413,13 @@ class ArtifactModel(nn.Module):
                             loss_for_type = total_loss_by_type[variant_type_idx].item()
                             labeled_loss_by_type[variant_types[variant_type_idx]].record_sum(loss_for_type, count_for_type)
                     else:
-                        # unlabeled loss: consistency cross entropy between original and both augmented copies
-                        loss1 = bce(aug1_pred, torch.sigmoid(orig_pred.detach()))
-                        loss2 = bce(aug2_pred, torch.sigmoid(orig_pred.detach()))
-                        loss3 = bce(aug1_pred, torch.sigmoid(aug2_pred.detach()))
-                        loss = torch.sum(loss1 + loss2 + loss3) * labeled_to_unlabeled_ratio
+                        # unlabeled loss: entropy regularization
+                        posterior_probabilities = torch.sigmoid(posterior_logits)
+                        entropies = -posterior_probabilities * torch.log(posterior_probabilities) \
+                            - (1-posterior_probabilities) * torch.log(1-posterior_probabilities)
+
+                        # TODO: we need a parameter to control the relative weight of unlabeled loss to labeled loss
+                        loss = torch.sum(entropies) * labeled_to_unlabeled_ratio
                         unlabeled_loss.record_sum(loss.detach(), batch.size())
 
                     assert not loss.isnan().item()  # all sorts of errors produce a nan here.  This is a good place to spot it
