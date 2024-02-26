@@ -1,6 +1,6 @@
 version 1.0
 
-import "https://api.firecloud.org/ga4gh/v1/tools/davidben:mutect2/versions/1/plain-WDL/descriptor" as m2
+import "https://api.firecloud.org/ga4gh/v1/tools/davidben:mutect2/versions/2/plain-WDL/descriptor" as m2
 
 
 workflow Mutect3 {
@@ -23,6 +23,7 @@ workflow Mutect3 {
         File? variants_for_contamination
         File? variants_for_contamination_idx
         File? realignment_index_bundle
+        File? dragstr_model
         String? realignment_extra_args
         Boolean? run_orientation_bias_mixture_model_filter
         String? m2_extra_args
@@ -60,6 +61,7 @@ workflow Mutect3 {
             variants_for_contamination_idx = variants_for_contamination_idx,
             realignment_index_bundle = realignment_index_bundle,
             realignment_extra_args = realignment_extra_args,
+            dragstr_model = dragstr_model,
             run_orientation_bias_mixture_model_filter = run_orientation_bias_mixture_model_filter,
             m2_extra_args = m2_extra_args,
             make_bamout = false,
