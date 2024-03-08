@@ -74,11 +74,11 @@ def make_tensor_from_read_string(read_string: str, k: int) -> np.ndarray:
             position += 1
         elif token.startswith('X'):
             mismatch_base = token[1]
+            # TODO: put in an inserted base and handle qual
+            position += 1
 
-    result = np.zeros([4, len(sequence_string)])
-    for n, char in enumerate(sequence_string):
-        channel = 0 if char == 'A' else (1 if char == 'C' else (2 if char == 'G' else 3))
-        result[channel, n] = 1
+    # TODO: same for the before variant part
+
     return result
 
 
