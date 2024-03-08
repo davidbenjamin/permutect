@@ -102,7 +102,7 @@ def read_data(dataset_file, posterior: bool, round_down: bool = True, include_va
                 skip_info_tensor_line = file.readline()
                 ref_tensor_size, alt_tensor_size, normal_ref_tensor_size, normal_alt_tensor_size = map(int, file.readline().strip().split())
 
-                tensor_lines_to_skip = ref_tensor_size + alt_tensor_size
+                tensor_lines_to_skip = 2 * (ref_tensor_size + alt_tensor_size) # factor of 2 for the read vectors and the read strings
                 for _ in range(tensor_lines_to_skip):
                     file.readline()
                 depth, alt_count, normal_depth, normal_alt_count = read_integers(file.readline())
@@ -118,15 +118,15 @@ def read_data(dataset_file, posterior: bool, round_down: bool = True, include_va
                 gatk_info_tensor = line_to_tensor(file.readline())
                 ref_tensor_size, alt_tensor_size, normal_ref_tensor_size, normal_alt_tensor_size = map(int, file.readline().strip().split())
 
-                ref_tensor = read_2d_tensor(file, ref_tensor_size) if ref_tensor_size > 0 else None
-                alt_tensor = read_2d_tensor(file, alt_tensor_size)
+                ref_tensor, ref_read_strings = parse_reads(file, ref_tensor_size) if ref_tensor_size > 0 else None
+                alt_tensor, alt_read_strings = parse_reads(file, alt_tensor_size)
 
                 if round_down:
                     ref_tensor = utils.downsample_tensor(ref_tensor, 0 if ref_tensor is None else round_down_ref(len(ref_tensor)))
                     alt_tensor = utils.downsample_tensor(alt_tensor, 0 if alt_tensor is None else round_down_alt(len(alt_tensor)))
 
-                # normal_ref_tensor = read_2d_tensor(file, normal_ref_tensor_size)  # not currently used
-                # normal_alt_tensor = read_2d_tensor(file, normal_alt_tensor_size)  # not currently used
+                # normal_ref_tensor, _ = parse_reads(file, normal_ref_tensor_size)  # not currently used
+                # normal_alt_tensor, _ = parse_reads(file, normal_alt_tensor_size)  # not currently used
                 # round down normal tensors as well
 
                 skip_depths = file.readline()
@@ -134,8 +134,8 @@ def read_data(dataset_file, posterior: bool, round_down: bool = True, include_va
                 skip_normal_seq_error = file.readline()
 
                 if alt_tensor_size > 0 and passes_label_filter:
-                    yield ReadSet.from_gatk(ref_sequence_string, Variation.get_type(ref_allele, alt_allele), ref_tensor,
-                                          alt_tensor, gatk_info_tensor, label, encode(contig, position, ref_allele, alt_allele) if include_variant_string else None)
+                    yield ReadSet.from_gatk(ref_sequence_string, Variation.get_type(ref_allele, alt_allele), ref_tensor, ref_read_strings,
+                                          alt_tensor, alt_read_strings, gatk_info_tensor, label, encode(contig, position, ref_allele, alt_allele) if include_variant_string else None)
 
 
 def generate_artifact_posterior_data(dataset_files, num_data_per_chunk: int):
@@ -236,11 +236,15 @@ def line_to_tensor(line: str) -> np.ndarray:
     return np.clip(np.array(floats), -MAX_VALUE, MAX_VALUE)
 
 
-def read_2d_tensor(file, num_lines: int) -> np.ndarray:
-    if num_lines == 0:
-        return None
-    lines = [file.readline() for _ in range(num_lines)]
-    return np.vstack([line_to_tensor(line) for line in lines])
+# parse alternating lines of read vectors and read strings,
+# return a tuple of 1) 2d tensor of stacked read vectors and 2) a list of the read strings
+def parse_reads(file, num_reads: int) -> np.ndarray:
+    if num_reads == 0:
+        return None, None
+    lines = [file.readline() for _ in range(2 * num_reads)]
+    vector_lines = lines[0::2]
+    string_lines = lines[1::2]
+    return np.vstack([line_to_tensor(line) for line in vector_lines]), string_lines
 
 
 def read_integers(line: str):

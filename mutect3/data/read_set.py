@@ -24,6 +24,64 @@ def make_sequence_tensor(sequence_string: str) -> np.ndarray:
     return result
 
 
+# quick and dirty tensor representation:
+# first dimension is indel: 1 for insertion, -1 for deletion, 0 for match/substitution
+# second dimension is quality: 0 for high-qual, 0.5 for medium low, 1 for very low
+# third and fourth dimensions are substituted/inserted base: (0,0) for match, (1,0) for A (-1,0) for T, (0,1) for C, (0,-1) for G
+# fifth dimension is end of read / past end of read: 1 if no read at this position, 0 otherwise
+def make_tensor_from_read_string(read_string: str, k: int) -> np.ndarray:
+    """
+    convert string of form ACCGTA into 4-channel one-hot tensor
+    [ [1, 0, 0, 0, 0, 1],   # A channel
+      [0, 1, 1, 0, 0, 0],   # C channel
+      [0, 0, 0, 1, 0, 0],   # G channel
+      [0, 0, 0, 0, 1, 0] ]  # T channel
+    """
+    result = np.zeros([5, 2*k + 1])
+    before, after = tuple(read_string.split())  # before and after/including variant start separated by a space
+
+    token_starts = []
+    position = k
+    for idx, char in enumerate(after):
+        if char == 'M' or char == 'D' or char == 'I' or char == 'Q' or char == 'X':
+            token_starts.append(idx)
+    token_starts.append(len(after))
+    for token_idx in range(len(token_starts) - 1):
+        if position > 2*k:
+            break
+
+        token = after[token_starts[token_idx]:token_starts[token_idx+1]]
+
+        if token.startswith('M'):
+            consecutive_high_qual_match = int(token[1:])    # after the 'M' is the number of high-qual match bases
+            position += consecutive_high_qual_match
+            # note: the encoding for high-qual matches is all zero, so there's nothing to do!!!
+        elif token.startswith('D'): # a single character for one deleted base.  We don't encode deletion length
+            result[0, position] = -1
+            position += 1
+        elif token.startswith('I'):
+            inserted_bases = token[1:]
+            for base in inserted_bases:
+                if position > 2*k:
+                    break
+                result[0, position] = 1
+                # TODO: put in an inserted base and handle qual
+
+                position += 1
+        elif token.startswith('Q'):
+            low_qual_base = token[1]
+            result[1, position] = 1 if low_qual_base == 'N' else 0.5
+            position += 1
+        elif token.startswith('X'):
+            mismatch_base = token[1]
+
+    result = np.zeros([4, len(sequence_string)])
+    for n, char in enumerate(sequence_string):
+        channel = 0 if char == 'A' else (1 if char == 'C' else (2 if char == 'G' else 3))
+        result[channel, n] = 1
+    return result
+
+
 class ReadSet:
     """
     :param ref_sequence_2d  2D tensor with 4 rows, one for each "channel" A,C, G, T, with each column a position, centered
@@ -33,22 +91,24 @@ class ReadSet:
     :param info_array_1d  1D tensor of information about the variant as a whole
     :param label        an object of the Label enum artifact, non-artifact, unlabeled
     """
-    def __init__(self, ref_sequence_2d: np.ndarray, ref_reads_2d: np.ndarray, alt_reads_2d: np.ndarray, info_array_1d: np.ndarray, label: utils.Label,
-                 variant_string: str = None):
+    def __init__(self, ref_sequence_2d: np.ndarray, ref_reads_2d: np.ndarray, ref_read_strings: List[str], alt_reads_2d: np.ndarray,
+                 alt_read_strings: List[str], info_array_1d: np.ndarray, label: utils.Label, variant_string: str = None):
         # Note: if changing any of the data fields below, make sure to modify the size_in_bytes() method below accordingly!
         self.ref_sequence_2d = ref_sequence_2d
         self.ref_reads_2d = ref_reads_2d
+        self.ref_read_strings = ref_read_strings
         self.alt_reads_2d = alt_reads_2d
+        self.alt_read_strings = alt_read_strings
         self.info_array_1d = info_array_1d
         self.label = label
         self.variant_string = variant_string
 
     # gatk_info tensor comes from GATK and does not include one-hot encoding of variant type
     @classmethod
-    def from_gatk(cls, ref_sequence_string: str, variant_type: utils.Variation, ref_tensor: np.ndarray, alt_tensor: np.ndarray,
-                 gatk_info_tensor: np.ndarray, label: utils.Label, variant_string: str = None):
+    def from_gatk(cls, ref_sequence_string: str, variant_type: utils.Variation, ref_tensor: np.ndarray, ref_read_strings: List[str], alt_tensor: np.ndarray,
+                 alt_read_strings: List[str], gatk_info_tensor: np.ndarray, label: utils.Label, variant_string: str = None):
         info_tensor = np.hstack([gatk_info_tensor, variant_type.one_hot_tensor()])
-        return cls(make_sequence_tensor(ref_sequence_string), ref_tensor, alt_tensor, info_tensor, label, variant_string)
+        return cls(make_sequence_tensor(ref_sequence_string), ref_tensor, ref_read_strings, alt_tensor, alt_read_strings, info_tensor, label, variant_string)
 
     def size_in_bytes(self):
         return (self.ref_reads_2d.nbytes if self.ref_reads_2d is not None else 0) + self.alt_reads_2d.nbytes + self.info_array_1d.nbytes + sys.getsizeof(self.label)

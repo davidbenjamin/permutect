@@ -69,9 +69,11 @@ def make_random_data(art_gatk_info_gen: RandomGATKInfoGenerator, var_gatk_info_g
 
         ref_tensor = var_read_gen.generate(ref_count)
         alt_tensor = (art_read_gen if artifact else var_read_gen).generate(alt_count)
+        ref_read_strings = ["M10 M11" for _ in range(ref_count)]
+        alt_read_strings = ["M10 M11" for _ in range(alt_count)]
 
         # TODO: vary the reference sequence string?
-        data.append(ReadSet.from_gatk("GTAAAGT", variant_type, ref_tensor, alt_tensor, gatk_info_tensor, label))
+        data.append(ReadSet.from_gatk("GTAAAGT", variant_type, ref_tensor, ref_read_strings, alt_tensor, alt_read_strings, gatk_info_tensor, label))
 
     return data
 
@@ -102,13 +104,15 @@ def make_random_strand_bias_data(num_data: int, artifact_fraction=0.5, unlabeled
         # before modifying the 0th element, it's all uniform Gaussian data
         ref_tensor = torch.randn(ref_downsampling, NUM_READ_FEATURES)
         alt_tensor = torch.randn(alt_tensor_size, NUM_READ_FEATURES)
+        ref_read_strings = ["M10 M11" for _ in range(ref_downsampling)]
+        alt_read_strings = ["M10 M11" for _ in range(alt_tensor_size)]
 
         if artifact:
             sign = 1 if random.uniform(0,1) < 0.5 else -1
             alt_tensor[:, 0] = sign * torch.abs(alt_tensor[:, 0])
 
         # TODO: vary the reference sequence string?
-        data.append(ReadSet.from_gatk("TGGGAATG", Variation.SNV, ref_tensor, alt_tensor, gatk_info_tensor, label))
+        data.append(ReadSet.from_gatk("TGGGAATG", Variation.SNV, ref_tensor, ref_read_strings, alt_tensor, alt_read_strings, gatk_info_tensor, label))
 
     return data
 
