@@ -117,7 +117,7 @@ class ReadSet:
         self.variant_string = variant_string
 
         self.nbytes = (self.ref_reads_2d.nbytes if self.ref_reads_2d is not None else 0) + self.alt_reads_2d.nbytes + \
-                      self.alt_extra_tensor_3d.nbytes + self.info_array_1d.nbytes + sys.getsizeof(self.label) + \
+                      self.info_array_1d.nbytes + sys.getsizeof(self.label) + \
                       ((self.ref_extra_tensor_3d.indices().numpy().nbytes + self.ref_extra_tensor_3d.values().numpy().nbytes) if self.ref_reads_2d is not None else 0) + \
                       self.alt_extra_tensor_3d.indices().numpy().nbytes + self.alt_extra_tensor_3d.values().numpy().nbytes
 
