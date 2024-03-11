@@ -31,7 +31,7 @@ def make_sequence_tensor(sequence_string: str) -> np.ndarray:
 # second dimension is quality: 0 for high-qual, 0.5 for medium low, 1 for very low
 # third and fourth dimensions are substituted/inserted base: (0,0) for match, (1,0) for A (-1,0) for T, (0,1) for C, (0,-1) for G
 # fifth dimension is end of read / past end of read: 1 if no read at this position, 0 otherwise
-def make_tensor_from_read_string(read_string: str, k: int) -> np.ndarray:
+def make_tensor_from_read_string(read_string: str, expected_size) -> np.ndarray:
     """
     convert string of form ACCGTA into 4-channel one-hot tensor
     [ [1, 0, 0, 0, 0, 1],   # A channel
@@ -39,7 +39,7 @@ def make_tensor_from_read_string(read_string: str, k: int) -> np.ndarray:
       [0, 0, 0, 1, 0, 0],   # G channel
       [0, 0, 0, 0, 1, 0] ]  # T channel
     """
-    result = np.zeros([5, 2 * k + 1])
+    result = np.zeros([5, expected_size])
     position = 0
     token_start = 0
     while token_start < len(read_string):
@@ -96,14 +96,14 @@ class ReadSet:
     :param info_array_1d  1D tensor of information about the variant as a whole
     :param label        an object of the Label enum artifact, non-artifact, unlabeled
     """
-    def __init__(self, ref_sequence_2d: np.ndarray, ref_reads_2d: np.ndarray, ref_read_strings: List[str], alt_reads_2d: np.ndarray,
-                 alt_read_strings: List[str], info_array_1d: np.ndarray, label: utils.Label, variant_string: str = None):
+    def __init__(self, ref_sequence_2d: np.ndarray, ref_reads_2d: np.ndarray, ref_extra_tensor_3d: np.ndarray, alt_reads_2d: np.ndarray,
+                 alt_extra_tensor_3d: np.ndarray, info_array_1d: np.ndarray, label: utils.Label, variant_string: str = None):
         # Note: if changing any of the data fields below, make sure to modify the size_in_bytes() method below accordingly!
         self.ref_sequence_2d = ref_sequence_2d
         self.ref_reads_2d = ref_reads_2d
-        self.ref_read_strings = ref_read_strings
+        self.ref_extra_tensor_3d = ref_extra_tensor_3d
         self.alt_reads_2d = alt_reads_2d
-        self.alt_read_strings = alt_read_strings
+        self.alt_extra_tensor_3d = alt_extra_tensor_3d
         self.info_array_1d = info_array_1d
         self.label = label
         self.variant_string = variant_string
@@ -113,7 +113,12 @@ class ReadSet:
     def from_gatk(cls, ref_sequence_string: str, variant_type: utils.Variation, ref_tensor: np.ndarray, ref_read_strings: List[str], alt_tensor: np.ndarray,
                  alt_read_strings: List[str], gatk_info_tensor: np.ndarray, label: utils.Label, variant_string: str = None):
         info_tensor = np.hstack([gatk_info_tensor, variant_type.one_hot_tensor()])
-        return cls(make_sequence_tensor(ref_sequence_string), ref_tensor, ref_read_strings, alt_tensor, alt_read_strings, info_tensor, label, variant_string)
+
+        # make 3D tensors of num ref/alt reads x 5 (channels) x 2*padding + 1
+        expected_size = len(ref_sequence_string)
+        ref_extra_tensor = np.stack([make_tensor_from_read_string(rs, expected_size) for rs in ref_read_strings], axis=0)
+        alt_extra_tensor = np.stack([make_tensor_from_read_string(rs, expected_size) for rs in alt_read_strings], axis=0)
+        return cls(make_sequence_tensor(ref_sequence_string), ref_tensor, ref_extra_tensor, alt_tensor, alt_extra_tensor, info_tensor, label, variant_string)
 
     def size_in_bytes(self):
         return (self.ref_reads_2d.nbytes if self.ref_reads_2d is not None else 0) + self.alt_reads_2d.nbytes + self.info_array_1d.nbytes + sys.getsizeof(self.label)
@@ -131,11 +136,13 @@ def save_list_of_read_sets(read_sets: List[ReadSet], file):
     """
     ref_sequence_tensors = [datum.ref_sequence_2d for datum in read_sets]
     ref_tensors = [datum.ref_reads_2d for datum in read_sets]
+    ref_extra_tensors = [datum.ref_extra_tensor_3d for datum in read_sets]
     alt_tensors = [datum.alt_reads_2d for datum in read_sets]
+    alt_extra_tensors = [datum.alt_extra_tensor_3d for datum in read_sets]
     info_tensors = [datum.info_array_1d for datum in read_sets]
     labels = IntTensor([datum.label.value for datum in read_sets])
 
-    torch.save([ref_sequence_tensors, ref_tensors, alt_tensors, info_tensors, labels], file)
+    torch.save([ref_sequence_tensors, ref_tensors, ref_extra_tensors, alt_tensors, alt_extra_tensors, info_tensors, labels], file)
 
 
 def load_list_of_read_sets(file) -> List[ReadSet]:
@@ -144,9 +151,9 @@ def load_list_of_read_sets(file) -> List[ReadSet]:
     :param file:
     :return:
     """
-    ref_sequence_tensors, ref_tensors, alt_tensors, info_tensors, labels = torch.load(file)
-    return [ReadSet(ref_sequence_tensor, ref, alt, info, utils.Label(label)) for ref_sequence_tensor, ref, alt, info, label in
-            zip(ref_sequence_tensors, ref_tensors, alt_tensors, info_tensors, labels.tolist())]
+    ref_sequence_tensors, ref_tensors, ref_extra_tensors,  alt_tensors, alt_extra_tensors, info_tensors, labels = torch.load(file)
+    return [ReadSet(ref_sequence_tensor, ref, ref_extra_tensor, alt, alt_extra_tensor, info, utils.Label(label)) for ref_sequence_tensor, ref, ref_extra_tensor, alt, alt_extra_tensor, info, label in
+            zip(ref_sequence_tensors, ref_tensors, ref_extra_tensors, alt_tensors, alt_extra_tensors, info_tensors, labels.tolist())]
 
 
 class ReadSetBatch:
