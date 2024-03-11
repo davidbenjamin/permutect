@@ -118,7 +118,7 @@ def read_data(dataset_file, posterior: bool, round_down: bool = True, include_va
                 gatk_info_tensor = line_to_tensor(file.readline())
                 ref_tensor_size, alt_tensor_size, normal_ref_tensor_size, normal_alt_tensor_size = map(int, file.readline().strip().split())
 
-                ref_tensor, ref_read_strings = parse_reads(file, ref_tensor_size) if ref_tensor_size > 0 else None
+                ref_tensor, ref_read_strings = parse_reads(file, ref_tensor_size) if ref_tensor_size > 0 else None, None
                 alt_tensor, alt_read_strings = parse_reads(file, alt_tensor_size)
 
                 if round_down:
