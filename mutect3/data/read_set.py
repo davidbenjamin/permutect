@@ -8,6 +8,8 @@ import sys
 from mutect3 import utils
 from mutect3.utils import Variation, Label
 
+ENCODING_NAMES = {'M', 'I', 'D', 'E', 'Q', 'X'}
+
 
 def make_sequence_tensor(sequence_string: str) -> np.ndarray:
     """
@@ -37,47 +39,50 @@ def make_tensor_from_read_string(read_string: str, k: int) -> np.ndarray:
       [0, 0, 0, 1, 0, 0],   # G channel
       [0, 0, 0, 0, 1, 0] ]  # T channel
     """
-    result = np.zeros([5, 2*k + 1])
-    before, after = tuple(read_string.split())  # before and after/including variant start separated by a space
+    result = np.zeros([5, 2 * k + 1])
+    position = 0
+    token_start = 0
+    while token_start < len(read_string):
+        encoding_type = read_string[token_start]
 
-    token_starts = []
-    position = k
-    for idx, char in enumerate(after):
-        if char == 'M' or char == 'D' or char == 'I' or char == 'Q' or char == 'X':
-            token_starts.append(idx)
-    token_starts.append(len(after))
-    for token_idx in range(len(token_starts) - 1):
-        if position > 2*k:
-            break
+        token_end = token_start + 1
+        while not token_end < len(read_string) and read_string[token_start] in ENCODING_NAMES:
+            token_end += 1
 
-        token = after[token_starts[token_idx]:token_starts[token_idx+1]]
+        rest_of_token = read_string[token_start + 1:token_end]
 
-        if token.startswith('M'):
-            consecutive_high_qual_match = int(token[1:])    # after the 'M' is the number of high-qual match bases
-            position += consecutive_high_qual_match
-            # note: the encoding for high-qual matches is all zero, so there's nothing to do!!!
-        elif token.startswith('D'): # a single character for one deleted base.  We don't encode deletion length
-            result[0, position] = -1
-            position += 1
-        elif token.startswith('I'):
-            inserted_bases = token[1:]
-            for base in inserted_bases:
-                if position > 2*k:
-                    break
-                result[0, position] = 1
-                # TODO: put in an inserted base and handle qual
-
+        if encoding_type == 'M':    # high-quality matches -- format is eg M10 for 10 consecutive high-qual matching bases
+            run_length = int(rest_of_token)
+            position += run_length  # do nothing; for match the tensor remains all zeros as initialized
+        elif encoding_type == 'E':  # before/after end of read -- format is eg E5
+            run_length = int(rest_of_token)
+            result[4, position:position+run_length] = 1 # set last channel to 1 for end of read
+            position += run_length
+        elif encoding_type == 'D':  # deletion -- format is eg D2
+            run_length = int(rest_of_token)
+            result[0, position:position+run_length] = -1 # set first channel to -1 for deletion
+            position += run_length
+        else:  # insertion format is eg IAcT, low-qual format is eg Qg, mismatch format is eg XTT
+            run_length = len(rest_of_token)
+            if encoding_type == 'I':
+                result[0, position:position + run_length] = 1  # set first channel to +1 for insertion
+            for m in range(run_length):
+                base = rest_of_token[m]
+                result[1, position] = 1 if base == 'N' else (0 if base.isupper() else 0.5)  # encode the qual
+                if not encoding_type == 'Q':    # the base encoding does not apply for low-qual matches
+                    upper_base = base.upper()
+                    if upper_base == 'A':
+                        result[2,position] = 1
+                    elif upper_base == 'T':
+                        result[2,position] = -1
+                    elif upper_base == 'C':
+                        result[3, position] = 1
+                    elif upper_base == 'G':
+                        result[3, position] = -1
                 position += 1
-        elif token.startswith('Q'):
-            low_qual_base = token[1]
-            result[1, position] = 1 if low_qual_base == 'N' else 0.5
-            position += 1
-        elif token.startswith('X'):
-            mismatch_base = token[1]
-            # TODO: put in an inserted base and handle qual
-            position += 1
-
-    # TODO: same for the before variant part
+        token_start = token_end # get ready for next token
+    # done parsing the string.  We should have parsed exactly the right amount
+    assert token_end == len(read_string)
 
     return result
 
