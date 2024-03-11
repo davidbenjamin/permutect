@@ -241,7 +241,7 @@ def line_to_tensor(line: str) -> np.ndarray:
 def parse_reads(file, num_reads: int) -> np.ndarray:
     if num_reads == 0:
         return None, None
-    lines = [file.readline() for _ in range(2 * num_reads)]
+    lines = [file.readline().strip() for _ in range(2 * num_reads)]
     vector_lines = lines[0::2]
     string_lines = lines[1::2]
     return np.vstack([line_to_tensor(line) for line in vector_lines]), string_lines
