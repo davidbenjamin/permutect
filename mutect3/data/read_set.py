@@ -116,12 +116,12 @@ class ReadSet:
 
         # make 3D tensors of num ref/alt reads x 5 (channels) x 2*padding + 1
         expected_size = len(ref_sequence_string)
-        ref_extra_tensor = np.stack([make_tensor_from_read_string(rs, expected_size) for rs in ref_read_strings], axis=0)
+        ref_extra_tensor = None if ref_tensor is None else np.stack([make_tensor_from_read_string(rs, expected_size) for rs in ref_read_strings], axis=0)
         alt_extra_tensor = np.stack([make_tensor_from_read_string(rs, expected_size) for rs in alt_read_strings], axis=0)
         return cls(make_sequence_tensor(ref_sequence_string), ref_tensor, ref_extra_tensor, alt_tensor, alt_extra_tensor, info_tensor, label, variant_string)
 
     def size_in_bytes(self):
-        return (self.ref_reads_2d.nbytes if self.ref_reads_2d is not None else 0) + self.alt_reads_2d.nbytes + self.info_array_1d.nbytes + sys.getsizeof(self.label)
+        return (self.ref_reads_2d.nbytes + self.ref_extra_tensor_3d.nbytes if self.ref_reads_2d is not None else 0) + self.alt_reads_2d.nbytes + self.alt_extra_tensor_3d.nbytes + self.info_array_1d.nbytes + sys.getsizeof(self.label)
 
     def variant_type_one_hot(self):
         return self.info_array_1d[-len(Variation):]
