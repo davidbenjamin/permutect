@@ -104,8 +104,8 @@ class ReadSet:
     :param info_array_1d  1D tensor of information about the variant as a whole
     :param label        an object of the Label enum artifact, non-artifact, unlabeled
     """
-    def __init__(self, ref_sequence_2d: np.ndarray, ref_reads_2d: np.ndarray, ref_extra_tensor_3d: np.ndarray, alt_reads_2d: np.ndarray,
-                 alt_extra_tensor_3d: np.ndarray, info_array_1d: np.ndarray, label: utils.Label, variant_string: str = None):
+    def __init__(self, ref_sequence_2d: np.ndarray, ref_reads_2d: np.ndarray, ref_extra_tensor_3d: torch.Tensor, alt_reads_2d: np.ndarray,
+                 alt_extra_tensor_3d: torch.Tensor, info_array_1d: np.ndarray, label: utils.Label, variant_string: str = None):
         # Note: if changing any of the data fields below, make sure to modify the size_in_bytes() method below accordingly!
         self.ref_sequence_2d = ref_sequence_2d
         self.ref_reads_2d = ref_reads_2d
@@ -124,8 +124,8 @@ class ReadSet:
 
         # make 3D tensors of num ref/alt reads x 5 (channels) x 2*padding + 1
         expected_size = len(ref_sequence_string)
-        ref_extra_tensor = None if ref_tensor is None else np.stack([make_tensor_from_read_string(rs, expected_size) for rs in ref_read_strings], axis=0)
-        alt_extra_tensor = np.stack([make_tensor_from_read_string(rs, expected_size) for rs in alt_read_strings], axis=0)
+        ref_extra_tensor = None if ref_tensor is None else torch.from_numpy(np.stack([make_tensor_from_read_string(rs, expected_size) for rs in ref_read_strings], axis=0)).to_sparse()
+        alt_extra_tensor = torch.from_numpy(np.stack([make_tensor_from_read_string(rs, expected_size) for rs in alt_read_strings], axis=0)).to_sparse()
         return cls(make_sequence_tensor(ref_sequence_string), ref_tensor, ref_extra_tensor, alt_tensor, alt_extra_tensor, info_tensor, label, variant_string)
 
     def size_in_bytes(self):

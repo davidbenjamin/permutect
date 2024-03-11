@@ -8,6 +8,7 @@ from itertools import chain
 from typing import Iterable
 
 import numpy as np
+import torch
 from torch.utils.data import Dataset, DataLoader
 from torch.utils.data.sampler import Sampler
 
@@ -16,7 +17,7 @@ from mutect3 import utils
 from mutect3.data.read_set import ReadSet, ReadSetBatch, load_list_of_read_sets
 from mutect3.utils import Label
 
-TENSORS_PER_READ_SET = 7
+TENSORS_PER_READ_SET = 9
 
 
 class ReadSetDataset(Dataset):
@@ -68,13 +69,20 @@ class ReadSetDataset(Dataset):
             bottom_index = index * TENSORS_PER_READ_SET
 
             possible_ref = self._data[bottom_index]
+            alt_reads = self._data[bottom_index + 1]
+
+            num_ref_reads, num_alt_reads = len(possible_ref), len(alt_reads)
+            ref_indices, ref_values = torch.from_numpy(self._data[bottom_index+5]), torch.from_numpy(self._data[bottom_index+6])
+            alt_indices, alt_values = torch.from_numpy(self._data[bottom_index + 7]), torch.from_numpy(self._data[bottom_index + 8])
+            ref_extra = torch.sparse.FloatTensor(ref_indices, ref_values, (num_ref_reads,5,self.ref_sequence_length)) if len(possible_ref) > 0 else None
+            alt_extra = torch.sparse.FloatTensor(alt_indices, alt_values, (num_alt_reads,5,self.ref_sequence_length))
 
             # The order here corresponds to the order of yield statements within make_flattened_tensor_generator()
             return ReadSet(ref_sequence_2d=self._data[bottom_index + 2],
                            ref_reads_2d=possible_ref if len(possible_ref) > 0 else None,
-                           ref_extra_tensor_3d=self._data[bottom_index+5] if len(possible_ref) > 0 else None,
-                           alt_reads_2d=self._data[bottom_index + 1],
-                           alt_extra_tensor_3d=self._data[bottom_index+6],
+                           ref_extra_tensor_3d=ref_extra,
+                           alt_reads_2d=alt_reads,
+                           alt_extra_tensor_3d=alt_extra,
                            info_array_1d=self._data[bottom_index + 3],
                            label=utils.Label(self._data[bottom_index + 4][0]))
         else:
@@ -97,8 +105,10 @@ def make_flattened_tensor_generator(read_set_generator):
         yield read_set.ref_sequence_2d
         yield read_set.info_array_1d
         yield np.array([read_set.label.value])  # single-element tensor of the Label enum
-        yield read_set.ref_extra_tensor_3d if read_set.ref_reads_2d is not None else np.empty((0, 0))
-        yield read_set.alt_extra_tensor_3d
+        yield read_set.ref_extra_tensor_3d.indices().numpy() if read_set.ref_reads_2d is not None else np.empty((0, 0))
+        yield read_set.ref_extra_tensor_3d.values().numpy() if read_set.ref_reads_2d is not None else np.empty((0, 0))
+        yield read_set.alt_extra_tensor_3d.indices().numpy()
+        yield read_set.alt_extra_tensor_3d.values().numpy()
 
 
 def make_read_set_generator_from_tarfile(data_tarfile):
