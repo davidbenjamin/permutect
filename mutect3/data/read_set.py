@@ -72,6 +72,8 @@ def make_tensor_from_read_string(read_string: str, expected_size) -> np.ndarray:
                     print(read_string)
                     print(result)
                     print(encoding_type)
+                    print(run_length)
+                    print(m)
                     print(rest_of_token)
                     print(len(rest_of_token))
                 result[1, position] = 1 if base == 'N' else (0 if base.isupper() else 0.5)  # encode the qual
