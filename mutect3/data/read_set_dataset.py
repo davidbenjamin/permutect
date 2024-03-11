@@ -16,7 +16,7 @@ from mutect3 import utils
 from mutect3.data.read_set import ReadSet, ReadSetBatch, load_list_of_read_sets
 from mutect3.utils import Label
 
-TENSORS_PER_READ_SET = 5
+TENSORS_PER_READ_SET = 7
 
 
 class ReadSetDataset(Dataset):
@@ -72,7 +72,9 @@ class ReadSetDataset(Dataset):
             # The order here corresponds to the order of yield statements within make_flattened_tensor_generator()
             return ReadSet(ref_sequence_2d=self._data[bottom_index + 2],
                            ref_reads_2d=possible_ref if len(possible_ref) > 0 else None,
+                           ref_extra_tensor_3d=self._data[bottom_index+5] if len(possible_ref) > 0 else None,
                            alt_reads_2d=self._data[bottom_index + 1],
+                           alt_extra_tensor_3d=self._data[bottom_index+6],
                            info_array_1d=self._data[bottom_index + 3],
                            label=utils.Label(self._data[bottom_index + 4][0]))
         else:
@@ -95,6 +97,8 @@ def make_flattened_tensor_generator(read_set_generator):
         yield read_set.ref_sequence_2d
         yield read_set.info_array_1d
         yield np.array([read_set.label.value])  # single-element tensor of the Label enum
+        yield read_set.ref_extra_tensor_3d if read_set.ref_reads_2d is not None else np.empty((0, 0))
+        yield read_set.alt_extra_tensor_3d
 
 
 def make_read_set_generator_from_tarfile(data_tarfile):
