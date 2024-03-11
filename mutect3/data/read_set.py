@@ -46,7 +46,7 @@ def make_tensor_from_read_string(read_string: str, expected_size) -> np.ndarray:
         encoding_type = read_string[token_start]
 
         token_end = token_start + 1
-        while not token_end < len(read_string) and read_string[token_start] in ENCODING_NAMES:
+        while token_end < len(read_string) and not read_string[token_end] in ENCODING_NAMES:
             token_end += 1
 
         rest_of_token = read_string[token_start + 1:token_end]
