@@ -116,6 +116,11 @@ class ReadSet:
         self.label = label
         self.variant_string = variant_string
 
+        self.nbytes = (self.ref_reads_2d.nbytes if self.ref_reads_2d is not None else 0) + self.alt_reads_2d.nbytes + \
+                      self.alt_extra_tensor_3d.nbytes + self.info_array_1d.nbytes + sys.getsizeof(self.label) + \
+                      ((self.ref_extra_tensor_3d.indices().numpy().nbytes + self.ref_extra_tensor_3d.values().numpy().nbytes) if self.ref_reads_2d is not None else 0) + \
+                      self.alt_extra_tensor_3d.indices().numpy().nbytes + self.alt_extra_tensor_3d.values().numpy().nbytes
+
     # gatk_info tensor comes from GATK and does not include one-hot encoding of variant type
     @classmethod
     def from_gatk(cls, ref_sequence_string: str, variant_type: utils.Variation, ref_tensor: np.ndarray, ref_read_strings: List[str], alt_tensor: np.ndarray,
@@ -129,7 +134,7 @@ class ReadSet:
         return cls(make_sequence_tensor(ref_sequence_string), ref_tensor, ref_extra_tensor, alt_tensor, alt_extra_tensor, info_tensor, label, variant_string)
 
     def size_in_bytes(self):
-        return (self.ref_reads_2d.nbytes + self.ref_extra_tensor_3d.nbytes if self.ref_reads_2d is not None else 0) + self.alt_reads_2d.nbytes + self.alt_extra_tensor_3d.nbytes + self.info_array_1d.nbytes + sys.getsizeof(self.label)
+        return self.nbytes
 
     def variant_type_one_hot(self):
         return self.info_array_1d[-len(Variation):]
