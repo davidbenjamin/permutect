@@ -68,6 +68,11 @@ def make_tensor_from_read_string(read_string: str, expected_size) -> np.ndarray:
                 result[0, position:position + run_length] = 1  # set first channel to +1 for insertion
             for m in range(run_length):
                 base = rest_of_token[m]
+                if position >= expected_size:   # TODO: delete this debug
+                    print(read_string)
+                    print(result)
+                    print(encoding_type)
+                    print(rest_of_token)
                 result[1, position] = 1 if base == 'N' else (0 if base.isupper() else 0.5)  # encode the qual
                 if not encoding_type == 'Q':    # the base encoding does not apply for low-qual matches
                     upper_base = base.upper()
