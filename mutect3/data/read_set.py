@@ -204,6 +204,8 @@ class ReadSetBatch:
         list_of_ref_extra_tensors = [item.ref_extra_tensor_3d.to_dense() for item in data] if self.ref_count > 0 else []
         list_of_alt_extra_tensors = [item.alt_extra_tensor_3d.to_dense() for item in data]
         self.extra_reads_3d = torch.vstack(list_of_ref_extra_tensors + list_of_alt_extra_tensors).float()
+        # TODO: remove this stupid debug
+        print(self.extra_reads_3d.size())
 
         self.info_2d = torch.from_numpy(np.vstack([item.info_array_1d for item in data])).float()
         self.labels = FloatTensor([1.0 if item.label == Label.ARTIFACT else 0.0 for item in data]) if self.labeled else None
@@ -215,6 +217,7 @@ class ReadSetBatch:
     def pin_memory(self):
         self.ref_sequences_2d = self.ref_sequences_2d.pin_memory()
         self.reads_2d = self.reads_2d.pin_memory()
+        self.extra_reads_3d = self.extra_reads_3d.pin_memory()
         self.info_2d = self.info_2d.pin_memory()
         self.labels = self.labels.pin_memory()
         return self
