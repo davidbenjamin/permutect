@@ -19,6 +19,9 @@ from mutect3.utils import Label
 
 TENSORS_PER_READ_SET = 9
 
+REF_SEQ_PADDING = 10
+EXTRA_READ_TENSOR_LENGTH = 2 * REF_SEQ_PADDING + 1
+
 
 class ReadSetDataset(Dataset):
     def __init__(self, data_in_ram: Iterable[ReadSet] = None, data_tarfile=None, validation_fraction: float = 0.0):
@@ -74,8 +77,8 @@ class ReadSetDataset(Dataset):
             num_ref_reads, num_alt_reads = len(possible_ref), len(alt_reads)
             ref_indices, ref_values = torch.from_numpy(self._data[bottom_index+5]), torch.from_numpy(self._data[bottom_index+6])
             alt_indices, alt_values = torch.from_numpy(self._data[bottom_index + 7]), torch.from_numpy(self._data[bottom_index + 8])
-            ref_extra = torch.sparse.FloatTensor(ref_indices, ref_values, (num_ref_reads,5,-1)) if len(possible_ref) > 0 else None
-            alt_extra = torch.sparse.FloatTensor(alt_indices, alt_values, (num_alt_reads,5,-1))
+            ref_extra = torch.sparse_coo_tensor(ref_indices, ref_values, (num_ref_reads,5,EXTRA_READ_TENSOR_LENGTH)) if len(possible_ref) > 0 else None
+            alt_extra = torch.sparse_coo_tensor(alt_indices, alt_values, (num_alt_reads,5,EXTRA_READ_TENSOR_LENGTH))
 
             # The order here corresponds to the order of yield statements within make_flattened_tensor_generator()
             return ReadSet(ref_sequence_2d=self._data[bottom_index + 2],
