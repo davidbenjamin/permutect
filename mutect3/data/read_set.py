@@ -201,9 +201,6 @@ class ReadSetBatch:
         list_of_ref_tensors = [item.ref_reads_2d for item in data] if self.ref_count > 0 else []
         self.reads_2d = torch.from_numpy(np.vstack(list_of_ref_tensors + [item.alt_reads_2d for item in data])).float()
 
-        print(data[0].alt_extra_tensor_3d)
-        print(data[0].alt_extra_tensor_3d.to_dense())
-        debug = data[0].alt_extra_tensor_3d.to_dense()
         #list_of_ref_extra_tensors = [item.ref_extra_tensor_3d for item in data] if self.ref_count > 0 else []
         #list_of_alt_extra_tensors = [item.alt_extra_tensor_3d for item in data]
         #self.extra_reads_3d = torch.vstack(list_of_ref_extra_tensors + list_of_alt_extra_tensors).float()
