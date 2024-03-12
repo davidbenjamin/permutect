@@ -75,8 +75,8 @@ class ReadSetDataset(Dataset):
             alt_reads = self._data[bottom_index + 1]
 
             num_ref_reads, num_alt_reads = len(possible_ref), len(alt_reads)
-            ref_indices, ref_values = torch.from_numpy(self._data[bottom_index+5]), torch.from_numpy(self._data[bottom_index+6])
-            alt_indices, alt_values = torch.from_numpy(self._data[bottom_index + 7]), torch.from_numpy(self._data[bottom_index + 8])
+            ref_indices, ref_values = torch.from_numpy(self._data[bottom_index+5], copy=True), torch.from_numpy(self._data[bottom_index+6], copy=True)
+            alt_indices, alt_values = torch.from_numpy(self._data[bottom_index + 7], copy=True), torch.from_numpy(self._data[bottom_index + 8], copy=True)
             ref_extra = torch.sparse_coo_tensor(ref_indices, ref_values, (num_ref_reads,5,EXTRA_READ_TENSOR_LENGTH)).coalesce() if len(possible_ref) > 0 else None
             alt_extra = torch.sparse_coo_tensor(alt_indices, alt_values, (num_alt_reads,5,EXTRA_READ_TENSOR_LENGTH)).coalesce()
 
