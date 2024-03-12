@@ -133,6 +133,8 @@ class ReadSet:
         alt_extra_tensor = torch.from_numpy(np.stack([make_tensor_from_read_string(rs, expected_size) for rs in alt_read_strings], axis=0)).to_sparse()
         return cls(make_sequence_tensor(ref_sequence_string), ref_tensor, ref_extra_tensor, alt_tensor, alt_extra_tensor, info_tensor, label, variant_string)
 
+
+    # TODO: relevant thing is size when saved
     def size_in_bytes(self):
         return self.nbytes
 
@@ -140,6 +142,7 @@ class ReadSet:
         return self.info_array_1d[-len(Variation):]
 
 
+# TODO: sparsify the extra 3d tensors by saving their indices, values, shapes
 def save_list_of_read_sets(read_sets: List[ReadSet], file):
     """
     note that torch.save works fine with numpy data
@@ -158,6 +161,7 @@ def save_list_of_read_sets(read_sets: List[ReadSet], file):
     torch.save([ref_sequence_tensors, ref_tensors, ref_extra_tensors, alt_tensors, alt_extra_tensors, info_tensors, labels], file)
 
 
+# TODO: adjust based on the sparsifying above
 def load_list_of_read_sets(file) -> List[ReadSet]:
     """
     file is torch, output is converted back to numpy

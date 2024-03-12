@@ -101,6 +101,7 @@ class ReadSetDataset(Dataset):
 
 # from a generator that yields read sets, create a generator that yields
 # ref tensor, alt tensor, ref sequence tensor, info tensor, label tensor, ref tensor alt tensor. . .
+# TODO: convert 3d tensors to sparse and save indices
 def make_flattened_tensor_generator(read_set_generator):
     for read_set in read_set_generator:
         yield read_set.ref_reads_2d if read_set.ref_reads_2d is not None else np.empty((0, 0))
