@@ -36,7 +36,7 @@ class ReadSetDataset(Dataset):
             RaggedMmap.from_generator(out_dir=self._memory_map_dir.name,
                                       sample_generator=make_flattened_tensor_generator(
                                           make_read_set_generator_from_tarfile(data_tarfile)),
-                                      batch_size=1000,
+                                      batch_size=100,
                                       verbose=True)
 
             self._data = RaggedMmap(self._memory_map_dir.name)
