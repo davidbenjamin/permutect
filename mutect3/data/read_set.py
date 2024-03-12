@@ -215,7 +215,7 @@ class ReadSetBatch:
     def pin_memory(self):
         self.ref_sequences_2d = self.ref_sequences_2d.pin_memory()
         self.reads_2d = self.reads_2d.pin_memory()
-        self.extra_reads_3d = self.extra_reads_3d.pin_memory()
+        #self.extra_reads_3d = self.extra_reads_3d.pin_memory()
         self.info_2d = self.info_2d.pin_memory()
         self.labels = self.labels.pin_memory()
         return self

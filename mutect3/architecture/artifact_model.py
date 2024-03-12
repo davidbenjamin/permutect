@@ -425,7 +425,11 @@ class ArtifactModel(nn.Module):
                     assert not loss.isnan().item()  # all sorts of errors produce a nan here.  This is a good place to spot it
 
                     if epoch_type == utils.Epoch.TRAIN:
-                        utils.backpropagate(train_optimizer, loss)
+                        try:    # TODO: STUPID DEBUG
+                            utils.backpropagate(train_optimizer, loss)
+                        except Exception as e:
+                            print("caught exception")
+                            print(e)
                     if is_calibration_epoch:
                         utils.backpropagate(calibration_optimizer, loss)
 
