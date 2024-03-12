@@ -74,8 +74,8 @@ class ReadSetDataset(Dataset):
             num_ref_reads, num_alt_reads = len(possible_ref), len(alt_reads)
             ref_indices, ref_values = torch.from_numpy(self._data[bottom_index+5]), torch.from_numpy(self._data[bottom_index+6])
             alt_indices, alt_values = torch.from_numpy(self._data[bottom_index + 7]), torch.from_numpy(self._data[bottom_index + 8])
-            ref_extra = torch.sparse.FloatTensor(ref_indices, ref_values, (num_ref_reads,5,self.ref_sequence_length)) if len(possible_ref) > 0 else None
-            alt_extra = torch.sparse.FloatTensor(alt_indices, alt_values, (num_alt_reads,5,self.ref_sequence_length))
+            ref_extra = torch.sparse.FloatTensor(ref_indices, ref_values, (num_ref_reads,5,-1)) if len(possible_ref) > 0 else None
+            alt_extra = torch.sparse.FloatTensor(alt_indices, alt_values, (num_alt_reads,5,-1))
 
             # The order here corresponds to the order of yield statements within make_flattened_tensor_generator()
             return ReadSet(ref_sequence_2d=self._data[bottom_index + 2],
