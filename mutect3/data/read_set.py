@@ -202,7 +202,7 @@ class ReadSetBatch:
         self.reads_2d = torch.from_numpy(np.vstack(list_of_ref_tensors + [item.alt_reads_2d for item in data])).float()
 
         list_of_ref_extra_tensors = [item.ref_extra_tensor_3d.to_dense() for item in data] if self.ref_count > 0 else []
-        list_of_alt_extra_tensors = [item.alt_extra_tensor_3d.to_dense() for item in data] if self.ref_count > 0 else []
+        list_of_alt_extra_tensors = [item.alt_extra_tensor_3d.to_dense() for item in data]
         self.extra_reads_3d = torch.vstack(list_of_ref_extra_tensors + list_of_alt_extra_tensors).float()
 
         self.info_2d = torch.from_numpy(np.vstack([item.info_array_1d for item in data])).float()
