@@ -160,6 +160,11 @@ def save_list_of_read_sets(read_sets: List[ReadSet], file):
 def reconstitute_extra_tensor(ref, alt, sparse_indices, sparse_values):
     num_reads = (0 if ref is None else len(ref)) + len(alt)
     result = np.zeros(num_reads * EXTRA_READ_TENSOR_LENGTH * 5)
+    if sparse_indices[-1] >= len(result):
+        print(sparse_indices)
+        print(num_reads)
+        print(ref.size() if ref is not None else 0)
+        print(alt.size())
     result[sparse_indices] = sparse_values
     result.resize((num_reads, 5, EXTRA_READ_TENSOR_LENGTH))     #in-place
     return result
