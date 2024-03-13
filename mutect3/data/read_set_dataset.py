@@ -70,7 +70,7 @@ class ReadSetDataset(Dataset):
             alt_reads = self._data[bottom_index + 1]
 
             num_ref_reads, num_alt_reads = len(possible_ref), len(alt_reads)
-            extra_indices, extra_values = self._data[bottom_index+5], self._data[bottom_index+6]
+            extra_indices, extra_values = np.int_(self._data[bottom_index+5]), self._data[bottom_index+6]
             extra = np.zeros((num_ref_reads + num_alt_reads) * EXTRA_READ_TENSOR_LENGTH * 5)
             extra[extra_indices] = extra_values
             extra.resize((num_ref_reads + num_alt_reads, 5, EXTRA_READ_TENSOR_LENGTH))
