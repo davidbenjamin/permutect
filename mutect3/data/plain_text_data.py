@@ -125,8 +125,20 @@ def read_data(dataset_file, posterior: bool, round_down: bool = True, include_va
                 read_strings = (ref_read_strings + alt_read_strings) if ref_tensor_size > 0 else alt_read_strings
 
                 if round_down:
-                    ref_tensor = utils.downsample_tensor(ref_tensor, 0 if ref_tensor is None else round_down_ref(len(ref_tensor)))
-                    alt_tensor = utils.downsample_tensor(alt_tensor, 0 if alt_tensor is None else round_down_alt(len(alt_tensor)))
+                    orig_ref_count = 0 if ref_tensor is None else len(ref_tensor)
+                    orig_alt_count = 0 if alt_tensor is None else len(alt_tensor)
+                    ds_ref_count = round_down_ref(orig_ref_count)
+                    ds_alt_count = round_down_alt(orig_alt_count)
+
+                    ref_perm = np.random.permutation(orig_ref_count)
+                    alt_perm = np.random.permutation(orig_alt_count)
+                    ref_ds_idx = ref_perm[:ds_ref_count]
+                    alt_ds_idx = alt_perm[:ds_alt_count]
+                    ref_tensor = ref_tensor[ref_ds_idx] if ref_tensor is not None else None
+                    alt_tensor = alt_tensor[alt_ds_idx]
+
+                    read_strings_ds_idx = np.hstack((ref_ds_idx, alt_ds_idx + orig_ref_count))
+                    read_strings = read_strings[read_strings_ds_idx]
 
                 # normal_ref_tensor, _ = parse_reads(file, normal_ref_tensor_size)  # not currently used
                 # normal_alt_tensor, _ = parse_reads(file, normal_alt_tensor_size)  # not currently used
