@@ -232,6 +232,9 @@ class ReadSetBatch:
     def get_reads_2d(self) -> Tensor:
         return self.reads_2d
 
+    def get_extra_reads_3d(self) -> Tensor:
+        return self.extra_reads_3d
+
     def get_info_2d(self) -> Tensor:
         return self.info_2d
 
