@@ -163,8 +163,8 @@ def reconstitute_extra_tensor(ref, alt, sparse_indices, sparse_values):
     if sparse_indices[-1] >= len(result):
         print(sparse_indices)
         print(num_reads)
-        print(ref.size() if ref is not None else 0)
-        print(alt.size())
+        print(ref.size if ref is not None else 0)
+        print(alt.size)
     result[sparse_indices] = sparse_values
     result.resize((num_reads, 5, EXTRA_READ_TENSOR_LENGTH))     #in-place
     return result
