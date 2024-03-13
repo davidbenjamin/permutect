@@ -6,7 +6,6 @@ from typing import List
 import sys
 
 from mutect3 import utils
-from mutect3.data.read_set_dataset import EXTRA_READ_TENSOR_LENGTH
 from mutect3.utils import Variation, Label
 
 ENCODING_NAMES = {'M', 'I', 'D', 'E', 'Q', 'X'}
@@ -250,3 +249,8 @@ class ReadSetBatch:
     def variant_types(self):
         one_hot = self.variant_type_one_hot()
         return [int(x) for x in sum([n*one_hot[:, n] for n in range(len(Variation))])]
+
+
+REF_SEQ_PADDING = 10
+EXTRA_READ_TENSOR_LENGTH = 2 * REF_SEQ_PADDING + 1
+TENSORS_PER_READ_SET = 7

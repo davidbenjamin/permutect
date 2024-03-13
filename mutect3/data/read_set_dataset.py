@@ -8,19 +8,13 @@ from itertools import chain
 from typing import Iterable
 
 import numpy as np
-import torch
 from torch.utils.data import Dataset, DataLoader
 from torch.utils.data.sampler import Sampler
 
 from mmap_ninja.ragged import RaggedMmap
 from mutect3 import utils
-from mutect3.data.read_set import ReadSet, ReadSetBatch, load_list_of_read_sets
+from mutect3.data.read_set import ReadSet, ReadSetBatch, load_list_of_read_sets, EXTRA_READ_TENSOR_LENGTH, TENSORS_PER_READ_SET
 from mutect3.utils import Label
-
-TENSORS_PER_READ_SET = 7
-
-REF_SEQ_PADDING = 10
-EXTRA_READ_TENSOR_LENGTH = 2 * REF_SEQ_PADDING + 1
 
 
 class ReadSetDataset(Dataset):
