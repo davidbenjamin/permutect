@@ -185,8 +185,8 @@ def generate_normalized_data(dataset_files, max_bytes_per_chunk: int, include_va
             yield buffer
 
 
-#TODO: does this need to account for the extra 3d tensors?
 # this normalizes the buffer and also prepends new features to the info tensor
+# this does not need to modify the extra 3d tensors because their elements are 0, 1, -1 and normalizing would ruin their sparsity
 def normalize_buffer(buffer, read_quantile_transform, info_quantile_transform, refit_transforms=True):
     # 2D array.  Rows are ref/alt reads, columns are read features
     all_ref = np.vstack([datum.ref_reads_2d for datum in buffer if datum.ref_reads_2d is not None])

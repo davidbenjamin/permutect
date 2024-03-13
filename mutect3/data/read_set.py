@@ -106,14 +106,14 @@ class ReadSet:
     :param label        an object of the Label enum artifact, non-artifact, unlabeled
     """
     def __init__(self, ref_sequence_2d: np.ndarray, ref_reads_2d: np.ndarray,  alt_reads_2d: np.ndarray,
-                 info_array_1d: np.ndarray, label: utils.Label, extra_tensor_3d: torch.Tensor, variant_string: str = None):
+                 info_array_1d: np.ndarray, label: utils.Label, extra_tensor_3d: np.ndarray, variant_string: str = None):
         # Note: if changing any of the data fields below, make sure to modify the size_in_bytes() method below accordingly!
         self.ref_sequence_2d = ref_sequence_2d
         self.ref_reads_2d = ref_reads_2d
         self.alt_reads_2d = alt_reads_2d
-        self.extra_tensor_3d = extra_tensor_3d
         self.info_array_1d = info_array_1d
         self.label = label
+        self.extra_tensor_3d = extra_tensor_3d
         self.variant_string = variant_string
 
         self.nbytes = (self.ref_reads_2d.nbytes if self.ref_reads_2d is not None else 0) + self.alt_reads_2d.nbytes + \
@@ -127,7 +127,7 @@ class ReadSet:
 
         # make 3D tensors of num ref/alt reads x 5 (channels) x 2*padding + 1
         expected_size = len(ref_sequence_string)
-        extra_tensor_3d = torch.from_numpy(np.stack([make_tensor_from_read_string(rs, expected_size) for rs in read_strings], axis=0))
+        extra_tensor_3d = np.stack([make_tensor_from_read_string(rs, expected_size) for rs in read_strings], axis=0)
         return cls(make_sequence_tensor(ref_sequence_string), ref_tensor, alt_tensor, info_tensor, label, extra_tensor_3d, variant_string)
 
     def size_in_bytes(self):
@@ -151,18 +151,19 @@ def save_list_of_read_sets(read_sets: List[ReadSet], file):
     info_tensors = [datum.info_array_1d for datum in read_sets]
     labels = IntTensor([datum.label.value for datum in read_sets])
 
-    sparse_extra_tensors = [datum.extra_tensor_3d.flatten().to_sparse() for datum in read_sets]
-    sparse_indices = [tens.indices() for tens in sparse_extra_tensors]
-    sparse_values = [tens.values() for tens in sparse_extra_tensors]
+    flat_extra_tensors = [datum.extra_tensor_3d.flatten() for datum in read_sets]
+    sparse_indices = [tens.nonzero()[0] for tens in flat_extra_tensors] # note that np.nonzero() return a tuple, the 0th element of which are the indices
+    sparse_values = [tens[idx] for tens, idx in zip(flat_extra_tensors, sparse_indices)]
 
     torch.save([ref_sequence_tensors, ref_tensors, alt_tensors, info_tensors, labels, sparse_indices, sparse_values], file)
 
 
 def reconstitute_extra_tensor(ref, alt, sparse_indices, sparse_values):
     num_reads = (0 if ref is None else len(ref)) + len(alt)
-    result_flat = torch.zeros(num_reads * EXTRA_READ_TENSOR_LENGTH * 5)
-    result_flat[sparse_indices] = sparse_values
-    return result_flat.resize((num_reads, 5, EXTRA_READ_TENSOR_LENGTH))
+    result = np.zeros(num_reads * EXTRA_READ_TENSOR_LENGTH * 5)
+    result[sparse_indices] = sparse_values
+    result.resize((num_reads, 5, EXTRA_READ_TENSOR_LENGTH))     #in-place
+    return result
 
 
 # TODO: adjust based on the sparsifying above
