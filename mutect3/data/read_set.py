@@ -6,6 +6,7 @@ from typing import List
 import sys
 
 from mutect3 import utils
+from mutect3.data.read_set_dataset import EXTRA_READ_TENSOR_LENGTH
 from mutect3.utils import Variation, Label
 
 ENCODING_NAMES = {'M', 'I', 'D', 'E', 'Q', 'X'}
@@ -104,37 +105,31 @@ class ReadSet:
     :param info_array_1d  1D tensor of information about the variant as a whole
     :param label        an object of the Label enum artifact, non-artifact, unlabeled
     """
-    def __init__(self, ref_sequence_2d: np.ndarray, ref_reads_2d: np.ndarray, ref_extra_tensor_3d: torch.Tensor, alt_reads_2d: np.ndarray,
-                 alt_extra_tensor_3d: torch.Tensor, info_array_1d: np.ndarray, label: utils.Label, variant_string: str = None):
+    def __init__(self, ref_sequence_2d: np.ndarray, ref_reads_2d: np.ndarray,  alt_reads_2d: np.ndarray,
+                 info_array_1d: np.ndarray, label: utils.Label, extra_tensor_3d: torch.Tensor, variant_string: str = None):
         # Note: if changing any of the data fields below, make sure to modify the size_in_bytes() method below accordingly!
         self.ref_sequence_2d = ref_sequence_2d
         self.ref_reads_2d = ref_reads_2d
-        self.ref_extra_tensor_3d = ref_extra_tensor_3d
         self.alt_reads_2d = alt_reads_2d
-        self.alt_extra_tensor_3d = alt_extra_tensor_3d
+        self.extra_tensor_3d = extra_tensor_3d
         self.info_array_1d = info_array_1d
         self.label = label
         self.variant_string = variant_string
 
         self.nbytes = (self.ref_reads_2d.nbytes if self.ref_reads_2d is not None else 0) + self.alt_reads_2d.nbytes + \
-                      self.info_array_1d.nbytes + sys.getsizeof(self.label) + \
-                      ((self.ref_extra_tensor_3d.indices().numpy().nbytes + self.ref_extra_tensor_3d.values().numpy().nbytes) if self.ref_reads_2d is not None else 0) + \
-                      self.alt_extra_tensor_3d.indices().numpy().nbytes + self.alt_extra_tensor_3d.values().numpy().nbytes
+                      self.info_array_1d.nbytes + sys.getsizeof(self.label) + self.extra_tensor_3d.nbytes
 
     # gatk_info tensor comes from GATK and does not include one-hot encoding of variant type
     @classmethod
-    def from_gatk(cls, ref_sequence_string: str, variant_type: utils.Variation, ref_tensor: np.ndarray, ref_read_strings: List[str], alt_tensor: np.ndarray,
-                 alt_read_strings: List[str], gatk_info_tensor: np.ndarray, label: utils.Label, variant_string: str = None):
+    def from_gatk(cls, ref_sequence_string: str, variant_type: utils.Variation, ref_tensor: np.ndarray, alt_tensor: np.ndarray,
+                 gatk_info_tensor: np.ndarray, label: utils.Label, read_strings: List[str], variant_string: str = None):
         info_tensor = np.hstack([gatk_info_tensor, variant_type.one_hot_tensor()])
 
         # make 3D tensors of num ref/alt reads x 5 (channels) x 2*padding + 1
         expected_size = len(ref_sequence_string)
-        ref_extra_tensor = None if ref_tensor is None else torch.from_numpy(np.stack([make_tensor_from_read_string(rs, expected_size) for rs in ref_read_strings], axis=0)).to_sparse()
-        alt_extra_tensor = torch.from_numpy(np.stack([make_tensor_from_read_string(rs, expected_size) for rs in alt_read_strings], axis=0)).to_sparse()
-        return cls(make_sequence_tensor(ref_sequence_string), ref_tensor, ref_extra_tensor, alt_tensor, alt_extra_tensor, info_tensor, label, variant_string)
+        extra_tensor_3d = torch.from_numpy(np.stack([make_tensor_from_read_string(rs, expected_size) for rs in read_strings], axis=0))
+        return cls(make_sequence_tensor(ref_sequence_string), ref_tensor, alt_tensor, info_tensor, label, extra_tensor_3d, variant_string)
 
-
-    # TODO: relevant thing is size when saved
     def size_in_bytes(self):
         return self.nbytes
 
@@ -152,13 +147,22 @@ def save_list_of_read_sets(read_sets: List[ReadSet], file):
     """
     ref_sequence_tensors = [datum.ref_sequence_2d for datum in read_sets]
     ref_tensors = [datum.ref_reads_2d for datum in read_sets]
-    ref_extra_tensors = [datum.ref_extra_tensor_3d for datum in read_sets]
     alt_tensors = [datum.alt_reads_2d for datum in read_sets]
-    alt_extra_tensors = [datum.alt_extra_tensor_3d for datum in read_sets]
     info_tensors = [datum.info_array_1d for datum in read_sets]
     labels = IntTensor([datum.label.value for datum in read_sets])
 
-    torch.save([ref_sequence_tensors, ref_tensors, ref_extra_tensors, alt_tensors, alt_extra_tensors, info_tensors, labels], file)
+    sparse_extra_tensors = [datum.extra_tensor_3d.flatten().to_sparse() for datum in read_sets]
+    sparse_indices = [tens.indices() for tens in sparse_extra_tensors]
+    sparse_values = [tens.values() for tens in sparse_extra_tensors]
+
+    torch.save([ref_sequence_tensors, ref_tensors, alt_tensors, info_tensors, labels, sparse_indices, sparse_values], file)
+
+
+def reconstitute_extra_tensor(ref, alt, sparse_indices, sparse_values):
+    num_reads = (0 if ref is None else len(ref)) + len(alt)
+    result_flat = torch.zeros(num_reads * EXTRA_READ_TENSOR_LENGTH * 5)
+    result_flat[sparse_indices] = sparse_values
+    return result_flat.resize((num_reads, 5, EXTRA_READ_TENSOR_LENGTH))
 
 
 # TODO: adjust based on the sparsifying above
@@ -168,9 +172,9 @@ def load_list_of_read_sets(file) -> List[ReadSet]:
     :param file:
     :return:
     """
-    ref_sequence_tensors, ref_tensors, ref_extra_tensors,  alt_tensors, alt_extra_tensors, info_tensors, labels = torch.load(file)
-    return [ReadSet(ref_sequence_tensor, ref, ref_extra_tensor, alt, alt_extra_tensor, info, utils.Label(label)) for ref_sequence_tensor, ref, ref_extra_tensor, alt, alt_extra_tensor, info, label in
-            zip(ref_sequence_tensors, ref_tensors, ref_extra_tensors, alt_tensors, alt_extra_tensors, info_tensors, labels.tolist())]
+    ref_sequence_tensors, ref_tensors, alt_tensors, info_tensors, labels, sparse_indices, sparse_values = torch.load(file)
+    return [ReadSet(ref_sequence_tensor, ref, alt, info, utils.Label(label), reconstitute_extra_tensor(ref, alt, sparse_idx, sparse_val)) for ref_sequence_tensor, ref, alt, info, label, sparse_idx, sparse_val in
+            zip(ref_sequence_tensors, ref_tensors, alt_tensors, info_tensors, labels.tolist(), sparse_indices, sparse_values)]
 
 
 class ReadSetBatch:
