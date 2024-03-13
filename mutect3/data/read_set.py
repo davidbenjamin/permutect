@@ -209,13 +209,9 @@ class ReadSetBatch:
         self.ref_sequences_2d = torch.from_numpy(np.stack([item.ref_sequence_2d for item in data])).float()
         list_of_ref_tensors = [item.ref_reads_2d for item in data] if self.ref_count > 0 else []
         self.reads_2d = torch.from_numpy(np.vstack(list_of_ref_tensors + [item.alt_reads_2d for item in data])).float()
-
-        #list_of_ref_extra_tensors = [item.ref_extra_tensor_3d for item in data] if self.ref_count > 0 else []
-        #list_of_alt_extra_tensors = [item.alt_extra_tensor_3d for item in data]
-        #self.extra_reads_3d = torch.vstack(list_of_ref_extra_tensors + list_of_alt_extra_tensors).float()
-
         self.info_2d = torch.from_numpy(np.vstack([item.info_array_1d for item in data])).float()
         self.labels = FloatTensor([1.0 if item.label == Label.ARTIFACT else 0.0 for item in data]) if self.labeled else None
+        self.extra_reads_3d = torch.from_numpy(np.vstack([item.extra_tensor_3d for item in data])).float()
         self._size = len(data)
 
         self.variant_strings = None if data[0].variant_string is None else [datum.variant_string for datum in data]
@@ -224,9 +220,9 @@ class ReadSetBatch:
     def pin_memory(self):
         self.ref_sequences_2d = self.ref_sequences_2d.pin_memory()
         self.reads_2d = self.reads_2d.pin_memory()
-        #self.extra_reads_3d = self.extra_reads_3d.pin_memory()
         self.info_2d = self.info_2d.pin_memory()
         self.labels = self.labels.pin_memory()
+        self.extra_reads_3d = self.extra_reads_3d.pin_memory()
         return self
 
     def get_reads_2d(self) -> Tensor:
