@@ -138,7 +138,7 @@ def read_data(dataset_file, posterior: bool, round_down: bool = True, include_va
                     alt_tensor = alt_tensor[alt_ds_idx]
 
                     read_strings_ds_idx = np.hstack((ref_ds_idx, alt_ds_idx + orig_ref_count))
-                    read_strings = read_strings[read_strings_ds_idx]
+                    read_strings = [read_strings[n] for n in read_strings_ds_idx]
 
                 # normal_ref_tensor, _ = parse_reads(file, normal_ref_tensor_size)  # not currently used
                 # normal_alt_tensor, _ = parse_reads(file, normal_alt_tensor_size)  # not currently used
