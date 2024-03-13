@@ -109,8 +109,9 @@ def make_flattened_tensor_generator(read_set_generator):
         yield read_set.info_array_1d
         yield np.array([read_set.label.value])  # single-element tensor of the Label enum
         flattened_extra_tensor = read_set.extra_tensor_3d.flatten()
-        yield flattened_extra_tensor.indices().numpy()
-        yield flattened_extra_tensor.values().numpy() if read_set.ref_reads_2d is not None else np.empty((0, 0))
+        extra_indices = flattened_extra_tensor.nonzero()[0]
+        yield extra_indices
+        yield flattened_extra_tensor[extra_indices]
 
 
 def make_read_set_generator_from_tarfile(data_tarfile):
