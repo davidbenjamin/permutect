@@ -120,8 +120,7 @@ def read_data(dataset_file, posterior: bool, round_down: bool = True, include_va
 
                 ref_tensor, ref_read_strings = parse_reads(file, ref_tensor_size) if ref_tensor_size > 0 else (None, [])
                 alt_tensor, alt_read_strings = parse_reads(file, alt_tensor_size)
-                assert ref_read_strings is not None
-                assert alt_read_strings is not None
+
                 read_strings = (ref_read_strings + alt_read_strings) if ref_tensor_size > 0 else alt_read_strings
 
                 if round_down:
@@ -256,7 +255,7 @@ def line_to_tensor(line: str) -> np.ndarray:
 # return a tuple of 1) 2d tensor of stacked read vectors and 2) a list of the read strings
 def parse_reads(file, num_reads: int) -> np.ndarray:
     if num_reads == 0:
-        return None, None
+        return None, []
     lines = [file.readline().strip() for _ in range(2 * num_reads)]
     vector_lines = lines[0::2]
     string_lines = lines[1::2]
