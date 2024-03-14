@@ -214,7 +214,7 @@ class ArtifactModel(nn.Module):
                                                                          batch_first=True,
                                                                          dim_feedforward=params.transformer_hidden_dimension_seq,
                                                                          dropout=params.dropout_p)
-        encoder_norm_seq = torch.nn.LayerNorm(params.read_embedding_dimension)
+        encoder_norm_seq = torch.nn.LayerNorm(params.read_embedding_dimension_seq)
         self.transformer_encoder_seq = torch.nn.TransformerEncoder(transformer_encoder_layer_seq,
                                                                    num_layers=params.num_transformer_layers_seq,
                                                                    norm=encoder_norm_seq)
