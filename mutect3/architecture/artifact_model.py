@@ -258,7 +258,8 @@ class ArtifactModel(nn.Module):
 
     def training_parameters(self):
         return chain(self.initial_read_embedding.parameters(), self.alt_transformer_encoder.parameters(), self.ref_transformer_encoder.parameters(),
-                     self.omega.parameters(), self.rho.parameters(), self.final_logit.parameters(), self.calibration.parameters())
+                     self.omega.parameters(), self.rho.parameters(), self.final_logit.parameters(), self.calibration.parameters(),
+                     self.transformer_encoder_seq.parameters())
 
     def calibration_parameters(self):
         return self.calibration.parameters()
@@ -284,6 +285,9 @@ class ArtifactModel(nn.Module):
     # note that apply_phi_to_reads returns a 2D tensor of N x E, where E is the embedding dimensions and N is the total
     # number of reads in the whole batch.  Thus, we have to be careful to downsample within each datum.
     def apply_transformer_to_reads(self, batch: ReadSetBatch):
+        # 3D tensor stuff
+
+        # end 3D tensor stuff
         initial_embedded_reads = self.initial_read_embedding(batch.get_reads_2d().to(self._device))
 
         # we have a 2D tensor where each row is a read, but we want to group them into read sets
