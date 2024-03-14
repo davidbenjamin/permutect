@@ -215,7 +215,10 @@ class ReadSetBatch:
         self.reads_2d = torch.from_numpy(np.vstack(list_of_ref_tensors + [item.alt_reads_2d for item in data])).float()
         self.info_2d = torch.from_numpy(np.vstack([item.info_array_1d for item in data])).float()
         self.labels = FloatTensor([1.0 if item.label == Label.ARTIFACT else 0.0 for item in data]) if self.labeled else None
-        self.extra_reads_3d = torch.from_numpy(np.vstack([item.extra_tensor_3d for item in data])).float()
+
+        # the permute() goes from reads x channels x DNA sequence position, an order that makes sense for a CNN,
+        # to reads x sequence position x channels, an order that is more natural for a transformer
+        self.extra_reads_3d = torch.permute(torch.from_numpy(np.vstack([item.extra_tensor_3d for item in data])).float(), (0,2,1))
         self._size = len(data)
 
         self.variant_strings = None if data[0].variant_string is None else [datum.variant_string for datum in data]
