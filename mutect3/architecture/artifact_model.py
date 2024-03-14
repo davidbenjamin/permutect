@@ -286,8 +286,10 @@ class ArtifactModel(nn.Module):
     # number of reads in the whole batch.  Thus, we have to be careful to downsample within each datum.
     def apply_transformer_to_reads(self, batch: ReadSetBatch):
         # 3D tensor stuff
-
+        initial_embedded_reads_seq = self.initial_read_embedding_seq(batch.get_extra_reads_3d().to(self._device))
+        transformed_reads_seq = self.transformer_encoder_seq(initial_embedded_reads_seq)
         # end 3D tensor stuff
+
         initial_embedded_reads = self.initial_read_embedding(batch.get_reads_2d().to(self._device))
 
         # we have a 2D tensor where each row is a read, but we want to group them into read sets
