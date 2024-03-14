@@ -17,7 +17,7 @@ from matplotlib import pyplot as plt
 from mutect3.architecture.mlp import MLP
 from mutect3.architecture.monotonic import MonoDense
 from mutect3.architecture.dna_sequence_convolution import DNASequenceConvolution
-from mutect3.data.read_set import ReadSetBatch
+from mutect3.data.read_set import ReadSetBatch, REF_SEQ_PADDING
 from mutect3.data.read_set_dataset import ReadSetDataset, make_data_loader
 from mutect3 import utils
 from mutect3.utils import Call, Variation
@@ -85,8 +85,9 @@ class ArtifactModelParameters:
         self.alt_downsample = alt_downsample
 
         # the "seq" variables are for the transformer that acts on the raw tensors that have one feature vector per position per read
-        # currently hard-coding these in
-        self.read_embedding_dimension_seq = 12
+        # currently hard-coding these in.  Note that the intra-read embedding dimension equals the inter-read embedding dimension
+        # because we *add* the output of the intra-read transformer to the initial linear read embedding rather than concatenate
+        self.read_embedding_dimension_seq = read_embedding_dimension
         self.num_transformer_heads_seq = 3
         self.transformer_hidden_dimension_seq = 12
         self.num_transformer_layers_seq = 3
@@ -201,8 +202,7 @@ class ArtifactModel(nn.Module):
         # linear transformation to convert 3D read tensors from their initial dimensionality
         # (num reads in batch) x (sequence length) x (5 initial channels)
         # to (num reads in batch) x (sequence length) x (embedding dimension)
-        self.initial_read_embedding_seq = torch.nn.Linear(in_features=5,
-                                                      out_features=params.read_embedding_dimension_seq)
+        self.initial_read_embedding_seq = torch.nn.Linear(in_features=5, out_features=params.read_embedding_dimension_seq)
         self.initial_read_embedding_seq.to(self._device)
 
         self.num_transformer_heads_seq = params.num_transformer_heads_seq
@@ -287,10 +287,24 @@ class ArtifactModel(nn.Module):
     def apply_transformer_to_reads(self, batch: ReadSetBatch):
         # 3D tensor stuff
         initial_embedded_reads_seq = self.initial_read_embedding_seq(batch.get_extra_reads_3d().to(self._device))
+
+        # TODO: compute the (constant array) positional embeddings and add them to the initial read seq embeddings
+        # TODO: before the intra-read transformer
+
         transformed_reads_seq = self.transformer_encoder_seq(initial_embedded_reads_seq)
+
+        # in order to "summarize" the transformer's output, which has a vector for each position within each read, we could either
+        # average over the middle/1/position dimension or take the output only at the middle position.  Either way it yields
+        # a 2D tensor with shape num reads x seq transformer hidden dimension
+        transformed_reads_seq_at_variant_start = transformed_reads_seq[:, REF_SEQ_PADDING + 1, :]
         # end 3D tensor stuff
 
-        initial_embedded_reads = self.initial_read_embedding(batch.get_reads_2d().to(self._device))
+        # At this point we have another choice to make: add the intra-read-transformed 2D tensors (one vector per read)
+        # or concatenate.  At least for now let's choose to add, because the code is simpler.  Note that this forces the
+        # intra-read transformer to have the same output dimension as self.initial_read_embedding, namely the hidden dimension
+        # of the inter-read transformer
+
+        initial_embedded_reads = self.initial_read_embedding(batch.get_reads_2d().to(self._device)) + transformed_reads_seq_at_variant_start
 
         # we have a 2D tensor where each row is a read, but we want to group them into read sets
         # since reads from different read sets should not see each other (also, refs and alts
