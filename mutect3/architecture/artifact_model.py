@@ -84,6 +84,13 @@ class ArtifactModelParameters:
         self.learning_rate = learning_rate
         self.alt_downsample = alt_downsample
 
+        # the "seq" variables are for the transformer that acts on the raw tensors that have one feature vector per position per read
+        # currently hard-coding these in
+        self.read_embedding_dimension_seq = 12
+        self.num_transformer_heads_seq = 3
+        self.transformer_hidden_dimension_seq = 12
+        self.num_transformer_layers_seq = 3
+
 
 class Calibration(nn.Module):
 
@@ -190,6 +197,28 @@ class ArtifactModel(nn.Module):
         ref_encoder_norm = torch.nn.LayerNorm(params.read_embedding_dimension)
         self.ref_transformer_encoder = torch.nn.TransformerEncoder(ref_transformer_encoder_layer, num_layers=params.num_transformer_layers, norm=ref_encoder_norm)
         self.ref_transformer_encoder.to(self._device)
+
+        # linear transformation to convert 3D read tensors from their initial dimensionality
+        # (num reads in batch) x (sequence length) x (5 initial channels)
+        # to (num reads in batch) x (sequence length) x (embedding dimension)
+        self.initial_read_embedding_seq = torch.nn.Linear(in_features=5,
+                                                      out_features=params.read_embedding_dimension_seq)
+        self.initial_read_embedding_seq.to(self._device)
+
+        self.num_transformer_heads_seq = params.num_transformer_heads_seq
+        self.transformer_hidden_dimension_seq = params.transformer_hidden_dimension_seq
+        self.num_transformer_layers_seq = params.num_transformer_layers_seq
+
+        transformer_encoder_layer_seq = torch.nn.TransformerEncoderLayer(d_model=params.read_embedding_dimension_seq,
+                                                                         nhead=params.num_transformer_heads_seq,
+                                                                         batch_first=True,
+                                                                         dim_feedforward=params.transformer_hidden_dimension_seq,
+                                                                         dropout=params.dropout_p)
+        encoder_norm_seq = torch.nn.LayerNorm(params.read_embedding_dimension)
+        self.transformer_encoder_seq = torch.nn.TransformerEncoder(transformer_encoder_layer_seq,
+                                                                   num_layers=params.num_transformer_layers_seq,
+                                                                   norm=encoder_norm_seq)
+        self.transformer_encoder_seq.to(self._device)
 
         # omega is the universal embedding of info field variant-level data
         info_layers = [self._num_info_features] + params.info_layers
