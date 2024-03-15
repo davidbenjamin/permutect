@@ -76,7 +76,8 @@ def test_train_model():
 
 def test_training(dataset):
     m3_params = artifact_model.ArtifactModelParameters(read_embedding_dimension=12, num_transformer_heads=3,
-                 transformer_hidden_dimension=20, num_transformer_layers=2,
+                 transformer_hidden_dimension=20, num_transformer_layers=2, intra_read_num_transformer_heads=3,
+                 intra_read_transformer_hidden_dimension=10, intra_read_num_transformer_layers=2,
         info_layers=[20, 20], aggregation_layers=[20, 20], calibration_layers=[6],
         dropout_p=0.0, batch_normalize=False, learning_rate=0.001, alt_downsample=20)
     training_params = train_model.TrainingParameters(batch_size=64, num_epochs=5, num_calibration_epochs=2, reweighting_range=0.3)

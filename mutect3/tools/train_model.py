@@ -106,6 +106,9 @@ def parse_mutect3_params(args) -> ArtifactModelParameters:
     num_transformer_heads = getattr(args, constants.NUM_TRANSFORMER_HEADS_NAME)
     transformer_hidden_dimension = getattr(args, constants.TRANSFORMER_HIDDEN_DIMENSION_NAME)
     num_transformer_layers = getattr(args, constants.NUM_TRANSFORMER_LAYERS_NAME)
+    intra_read_num_transformer_heads = getattr(args, constants.INTRA_READ_NUM_TRANSFORMER_HEADS_NAME)
+    intra_read_transformer_hidden_dimension = getattr(args, constants.INTRA_READ_TRANSFORMER_HIDDEN_DIMENSION_NAME)
+    intra_read_num_transformer_layers = getattr(args, constants.INTRA_READ_NUM_TRANSFORMER_LAYERS_NAME)
 
     info_layers = getattr(args, constants.INFO_LAYERS_NAME)
     aggregation_layers = getattr(args, constants.AGGREGATION_LAYERS_NAME)
@@ -116,7 +119,8 @@ def parse_mutect3_params(args) -> ArtifactModelParameters:
     learning_rate = getattr(args, constants.LEARNING_RATE_NAME)
     alt_downsample = getattr(args, constants.ALT_DOWNSAMPLE_NAME)
     return ArtifactModelParameters(read_embedding_dimension, num_transformer_heads, transformer_hidden_dimension,
-                 num_transformer_layers, info_layers, aggregation_layers, calibration_layers, ref_seq_layer_strings, dropout_p,
+                 num_transformer_layers, intra_read_num_transformer_heads, intra_read_transformer_hidden_dimension,
+                 intra_read_num_transformer_layers, info_layers, aggregation_layers, calibration_layers, ref_seq_layer_strings, dropout_p,
         batch_normalize, learning_rate, alt_downsample)
 
 
@@ -132,6 +136,12 @@ def parse_arguments():
                         help='hidden dimension of transformer keys and values')
     parser.add_argument('--' + constants.NUM_TRANSFORMER_LAYERS_NAME, type=int, required=True,
                         help='number of transformer layers')
+    parser.add_argument('--' + constants.INTRA_READ_NUM_TRANSFORMER_HEADS_NAME, type=int, required=True,
+                        help='number of intra-read transformer self-attention heads')
+    parser.add_argument('--' + constants.INTRA_READ_TRANSFORMER_HIDDEN_DIMENSION_NAME, type=int, required=True,
+                        help='hidden dimension of intra-read transformer keys and values')
+    parser.add_argument('--' + constants.INTRA_READ_NUM_TRANSFORMER_LAYERS_NAME, type=int, required=True,
+                        help='number of intra-read transformer layers')
     parser.add_argument('--' + constants.INFO_LAYERS_NAME, nargs='+', type=int, required=True,
                         help='dimensions of hidden layers in the info embedding subnetwork, including the dimension of the embedding itself.  '
                              'Negative values indicate residual skip connections')

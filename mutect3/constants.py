@@ -13,9 +13,14 @@ ARTIFACT_POSTERIOR_OUTPUT_NAME = 'artifact_posterior_output'
 OUTPUT_DIR_NAME = 'output_dir'
 
 READ_EMBEDDING_DIMENSION_NAME = 'read_embedding_dimension'
+
 NUM_TRANSFORMER_HEADS_NAME = 'num_transformer_heads'
 TRANSFORMER_HIDDEN_DIMENSION_NAME = 'transformer_hidden_dimension'
 NUM_TRANSFORMER_LAYERS_NAME = 'num_transformer_layers'
+
+INTRA_READ_NUM_TRANSFORMER_HEADS_NAME = 'intra_read_num_transformer_heads'
+INTRA_READ_TRANSFORMER_HIDDEN_DIMENSION_NAME = 'intra_read_transformer_hidden_dimension'
+INTRA_READ_NUM_TRANSFORMER_LAYERS_NAME = 'intra_read_num_transformer_layers'
 
 INFO_LAYERS_NAME = 'info_layers'
 AGGREGATION_LAYERS_NAME = 'aggregation_layers'

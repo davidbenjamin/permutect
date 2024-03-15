@@ -74,7 +74,8 @@ def sums_over_chunks(tensor2d: Tensor, chunk_size: int):
 class ArtifactModelParameters:
     def __init__(self,
                  read_embedding_dimension, num_transformer_heads, transformer_hidden_dimension,
-                 num_transformer_layers, info_layers, aggregation_layers, calibration_layers,
+                 num_transformer_layers, intra_read_num_transformer_heads, intra_read_transformer_hidden_dimension,
+                 intra_read_num_transformer_layers, info_layers, aggregation_layers, calibration_layers,
                  ref_seq_layers_strings, dropout_p, batch_normalize, learning_rate,
                  alt_downsample):
 
@@ -84,6 +85,9 @@ class ArtifactModelParameters:
         self.num_transformer_heads = num_transformer_heads
         self.transformer_hidden_dimension = transformer_hidden_dimension
         self.num_transformer_layers = num_transformer_layers
+        self.intra_read_num_transformer_heads = intra_read_num_transformer_heads
+        self.intra_read_transformer_hidden_dimension = intra_read_transformer_hidden_dimension
+        self.intra_read_num_transformer_layers = intra_read_num_transformer_layers
         self.info_layers = info_layers
         self.aggregation_layers = aggregation_layers
         self.calibration_layers = calibration_layers
@@ -92,14 +96,6 @@ class ArtifactModelParameters:
         self.batch_normalize = batch_normalize
         self.learning_rate = learning_rate
         self.alt_downsample = alt_downsample
-
-        # the "seq" variables are for the transformer that acts on the raw tensors that have one feature vector per position per read
-        # currently hard-coding these in.  Note that the intra-read embedding dimension equals the inter-read embedding dimension
-        # because we *add* the output of the intra-read transformer to the initial linear read embedding rather than concatenate
-        self.read_embedding_dimension_seq = read_embedding_dimension
-        self.num_transformer_heads_seq = 3
-        self.transformer_hidden_dimension_seq = 12
-        self.num_transformer_layers_seq = 3
 
 
 class Calibration(nn.Module):
@@ -192,9 +188,6 @@ class ArtifactModel(nn.Module):
         self.initial_read_embedding.to(self._device)
 
         self.read_embedding_dimension = params.read_embedding_dimension
-        self.num_transformer_heads = params.num_transformer_heads
-        self.transformer_hidden_dimension = params.transformer_hidden_dimension
-        self.num_transformer_layers = params.num_transformer_layers
 
         alt_transformer_encoder_layer = torch.nn.TransformerEncoderLayer(d_model=params.read_embedding_dimension,
             nhead=params.num_transformer_heads, batch_first=True, dim_feedforward=params.transformer_hidden_dimension, dropout=params.dropout_p)
@@ -211,27 +204,23 @@ class ArtifactModel(nn.Module):
         # linear transformation to convert 3D read tensors from their initial dimensionality
         # (num reads in batch) x (sequence length) x (5 initial channels)
         # to (num reads in batch) x (sequence length) x (embedding dimension)
-        self.initial_read_embedding_seq = torch.nn.Linear(in_features=5, out_features=params.read_embedding_dimension_seq)
+        self.initial_read_embedding_seq = torch.nn.Linear(in_features=5, out_features=params.read_embedding_dimension)
         self.initial_read_embedding_seq.to(self._device)
 
         # note that because sequence length is constant at 2*PADDING +1, the positional encoding is a constant with size
         # 1 x seq length x embedding dimension, and by broadcasting we can add it to something of shape
         # num_reads x seq length x embedding dimension
-        self.positional_encoding = make_positional_encoding(params.read_embedding_dimension_seq)
+        self.positional_encoding = make_positional_encoding(params.read_embedding_dimension)
         self.positional_encoding.to(self._device)
 
-        self.num_transformer_heads_seq = params.num_transformer_heads_seq
-        self.transformer_hidden_dimension_seq = params.transformer_hidden_dimension_seq
-        self.num_transformer_layers_seq = params.num_transformer_layers_seq
-
-        transformer_encoder_layer_seq = torch.nn.TransformerEncoderLayer(d_model=params.read_embedding_dimension_seq,
-                                                                         nhead=params.num_transformer_heads_seq,
+        transformer_encoder_layer_seq = torch.nn.TransformerEncoderLayer(d_model=params.read_embedding_dimension,
+                                                                         nhead=params.intra_read_num_transformer_heads,
                                                                          batch_first=True,
-                                                                         dim_feedforward=params.transformer_hidden_dimension_seq,
+                                                                         dim_feedforward=params.intra_read_transformer_hidden_dimension,
                                                                          dropout=params.dropout_p)
-        encoder_norm_seq = torch.nn.LayerNorm(params.read_embedding_dimension_seq)
+        encoder_norm_seq = torch.nn.LayerNorm(params.read_embedding_dimension)
         self.transformer_encoder_seq = torch.nn.TransformerEncoder(transformer_encoder_layer_seq,
-                                                                   num_layers=params.num_transformer_layers_seq,
+                                                                   num_layers=params.intra_read_num_transformer_layers_seq,
                                                                    norm=encoder_norm_seq)
         self.transformer_encoder_seq.to(self._device)
 
@@ -315,7 +304,7 @@ class ArtifactModel(nn.Module):
 
         average_transformed_reads_seq = torch.mean(transformed_reads_seq, dim=1)
         # end 3D tensor stuff
- 
+
         # At this point we have another choice to make: add the intra-read-transformed 2D tensors (one vector per read)
         # or concatenate.  At least for now let's choose to add, because the code is simpler.  Note that this forces the
         # intra-read transformer to have the same output dimension as self.initial_read_embedding, namely the hidden dimension

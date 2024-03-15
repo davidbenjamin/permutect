@@ -16,6 +16,9 @@ workflow TrainMutect3 {
         Int num_transformer_heads
         Int transformer_hidden_dimension
         Int num_transformer_layers
+        Int intra_read_num_transformer_heads
+        Int intra_read_transformer_hidden_dimension
+        Int intra_read_num_transformer_layers
         Array[Int] info_layers
         Array[Int] aggregation_layers
         Array[Int] calibration_layers
@@ -49,6 +52,9 @@ workflow TrainMutect3 {
                 num_transformer_heads = num_transformer_heads,
                 transformer_hidden_dimension = transformer_hidden_dimension,
                 num_transformer_layers = num_transformer_layers,
+                intra_read_num_transformer_heads = intra_read_num_transformer_heads,
+                intra_read_transformer_hidden_dimension = intra_read_transformer_hidden_dimension,
+                intra_read_num_transformer_layers = intra_read_num_transformer_layers,
                 info_layers = info_layers,
                 aggregation_layers = aggregation_layers,
                 calibration_layers = calibration_layers,
@@ -78,6 +84,9 @@ workflow TrainMutect3 {
                 num_transformer_heads = num_transformer_heads,
                 transformer_hidden_dimension = transformer_hidden_dimension,
                 num_transformer_layers = num_transformer_layers,
+                intra_read_num_transformer_heads = intra_read_num_transformer_heads,
+                intra_read_transformer_hidden_dimension = intra_read_transformer_hidden_dimension,
+                intra_read_num_transformer_layers = intra_read_num_transformer_layers,
                 info_layers = info_layers,
                 aggregation_layers = aggregation_layers,
                 calibration_layers = calibration_layers,
@@ -113,6 +122,9 @@ task TrainMutect3GPU {
         Int num_transformer_heads
         Int transformer_hidden_dimension
         Int num_transformer_layers
+        Int intra_read_num_transformer_heads
+        Int intra_read_transformer_hidden_dimension
+        Int intra_read_num_transformer_layers
         Array[Int] info_layers
         Array[Int] aggregation_layers
         Array[Int] calibration_layers
@@ -146,6 +158,9 @@ task TrainMutect3GPU {
             --num_transformer_heads ~{num_transformer_heads} \
             --transformer_hidden_dimension ~{transformer_hidden_dimension} \
             --num_transformer_layers ~{num_transformer_layers} \
+            --intra_read_num_transformer_heads ~{intra_read_num_transformer_heads} \
+            --intra_read_transformer_hidden_dimension ~{intra_read_transformer_hidden_dimension} \
+            --intra_read_num_transformer_layers ~{intra_read_num_transformer_layers} \
             --info_layers ~{sep=' ' info_layers} \
             --aggregation_layers ~{sep=' ' aggregation_layers} \
             --calibration_layers ~{sep=' ' calibration_layers} \
@@ -200,6 +215,9 @@ task TrainMutect3CPU {
         Int num_transformer_heads
         Int transformer_hidden_dimension
         Int num_transformer_layers
+        Int intra_read_num_transformer_heads
+        Int intra_read_transformer_hidden_dimension
+        Int intra_read_num_transformer_layers
         Array[Int] info_layers
         Array[Int] aggregation_layers
         Array[Int] calibration_layers
@@ -232,6 +250,9 @@ task TrainMutect3CPU {
             --num_transformer_heads ~{num_transformer_heads} \
             --transformer_hidden_dimension ~{transformer_hidden_dimension} \
             --num_transformer_layers ~{num_transformer_layers} \
+            --intra_read_num_transformer_heads ~{intra_read_num_transformer_heads} \
+            --intra_read_transformer_hidden_dimension ~{intra_read_transformer_hidden_dimension} \
+            --intra_read_num_transformer_layers ~{intra_read_num_transformer_layers} \
             --info_layers ~{sep=' ' info_layers} \
             --aggregation_layers ~{sep=' ' aggregation_layers} \
             --calibration_layers ~{sep=' ' calibration_layers} \
