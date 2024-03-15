@@ -220,7 +220,7 @@ class ArtifactModel(nn.Module):
                                                                          dropout=params.dropout_p)
         encoder_norm_seq = torch.nn.LayerNorm(params.read_embedding_dimension)
         self.transformer_encoder_seq = torch.nn.TransformerEncoder(transformer_encoder_layer_seq,
-                                                                   num_layers=params.intra_read_num_transformer_layers_seq,
+                                                                   num_layers=params.intra_read_num_transformer_layers,
                                                                    norm=encoder_norm_seq)
         self.transformer_encoder_seq.to(self._device)
 
