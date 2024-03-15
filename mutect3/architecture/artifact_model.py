@@ -311,15 +311,17 @@ class ArtifactModel(nn.Module):
         # in order to "summarize" the transformer's output, which has a vector for each position within each read, we could either
         # average over the middle/1/position dimension or take the output only at the middle position.  Either way it yields
         # a 2D tensor with shape num reads x seq transformer hidden dimension
-        transformed_reads_seq_at_variant_start = transformed_reads_seq[:, REF_SEQ_PADDING + 1, :]
-        # end 3D tensor stuff
+        #transformed_reads_seq_at_variant_start = transformed_reads_seq[:, REF_SEQ_PADDING + 1, :]
 
+        average_transformed_reads_seq = torch.mean(transformed_reads_seq, dim=1)
+        # end 3D tensor stuff
+ 
         # At this point we have another choice to make: add the intra-read-transformed 2D tensors (one vector per read)
         # or concatenate.  At least for now let's choose to add, because the code is simpler.  Note that this forces the
         # intra-read transformer to have the same output dimension as self.initial_read_embedding, namely the hidden dimension
         # of the inter-read transformer
 
-        initial_embedded_reads = self.initial_read_embedding(batch.get_reads_2d().to(self._device)) + transformed_reads_seq_at_variant_start
+        initial_embedded_reads = self.initial_read_embedding(batch.get_reads_2d().to(self._device)) + average_transformed_reads_seq
 
         # we have a 2D tensor where each row is a read, but we want to group them into read sets
         # since reads from different read sets should not see each other (also, refs and alts
