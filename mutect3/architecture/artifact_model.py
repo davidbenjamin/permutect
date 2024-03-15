@@ -17,7 +17,7 @@ from matplotlib import pyplot as plt
 from mutect3.architecture.mlp import MLP
 from mutect3.architecture.monotonic import MonoDense
 from mutect3.architecture.dna_sequence_convolution import DNASequenceConvolution
-from mutect3.data.read_set import ReadSetBatch, REF_SEQ_PADDING
+from mutect3.data.read_set import ReadSetBatch, REF_SEQ_PADDING, EXTRA_READ_TENSOR_LENGTH
 from mutect3.data.read_set_dataset import ReadSetDataset, make_data_loader
 from mutect3 import utils
 from mutect3.utils import Call, Variation
@@ -26,6 +26,15 @@ from mutect3.metrics import plotting
 warnings.filterwarnings("ignore", message="Setting attributes on ParameterList is not supported.")
 
 NUM_DATA_FOR_TENSORBOARD_PROJECTION = 10000
+
+
+def make_positional_encoding(embedding_dimension: int):
+    result = torch.zeros(1, EXTRA_READ_TENSOR_LENGTH, embedding_dimension)
+    position = torch.arange(EXTRA_READ_TENSOR_LENGTH).unsqueeze(1)
+    div_term = torch.exp(torch.arange(0, embedding_dimension, 2) * (-math.log(1000.0) / embedding_dimension))
+    result[0, :, 0::2] = torch.sin(position * div_term)
+    result[0, :, 1::2] = torch.cos(position * div_term)
+    return result
 
 
 def round_up_to_nearest_three(x: int):
@@ -205,6 +214,12 @@ class ArtifactModel(nn.Module):
         self.initial_read_embedding_seq = torch.nn.Linear(in_features=5, out_features=params.read_embedding_dimension_seq)
         self.initial_read_embedding_seq.to(self._device)
 
+        # note that because sequence length is constant at 2*PADDING +1, the positional encoding is a constant with size
+        # 1 x seq length x embedding dimension, and by broadcasting we can add it to something of shape
+        # num_reads x seq length x embedding dimension
+        self.positional_encoding = make_positional_encoding(params.read_embedding_dimension_seq)
+        self.positional_encoding.to(self._device)
+
         self.num_transformer_heads_seq = params.num_transformer_heads_seq
         self.transformer_hidden_dimension_seq = params.transformer_hidden_dimension_seq
         self.num_transformer_layers_seq = params.num_transformer_layers_seq
@@ -291,7 +306,7 @@ class ArtifactModel(nn.Module):
         # TODO: compute the (constant array) positional embeddings and add them to the initial read seq embeddings
         # TODO: before the intra-read transformer
 
-        transformed_reads_seq = self.transformer_encoder_seq(initial_embedded_reads_seq)
+        transformed_reads_seq = self.transformer_encoder_seq(initial_embedded_reads_seq + self.positional_encoding)
 
         # in order to "summarize" the transformer's output, which has a vector for each position within each read, we could either
         # average over the middle/1/position dimension or take the output only at the middle position.  Either way it yields
