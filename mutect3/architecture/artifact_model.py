@@ -187,7 +187,8 @@ class ArtifactModel(nn.Module):
         self.initial_read_embedding = torch.nn.Linear(in_features=num_read_features, out_features=params.read_embedding_dimension)
         self.initial_read_embedding.to(self._device)
 
-        self.read_embedding_dimension = params.read_embedding_dimension
+        # the factor of 2 is due to concatenating the intra-read transformer encoder output with the initial read embedding
+        self.read_embedding_dimension = 2*params.read_embedding_dimension
 
         alt_transformer_encoder_layer = torch.nn.TransformerEncoderLayer(d_model=params.read_embedding_dimension,
             nhead=params.num_transformer_heads, batch_first=True, dim_feedforward=params.transformer_hidden_dimension, dropout=params.dropout_p)
@@ -310,7 +311,9 @@ class ArtifactModel(nn.Module):
         # intra-read transformer to have the same output dimension as self.initial_read_embedding, namely the hidden dimension
         # of the inter-read transformer
 
-        initial_embedded_reads = self.initial_read_embedding(batch.get_reads_2d().to(self._device)) + average_transformed_reads_seq
+        # NEVER MIND, NOW LET'S CONCATENATE!!!
+        # This is going to yield a 2D tensor of shape (num reads in batch) x (2*read embedding dimension)
+        initial_embedded_reads = torch.hstack([self.initial_read_embedding(batch.get_reads_2d().to(self._device)), average_transformed_reads_seq])
 
         # we have a 2D tensor where each row is a read, but we want to group them into read sets
         # since reads from different read sets should not see each other (also, refs and alts
