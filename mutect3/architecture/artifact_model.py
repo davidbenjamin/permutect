@@ -192,13 +192,13 @@ class ArtifactModel(nn.Module):
 
         alt_transformer_encoder_layer = torch.nn.TransformerEncoderLayer(d_model=self.read_embedding_dimension,
             nhead=params.num_transformer_heads, batch_first=True, dim_feedforward=params.transformer_hidden_dimension, dropout=params.dropout_p)
-        alt_encoder_norm = torch.nn.LayerNorm(params.read_embedding_dimension)
+        alt_encoder_norm = torch.nn.LayerNorm(self.read_embedding_dimension)
         self.alt_transformer_encoder = torch.nn.TransformerEncoder(alt_transformer_encoder_layer, num_layers=params.num_transformer_layers, norm=alt_encoder_norm)
         self.alt_transformer_encoder.to(self._device)
 
         ref_transformer_encoder_layer = torch.nn.TransformerEncoderLayer(d_model=self.read_embedding_dimension,
              nhead=params.num_transformer_heads, batch_first=True, dim_feedforward=params.transformer_hidden_dimension, dropout=params.dropout_p)
-        ref_encoder_norm = torch.nn.LayerNorm(params.read_embedding_dimension)
+        ref_encoder_norm = torch.nn.LayerNorm(self.read_embedding_dimension)
         self.ref_transformer_encoder = torch.nn.TransformerEncoder(ref_transformer_encoder_layer, num_layers=params.num_transformer_layers, norm=ref_encoder_norm)
         self.ref_transformer_encoder.to(self._device)
 
@@ -300,7 +300,7 @@ class ArtifactModel(nn.Module):
 
         # in order to "summarize" the transformer's output, which has a vector for each position within each read, we could either
         # average over the middle/1/position dimension or take the output only at the middle position.  Either way it yields
-        # a 2D tensor with shape num reads x seq transformer hidden dimension
+        # a 2D tensor with shape num reads x seq transformer embedding dimension
         #transformed_reads_seq_at_variant_start = transformed_reads_seq[:, REF_SEQ_PADDING + 1, :]
 
         average_transformed_reads_seq = torch.mean(transformed_reads_seq, dim=1)
