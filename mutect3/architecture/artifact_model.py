@@ -190,13 +190,13 @@ class ArtifactModel(nn.Module):
         # the factor of 2 is due to concatenating the intra-read transformer encoder output with the initial read embedding
         self.read_embedding_dimension = 2*params.read_embedding_dimension
 
-        alt_transformer_encoder_layer = torch.nn.TransformerEncoderLayer(d_model=params.read_embedding_dimension,
+        alt_transformer_encoder_layer = torch.nn.TransformerEncoderLayer(d_model=self.read_embedding_dimension,
             nhead=params.num_transformer_heads, batch_first=True, dim_feedforward=params.transformer_hidden_dimension, dropout=params.dropout_p)
         alt_encoder_norm = torch.nn.LayerNorm(params.read_embedding_dimension)
         self.alt_transformer_encoder = torch.nn.TransformerEncoder(alt_transformer_encoder_layer, num_layers=params.num_transformer_layers, norm=alt_encoder_norm)
         self.alt_transformer_encoder.to(self._device)
 
-        ref_transformer_encoder_layer = torch.nn.TransformerEncoderLayer(d_model=params.read_embedding_dimension,
+        ref_transformer_encoder_layer = torch.nn.TransformerEncoderLayer(d_model=self.read_embedding_dimension,
              nhead=params.num_transformer_heads, batch_first=True, dim_feedforward=params.transformer_hidden_dimension, dropout=params.dropout_p)
         ref_encoder_norm = torch.nn.LayerNorm(params.read_embedding_dimension)
         self.ref_transformer_encoder = torch.nn.TransformerEncoder(ref_transformer_encoder_layer, num_layers=params.num_transformer_layers, norm=ref_encoder_norm)
