@@ -33,4 +33,4 @@ def test_on_dream1():
             for artifact_posterior in pickle.load(open(file, 'rb')):
                 depth += artifact_posterior.depth
 
-    dataset = ReadSetDataset(data_tarfile=training_data_tarfile.name, validation_fraction=0.1)
+    dataset = ReadSetDataset(data_tarfile=training_data_tarfile.name, num_folds=10)

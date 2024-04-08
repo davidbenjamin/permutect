@@ -26,7 +26,7 @@ def main_without_parsing(args):
     batch_size = getattr(args, constants.BATCH_SIZE_NAME)
     num_workers = getattr(args, constants.NUM_WORKERS_NAME)
 
-    dataset = ReadSetDataset(data_tarfile=data_tarfile, validation_fraction=0.01)
+    dataset = ReadSetDataset(data_tarfile=data_tarfile, num_folds=10)
     artifact_model, _, _ = load_artifact_model(saved_artifact_model)
     summary_writer = SummaryWriter(tensorboard_dir)
     artifact_model.evaluate_model_after_training(dataset, batch_size, num_workers, summary_writer)
