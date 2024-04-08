@@ -27,6 +27,24 @@ class ConsistentValue:
             assert self.value == value, "inconsistent values"
 
 
+class MutableInt:
+    def __init__(self, value:int = 0):
+        self.value = value
+
+    def increment(self, amount: int = 1):
+        self.value += amount
+
+    def decrement(self, amount: int = 1):
+        self.value -= amount
+
+    def get(self):
+        return self.value
+
+    def set(self, value: int):
+        self.value = value
+
+
+
 def downsample_tensor(tensor2d: np.ndarray, new_length: int):
     if tensor2d is None or new_length >= len(tensor2d):
         return tensor2d

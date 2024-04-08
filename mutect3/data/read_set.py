@@ -6,7 +6,7 @@ from typing import List
 import sys
 
 from mutect3 import utils
-from mutect3.utils import Variation, Label
+from mutect3.utils import Variation, Label, MutableInt
 
 
 def make_sequence_tensor(sequence_string: str) -> np.ndarray:
@@ -33,7 +33,7 @@ class ReadSet:
     :param info_array_1d  1D tensor of information about the variant as a whole
     :param label        an object of the Label enum artifact, non-artifact, unlabeled
     """
-    def __init__(self, ref_sequence_2d: np.ndarray, ref_reads_2d: np.ndarray, alt_reads_2d: np.ndarray, info_array_1d: np.ndarray, label: utils.Label,
+    def __init__(self, ref_sequence_2d: np.ndarray, ref_reads_2d: np.ndarray, alt_reads_2d: np.ndarray, info_array_1d: np.ndarray, label: utils.Label, index: int,
                  variant_string: str = None):
         # Note: if changing any of the data fields below, make sure to modify the size_in_bytes() method below accordingly!
         self.ref_sequence_2d = ref_sequence_2d
@@ -41,14 +41,15 @@ class ReadSet:
         self.alt_reads_2d = alt_reads_2d
         self.info_array_1d = info_array_1d
         self.label = label
+        self.index = index
         self.variant_string = variant_string
 
     # gatk_info tensor comes from GATK and does not include one-hot encoding of variant type
     @classmethod
     def from_gatk(cls, ref_sequence_string: str, variant_type: utils.Variation, ref_tensor: np.ndarray, alt_tensor: np.ndarray,
-                 gatk_info_tensor: np.ndarray, label: utils.Label, variant_string: str = None):
+                 gatk_info_tensor: np.ndarray, label: utils.Label, index: int, variant_string: str = None):
         info_tensor = np.hstack([gatk_info_tensor, variant_type.one_hot_tensor()])
-        return cls(make_sequence_tensor(ref_sequence_string), ref_tensor, alt_tensor, info_tensor, label, variant_string)
+        return cls(make_sequence_tensor(ref_sequence_string), ref_tensor, alt_tensor, info_tensor, label, index, variant_string)
 
     def size_in_bytes(self):
         return (self.ref_reads_2d.nbytes if self.ref_reads_2d is not None else 0) + self.alt_reads_2d.nbytes + self.info_array_1d.nbytes + sys.getsizeof(self.label)
@@ -57,20 +58,25 @@ class ReadSet:
         return self.info_array_1d[-len(Variation):]
 
 
-def save_list_of_read_sets(read_sets: List[ReadSet], file):
+def save_list_of_read_sets(read_sets: List[ReadSet], file, datum_index: MutableInt):
     """
     note that torch.save works fine with numpy data
     :param read_sets:
     :param file:
     :return:
     """
+    start_index = datum_index.get()
+    num_data = len(read_sets)
+
     ref_sequence_tensors = [datum.ref_sequence_2d for datum in read_sets]
     ref_tensors = [datum.ref_reads_2d for datum in read_sets]
     alt_tensors = [datum.alt_reads_2d for datum in read_sets]
     info_tensors = [datum.info_array_1d for datum in read_sets]
     labels = IntTensor([datum.label.value for datum in read_sets])
+    indices = start_index + torch.arange(num_data).int()
 
-    torch.save([ref_sequence_tensors, ref_tensors, alt_tensors, info_tensors, labels], file)
+    torch.save([ref_sequence_tensors, ref_tensors, alt_tensors, info_tensors, labels, indices], file)
+    datum_index.increment(num_data)
 
 
 def load_list_of_read_sets(file) -> List[ReadSet]:
@@ -79,9 +85,9 @@ def load_list_of_read_sets(file) -> List[ReadSet]:
     :param file:
     :return:
     """
-    ref_sequence_tensors, ref_tensors, alt_tensors, info_tensors, labels = torch.load(file)
-    return [ReadSet(ref_sequence_tensor, ref, alt, info, utils.Label(label)) for ref_sequence_tensor, ref, alt, info, label in
-            zip(ref_sequence_tensors, ref_tensors, alt_tensors, info_tensors, labels.tolist())]
+    ref_sequence_tensors, ref_tensors, alt_tensors, info_tensors, labels, indices = torch.load(file)
+    return [ReadSet(ref_sequence_tensor, ref, alt, info, utils.Label(label), index) for ref_sequence_tensor, ref, alt, info, label, index in
+            zip(ref_sequence_tensors, ref_tensors, alt_tensors, info_tensors, labels.tolist(), indices.tolist())]
 
 
 class ReadSetBatch:
@@ -117,6 +123,7 @@ class ReadSetBatch:
         self.reads_2d = torch.from_numpy(np.vstack(list_of_ref_tensors + [item.alt_reads_2d for item in data])).float()
         self.info_2d = torch.from_numpy(np.vstack([item.info_array_1d for item in data])).float()
         self.labels = FloatTensor([1.0 if item.label == Label.ARTIFACT else 0.0 for item in data]) if self.labeled else None
+        self.indices = IntTensor(item.index for item in data)
         self._size = len(data)
 
         self.variant_strings = None if data[0].variant_string is None else [datum.variant_string for datum in data]

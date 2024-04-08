@@ -16,7 +16,7 @@ from mutect3 import utils
 from mutect3.data.read_set import ReadSet, ReadSetBatch, load_list_of_read_sets
 from mutect3.utils import Label
 
-TENSORS_PER_READ_SET = 5
+TENSORS_PER_READ_SET = 6
 
 
 class ReadSetDataset(Dataset):
@@ -74,7 +74,8 @@ class ReadSetDataset(Dataset):
                            ref_reads_2d=possible_ref if len(possible_ref) > 0 else None,
                            alt_reads_2d=self._data[bottom_index + 1],
                            info_array_1d=self._data[bottom_index + 3],
-                           label=utils.Label(self._data[bottom_index + 4][0]))
+                           label=utils.Label(self._data[bottom_index + 4][0]),
+                           index=self._data[bottom_index + 5][0])
         else:
             return self._data[index]
 
@@ -95,6 +96,7 @@ def make_flattened_tensor_generator(read_set_generator):
         yield read_set.ref_sequence_2d
         yield read_set.info_array_1d
         yield np.array([read_set.label.value])  # single-element tensor of the Label enum
+        yield np.array([read_set.index])  # single-element tensor of the integer index
 
 
 def make_read_set_generator_from_tarfile(data_tarfile):
