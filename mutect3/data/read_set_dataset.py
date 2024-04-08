@@ -87,6 +87,16 @@ class ReadSetDataset(Dataset):
         total_labeled = np.sum(self.artifact_totals + self.non_artifact_totals)
         return total_labeled, len(self) - total_labeled
 
+    # it is often convenient to arbitrarily use the last fold for validation
+    def last_fold_only(self):
+        return [self.num_folds - 1]  # use the last fold for validation
+
+    def all_but_the_last_fold(self):
+        return list(range(self.num_folds) - 1)
+
+    def all_folds(self):
+        return list(range(self.num_folds))
+
 
 # from a generator that yields read sets, create a generator that yields
 # ref tensor, alt tensor, ref sequence tensor, info tensor, label tensor, ref tensor alt tensor. . .
