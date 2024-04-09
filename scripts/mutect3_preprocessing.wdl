@@ -22,6 +22,7 @@ workflow PreprocessMutect3 {
     output {
         File train_tar = Preprocess.train_tar
         File artifact_posterior_output = Preprocess.artifact_posterior_output
+        File indices = Preprocess.indices
     }
 }
 
@@ -63,5 +64,6 @@ task Preprocess {
     output {
         File train_tar = "train.tar"
         File artifact_posterior_output = "artifact.tar"
+        File indices = "indices.txt"
     }
 }
