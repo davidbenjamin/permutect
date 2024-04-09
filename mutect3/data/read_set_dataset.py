@@ -5,7 +5,7 @@ import tarfile
 import tempfile
 from collections import defaultdict
 from itertools import chain
-from typing import Iterable
+from typing import Iterable, List
 
 import numpy as np
 from torch.utils.data import Dataset, DataLoader
@@ -16,15 +16,16 @@ from mutect3 import utils
 from mutect3.data.read_set import ReadSet, ReadSetBatch, load_list_of_read_sets
 from mutect3.utils import Label
 
-TENSORS_PER_READ_SET = 5
+TENSORS_PER_READ_SET = 6
 
 
 class ReadSetDataset(Dataset):
-    def __init__(self, data_in_ram: Iterable[ReadSet] = None, data_tarfile=None, validation_fraction: float = 0.0):
+    def __init__(self, data_in_ram: Iterable[ReadSet] = None, data_tarfile=None, num_folds: int = 1):
         super(ReadSetDataset, self).__init__()
         assert data_in_ram is not None or data_tarfile is not None, "No data given"
         assert data_in_ram is None or data_tarfile is None, "Data given from both RAM and tarfile"
         self._memory_map_mode = data_tarfile is not None
+        self.num_folds = num_folds
 
         if self._memory_map_mode:
             self._memory_map_dir = tempfile.TemporaryDirectory()
@@ -41,15 +42,15 @@ class ReadSetDataset(Dataset):
 
         # keys = (ref read count, alt read count) tuples; values = list of indices
         # this is used in the batch sampler to make same-shape batches
-        self.labeled_indices_by_count = {utils.Epoch.TRAIN: defaultdict(list), utils.Epoch.VALID: defaultdict(list)}
-        self.unlabeled_indices_by_count = {utils.Epoch.TRAIN: defaultdict(list), utils.Epoch.VALID: defaultdict(list)}
+        self.labeled_indices_by_count = [defaultdict(list) for _ in range(num_folds)]
+        self.unlabeled_indices_by_count = [defaultdict(list) for _ in range(num_folds)]
         self.artifact_totals = np.zeros(len(utils.Variation))  # 1D tensor
         self.non_artifact_totals = np.zeros(len(utils.Variation))  # 1D tensor
 
         for n, datum in enumerate(self):
-            train_or_valid = utils.Epoch.VALID if random.random() < validation_fraction else utils.Epoch.TRAIN
+            fold = n % num_folds
             counts = (len(datum.ref_reads_2d) if datum.ref_reads_2d is not None else 0, len(datum.alt_reads_2d))
-            (self.unlabeled_indices_by_count if datum.label == Label.UNLABELED else self.labeled_indices_by_count)[train_or_valid][counts].append(n)
+            (self.unlabeled_indices_by_count if datum.label == Label.UNLABELED else self.labeled_indices_by_count)[fold][counts].append(n)
 
             if datum.label == Label.ARTIFACT:
                 self.artifact_totals += datum.variant_type_one_hot()
@@ -74,7 +75,8 @@ class ReadSetDataset(Dataset):
                            ref_reads_2d=possible_ref if len(possible_ref) > 0 else None,
                            alt_reads_2d=self._data[bottom_index + 1],
                            info_array_1d=self._data[bottom_index + 3],
-                           label=utils.Label(self._data[bottom_index + 4][0]))
+                           label=utils.Label(self._data[bottom_index + 4][0]),
+                           index=self._data[bottom_index + 5][0])
         else:
             return self._data[index]
 
@@ -84,6 +86,16 @@ class ReadSetDataset(Dataset):
     def total_labeled_and_unlabeled(self):
         total_labeled = np.sum(self.artifact_totals + self.non_artifact_totals)
         return total_labeled, len(self) - total_labeled
+
+    # it is often convenient to arbitrarily use the last fold for validation
+    def last_fold_only(self):
+        return [self.num_folds - 1]  # use the last fold for validation
+
+    def all_but_the_last_fold(self):
+        return list(range(self.num_folds - 1))
+
+    def all_folds(self):
+        return list(range(self.num_folds))
 
 
 # from a generator that yields read sets, create a generator that yields
@@ -95,6 +107,7 @@ def make_flattened_tensor_generator(read_set_generator):
         yield read_set.ref_sequence_2d
         yield read_set.info_array_1d
         yield np.array([read_set.label.value])  # single-element tensor of the Label enum
+        yield np.array([read_set.index])  # single-element tensor of the integer index
 
 
 def make_read_set_generator_from_tarfile(data_tarfile):
@@ -112,8 +125,8 @@ def make_read_set_generator_from_tarfile(data_tarfile):
             yield datum
 
 
-def make_data_loader(dataset: ReadSetDataset, train_or_valid: utils.Epoch, batch_size: int, pin_memory=False, num_workers: int = 0):
-    sampler = SemiSupervisedBatchSampler(dataset, batch_size, train_or_valid)
+def make_data_loader(dataset: ReadSetDataset, folds_to_use: List[int], batch_size: int, pin_memory=False, num_workers: int = 0):
+    sampler = SemiSupervisedBatchSampler(dataset, batch_size, folds_to_use)
     return DataLoader(dataset=dataset, batch_sampler=sampler, collate_fn=ReadSetBatch, pin_memory=pin_memory, num_workers=num_workers)
 
 
@@ -126,9 +139,18 @@ def chunk(lis, chunk_size):
 # the artifact model handles weighting the losses to compensate for class imbalance between supervised and unsupervised
 # thus the sampler is not responsible for balancing the data
 class SemiSupervisedBatchSampler(Sampler):
-    def __init__(self, dataset: ReadSetDataset, batch_size, train_or_valid: utils.Epoch):
-        self.labeled_indices_by_count = dataset.labeled_indices_by_count[train_or_valid]
-        self.unlabeled_indices_by_count = dataset.unlabeled_indices_by_count[train_or_valid]
+    def __init__(self, dataset: ReadSetDataset, batch_size, folds_to_use: List[int]):
+        # combine the index maps of all relevant folds
+        self.labeled_indices_by_count = defaultdict(list)
+        self.unlabeled_indices_by_count = defaultdict(list)
+        for fold in folds_to_use:
+            new_labeled = dataset.labeled_indices_by_count[fold]
+            new_unlabeled = dataset.unlabeled_indices_by_count[fold]
+            for count, indices in new_labeled.items():
+                self.labeled_indices_by_count[count].extend(indices)
+            for count, indices in new_unlabeled.items():
+                self.unlabeled_indices_by_count[count].extend(indices)
+
         self.batch_size = batch_size
         self.num_batches = sum(math.ceil(len(indices) // self.batch_size) for indices in
                             chain(self.labeled_indices_by_count.values(), self.unlabeled_indices_by_count.values()))

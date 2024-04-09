@@ -27,7 +27,7 @@ def train_artifact_model(m3_params: ArtifactModelParameters, params: TrainingPar
     use_gpu = torch.cuda.is_available()
     device = torch.device('cuda' if use_gpu else 'cpu')
 
-    dataset = ReadSetDataset(data_tarfile=data_tarfile, validation_fraction=0.1)
+    dataset = ReadSetDataset(data_tarfile=data_tarfile, num_folds=10)
 
     model = ArtifactModel(params=m3_params, num_read_features=dataset.num_read_features,
                           num_info_features=dataset.num_info_features, ref_sequence_length=dataset.ref_sequence_length,

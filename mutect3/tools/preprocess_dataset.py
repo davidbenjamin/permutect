@@ -7,7 +7,7 @@ import pickle
 from mutect3 import constants
 from mutect3.data import read_set
 from mutect3.data.plain_text_data import generate_normalized_data, generate_artifact_posterior_data
-from mutect3.utils import ConsistentValue
+from mutect3.utils import ConsistentValue, MutableInt
 
 """
 This tool takes as input a list of text file Mutect3 training datasets, reads them in chunks that fit in memory,
@@ -33,14 +33,20 @@ def do_work(training_datasets, training_output_file, chunk_size, artifact_poster
     num_read_features, num_info_features, ref_sequence_length = ConsistentValue(), ConsistentValue(), ConsistentValue()
 
     # save all the lists of read sets to tempfiles. . .
-    for read_set_list in generate_normalized_data(training_datasets, max_bytes_per_chunk=chunk_size):
+    datum_index = MutableInt()
+    indices_file = open("indices.txt", 'w')
+    # we include the variant string in order to record it in the indices file
+    # even though we throw it out in save_list_of_read_sets
+    for read_set_list in generate_normalized_data(training_datasets, max_bytes_per_chunk=chunk_size, include_variant_string=True):
         num_read_features.check(read_set_list[0].alt_reads_2d.shape[1])
         num_info_features.check(read_set_list[0].info_array_1d.shape[0])
         ref_sequence_length.check(read_set_list[0].ref_sequence_2d.shape[-1])
 
         with tempfile.NamedTemporaryFile(delete=False) as train_data_file:
-            read_set.save_list_of_read_sets(read_set_list, train_data_file)
+            read_set.save_list_of_read_sets(read_set_list, train_data_file, datum_index, indices_file)
             data_files.append(train_data_file.name)
+
+    indices_file.close()
 
     # . . . and bundle them in a tarfile
     with tarfile.open(training_output_file, "w") as train_tar:

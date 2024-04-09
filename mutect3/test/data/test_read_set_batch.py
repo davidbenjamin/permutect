@@ -25,8 +25,9 @@ def test_read_set_batch():
 
     gatk_info_tensors = [torch.rand(num_gatk_info_features) for _ in range(size)]
     labels = [Label.ARTIFACT, Label.VARIANT, Label.ARTIFACT]
+    indices = list(range(size))
 
-    data = [ReadSet.from_gatk(ref_sequence_strings[n], variant_types[n], ref_tensors[n], alt_tensors[n], gatk_info_tensors[n], labels[n]) for n in range(size)]
+    data = [ReadSet.from_gatk(ref_sequence_strings[n], variant_types[n], ref_tensors[n], alt_tensors[n], gatk_info_tensors[n], labels[n], indices[n]) for n in range(size)]
 
     batch = mutect3.data.read_set.ReadSetBatch(data)
 

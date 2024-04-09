@@ -370,8 +370,8 @@ class ArtifactModel(nn.Module):
             print("For variation type {}, there are {} labeled artifact examples and {} labeled non-artifact examples"
                   .format(variation_type.name, dataset.artifact_totals[idx].item(), dataset.non_artifact_totals[idx].item()))
 
-        train_loader = make_data_loader(dataset, utils.Epoch.TRAIN, batch_size, self._device.type == 'cuda', num_workers)
-        valid_loader = make_data_loader(dataset, utils.Epoch.VALID, batch_size, self._device.type == 'cuda', num_workers)
+        train_loader = make_data_loader(dataset, dataset.all_but_the_last_fold(), batch_size, self._device.type == 'cuda', num_workers)
+        valid_loader = make_data_loader(dataset, dataset.last_fold_only(), batch_size, self._device.type == 'cuda', num_workers)
 
         for epoch in trange(1, num_epochs + 1 + num_calibration_epochs, desc="Epoch"):
             is_calibration_epoch = epoch > num_epochs
@@ -446,8 +446,8 @@ class ArtifactModel(nn.Module):
 
     # generators by name is eg {"train": train_generator, "valid": valid_generator}
     def evaluate_model_after_training(self, dataset, batch_size, num_workers, summary_writer: SummaryWriter, prefix: str = ""):
-        train_loader = make_data_loader(dataset, utils.Epoch.TRAIN, batch_size, self._device.type == 'cuda', num_workers)
-        valid_loader = make_data_loader(dataset, utils.Epoch.VALID, batch_size, self._device.type == 'cuda', num_workers)
+        train_loader = make_data_loader(dataset, dataset.all_but_the_last_fold(), batch_size, self._device.type == 'cuda', num_workers)
+        valid_loader = make_data_loader(dataset, dataset.last_fold_only(), batch_size, self._device.type == 'cuda', num_workers)
         loaders_by_name = {"training": train_loader, "validation": valid_loader}
         self.freeze_all()
         self.cpu()
