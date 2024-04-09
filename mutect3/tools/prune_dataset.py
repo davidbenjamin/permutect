@@ -1,6 +1,11 @@
 import argparse
+import os
+import tarfile
 import tempfile
 import pickle
+
+import psutil
+from mutect3.data import read_set
 from tqdm.autonotebook import tqdm
 
 import numpy as np
@@ -9,15 +14,15 @@ from torch.utils.tensorboard import SummaryWriter
 
 from mutect3 import constants, utils
 from mutect3.architecture.artifact_model import ArtifactModelParameters, ArtifactModel
-from mutect3.architecture.posterior_model import initialize_artifact_spectra, plot_artifact_spectra
 from mutect3.data.read_set_dataset import ReadSetDataset, make_data_loader
 from mutect3.tools.train_model import TrainingParameters, parse_mutect3_params, parse_training_params
+from mutect3.utils import MutableInt
 
 NUM_FOLDS = 3
 
 
 # TODO: still need the summary writer??
-def prune_training_data(m3_params: ArtifactModelParameters, params: TrainingParameters, summary_writer: SummaryWriter, data_tarfile):
+def prune_training_data(m3_params: ArtifactModelParameters, params: TrainingParameters, tensorboard_dir, data_tarfile, pruned_tarfile, chunk_size):
     use_gpu = torch.cuda.is_available()
     device = torch.device('cuda' if use_gpu else 'cpu')
 
@@ -29,6 +34,7 @@ def prune_training_data(m3_params: ArtifactModelParameters, params: TrainingPara
 
     pruned_indices = []
     for fold in range(NUM_FOLDS):
+        summary_writer = SummaryWriter(tensorboard_dir + "/fold_" + str(fold))
         print("Training model on fold " + str(fold) + " of " + str(NUM_FOLDS))
         # note: not training from scratch.  I assume that there are enough epochs to forget any overfitting from
         # previous folds
@@ -42,7 +48,7 @@ def prune_training_data(m3_params: ArtifactModelParameters, params: TrainingPara
 
         # TODO: eventually this should all be segregated by variant type
 
-        # TODO: may also want to divide by alt count
+        # TODO: may also want to segregate by alt count
 
         # the 0th/1st element is a list of predicted probabilities that data labeled as non-artifact/artifact are actually non-artifact/artifact
         probs_of_agreeing_with_label = [[],[]]
@@ -121,43 +127,43 @@ def prune_training_data(m3_params: ArtifactModelParameters, params: TrainingPara
                 if (labeled_as_art and art_prob < art_threshold) or ((not labeled_as_art) and (1-art_prob) < nonart_threshold):
                     pruned_indices.append(index)
 
-
-
     # done with this particular fold
+    # TODO: Maybe also save a dataset of discarded values?
+    pruned_data_files = []
+    pruned_datum_index = MutableInt()
+    pruned_indices_file = open("pruned_indices.txt", 'w')
+    for read_set_list in generate_pruned_data(dataset=dataset, max_bytes_per_chunk=chunk_size, pruned_indices=pruned_indices):
+        with tempfile.NamedTemporaryFile(delete=False) as train_data_file:
+            read_set.save_list_of_read_sets(read_set_list, train_data_file, pruned_datum_index, pruned_indices_file)
+            pruned_data_files.append(train_data_file.name)
 
-def learn_artifact_priors_and_spectra(artifact_tarfile, genomic_span_of_data: int):
-    with tempfile.TemporaryDirectory() as temp_dir:
-        data_files = utils.extract_to_temp_dir(artifact_tarfile, temp_dir)
-
-        artifact_counts = torch.zeros(len(utils.Variation))
-        types_one_hot_buffer, depths_buffer, alt_counts_buffer = [], [], []   # list of tensors as they accumulate
-        types_one_hot_tensors, depths_tensors, alt_counts_tensors = [], [], []
-        for file in data_files:
-            for artifact_posterior in pickle.load(open(file, 'rb')):
-                variant_type = utils.Variation.get_type(artifact_posterior.ref, artifact_posterior.alt)
-                artifact_counts[variant_type] += 1
-                types_one_hot_buffer.append(torch.from_numpy(variant_type.one_hot_tensor()))
-                depths_buffer.append(artifact_posterior.depth)
-                alt_counts_buffer.append(artifact_posterior.alt_count)
-
-            # after each file, turn the buffers into tensors
-            types_one_hot_tensors.append(torch.vstack(types_one_hot_buffer))
-            depths_tensors.append(torch.Tensor(depths_buffer))
-            alt_counts_tensors.append(torch.Tensor(alt_counts_buffer))
-            types_one_hot_buffer, depths_buffer, alt_counts_buffer = [], [], []
-
-    log_artifact_priors = torch.log(artifact_counts / genomic_span_of_data)
-
-    artifact_spectra = initialize_artifact_spectra()
-
-    # TODO: hard-coded num epochs!!!
-    artifact_spectra.fit(num_epochs=10, inputs_2d_tensor=torch.vstack(types_one_hot_tensors).float(),
-                         depths_1d_tensor=torch.hstack(depths_tensors).float(), alt_counts_1d_tensor=torch.hstack(alt_counts_tensors).float(),
-                         batch_size=64)
-
-    return log_artifact_priors, artifact_spectra
+    pruned_indices_file.close()
+    # bundle them in a tarfile
+    with tarfile.open(pruned_tarfile, "w") as train_tar:
+        for train_file in pruned_data_files:
+            train_tar.add(train_file, arcname=os.path.basename(train_file))
 
 
+def generate_pruned_data(dataset: ReadSetDataset, max_bytes_per_chunk: int, pruned_indices):
+    buffer, bytes_in_buffer = [], 0
+    for datum in dataset:
+        if datum.index in pruned_indices:   # exclude pruned data from output
+            continue
+
+        buffer.append(datum)
+        bytes_in_buffer += datum.size_in_bytes()
+        if bytes_in_buffer > max_bytes_per_chunk:
+            print("memory usage percent: " + str(psutil.virtual_memory().percent))
+            print("bytes in chunk: " + str(bytes_in_buffer))
+            yield buffer
+            buffer, bytes_in_buffer = [], 0
+
+    # There will be some data left over, in general.
+    if buffer:
+        yield buffer
+
+
+# TODO: soooo much duplication here with arguments of train_model!
 def parse_arguments():
     parser = argparse.ArgumentParser(description='train the Mutect3 artifact model')
 
@@ -195,8 +201,6 @@ def parse_arguments():
     # Training data inputs
     parser.add_argument('--' + constants.TRAIN_TAR_NAME, type=str, required=True,
                         help='tarfile of training/validation datasets produced by preprocess_dataset.py')
-    parser.add_argument('--' + constants.ARTIFACT_TAR_NAME, type=str, required=True,
-                        help='tarfile of artifact posterior data produced by preprocess_dataset.py')
 
     # training hyperparameters
     parser.add_argument('--' + constants.REWEIGHTING_RANGE_NAME, type=float, default=0.3, required=False,
@@ -212,18 +216,11 @@ def parse_arguments():
     parser.add_argument('--' + constants.NUM_CALIBRATION_EPOCHS_NAME, type=int, required=True,
                         help='number of calibration epochs following primary training loop')
 
-    parser.add_argument('--' + constants.LEARN_ARTIFACT_SPECTRA_NAME, action='store_true',
-                        help='flag to include artifact priors and allele fraction spectra in saved output.  '
-                             'This is worth doing if labeled training data is available but might work poorly '
-                             'when Mutect3 generates weak labels based on allele fractions.')
-    parser.add_argument('--' + constants.GENOMIC_SPAN_NAME, type=float, required=False,
-                        help='Total number of sites considered by Mutect2 in all training data, including those lacking variation or artifacts, hence absent from input datasets.  '
-                             'Necessary for learning priors since otherwise rates of artifacts and variants would be overinflated. '
-                             'Only required if learning artifact log priors')
-
     # path to saved model
     parser.add_argument('--' + constants.OUTPUT_NAME, type=str, required=True,
                         help='path to output saved model file')
+    parser.add_argument('--' + constants.CHUNK_SIZE_NAME, type=int, default=int(2e9), required=False,
+                        help='size in bytes of output binary data files')
     parser.add_argument('--' + constants.TENSORBOARD_DIR_NAME, type=str, default='tensorboard', required=False,
                         help='path to output tensorboard directory')
 
@@ -233,22 +230,15 @@ def parse_arguments():
 def main_without_parsing(args):
     m3_params = parse_mutect3_params(args)
     training_params = parse_training_params(args)
-    learn_artifact_spectra = getattr(args, constants.LEARN_ARTIFACT_SPECTRA_NAME)
-    genomic_span = getattr(args, constants.GENOMIC_SPAN_NAME)
 
     tarfile_data = getattr(args, constants.TRAIN_TAR_NAME)
     tensorboard_dir = getattr(args, constants.TENSORBOARD_DIR_NAME)
-    summary_writer = SummaryWriter(tensorboard_dir)
-    model = train_artifact_model(m3_params=m3_params, data_tarfile=tarfile_data, params=training_params, summary_writer=summary_writer)
+    pruned_tarfile = getattr(args, constants.OUTPUT_NAME)
+    chunk_size = getattr(args, constants.CHUNK_SIZE_NAME)
 
-    artifact_tarfile_data = getattr(args, constants.ARTIFACT_TAR_NAME)
-    artifact_log_priors, artifact_spectra = learn_artifact_priors_and_spectra(artifact_tarfile_data, genomic_span) if learn_artifact_spectra else (None, None)
-    if artifact_spectra is not None:
-        art_spectra_fig, art_spectra_axs = plot_artifact_spectra(artifact_spectra)
-        summary_writer.add_figure("Artifact AF Spectra", art_spectra_fig)
-
-    summary_writer.close()
-    save_artifact_model(model, m3_params, getattr(args, constants.OUTPUT_NAME), artifact_log_priors, artifact_spectra)
+    # this writes the new pruned data tarfile and the new post-pruning indices files
+    prune_training_data(m3_params=m3_params, data_tarfile=tarfile_data, params=training_params, tensorboard_dir=tensorboard_dir,
+                        pruned_tarfile=pruned_tarfile, chunk_size=chunk_size)
 
 
 def main():
