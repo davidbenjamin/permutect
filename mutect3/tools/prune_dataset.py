@@ -60,8 +60,9 @@ def prune_training_data(m3_params: ArtifactModelParameters, params: TrainingPara
             art_probs = torch.sigmoid(model.forward(batch).detach())
 
             art_label_mask = (batch.labels > 0.5)
+            nonart_label_mask = (batch.labels < 0.5)
             average_artifact_confidence.record_with_mask(art_probs, art_label_mask)
-            average_nonartifact_confidence.record_with_mask(1 - art_probs, 1 - art_label_mask)
+            average_nonartifact_confidence.record_with_mask(1 - art_probs, nonart_label_mask)
 
             for art_prob, labeled_as_art in zip(art_probs.tolist(), art_label_mask.tolist()):
                 agreement_prob = art_prob if labeled_as_art else (1 - art_prob)
