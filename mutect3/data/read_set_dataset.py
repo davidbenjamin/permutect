@@ -92,7 +92,7 @@ class ReadSetDataset(Dataset):
         return [self.num_folds - 1]  # use the last fold for validation
 
     def all_but_the_last_fold(self):
-        return list(range(self.num_folds) - 1)
+        return list(range(self.num_folds - 1))
 
     def all_folds(self):
         return list(range(self.num_folds))
