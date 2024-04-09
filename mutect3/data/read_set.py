@@ -58,7 +58,7 @@ class ReadSet:
         return self.info_array_1d[-len(Variation):]
 
 
-def save_list_of_read_sets(read_sets: List[ReadSet], file, datum_index: MutableInt):
+def save_list_of_read_sets(read_sets: List[ReadSet], file, datum_index: MutableInt, indices_file=None):
     """
     note that torch.save works fine with numpy data
     :param read_sets:
@@ -77,6 +77,11 @@ def save_list_of_read_sets(read_sets: List[ReadSet], file, datum_index: MutableI
 
     torch.save([ref_sequence_tensors, ref_tensors, alt_tensors, info_tensors, labels, indices], file)
     datum_index.increment(num_data)
+
+    if indices_file is not None:
+        for index, datum in zip(indices, read_sets):
+            if datum.variant_string is not None:
+                indices_file.write(str(index) + "\t" + datum.variant_string)
 
 
 def load_list_of_read_sets(file) -> List[ReadSet]:
