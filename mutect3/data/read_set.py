@@ -79,9 +79,9 @@ def save_list_of_read_sets(read_sets: List[ReadSet], file, datum_index: MutableI
     datum_index.increment(num_data)
 
     if indices_file is not None:
-        for index, datum in zip(indices, read_sets):
+        for index, datum in zip(indices.tolist(), read_sets):
             if datum.variant_string is not None:
-                indices_file.write(str(index) + "\t" + datum.variant_string)
+                indices_file.write(str(index) + "\t" + datum.variant_string + '\n')
 
 
 def load_list_of_read_sets(file) -> List[ReadSet]:
