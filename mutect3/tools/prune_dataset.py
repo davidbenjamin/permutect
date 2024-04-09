@@ -3,6 +3,7 @@ import tempfile
 import pickle
 from tqdm.autonotebook import tqdm
 
+import numpy as np
 import torch
 from torch.utils.tensorboard import SummaryWriter
 
@@ -16,7 +17,7 @@ NUM_FOLDS = 3
 
 
 # TODO: still need the summary writer??
-def train_artifact_model(m3_params: ArtifactModelParameters, params: TrainingParameters, summary_writer: SummaryWriter, data_tarfile):
+def prune_training_data(m3_params: ArtifactModelParameters, params: TrainingParameters, summary_writer: SummaryWriter, data_tarfile):
     use_gpu = torch.cuda.is_available()
     device = torch.device('cuda' if use_gpu else 'cpu')
 
@@ -26,6 +27,7 @@ def train_artifact_model(m3_params: ArtifactModelParameters, params: TrainingPar
                           num_info_features=dataset.num_info_features, ref_sequence_length=dataset.ref_sequence_length,
                           device=device).float()
 
+    pruned_indices = []
     for fold in range(NUM_FOLDS):
         print("Training model on fold " + str(fold) + " of " + str(NUM_FOLDS))
         # note: not training from scratch.  I assume that there are enough epochs to forget any overfitting from
@@ -38,17 +40,28 @@ def train_artifact_model(m3_params: ArtifactModelParameters, params: TrainingPar
         # now we go over all the labeled data in the validation set -- that is, the current fold -- and perform rank pruning
         valid_loader = make_data_loader(dataset, [fold], params.batch_size, use_gpu, params.num_workers)
 
-        print("calculating average confidence")
+        # TODO: eventually this should all be segregated by variant type
+
+        # TODO: may also want to divide by alt count
+
+        # the 0th/1st element is a list of predicted probabilities that data labeled as non-artifact/artifact are actually non-artifact/artifact
+        probs_of_agreeing_with_label = [[],[]]
+        print("calculating average confidence and gathering predicted probabilities")
         pbar = tqdm(enumerate(filter(lambda bat: bat.is_labeled(), valid_loader)), mininterval=60)
         for n, batch in pbar:
             # TODO: should we use likelihoods as in evaluation or posteriors as in training???
             # TODO: does it even matter??
-            predicted_artifact_probs = torch.sigmoid(model.forward(batch).detach())
+            art_probs = torch.sigmoid(model.forward(batch).detach())
 
-            artifact_label_mask = (batch.labels > 0.5)
-            average_artifact_confidence.record_with_mask(predicted_artifact_probs, artifact_label_mask)
-            average_nonartifact_confidence.record_with_mask(1 - predicted_artifact_probs, 1 - artifact_label_mask)
+            art_label_mask = (batch.labels > 0.5)
+            average_artifact_confidence.record_with_mask(art_probs, art_label_mask)
+            average_nonartifact_confidence.record_with_mask(1 - art_probs, 1 - art_label_mask)
 
+            for art_prob, labeled_as_art in zip(art_probs.tolist(), art_label_mask.tolist()):
+                agreement_prob = art_prob if labeled_as_art else (1 - art_prob)
+                probs_of_agreeing_with_label[1 if labeled_as_art else 0].append(agreement_prob)
+
+        # TODO: it is wasteful to run forward passes on all the data again when we can just record indices and logits
         print("estimating error rates")
         # The i,j element is the count of data labeled as i that pass the confidence threshold for j
         # here 0 means non-artifact and 1 means artifact
@@ -74,8 +87,43 @@ def train_artifact_model(m3_params: ArtifactModelParameters, params: TrainingPar
         art_error_rate = confusion[0][1] / (confusion[0][1] + confusion[1][1])
         nonart_error_rate = confusion[1][0] / (confusion[0][0] + confusion[1][0])
 
+        # fraction of labeled data that are labeled as artifact
+        label_art_frac = np.sum(dataset.artifact_totals) / (np.sum(dataset.artifact_totals + dataset.non_artifact_totals))
+        label_nonart_frac = 1 - label_art_frac
+
         # these are the inverse probabilities that something labeled as artifact/non-artifact was actually a mislabeled nonartifact/artifact
-        inv_art_error_rate
+        inv_art_error_rate = (nonart_error_rate / label_art_frac) * (label_nonart_frac - art_error_rate) / (1 - art_error_rate - nonart_error_rate)
+        inv_nonart_error_rate = (art_error_rate / label_nonart_frac) * (label_art_frac - nonart_error_rate) / (1 - art_error_rate - nonart_error_rate)
+
+        print("Estimated error rates: ")
+        print("artifact mislabeled as nonartifact " + str(art_error_rate))
+        print("non-artifact mislabeled as artifact " + str(nonart_error_rate))
+
+        print("Estimated inverse error rates: ")
+        print("Labeled artifact was actually nonartifact " + str(inv_art_error_rate))
+        print("Labeled non-artifact was actually artifact " + str(inv_nonart_error_rate))
+
+        print("calculating rank pruning thresholds")
+        nonart_threshold = torch.quantile(torch.Tensor(probs_of_agreeing_with_label[0]), inv_nonart_error_rate).item()
+        art_threshold = torch.quantile(torch.Tensor(probs_of_agreeing_with_label[1]), inv_art_error_rate).item()
+
+        print("Rank pruning thresholds: ")
+        print("Labeled artifacts are pruned if predicted artifact probability is less than " + str(art_threshold))
+        print("Labeled non-artifacts are pruned if predicted non-artifact probability is less than " + str(nonart_threshold))
+
+        print("pruning the dataset")
+        pbar = tqdm(enumerate(filter(lambda bat: bat.is_labeled(), valid_loader)), mininterval=60)
+        for n, batch in pbar:
+            art_probs = torch.sigmoid(model.forward(batch).detach())
+            art_label_mask = (batch.labels > 0.5)
+
+            for art_prob, labeled_as_art, index in zip(art_probs.tolist(), art_label_mask.tolist(), batch.indices.tolist()):
+                if (labeled_as_art and art_prob < art_threshold) or ((not labeled_as_art) and (1-art_prob) < nonart_threshold):
+                    pruned_indices.append(index)
+
+
+
+    # done with this particular fold
 
 def learn_artifact_priors_and_spectra(artifact_tarfile, genomic_span_of_data: int):
     with tempfile.TemporaryDirectory() as temp_dir:
