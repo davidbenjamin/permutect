@@ -351,7 +351,9 @@ class ArtifactModel(nn.Module):
 
         return result
 
-    def train_model(self, dataset: ReadSetDataset, num_epochs, num_calibration_epochs, batch_size, num_workers, summary_writer: SummaryWriter, reweighting_range: float, m3_params: ArtifactModelParameters):
+    def train_model(self, dataset: ReadSetDataset, num_epochs, num_calibration_epochs, batch_size, num_workers,
+                    summary_writer: SummaryWriter, reweighting_range: float, m3_params: ArtifactModelParameters,
+                    validation_fold: int = None):
         bce = nn.BCEWithLogitsLoss(reduction='none')  # no reduction because we may want to first multiply by weights for unbalanced data
         train_optimizer = torch.optim.AdamW(self.training_parameters(), lr=m3_params.learning_rate)
         calibration_optimizer = torch.optim.AdamW(self.calibration_parameters(), lr=m3_params.learning_rate)
@@ -370,8 +372,9 @@ class ArtifactModel(nn.Module):
             print("For variation type {}, there are {} labeled artifact examples and {} labeled non-artifact examples"
                   .format(variation_type.name, dataset.artifact_totals[idx].item(), dataset.non_artifact_totals[idx].item()))
 
-        train_loader = make_data_loader(dataset, dataset.all_but_the_last_fold(), batch_size, self._device.type == 'cuda', num_workers)
-        valid_loader = make_data_loader(dataset, dataset.last_fold_only(), batch_size, self._device.type == 'cuda', num_workers)
+        validation_fold_to_use = (dataset.num_folds - 1) if validation_fold is None else validation_fold
+        train_loader = make_data_loader(dataset, dataset.all_but_one_fold(validation_fold_to_use), batch_size, self._device.type == 'cuda', num_workers)
+        valid_loader = make_data_loader(dataset, [validation_fold_to_use], batch_size, self._device.type == 'cuda', num_workers)
 
         for epoch in trange(1, num_epochs + 1 + num_calibration_epochs, desc="Epoch"):
             is_calibration_epoch = epoch > num_epochs

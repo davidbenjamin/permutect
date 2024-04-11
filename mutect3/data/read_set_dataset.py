@@ -94,6 +94,9 @@ class ReadSetDataset(Dataset):
     def all_but_the_last_fold(self):
         return list(range(self.num_folds - 1))
 
+    def all_but_one_fold(self, fold_to_exclude: int):
+        return list(range(fold_to_exclude)) + list(range(fold_to_exclude + 1, self.num_folds))
+
     def all_folds(self):
         return list(range(self.num_folds))
 
