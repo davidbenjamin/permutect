@@ -66,7 +66,7 @@ class ArtifactModelParameters:
     def __init__(self,
                  read_embedding_dimension, num_transformer_heads, transformer_hidden_dimension,
                  num_transformer_layers, info_layers, aggregation_layers, calibration_layers,
-                 ref_seq_layers_strings, dropout_p, batch_normalize, learning_rate,
+                 ref_seq_layers_strings, dropout_p, batch_normalize, learning_rate, weight_decay,
                  alt_downsample):
 
         assert read_embedding_dimension % num_transformer_heads == 0
@@ -82,6 +82,7 @@ class ArtifactModelParameters:
         self.dropout_p = dropout_p
         self.batch_normalize = batch_normalize
         self.learning_rate = learning_rate
+        self.weight_decay = weight_decay
         self.alt_downsample = alt_downsample
 
 
@@ -355,8 +356,8 @@ class ArtifactModel(nn.Module):
                     summary_writer: SummaryWriter, reweighting_range: float, m3_params: ArtifactModelParameters,
                     validation_fold: int = None):
         bce = nn.BCEWithLogitsLoss(reduction='none')  # no reduction because we may want to first multiply by weights for unbalanced data
-        train_optimizer = torch.optim.AdamW(self.training_parameters(), lr=m3_params.learning_rate)
-        calibration_optimizer = torch.optim.AdamW(self.calibration_parameters(), lr=m3_params.learning_rate)
+        train_optimizer = torch.optim.AdamW(self.training_parameters(), lr=m3_params.learning_rate, weight_decay=m3_params.weight_decay)
+        calibration_optimizer = torch.optim.AdamW(self.calibration_parameters(), lr=m3_params.learning_rate, weight_decay=m3_params.weight_decay)
 
         artifact_to_non_artifact_ratios = torch.from_numpy(dataset.artifact_to_non_artifact_ratios()).to(self._device)
         artifact_to_non_artifact_log_prior_ratios = torch.log(artifact_to_non_artifact_ratios)

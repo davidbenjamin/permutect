@@ -114,10 +114,11 @@ def parse_mutect3_params(args) -> ArtifactModelParameters:
     dropout_p = getattr(args, constants.DROPOUT_P_NAME)
     batch_normalize = getattr(args, constants.BATCH_NORMALIZE_NAME)
     learning_rate = getattr(args, constants.LEARNING_RATE_NAME)
+    weight_decay = getattr(args, constants.WEIGHT_DECAY_NAME)
     alt_downsample = getattr(args, constants.ALT_DOWNSAMPLE_NAME)
     return ArtifactModelParameters(read_embedding_dimension, num_transformer_heads, transformer_hidden_dimension,
                  num_transformer_layers, info_layers, aggregation_layers, calibration_layers, ref_seq_layer_strings, dropout_p,
-        batch_normalize, learning_rate, alt_downsample)
+        batch_normalize, learning_rate, weight_decay, alt_downsample)
 
 
 def parse_arguments():
@@ -190,6 +191,8 @@ def add_artifact_model_hyperparameters_to_parser(parser):
     parser.add_argument('--' + constants.DROPOUT_P_NAME, type=float, default=0.0, required=False,
                         help='dropout probability')
     parser.add_argument('--' + constants.LEARNING_RATE_NAME, type=float, default=0.001, required=False,
+                        help='learning rate')
+    parser.add_argument('--' + constants.WEIGHT_DECAY_NAME, type=float, default=0.0, required=False,
                         help='learning rate')
     parser.add_argument('--' + constants.ALT_DOWNSAMPLE_NAME, type=int, default=100, required=False,
                         help='max number of alt reads to downsample to inside the model')
