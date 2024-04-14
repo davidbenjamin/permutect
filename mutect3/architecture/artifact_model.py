@@ -400,8 +400,11 @@ class ArtifactModel(nn.Module):
                     log_prior_ratios = torch.sum(artifact_to_non_artifact_log_prior_ratios * types_one_hot, dim=1)
                     posterior_logits = logits + log_prior_ratios
 
+                    DEBUG = None
+
                     if batch.is_labeled():
                         separate_losses = bce(posterior_logits, batch.labels)
+                        DEBUG = separate_losses
                         loss = torch.sum(separate_losses)
                         labeled_loss.record_sum(loss.detach(), batch.size())
 
@@ -419,19 +422,36 @@ class ArtifactModel(nn.Module):
                     else:
                         # unlabeled loss: entropy regularization
                         posterior_probabilities = torch.sigmoid(posterior_logits)
-                        entropies = -posterior_probabilities * torch.log(posterior_probabilities) \
-                            - (1-posterior_probabilities) * torch.log(1-posterior_probabilities)
+
+                        # TODO: hmmm I wonder if these are the source of the nan?
+                        #entropies = -posterior_probabilities * torch.log(posterior_probabilities) \
+                        #    - (1-posterior_probabilities) * torch.log(1-posterior_probabilities)
+
+                        # this I hope is more numerically stable
+                        entropies =  torch.nn.functional.binary_cross_entropy_with_logits(posterior_logits, posterior_probabilities, reduction='none')
+
+                        DEBUG = entropies
 
                         # TODO: we need a parameter to control the relative weight of unlabeled loss to labeled loss
                         loss = torch.sum(entropies) * labeled_to_unlabeled_ratio
                         unlabeled_loss.record_sum(loss.detach(), batch.size())
 
-                    assert not loss.isnan().item()  # all sorts of errors produce a nan here.  This is a good place to spot it
-
-                    if epoch_type == utils.Epoch.TRAIN:
-                        utils.backpropagate(train_optimizer, loss)
-                    if is_calibration_epoch:
-                        utils.backpropagate(calibration_optimizer, loss)
+                    # it is probably bad practice to just ignore a nan but for now let's just skip backprop for the
+                    # offending batch and hope to carry on without problems.  This might not work.  Even if it does,
+                    # I eventually want to actually diagnose the issue.
+                    if loss.isnan().item():
+                        print("THIS BATCH's LOSS IS NAN!!!!  SKIPPING BACK-PROPAGATION.")
+                        print("batch is " + ("labeled." if batch.is_labeled else "unlabeled."))
+                        print("alt count, ref count = " + str(batch.alt_count, batch.ref_count))
+                        print("do logits contain NaN: " + "yes" if logits.isnan().any() else "no")
+                        print("do posterior logits contain NaN: " + "yes" if posterior_logits.isnan().any() else "no")
+                        if not batch.is_labeled and DEBUG.isnan().any():
+                            print("entropies contain a NaN")
+                    else:
+                        if epoch_type == utils.Epoch.TRAIN:
+                            utils.backpropagate(train_optimizer, loss)
+                        if is_calibration_epoch:
+                            utils.backpropagate(calibration_optimizer, loss)
 
                 # done with one epoch type -- training or validation -- for this epoch
                 summary_writer.add_scalar(epoch_type.name + "/Labeled Loss", labeled_loss.get(), epoch)
