@@ -114,15 +114,58 @@ def parse_mutect3_params(args) -> ArtifactModelParameters:
     dropout_p = getattr(args, constants.DROPOUT_P_NAME)
     batch_normalize = getattr(args, constants.BATCH_NORMALIZE_NAME)
     learning_rate = getattr(args, constants.LEARNING_RATE_NAME)
+    weight_decay = getattr(args, constants.WEIGHT_DECAY_NAME)
     alt_downsample = getattr(args, constants.ALT_DOWNSAMPLE_NAME)
     return ArtifactModelParameters(read_embedding_dimension, num_transformer_heads, transformer_hidden_dimension,
                  num_transformer_layers, info_layers, aggregation_layers, calibration_layers, ref_seq_layer_strings, dropout_p,
-        batch_normalize, learning_rate, alt_downsample)
+        batch_normalize, learning_rate, weight_decay, alt_downsample)
 
 
 def parse_arguments():
     parser = argparse.ArgumentParser(description='train the Mutect3 artifact model')
 
+    add_artifact_model_hyperparameters_to_parser(parser)
+    add_artifact_model_training_hyperparameters_to_parser(parser)
+
+    parser.add_argument('--' + constants.LEARN_ARTIFACT_SPECTRA_NAME, action='store_true',
+                        help='flag to include artifact priors and allele fraction spectra in saved output.  '
+                             'This is worth doing if labeled training data is available but might work poorly '
+                             'when Mutect3 generates weak labels based on allele fractions.')
+    parser.add_argument('--' + constants.GENOMIC_SPAN_NAME, type=float, required=False,
+                        help='Total number of sites considered by Mutect2 in all training data, including those lacking variation or artifacts, hence absent from input datasets.  '
+                             'Necessary for learning priors since otherwise rates of artifacts and variants would be overinflated. '
+                             'Only required if learning artifact log priors')
+
+    # inputs and outputs
+    parser.add_argument('--' + constants.TRAIN_TAR_NAME, type=str, required=True,
+                        help='tarfile of training/validation datasets produced by preprocess_dataset.py')
+    parser.add_argument('--' + constants.ARTIFACT_TAR_NAME, type=str, required=True,
+                        help='tarfile of artifact posterior data produced by preprocess_dataset.py')
+    parser.add_argument('--' + constants.OUTPUT_NAME, type=str, required=True,
+                        help='path to output saved model file')
+    parser.add_argument('--' + constants.TENSORBOARD_DIR_NAME, type=str, default='tensorboard', required=False,
+                        help='path to output tensorboard directory')
+
+    return parser.parse_args()
+
+
+def add_artifact_model_training_hyperparameters_to_parser(parser):
+    # training hyperparameters
+    parser.add_argument('--' + constants.REWEIGHTING_RANGE_NAME, type=float, default=0.3, required=False,
+                        help='magnitude of data augmentation by randomly weighted average of read embeddings.  '
+                             'a value of x yields random weights between 1 - x and 1 + x')
+    parser.add_argument('--' + constants.BATCH_SIZE_NAME, type=int, default=64, required=False,
+                        help='batch size')
+    parser.add_argument('--' + constants.NUM_WORKERS_NAME, type=int, default=0, required=False,
+                        help='number of subprocesses devoted to data loading, which includes reading from memory map, '
+                             'collating batches, and transferring to GPU.')
+    parser.add_argument('--' + constants.NUM_EPOCHS_NAME, type=int, required=True,
+                        help='number of epochs for primary training loop')
+    parser.add_argument('--' + constants.NUM_CALIBRATION_EPOCHS_NAME, type=int, required=True,
+                        help='number of calibration epochs following primary training loop')
+
+
+def add_artifact_model_hyperparameters_to_parser(parser):
     # architecture hyperparameters
     parser.add_argument('--' + constants.READ_EMBEDDING_DIMENSION_NAME, type=int, required=True,
                         help='dimension of read embedding output by the transformer')
@@ -149,47 +192,12 @@ def parse_arguments():
                         help='dropout probability')
     parser.add_argument('--' + constants.LEARNING_RATE_NAME, type=float, default=0.001, required=False,
                         help='learning rate')
+    parser.add_argument('--' + constants.WEIGHT_DECAY_NAME, type=float, default=0.0, required=False,
+                        help='learning rate')
     parser.add_argument('--' + constants.ALT_DOWNSAMPLE_NAME, type=int, default=100, required=False,
                         help='max number of alt reads to downsample to inside the model')
     parser.add_argument('--' + constants.BATCH_NORMALIZE_NAME, action='store_true',
                         help='flag to turn on batch normalization')
-
-    # Training data inputs
-    parser.add_argument('--' + constants.TRAIN_TAR_NAME, type=str, required=True,
-                        help='tarfile of training/validation datasets produced by preprocess_dataset.py')
-    parser.add_argument('--' + constants.ARTIFACT_TAR_NAME, type=str, required=True,
-                        help='tarfile of artifact posterior data produced by preprocess_dataset.py')
-
-    # training hyperparameters
-    parser.add_argument('--' + constants.REWEIGHTING_RANGE_NAME, type=float, default=0.3, required=False,
-                        help='magnitude of data augmentation by randomly weighted average of read embeddings.  '
-                             'a value of x yields random weights between 1 - x and 1 + x')
-    parser.add_argument('--' + constants.BATCH_SIZE_NAME, type=int, default=64, required=False,
-                        help='batch size')
-    parser.add_argument('--' + constants.NUM_WORKERS_NAME, type=int, default=0, required=False,
-                        help='number of subprocesses devoted to data loading, which includes reading from memory map, '
-                             'collating batches, and transferring to GPU.')
-    parser.add_argument('--' + constants.NUM_EPOCHS_NAME, type=int, required=True,
-                        help='number of epochs for primary training loop')
-    parser.add_argument('--' + constants.NUM_CALIBRATION_EPOCHS_NAME, type=int, required=True,
-                        help='number of calibration epochs following primary training loop')
-
-    parser.add_argument('--' + constants.LEARN_ARTIFACT_SPECTRA_NAME, action='store_true',
-                        help='flag to include artifact priors and allele fraction spectra in saved output.  '
-                             'This is worth doing if labeled training data is available but might work poorly '
-                             'when Mutect3 generates weak labels based on allele fractions.')
-    parser.add_argument('--' + constants.GENOMIC_SPAN_NAME, type=float, required=False,
-                        help='Total number of sites considered by Mutect2 in all training data, including those lacking variation or artifacts, hence absent from input datasets.  '
-                             'Necessary for learning priors since otherwise rates of artifacts and variants would be overinflated. '
-                             'Only required if learning artifact log priors')
-
-    # path to saved model
-    parser.add_argument('--' + constants.OUTPUT_NAME, type=str, required=True,
-                        help='path to output saved model file')
-    parser.add_argument('--' + constants.TENSORBOARD_DIR_NAME, type=str, default='tensorboard', required=False,
-                        help='path to output tensorboard directory')
-
-    return parser.parse_args()
 
 
 def main_without_parsing(args):

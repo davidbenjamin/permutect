@@ -48,6 +48,7 @@ def test_on_dream1():
     setattr(train_model_args, constants.REF_SEQ_LAYER_STRINGS_NAME, cnn_layer_strings)
     setattr(train_model_args, constants.DROPOUT_P_NAME, 0.0)
     setattr(train_model_args, constants.LEARNING_RATE_NAME, 0.001)
+    setattr(train_model_args, constants.WEIGHT_DECAY_NAME, 0.01)
     setattr(train_model_args, constants.BATCH_NORMALIZE_NAME, False)
     setattr(train_model_args, constants.LEARN_ARTIFACT_SPECTRA_NAME, True)  # could go either way
     setattr(train_model_args, constants.GENOMIC_SPAN_NAME, 100000)

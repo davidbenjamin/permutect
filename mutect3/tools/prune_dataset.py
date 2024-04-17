@@ -15,7 +15,8 @@ from torch.utils.tensorboard import SummaryWriter
 from mutect3 import constants, utils
 from mutect3.architecture.artifact_model import ArtifactModelParameters, ArtifactModel
 from mutect3.data.read_set_dataset import ReadSetDataset, make_data_loader
-from mutect3.tools.train_model import TrainingParameters, parse_mutect3_params, parse_training_params
+from mutect3.tools.train_model import TrainingParameters, parse_mutect3_params, parse_training_params, \
+    add_artifact_model_hyperparameters_to_parser, add_artifact_model_training_hyperparameters_to_parser
 from mutect3.utils import MutableInt
 
 NUM_FOLDS = 3
@@ -164,64 +165,21 @@ def generate_pruned_data(dataset: ReadSetDataset, max_bytes_per_chunk: int, prun
         yield buffer
 
 
-# TODO: soooo much duplication here with arguments of train_model!
 def parse_arguments():
     parser = argparse.ArgumentParser(description='train the Mutect3 artifact model')
 
-    # architecture hyperparameters
-    parser.add_argument('--' + constants.READ_EMBEDDING_DIMENSION_NAME, type=int, required=True,
-                        help='dimension of read embedding output by the transformer')
-    parser.add_argument('--' + constants.NUM_TRANSFORMER_HEADS_NAME, type=int, required=True,
-                        help='number of transformer self-attention heads')
-    parser.add_argument('--' + constants.TRANSFORMER_HIDDEN_DIMENSION_NAME, type=int, required=True,
-                        help='hidden dimension of transformer keys and values')
-    parser.add_argument('--' + constants.NUM_TRANSFORMER_LAYERS_NAME, type=int, required=True,
-                        help='number of transformer layers')
-    parser.add_argument('--' + constants.INFO_LAYERS_NAME, nargs='+', type=int, required=True,
-                        help='dimensions of hidden layers in the info embedding subnetwork, including the dimension of the embedding itself.  '
-                             'Negative values indicate residual skip connections')
-    parser.add_argument('--' + constants.AGGREGATION_LAYERS_NAME, nargs='+', type=int, required=True,
-                        help='dimensions of hidden layers in the aggregation subnetwork, excluding the dimension of input from lower subnetworks '
-                             'and the dimension (1) of the output logit.  Negative values indicate residual skip connections')
-    parser.add_argument('--' + constants.CALIBRATION_LAYERS_NAME, nargs='+', type=int, required=True,
-                        help='dimensions of hidden layers in the calibration subnetwork, excluding the dimension (1) of input logit and) '
-                             'and the dimension (also 1) of the output logit.')
-    parser.add_argument('--' + constants.REF_SEQ_LAYER_STRINGS_NAME, nargs='+', type=str, required=True,
-                        help='list of strings specifying convolution layers of the reference sequence embedding.  For example '
-                             'convolution/kernel_size=3/out_channels=64 pool/kernel_size=2 leaky_relu '
-                             'convolution/kernel_size=3/dilation=2/out_channels=5 leaky_relu flatten linear/out_features=10')
-    parser.add_argument('--' + constants.DROPOUT_P_NAME, type=float, default=0.0, required=False,
-                        help='dropout probability')
-    parser.add_argument('--' + constants.LEARNING_RATE_NAME, type=float, default=0.001, required=False,
-                        help='learning rate')
-    parser.add_argument('--' + constants.ALT_DOWNSAMPLE_NAME, type=int, default=100, required=False,
-                        help='max number of alt reads to downsample to inside the model')
-    parser.add_argument('--' + constants.BATCH_NORMALIZE_NAME, action='store_true',
-                        help='flag to turn on batch normalization')
+    add_artifact_model_hyperparameters_to_parser(parser)
+    add_artifact_model_training_hyperparameters_to_parser(parser)
 
-    # Training data inputs
-    parser.add_argument('--' + constants.TRAIN_TAR_NAME, type=str, required=True,
-                        help='tarfile of training/validation datasets produced by preprocess_dataset.py')
-
-    # training hyperparameters
-    parser.add_argument('--' + constants.REWEIGHTING_RANGE_NAME, type=float, default=0.3, required=False,
-                        help='magnitude of data augmentation by randomly weighted average of read embeddings.  '
-                             'a value of x yields random weights between 1 - x and 1 + x')
-    parser.add_argument('--' + constants.BATCH_SIZE_NAME, type=int, default=64, required=False,
-                        help='batch size')
-    parser.add_argument('--' + constants.NUM_WORKERS_NAME, type=int, default=0, required=False,
-                        help='number of subprocesses devoted to data loading, which includes reading from memory map, '
-                             'collating batches, and transferring to GPU.')
-    parser.add_argument('--' + constants.NUM_EPOCHS_NAME, type=int, required=True,
-                        help='number of epochs for primary training loop')
-    parser.add_argument('--' + constants.NUM_CALIBRATION_EPOCHS_NAME, type=int, required=True,
-                        help='number of calibration epochs following primary training loop')
-
-    # path to saved model
-    parser.add_argument('--' + constants.OUTPUT_NAME, type=str, required=True,
-                        help='path to output saved model file')
     parser.add_argument('--' + constants.CHUNK_SIZE_NAME, type=int, default=int(2e9), required=False,
                         help='size in bytes of output binary data files')
+
+    # input / output
+    parser.add_argument('--' + constants.TRAIN_TAR_NAME, type=str, required=True,
+                        help='tarfile of training/validation datasets produced by preprocess_dataset.py')
+    parser.add_argument('--' + constants.OUTPUT_NAME, type=str, required=True,
+                        help='path to output saved model file')
+
     parser.add_argument('--' + constants.TENSORBOARD_DIR_NAME, type=str, default='tensorboard', required=False,
                         help='path to output tensorboard directory')
 
