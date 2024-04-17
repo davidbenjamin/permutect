@@ -217,7 +217,12 @@ class PosteriorModel(torch.nn.Module):
 
         log_posteriors = log_priors + spectra_log_likelihoods + normal_log_likelihoods
         log_posteriors[:, Call.ARTIFACT] += batch.artifact_logits
-        log_posteriors[:, Call.NORMAL_ARTIFACT] += batch.artifact_logits
+
+        # we hedge our bets and average the two possibilities for a normal artifact: 1), that the tumor does not exhibit
+        # an artifact, and 2), that it does
+        log_normal_artifact_with_tumor_artifact = log_posteriors[:, Call.NORMAL_ARTIFACT] + batch.artifact_logits
+        log_normal_artifact_without_tumor_artifact = log_posteriors[:, Call.NORMAL_ARTIFACT]
+        log_posteriors[:, Call.NORMAL_ARTIFACT] = torch.logsumexp(torch.vstack((log_normal_artifact_with_tumor_artifact, log_normal_artifact_without_tumor_artifact)), dim=0) - torch.log(torch.Tensor([2]))
 
         return log_priors, spectra_log_likelihoods, normal_log_likelihoods, log_posteriors
 
