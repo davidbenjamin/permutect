@@ -1,7 +1,7 @@
 version 1.0
 
 
-workflow TrainMutect3 {
+workflow TrainPermutect {
     input {
         File train_tar
         File artifact_tar
@@ -26,18 +26,18 @@ workflow TrainMutect3 {
         Boolean learn_artifact_spectra
         Float? genomic_span
 
-        String mutect3_docker
+        String permutect_docker
         Int? preemptible
         Int? max_retries
     }
 
     if (use_gpu) {
-        call TrainMutect3GPU {
+        call TrainPermutectGPU {
             input:
                 train_tar = train_tar,
                 artifact_tar = artifact_tar,
                 pretrained_model = pretrained_model,
-                mutect3_docker = mutect3_docker,
+                permutect_docker = permutect_docker,
                 preemptible = preemptible,
                 max_retries = max_retries,
                 num_epochs = num_epochs,
@@ -62,12 +62,12 @@ workflow TrainMutect3 {
     }
 
         if (!use_gpu) {
-        call TrainMutect3CPU {
+        call TrainPermutectCPU {
             input:
                 train_tar = train_tar,
                 artifact_tar = artifact_tar,
                 pretrained_model = pretrained_model,
-                mutect3_docker = mutect3_docker,
+                permutect_docker = permutect_docker,
                 preemptible = preemptible,
                 max_retries = max_retries,
                 num_epochs = num_epochs,
@@ -93,14 +93,14 @@ workflow TrainMutect3 {
 
 
     output {
-        File mutect3_model = select_first([TrainMutect3GPU.mutect3_model, TrainMutect3CPU.mutect3_model])
-        File training_tensorboard_tar = select_first([TrainMutect3GPU.tensorboard_tar, TrainMutect3CPU.tensorboard_tar])
+        File permutect_model = select_first([TrainPermutectGPU.permutect_model, TrainPermutectCPU.permutect_model])
+        File training_tensorboard_tar = select_first([TrainPermutectGPU.tensorboard_tar, TrainPermutectCPU.tensorboard_tar])
     }
 }
 
 ## HORRIBLE HACK: because there is no way in Terra to set gpuCount to 0, in order to optionally use GPU we have to write
 ## two nearly-identical tasks, one for CPU and one for GPU.  See https://github.com/broadinstitute/cromwell/issues/6679
-task TrainMutect3GPU {
+task TrainPermutectGPU {
     input {
         File train_tar
         File artifact_tar
@@ -126,7 +126,7 @@ task TrainMutect3GPU {
 
         String? extra_args
 
-        String mutect3_docker
+        String permutect_docker
         Int? preemptible
         Int? max_retries
         Int? disk_space
@@ -162,7 +162,7 @@ task TrainMutect3GPU {
             ~{"--num_workers " + num_workers} \
             --num_epochs ~{num_epochs} \
             --num_calibration_epochs ~{num_calibration_epochs} \
-            --output mutect3.pt \
+            --output permutect.pt \
             --tensorboard_dir tensorboard \
             ~{"--genomic_span " + genomic_span} \
             ~{learn_artifact_cmd} \
@@ -172,7 +172,7 @@ task TrainMutect3GPU {
     >>>
 
     runtime {
-        docker: mutect3_docker
+        docker: permutect_docker
         bootDiskSizeGb: 12
         memory: machine_mem + " MB"
         disks: "local-disk " + select_first([disk_space, 100]) + if use_ssd then " SSD" else " HDD"
@@ -184,12 +184,12 @@ task TrainMutect3GPU {
     }
 
     output {
-        File mutect3_model = "mutect3.pt"
+        File permutect_model = "permutect.pt"
         File tensorboard_tar = "tensorboard.tar"
     }
 }
 
-task TrainMutect3CPU {
+task TrainPermutectCPU {
     input {
         File train_tar
         File artifact_tar
@@ -214,7 +214,7 @@ task TrainMutect3CPU {
         Float? genomic_span
         String? extra_args
 
-        String mutect3_docker
+        String permutect_docker
         Int? preemptible
         Int? max_retries
         Int? disk_space
@@ -250,7 +250,7 @@ task TrainMutect3CPU {
             ~{"--num_workers " + num_workers} \
             --num_epochs ~{num_epochs} \
             --num_calibration_epochs ~{num_calibration_epochs} \
-            --output mutect3.pt \
+            --output permutect.pt \
             --tensorboard_dir tensorboard \
             ~{"--genomic_span " + genomic_span} \
             ~{learn_artifact_cmd} \
@@ -260,7 +260,7 @@ task TrainMutect3CPU {
     >>>
 
     runtime {
-        docker: mutect3_docker
+        docker: permutect_docker
         bootDiskSizeGb: 12
         memory: machine_mem + " MB"
         disks: "local-disk " + select_first([disk_space, 100]) + if use_ssd then " SSD" else " HDD"
@@ -270,7 +270,7 @@ task TrainMutect3CPU {
     }
 
     output {
-        File mutect3_model = "mutect3.pt"
+        File permutect_model = "permutect.pt"
         File tensorboard_tar = "tensorboard.tar"
     }
 }
