@@ -150,7 +150,7 @@ task PermutectFiltering {
         # set -e
         genomic_span=`grep "callable" ~{mutect_stats} | while read name value; do echo $value; done`
 
-        filter_variants --input ~{mutect2_vcf} --test_dataset ~{test_dataset} --m3_model ~{permutect_model} --output permutect-filtered.vcf \
+        filter_variants --input ~{mutect2_vcf} --test_dataset ~{test_dataset} --permutect_model ~{permutect_model} --output permutect-filtered.vcf \
             --batch_size ~{batch_size} --chunk_size ~{chunk_size} ~{"--num_spectrum_iterations " + num_spectrum_iterations} ~{"--maf_segments " + maf_segments} ~{"--normal_maf_segments " + normal_maf_segments} --genomic_span $genomic_span ~{m3_filtering_extra_args}
     >>>
 

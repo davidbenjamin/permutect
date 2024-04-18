@@ -54,7 +54,7 @@ task Evaluate {
 
         evaluate_model \
             --evaluation_tar ~{evaluation_tar} \
-            --m3_model ~{permutect_model} \
+            --permutect_model ~{permutect_model} \
             --batch_size ~{batch_size} \
             ~{"--num_workers " + num_workers} \
             --tensorboard_dir tensorboard \
