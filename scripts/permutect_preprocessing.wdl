@@ -1,11 +1,11 @@
 version 1.0
 
 
-workflow PreprocessMutect3 {
+workflow PreprocessPermutect {
     input {
         Array[File] training_datasets
         Int chunk_size
-        String mutect3_docker
+        String permutect_docker
         Int? preemptible
         Int? max_retries
     }
@@ -13,7 +13,7 @@ workflow PreprocessMutect3 {
     call Preprocess {
         input:
             training_datasets = training_datasets,
-            mutect3_docker = mutect3_docker,
+            permutect_docker = permutect_docker,
             preemptible = preemptible,
             max_retries = max_retries,
             chunk_size = chunk_size
@@ -32,7 +32,7 @@ task Preprocess {
         Array[File] training_datasets
         Int chunk_size
 
-        String mutect3_docker
+        String permutect_docker
         Int? preemptible
         Int? max_retries
         Int? disk_space
@@ -52,7 +52,7 @@ task Preprocess {
     >>>
 
     runtime {
-        docker: mutect3_docker
+        docker: permutect_docker
         bootDiskSizeGb: 12
         memory: machine_mem + " MB"
         disks: "local-disk " + select_first([disk_space, 100]) + if use_ssd then " SSD" else " HDD"
