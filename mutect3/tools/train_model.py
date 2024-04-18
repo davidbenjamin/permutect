@@ -22,7 +22,7 @@ class TrainingParameters:
         self.num_workers = num_workers
 
 
-def train_artifact_model(m3_params: ArtifactModelParameters, params: TrainingParameters, summary_writer: SummaryWriter, data_tarfile,
+def train_artifact_model(hyperparams: ArtifactModelParameters, params: TrainingParameters, summary_writer: SummaryWriter, data_tarfile,
                          pretrained_model: ArtifactModel = None):
     use_gpu = torch.cuda.is_available()
     device = torch.device('cuda' if use_gpu else 'cpu')
@@ -31,12 +31,12 @@ def train_artifact_model(m3_params: ArtifactModelParameters, params: TrainingPar
 
     use_pretrained = (pretrained_model is not None)
     model = load_artifact_model(pretrained_model)[0] if use_pretrained else \
-        ArtifactModel(params=m3_params, num_read_features=dataset.num_read_features, num_info_features=dataset.num_info_features,
+        ArtifactModel(params=hyperparams, num_read_features=dataset.num_read_features, num_info_features=dataset.num_info_features,
                       ref_sequence_length=dataset.ref_sequence_length, device=device).float()
 
     print("Training. . .")
     model.train_model(dataset, params.num_epochs, params.num_calibration_epochs, params.batch_size, params.num_workers, summary_writer=summary_writer,
-                      reweighting_range=params.reweighting_range, m3_params=m3_params, freeze_lower_layers=use_pretrained)
+                      reweighting_range=params.reweighting_range, hyperparams=hyperparams, freeze_lower_layers=use_pretrained)
 
     for n, var_type in enumerate(Variation):
         cal_fig, cal_axes = model.calibration[n].plot_calibration()
@@ -81,10 +81,10 @@ def learn_artifact_priors_and_spectra(artifact_tarfile, genomic_span_of_data: in
     return log_artifact_priors, artifact_spectra
 
 
-def save_artifact_model(model, m3_params, path, artifact_log_priors, artifact_spectra):
+def save_artifact_model(model, hyperparams, path, artifact_log_priors, artifact_spectra):
     torch.save({
         constants.STATE_DICT_NAME: model.state_dict(),
-        constants.M3_PARAMS_NAME: m3_params,
+        constants.HYPERPARAMS_NAME: hyperparams,
         constants.NUM_READ_FEATURES_NAME: model.num_read_features(),
         constants.NUM_INFO_FEATURES_NAME: model.num_info_features(),
         constants.REF_SEQUENCE_LENGTH_NAME: model.ref_sequence_length(),
@@ -203,7 +203,7 @@ def add_artifact_model_hyperparameters_to_parser(parser):
 
 
 def main_without_parsing(args):
-    m3_params = parse_mutect3_params(args)
+    hyperparams = parse_mutect3_params(args)
     training_params = parse_training_params(args)
     learn_artifact_spectra = getattr(args, constants.LEARN_ARTIFACT_SPECTRA_NAME)
     genomic_span = getattr(args, constants.GENOMIC_SPAN_NAME)
@@ -212,7 +212,7 @@ def main_without_parsing(args):
     pretrained_model = getattr(args, constants.PRETRAINED_MODEL_NAME)
     tensorboard_dir = getattr(args, constants.TENSORBOARD_DIR_NAME)
     summary_writer = SummaryWriter(tensorboard_dir)
-    model = train_artifact_model(m3_params=m3_params, data_tarfile=tarfile_data, params=training_params,
+    model = train_artifact_model(hyperparams=hyperparams, data_tarfile=tarfile_data, params=training_params,
                                  summary_writer=summary_writer, pretrained_model=pretrained_model)
 
     artifact_tarfile_data = getattr(args, constants.ARTIFACT_TAR_NAME)
@@ -222,7 +222,7 @@ def main_without_parsing(args):
         summary_writer.add_figure("Artifact AF Spectra", art_spectra_fig)
 
     summary_writer.close()
-    save_artifact_model(model, m3_params, getattr(args, constants.OUTPUT_NAME), artifact_log_priors, artifact_spectra)
+    save_artifact_model(model, hyperparams, getattr(args, constants.OUTPUT_NAME), artifact_log_priors, artifact_spectra)
 
 
 def main():

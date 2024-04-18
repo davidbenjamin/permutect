@@ -356,11 +356,11 @@ class ArtifactModel(nn.Module):
         return result
 
     def train_model(self, dataset: ReadSetDataset, num_epochs, num_calibration_epochs, batch_size, num_workers,
-                    summary_writer: SummaryWriter, reweighting_range: float, m3_params: ArtifactModelParameters,
+                    summary_writer: SummaryWriter, reweighting_range: float, hyperparams: ArtifactModelParameters,
                     validation_fold: int = None, freeze_lower_layers: bool = False):
         bce = nn.BCEWithLogitsLoss(reduction='none')  # no reduction because we may want to first multiply by weights for unbalanced data
-        train_optimizer = torch.optim.AdamW(self.training_parameters_if_using_pretrained_model() if freeze_lower_layers else self.training_parameters(), lr=m3_params.learning_rate, weight_decay=m3_params.weight_decay)
-        calibration_optimizer = torch.optim.AdamW(self.calibration_parameters(), lr=m3_params.learning_rate, weight_decay=m3_params.weight_decay)
+        train_optimizer = torch.optim.AdamW(self.training_parameters_if_using_pretrained_model() if freeze_lower_layers else self.training_parameters(), lr=hyperparams.learning_rate, weight_decay=hyperparams.weight_decay)
+        calibration_optimizer = torch.optim.AdamW(self.calibration_parameters(), lr=hyperparams.learning_rate, weight_decay=hyperparams.weight_decay)
 
         artifact_to_non_artifact_ratios = torch.from_numpy(dataset.artifact_to_non_artifact_ratios()).to(self._device)
         artifact_to_non_artifact_log_prior_ratios = torch.log(artifact_to_non_artifact_ratios)

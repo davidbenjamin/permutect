@@ -1,7 +1,7 @@
 STATE_DICT_NAME = 'model_state_dict'
 ARTIFACT_LOG_PRIORS_NAME = 'artifact_log_priors'
 ARTIFACT_SPECTRA_STATE_DICT_NAME = 'artifact_spectra_state_dict'
-M3_PARAMS_NAME = 'm3_params'
+HYPERPARAMS_NAME = 'hyperparams'
 NUM_READ_FEATURES_NAME = 'num_read_features'
 NUM_INFO_FEATURES_NAME = 'num_info_features'
 REF_SEQUENCE_LENGTH_NAME = 'ref_sequence_length'

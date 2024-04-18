@@ -30,12 +30,12 @@ FILTER_NAMES = [call_type.name.lower() for call_type in Call]
 # it includes log artifact priors and artifact spectra, but these may be None
 def load_artifact_model(path) -> ArtifactModel:
     saved = torch.load(path)
-    m3_params = saved[constants.M3_PARAMS_NAME]
+    hyperparams = saved[constants.HYPERPARAMS_NAME]
     num_read_features = saved[constants.NUM_READ_FEATURES_NAME]
     num_info_features = saved[constants.NUM_INFO_FEATURES_NAME]
     ref_sequence_length = saved[constants.REF_SEQUENCE_LENGTH_NAME]
 
-    model = ArtifactModel(m3_params, num_read_features=num_read_features, num_info_features=num_info_features, ref_sequence_length=ref_sequence_length)
+    model = ArtifactModel(hyperparams, num_read_features=num_read_features, num_info_features=num_info_features, ref_sequence_length=ref_sequence_length)
     model.load_state_dict(saved[constants.STATE_DICT_NAME])
 
     artifact_log_priors = saved[constants.ARTIFACT_LOG_PRIORS_NAME]     # possibly None

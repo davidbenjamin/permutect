@@ -76,7 +76,7 @@ def test_train_model():
 
 
 def test_training(dataset):
-    m3_params = artifact_model.ArtifactModelParameters(read_embedding_dimension=12, num_transformer_heads=3,
+    hyperparams = artifact_model.ArtifactModelParameters(read_embedding_dimension=12, num_transformer_heads=3,
                  transformer_hidden_dimension=20, num_transformer_layers=2,
         info_layers=[20, 20], aggregation_layers=[20, 20], calibration_layers=[6],
         dropout_p=0.0, batch_normalize=False, learning_rate=0.001, weight_decay=0.01, alt_downsample=20)
@@ -84,7 +84,7 @@ def test_training(dataset):
 
     with tempfile.TemporaryDirectory() as tensorboard_dir:
         summary_writer = SummaryWriter(tensorboard_dir)
-        train_model.train_artifact_model(m3_params=m3_params, training_datasets=[dataset], params=training_params, summary_writer=summary_writer)
+        train_model.train_artifact_model(hyperparams=hyperparams, training_datasets=[dataset], params=training_params, summary_writer=summary_writer)
         summary_writer.close()
         events = EventAccumulator(tensorboard_dir)
         events.Reload()

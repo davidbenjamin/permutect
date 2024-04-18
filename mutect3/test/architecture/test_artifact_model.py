@@ -32,14 +32,14 @@ SMALL_MODEL_PARAMS = ArtifactModelParameters(read_embedding_dimension=12,
 
 
 # Note that the test methods in this class also cover batching, samplers, datasets, and data loaders
-def train_model_and_write_summary(m3_params: ArtifactModelParameters, training_params: TrainingParameters,
+def train_model_and_write_summary(hyperparams: ArtifactModelParameters, training_params: TrainingParameters,
                                   data: Iterable[ReadSet], summary_writer: SummaryWriter = None):
     dataset = ReadSetDataset(data=data)
     big_dataset = BigReadSetDataset(batch_size=training_params.batch_size, dataset=dataset, num_workers=2)
-    model = ArtifactModel(params=m3_params, num_read_features=dataset.num_read_features(), num_info_features=dataset.num_info_features(), ref_sequence_length=dataset.ref_sequence_length()).float()
+    model = ArtifactModel(params=hyperparams, num_read_features=dataset.num_read_features(), num_info_features=dataset.num_info_features(), ref_sequence_length=dataset.ref_sequence_length()).float()
 
     model.train_model(big_dataset, training_params.num_epochs, training_params.num_calibration_epochs, summary_writer=summary_writer,
-                      reweighting_range=training_params.reweighting_range, m3_params=m3_params)
+                      reweighting_range=training_params.reweighting_range, hyperparams=hyperparams)
     model.evaluate_model_after_training({"training": big_dataset.generate_batches(utils.Epoch.TRAIN)}, summary_writer, "training data: ")
     return model
 
@@ -54,7 +54,7 @@ def test_big_data():
         summary_writer = SummaryWriter(tensorboard_dir)
         model = ArtifactModel(params=params, num_read_features=big_dataset.num_read_features, num_info_features=big_dataset.num_info_features, ref_sequence_length=big_dataset.ref_sequence_length).float()
         model.train_model(big_dataset, training_params.num_epochs, training_params.num_calibration_epochs, summary_writer=summary_writer,
-                          reweighting_range=training_params.reweighting_range, m3_params=params)
+                          reweighting_range=training_params.reweighting_range, hyperparams=params)
         model.evaluate_model_after_training({"training": big_dataset.generate_batches(utils.Epoch.TRAIN)}, summary_writer, "training data: ")
 
         events = EventAccumulator(tensorboard_dir)
@@ -72,7 +72,7 @@ def test_separate_gaussian_data():
 
         with tempfile.TemporaryDirectory() as tensorboard_dir:
             summary_writer = SummaryWriter(tensorboard_dir)
-            model = train_model_and_write_summary(m3_params=params, training_params=training_params, data=data, summary_writer=summary_writer)
+            model = train_model_and_write_summary(hyperparams=params, training_params=training_params, data=data, summary_writer=summary_writer)
 
             # TODO: migrate this old stuff to test for PosteriorModel
             # test_vaf = 0.05 if test_alt_fraction_agnostic else 0.5
@@ -98,7 +98,7 @@ def test_wide_and_narrow_gaussian_data():
 
     with tempfile.TemporaryDirectory() as tensorboard_dir:
         summary_writer = SummaryWriter(tensorboard_dir)
-        model = train_model_and_write_summary(m3_params=params, training_params=training_params, data=data, summary_writer=summary_writer)
+        model = train_model_and_write_summary(hyperparams=params, training_params=training_params, data=data, summary_writer=summary_writer)
 
         events = EventAccumulator(tensorboard_dir)
         events.Reload()
@@ -113,7 +113,7 @@ def test_strand_bias_data():
 
     with tempfile.TemporaryDirectory() as tensorboard_dir:
         summary_writer = SummaryWriter(tensorboard_dir)
-        model = train_model_and_write_summary(m3_params=params, training_params=training_params, data=data, summary_writer=summary_writer)
+        model = train_model_and_write_summary(hyperparams=params, training_params=training_params, data=data, summary_writer=summary_writer)
 
         test_data = artificial_data.make_random_strand_bias_data(1000, is_training_data=False, vaf=0.25, unlabeled_fraction=0.0)
         test_dataset = ReadSetDataset(data=test_data)

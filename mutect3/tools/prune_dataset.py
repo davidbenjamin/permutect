@@ -23,13 +23,13 @@ NUM_FOLDS = 3
 
 
 # TODO: still need the summary writer??
-def prune_training_data(m3_params: ArtifactModelParameters, params: TrainingParameters, tensorboard_dir, data_tarfile, pruned_tarfile, chunk_size):
+def prune_training_data(hyperparams: ArtifactModelParameters, params: TrainingParameters, tensorboard_dir, data_tarfile, pruned_tarfile, chunk_size):
     use_gpu = torch.cuda.is_available()
     device = torch.device('cuda' if use_gpu else 'cpu')
 
     dataset = ReadSetDataset(data_tarfile=data_tarfile, num_folds=NUM_FOLDS)
 
-    model = ArtifactModel(params=m3_params, num_read_features=dataset.num_read_features,
+    model = ArtifactModel(params=hyperparams, num_read_features=dataset.num_read_features,
                           num_info_features=dataset.num_info_features, ref_sequence_length=dataset.ref_sequence_length,
                           device=device).float()
 
@@ -40,7 +40,7 @@ def prune_training_data(m3_params: ArtifactModelParameters, params: TrainingPara
         # note: not training from scratch.  I assume that there are enough epochs to forget any overfitting from
         # previous folds
         model.train_model(dataset, params.num_epochs, params.num_calibration_epochs, params.batch_size, params.num_workers, summary_writer=summary_writer,
-                          reweighting_range=params.reweighting_range, m3_params=m3_params, validation_fold=fold)
+                          reweighting_range=params.reweighting_range, hyperparams=hyperparams, validation_fold=fold)
 
         average_artifact_confidence, average_nonartifact_confidence = utils.StreamingAverage(), utils.StreamingAverage()
 
@@ -187,7 +187,7 @@ def parse_arguments():
 
 
 def main_without_parsing(args):
-    m3_params = parse_mutect3_params(args)
+    hyperparams = parse_mutect3_params(args)
     training_params = parse_training_params(args)
 
     tarfile_data = getattr(args, constants.TRAIN_TAR_NAME)
@@ -196,7 +196,7 @@ def main_without_parsing(args):
     chunk_size = getattr(args, constants.CHUNK_SIZE_NAME)
 
     # this writes the new pruned data tarfile and the new post-pruning indices files
-    prune_training_data(m3_params=m3_params, data_tarfile=tarfile_data, params=training_params, tensorboard_dir=tensorboard_dir,
+    prune_training_data(hyperparams=hyperparams, data_tarfile=tarfile_data, params=training_params, tensorboard_dir=tensorboard_dir,
                         pruned_tarfile=pruned_tarfile, chunk_size=chunk_size)
 
 
