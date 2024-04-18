@@ -53,3 +53,4 @@ GERMLINE_MODE_NAME = 'germline_mode'
 NO_GERMLINE_MODE_NAME = 'no_germline_mode'
 
 M3_MODEL_NAME = 'm3_model'
+PRETRAINED_MODEL_NAME = 'pretrained_model'

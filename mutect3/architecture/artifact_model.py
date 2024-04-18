@@ -232,6 +232,9 @@ class ArtifactModel(nn.Module):
         return chain(self.initial_read_embedding.parameters(), self.alt_transformer_encoder.parameters(), self.ref_transformer_encoder.parameters(),
                      self.omega.parameters(), self.rho.parameters(), self.final_logit.parameters(), self.calibration.parameters())
 
+    def training_parameters_if_using_pretrained_model(self):
+        return chain(self.rho.parameters(), self.final_logit.parameters(), self.calibration.parameters())
+
     def calibration_parameters(self):
         return self.calibration.parameters()
 
@@ -354,9 +357,9 @@ class ArtifactModel(nn.Module):
 
     def train_model(self, dataset: ReadSetDataset, num_epochs, num_calibration_epochs, batch_size, num_workers,
                     summary_writer: SummaryWriter, reweighting_range: float, m3_params: ArtifactModelParameters,
-                    validation_fold: int = None):
+                    validation_fold: int = None, freeze_lower_layers: bool = False):
         bce = nn.BCEWithLogitsLoss(reduction='none')  # no reduction because we may want to first multiply by weights for unbalanced data
-        train_optimizer = torch.optim.AdamW(self.training_parameters(), lr=m3_params.learning_rate, weight_decay=m3_params.weight_decay)
+        train_optimizer = torch.optim.AdamW(self.training_parameters_if_using_pretrained_model() if freeze_lower_layers else self.training_parameters(), lr=m3_params.learning_rate, weight_decay=m3_params.weight_decay)
         calibration_optimizer = torch.optim.AdamW(self.calibration_parameters(), lr=m3_params.learning_rate, weight_decay=m3_params.weight_decay)
 
         artifact_to_non_artifact_ratios = torch.from_numpy(dataset.artifact_to_non_artifact_ratios()).to(self._device)

@@ -5,6 +5,7 @@ workflow TrainMutect3 {
     input {
         File train_tar
         File artifact_tar
+        File? pretrained_model
         Int num_epochs
         Int num_calibration_epochs
         Int batch_size
@@ -35,6 +36,7 @@ workflow TrainMutect3 {
             input:
                 train_tar = train_tar,
                 artifact_tar = artifact_tar,
+                pretrained_model = pretrained_model,
                 mutect3_docker = mutect3_docker,
                 preemptible = preemptible,
                 max_retries = max_retries,
@@ -64,6 +66,7 @@ workflow TrainMutect3 {
             input:
                 train_tar = train_tar,
                 artifact_tar = artifact_tar,
+                pretrained_model = pretrained_model,
                 mutect3_docker = mutect3_docker,
                 preemptible = preemptible,
                 max_retries = max_retries,
@@ -101,6 +104,7 @@ task TrainMutect3GPU {
     input {
         File train_tar
         File artifact_tar
+        File? pretrained_model
 
         Int num_epochs
         Int num_calibration_epochs
@@ -142,6 +146,7 @@ task TrainMutect3GPU {
         train_model \
             --train_tar ~{train_tar} \
             --artifact_tar ~{artifact_tar} \
+            ~{"--pretrained_model " + pretrained_model} \
             --read_embedding_dimension ~{read_embedding_dimension} \
             --num_transformer_heads ~{num_transformer_heads} \
             --transformer_hidden_dimension ~{transformer_hidden_dimension} \
@@ -188,6 +193,7 @@ task TrainMutect3CPU {
     input {
         File train_tar
         File artifact_tar
+        File? pretrained_model
 
         Int num_epochs
         Int num_calibration_epochs
@@ -228,6 +234,7 @@ task TrainMutect3CPU {
         train_model \
             --train_tar ~{train_tar} \
             --artifact_tar ~{artifact_tar} \
+            ~{"--pretrained_model " + pretrained_model} \
             --read_embedding_dimension ~{read_embedding_dimension} \
             --num_transformer_heads ~{num_transformer_heads} \
             --transformer_hidden_dimension ~{transformer_hidden_dimension} \
