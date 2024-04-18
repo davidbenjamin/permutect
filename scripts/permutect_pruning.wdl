@@ -1,7 +1,7 @@
 version 1.0
 
 
-workflow PruneMutect3 {
+workflow PrunePermutect {
     input {
         File train_tar
         Int num_epochs
@@ -23,16 +23,16 @@ workflow PruneMutect3 {
         String? train_m3_extra_args
         Boolean use_gpu
 
-        String mutect3_docker
+        String permutect_docker
         Int? preemptible
         Int? max_retries
     }
 
     if (use_gpu) {
-        call PruneMutect3GPU {
+        call PrunePermutectGPU {
             input:
                 train_tar = train_tar,
-                mutect3_docker = mutect3_docker,
+                permutect_docker = permutect_docker,
                 preemptible = preemptible,
                 max_retries = max_retries,
                 num_epochs = num_epochs,
@@ -56,10 +56,10 @@ workflow PruneMutect3 {
     }
 
         if (!use_gpu) {
-        call PruneMutect3CPU {
+        call PrunePermutectCPU {
             input:
                 train_tar = train_tar,
-                mutect3_docker = mutect3_docker,
+                permutect_docker = permutect_docker,
                 preemptible = preemptible,
                 max_retries = max_retries,
                 num_epochs = num_epochs,
@@ -83,15 +83,15 @@ workflow PruneMutect3 {
     }
 
     output {
-        File pruned_dataset_tarfile = select_first([PruneMutect3GPU.pruned_dataset_tarfile, PruneMutect3CPU.pruned_dataset_tarfile])
-        File pruned_indices_file = select_first([PruneMutect3GPU.pruned_indices_file, PruneMutect3CPU.pruned_indices_file])
-        File training_tensorboard_tar = select_first([PruneMutect3GPU.tensorboard_tar, PruneMutect3CPU.tensorboard_tar])
+        File pruned_dataset_tarfile = select_first([PrunePermutectGPU.pruned_dataset_tarfile, PrunePermutectCPU.pruned_dataset_tarfile])
+        File pruned_indices_file = select_first([PrunePermutectGPU.pruned_indices_file, PrunePermutectCPU.pruned_indices_file])
+        File training_tensorboard_tar = select_first([PrunePermutectGPU.tensorboard_tar, PrunePermutectCPU.tensorboard_tar])
     }
 }
 
 ## HORRIBLE HACK: because there is no way in Terra to set gpuCount to 0, in order to optionally use GPU we have to write
 ## two nearly-identical tasks, one for CPU and one for GPU.  See https://github.com/broadinstitute/cromwell/issues/6679
-task PruneMutect3GPU {
+task PrunePermutectGPU {
     input {
         File train_tar
 
@@ -114,7 +114,7 @@ task PruneMutect3GPU {
 
         String? extra_args
 
-        String mutect3_docker
+        String permutect_docker
         Int? preemptible
         Int? max_retries
         Int? disk_space
@@ -156,7 +156,7 @@ task PruneMutect3GPU {
     >>>
 
     runtime {
-        docker: mutect3_docker
+        docker: permutect_docker
         bootDiskSizeGb: 12
         memory: machine_mem + " MB"
         disks: "local-disk " + select_first([disk_space, 100]) + if use_ssd then " SSD" else " HDD"
@@ -174,7 +174,7 @@ task PruneMutect3GPU {
     }
 }
 
-task PruneMutect3CPU {
+task PrunePermutectCPU {
     input {
         File train_tar
 
@@ -196,7 +196,7 @@ task PruneMutect3CPU {
         Array[String] ref_seq_layer_strings
         String? extra_args
 
-        String mutect3_docker
+        String permutect_docker
         Int? preemptible
         Int? max_retries
         Int? disk_space
@@ -238,7 +238,7 @@ task PruneMutect3CPU {
     >>>
 
     runtime {
-        docker: mutect3_docker
+        docker: permutect_docker
         bootDiskSizeGb: 12
         memory: machine_mem + " MB"
         disks: "local-disk " + select_first([disk_space, 100]) + if use_ssd then " SSD" else " HDD"
