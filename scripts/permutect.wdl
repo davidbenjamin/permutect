@@ -3,9 +3,9 @@ version 1.0
 import "https://api.firecloud.org/ga4gh/v1/tools/davidben:mutect2/versions/2/plain-WDL/descriptor" as m2
 
 
-workflow Mutect3 {
+workflow Permutect {
     input {
-        File mutect3_model
+        File permutect_model
 
         File? intervals
         File? masks
@@ -35,7 +35,7 @@ workflow Mutect3 {
         String gatk_docker
         String bcftools_docker
         File? gatk_override
-        String mutect3_docker
+        String permutect_docker
         Int? preemptible
         Int? max_retries
         File? obscene_hack_leave_unset
@@ -88,11 +88,11 @@ workflow Mutect3 {
             gatk_docker = gatk_docker
     }
 
-    call Mutect3Filtering {
+    call PermutectFiltering {
         input:
             mutect2_vcf = IndexAfterSplitting.vcf,
             mutect2_vcf_idx = IndexAfterSplitting.vcf_index,
-            mutect3_model = mutect3_model,
+            permutect_model = permutect_model,
             test_dataset = select_first([Mutect2.m3_dataset]),
             maf_segments = Mutect2.maf_segments,
             mutect_stats = Mutect2.mutect_stats,
@@ -100,28 +100,28 @@ workflow Mutect3 {
             num_spectrum_iterations = num_spectrum_iterations,
             chunk_size = chunk_size,
             m3_filtering_extra_args = m3_filtering_extra_args,
-            mutect3_docker = mutect3_docker,
+            permutect_docker = permutect_docker,
     }
 
     call IndexVCF as IndexAfterFiltering {
         input:
-            unindexed_vcf = Mutect3Filtering.output_vcf,
+            unindexed_vcf = PermutectFiltering.output_vcf,
             gatk_docker = gatk_docker
     }
 
     output {
         File output_vcf = IndexAfterFiltering.vcf
         File output_vcf_idx = IndexAfterFiltering.vcf_index
-        File tensorboard_report = Mutect3Filtering.tensorboard_report
+        File tensorboard_report = PermutectFiltering.tensorboard_report
         File test_dataset = select_first([Mutect2.m3_dataset])
         File mutect2_vcf = Mutect2.filtered_vcf
         File mutect2_vcf_idx = Mutect2.filtered_vcf_idx
     }
 }
 
-task Mutect3Filtering {
+task PermutectFiltering {
     input {
-        File mutect3_model
+        File permutect_model
         File test_dataset
         File mutect2_vcf
         File mutect2_vcf_idx
@@ -133,7 +133,7 @@ task Mutect3Filtering {
         Int chunk_size
         String? m3_filtering_extra_args
 
-        String mutect3_docker
+        String permutect_docker
         Int? preemptible
         Int? max_retries
         Int? disk_space
@@ -150,12 +150,12 @@ task Mutect3Filtering {
         # set -e
         genomic_span=`grep "callable" ~{mutect_stats} | while read name value; do echo $value; done`
 
-        filter_variants --input ~{mutect2_vcf} --test_dataset ~{test_dataset} --m3_model ~{mutect3_model} --output mutect3-filtered.vcf \
+        filter_variants --input ~{mutect2_vcf} --test_dataset ~{test_dataset} --m3_model ~{permutect_model} --output permutect-filtered.vcf \
             --batch_size ~{batch_size} --chunk_size ~{chunk_size} ~{"--num_spectrum_iterations " + num_spectrum_iterations} ~{"--maf_segments " + maf_segments} ~{"--normal_maf_segments " + normal_maf_segments} --genomic_span $genomic_span ~{m3_filtering_extra_args}
     >>>
 
     runtime {
-        docker: mutect3_docker
+        docker: permutect_docker
         bootDiskSizeGb: 12
         memory: machine_mem + " MB"
         disks: "local-disk " + select_first([disk_space, 100]) + if use_ssd then " SSD" else " HDD"
@@ -165,7 +165,7 @@ task Mutect3Filtering {
     }
 
     output {
-        File output_vcf = "mutect3-filtered.vcf"
+        File output_vcf = "permutect-filtered.vcf"
         File tensorboard_report = glob("tensorboard/*tfevents*")[0]
     }
 }
