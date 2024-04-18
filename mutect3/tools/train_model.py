@@ -102,7 +102,7 @@ def parse_training_params(args) -> TrainingParameters:
     return TrainingParameters(batch_size, num_epochs, num_calibration_epochs, reweighting_range, num_workers=num_workers)
 
 
-def parse_mutect3_params(args) -> ArtifactModelParameters:
+def parse_hyperparams(args) -> ArtifactModelParameters:
     read_embedding_dimension = getattr(args, constants.READ_EMBEDDING_DIMENSION_NAME)
     num_transformer_heads = getattr(args, constants.NUM_TRANSFORMER_HEADS_NAME)
     transformer_hidden_dimension = getattr(args, constants.TRANSFORMER_HIDDEN_DIMENSION_NAME)
@@ -203,7 +203,7 @@ def add_artifact_model_hyperparameters_to_parser(parser):
 
 
 def main_without_parsing(args):
-    hyperparams = parse_mutect3_params(args)
+    hyperparams = parse_hyperparams(args)
     training_params = parse_training_params(args)
     learn_artifact_spectra = getattr(args, constants.LEARN_ARTIFACT_SPECTRA_NAME)
     genomic_span = getattr(args, constants.GENOMIC_SPAN_NAME)

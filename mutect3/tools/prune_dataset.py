@@ -15,7 +15,7 @@ from torch.utils.tensorboard import SummaryWriter
 from mutect3 import constants, utils
 from mutect3.architecture.artifact_model import ArtifactModelParameters, ArtifactModel
 from mutect3.data.read_set_dataset import ReadSetDataset, make_data_loader
-from mutect3.tools.train_model import TrainingParameters, parse_mutect3_params, parse_training_params, \
+from mutect3.tools.train_model import TrainingParameters, parse_hyperparams, parse_training_params, \
     add_artifact_model_hyperparameters_to_parser, add_artifact_model_training_hyperparameters_to_parser
 from mutect3.utils import MutableInt
 
@@ -187,7 +187,7 @@ def parse_arguments():
 
 
 def main_without_parsing(args):
-    hyperparams = parse_mutect3_params(args)
+    hyperparams = parse_hyperparams(args)
     training_params = parse_training_params(args)
 
     tarfile_data = getattr(args, constants.TRAIN_TAR_NAME)
