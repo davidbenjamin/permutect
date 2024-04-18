@@ -1,13 +1,13 @@
 version 1.0
 
-workflow Mutect3Evaluation {
+workflow PermutectEvaluation {
     input {
-        File mutect3_model
+        File permutect_model
         File evaluation_tar
         Int batch_size
         Int? num_workers
 
-        String mutect3_docker
+        String permutect_docker
         Int? preemptible
         Int? max_retries
     }
@@ -16,10 +16,10 @@ workflow Mutect3Evaluation {
    call Evaluate {
         input:
             evaluation_tar = evaluation_tar,
-            mutect3_model = mutect3_model,
+            permutect_model = permutect_model,
             batch_size = batch_size,
             num_workers = num_workers,
-            mutect3_docker = mutect3_docker
+            permutect_docker = permutect_docker
     }
 
 
@@ -31,12 +31,12 @@ workflow Mutect3Evaluation {
 task Evaluate {
     input {
         File evaluation_tar
-        File mutect3_model
+        File permutect_model
         Int batch_size
         Int? num_workers
         String? extra_args
 
-        String mutect3_docker
+        String permutect_docker
         Int? preemptible
         Int? max_retries
         Int? disk_space
@@ -54,7 +54,7 @@ task Evaluate {
 
         evaluate_model \
             --evaluation_tar ~{evaluation_tar} \
-            --m3_model ~{mutect3_model} \
+            --m3_model ~{permutect_model} \
             --batch_size ~{batch_size} \
             ~{"--num_workers " + num_workers} \
             --tensorboard_dir tensorboard \
@@ -64,7 +64,7 @@ task Evaluate {
     >>>
 
     runtime {
-        docker: mutect3_docker
+        docker: permutect_docker
         bootDiskSizeGb: 12
         memory: machine_mem + " MB"
         disks: "local-disk " + select_first([disk_space, 100]) + if use_ssd then " SSD" else " HDD"
