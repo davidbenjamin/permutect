@@ -9,12 +9,12 @@ setup(
     license="Apache license version 2.0",
     packages=find_packages(),
     entry_points={
-        'console_scripts': ['train_model=mutect3.tools.train_model:main',
-                            'filter_variants=mutect3.tools.filter_variants:main',
-                            'preprocess_dataset=mutect3.tools.preprocess_dataset:main',
-                            'prune_dataset=mutect3.tools.prune_dataset:main',
-                            'evaluate_model=mutect3.tools.evaluate_model:main',
-                            'compare_to_mutect2=mutect3.tools.compare_to_mutect2:main'
+        'console_scripts': ['train_model=permutect.tools.train_model:main',
+                            'filter_variants=permutect.tools.filter_variants:main',
+                            'preprocess_dataset=permutect.tools.preprocess_dataset:main',
+                            'prune_dataset=permutect.tools.prune_dataset:main',
+                            'evaluate_model=permutect.tools.evaluate_model:main',
+                            'compare_to_mutect2=permutect.tools.compare_to_mutect2:main'
                             ]
     }
 )

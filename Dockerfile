@@ -5,7 +5,7 @@ COPY setup.py /
 RUN pip install --no-cache-dir -r /requirements.txt
 RUN pip install numpy --upgrade --ignore-installed
 
-ADD mutect3/ /mutect3
+ADD permutect/ /mutect3
 
 RUN pip install build
 RUN python3 -m build --sdist
