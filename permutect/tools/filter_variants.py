@@ -172,8 +172,9 @@ def make_posterior_data_loader(dataset_file, input_vcf, artifact_model: Artifact
 
         for artifact_batch in artifact_loader:
             artifact_logits = artifact_model.forward(batch=artifact_batch).detach().tolist()
-            variant_strings = artifact_batch.variant_strings    # format is eg chr1:1000,A->C
-            for var_string, logit in zip(variant_strings, artifact_logits):
+            variants = artifact_batch.variants    # format is eg chr1:1000,A->C
+            # TODO: fix this -- the old code was expecting a variant string, not the variant struct!!!!
+            for var_string, logit in zip(variants, artifact_logits):
                 variant_to_logit[var_string] = logit
 
     # pass through the plain text dataset again, this time reading PosteriorDatum objects, looking up the previously-computed

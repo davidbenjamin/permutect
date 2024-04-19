@@ -36,7 +36,7 @@ from sklearn.preprocessing import QuantileTransformer
 
 from permutect import utils
 from permutect.data.posterior import PosteriorDatum
-from permutect.data.read_set import ReadSet
+from permutect.data.read_set import ReadSet, Variant
 
 from permutect.utils import Label, Variation, encode, MutableInt
 
@@ -138,7 +138,7 @@ def read_data(dataset_file, posterior: bool, round_down: bool = True, include_va
 
                 if alt_tensor_size > 0 and passes_label_filter:
                     yield ReadSet.from_gatk(ref_sequence_string, Variation.get_type(ref_allele, alt_allele), ref_tensor,
-                                          alt_tensor, gatk_info_tensor, label, datum_index.get(), encode(contig, position, ref_allele, alt_allele) if include_variant_string else None)
+                                          alt_tensor, gatk_info_tensor, label, datum_index.get(), Variant(contig, position, ref_allele, alt_allele) if include_variant_string else None)
                     datum_index.increment()
 
 

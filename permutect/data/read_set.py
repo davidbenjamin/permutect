@@ -24,6 +24,14 @@ def make_sequence_tensor(sequence_string: str) -> np.ndarray:
     return result
 
 
+class Variant:
+    def __init__(self, contig: str, position: int, ref: str, alt: str):
+        self.contig = contig
+        self.position = position
+        self.ref = ref
+        self.alt = alt
+
+
 class ReadSet:
     """
     :param ref_sequence_2d  2D tensor with 4 rows, one for each "channel" A,C, G, T, with each column a position, centered
@@ -34,7 +42,7 @@ class ReadSet:
     :param label        an object of the Label enum artifact, non-artifact, unlabeled
     """
     def __init__(self, ref_sequence_2d: np.ndarray, ref_reads_2d: np.ndarray, alt_reads_2d: np.ndarray, info_array_1d: np.ndarray, label: utils.Label, index: int,
-                 variant_string: str = None):
+                 variant: Variant = None):
         # Note: if changing any of the data fields below, make sure to modify the size_in_bytes() method below accordingly!
         self.ref_sequence_2d = ref_sequence_2d
         self.ref_reads_2d = ref_reads_2d
@@ -42,14 +50,14 @@ class ReadSet:
         self.info_array_1d = info_array_1d
         self.label = label
         self.index = index
-        self.variant_string = variant_string
+        self.variant = variant
 
     # gatk_info tensor comes from GATK and does not include one-hot encoding of variant type
     @classmethod
     def from_gatk(cls, ref_sequence_string: str, variant_type: utils.Variation, ref_tensor: np.ndarray, alt_tensor: np.ndarray,
-                 gatk_info_tensor: np.ndarray, label: utils.Label, index: int, variant_string: str = None):
+                 gatk_info_tensor: np.ndarray, label: utils.Label, index: int, variant: Variant = None):
         info_tensor = np.hstack([gatk_info_tensor, variant_type.one_hot_tensor()])
-        return cls(make_sequence_tensor(ref_sequence_string), ref_tensor, alt_tensor, info_tensor, label, index, variant_string)
+        return cls(make_sequence_tensor(ref_sequence_string), ref_tensor, alt_tensor, info_tensor, label, index, variant)
 
     def size_in_bytes(self):
         return (self.ref_reads_2d.nbytes if self.ref_reads_2d is not None else 0) + self.alt_reads_2d.nbytes + self.info_array_1d.nbytes + sys.getsizeof(self.label)
@@ -80,8 +88,8 @@ def save_list_of_read_sets(read_sets: List[ReadSet], file, datum_index: MutableI
 
     if indices_file is not None:
         for index, datum in zip(indices.tolist(), read_sets):
-            if datum.variant_string is not None:
-                indices_file.write(str(index) + "\t" + datum.variant_string + '\n')
+            assert datum.variant is not None
+            indices_file.write("\t".join([str(index), datum.variant.contig, str(datum.variant.position), datum.variant.ref, datum.variant.alt]) + '\n')
 
 
 def load_list_of_read_sets(file) -> List[ReadSet]:
@@ -131,7 +139,7 @@ class ReadSetBatch:
         self.indices = IntTensor([item.index for item in data])
         self._size = len(data)
 
-        self.variant_strings = None if data[0].variant_string is None else [datum.variant_string for datum in data]
+        self.variants = None if data[0].variant is None else [datum.variant for datum in data]
 
     # pin memory for all tensors that are sent to the GPU
     def pin_memory(self):
