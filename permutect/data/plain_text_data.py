@@ -112,7 +112,9 @@ def read_data(dataset_file, posterior: bool, round_down: bool = True, include_va
 
                 if alt_tensor_size > 0 and passes_label_filter:
                     yield PosteriorDatum(contig, position, ref_allele, alt_allele, depth, alt_count, normal_depth,
-                                         normal_alt_count, seq_error_log_likelihood, normal_seq_error_log_likelihood)
+                                         normal_alt_count, seq_error_log_likelihood, normal_seq_error_log_likelihood,
+                                         datum_index.get())
+                    datum_index.increment()
             else:
                 # ref base string
                 ref_sequence_string = file.readline().strip()

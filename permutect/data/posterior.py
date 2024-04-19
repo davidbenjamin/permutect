@@ -11,7 +11,7 @@ from permutect import utils
 class PosteriorDatum:
     def __init__(self, contig: str, position: int, ref: str, alt: str,
                  depth: int, alt_count: int, normal_depth: int, normal_alt_count: int,
-                 seq_error_log_likelihood: float, normal_seq_error_log_likelihood: float, allele_frequency: float = None,
+                 seq_error_log_likelihood: float, normal_seq_error_log_likelihood: float, index: int, allele_frequency: float = None,
                  artifact_logit: float = None):
         self.contig = contig
         self.position = position
@@ -23,6 +23,7 @@ class PosteriorDatum:
         self.alt_count = alt_count
         self.normal_depth = normal_depth
         self.normal_alt_count = normal_alt_count
+        self.index = index
 
         self.seq_error_log_likelihood = seq_error_log_likelihood
         self.tlod_from_m2 = -seq_error_log_likelihood - math.log(depth + 1)
