@@ -77,6 +77,32 @@ def plot_accuracy_vs_accuracy_roc_on_axis(lists_of_predictions_and_labels, curve
         axis.plot(x, y, spec, markersize=2)  # point
 
 
+# similar to the above, but labels are not known and we just have the predicted error probabilities
+# we generate a theoretical ROC curve i.e. what the ROC curve would be if these predicted probabilities were
+# perfectly calibrated
+# labels are 0 for non-artifact, 1 for artifact
+# predicted_error_probs is a list of list of floats between 0 and 1
+# curve labels is a list of strings
+def plot_theoretical_roc_on_axis(predicted_error_probs, curve_labels, axis):
+    x_y_lab_tuples = []
+    dots = []
+    best_thresholds = []
+    for error_probs, curve_label in zip(predicted_error_probs, curve_labels):
+        thresh_and_accs, best_threshold = get_theoretical_roc_data(error_probs) # best threshold is (threshold, art accuracay, non-art accuracy)
+        x_y_lab_tuples.append(([x[1] for x in thresh_and_accs], [x[2] for x in thresh_and_accs], curve_label))
+
+        for threshold, art_acc, non_art_acc in thresh_and_accs:
+            dots.append((art_acc, non_art_acc, 'go'))
+        dots.append((best_threshold[1], best_threshold[2], 'ro'))
+        best_thresholds.append(best_threshold)
+
+    simple_plot_on_axis(axis, x_y_lab_tuples, "artifact accuracy", "non-artifact accuracy")
+    for x, y, spec in dots:
+        axis.plot(x, y, spec, markersize=2)  # point
+    return best_thresholds
+
+
+
 # input is list of (predicted artifact logit, binary artifact/non-artifact label) tuples
 # 1st output is (threshold, accuracy on artifacts, accuracy on non-artifacts) tuples
 # 2nd output is the threshold that maximizes harmonic mean of accuracy on artifacts and accuracy on non-artifacts
@@ -103,6 +129,38 @@ def get_roc_data(predictions_and_labels):
         if pred_logit > next_threshold:
             thresh_and_accs.append((next_threshold, art_acc, non_art_acc))
             next_threshold = math.ceil(pred_logit)
+    return thresh_and_accs, best_threshold
+
+
+# input is list of artifact probabilities
+# NOTE: this actually includes all errors, such as germline and seq error, but for later possible
+# fixing code duplication with the above method we'll call it "artifact"
+# 1st output is (threshold, accuracy on non-errors, accuracy on errors) tuples
+# 2nd output is the threshold that maximizes harmonic mean of these two accuracies
+def get_theoretical_roc_data(artifact_probs):
+    artifact_probs.sort(key=lambda p: p)  # sort from least to greatest error probability
+    num_calls = len(artifact_probs)
+    total_artifact = sum([prob for prob in artifact_probs]) + 0.0001
+    total_non_artifact = num_calls - total_artifact + 0.0002
+    # start at threshold = 0; that is, everything is called an artifact, and pick up one variant at a time
+    # by increasing the probability threshold
+    thresh_and_accs = []  # tuples of threshold, accuracy on artifacts, accuracy on non-artifacts
+    art_found, non_art_found = total_artifact, 0
+    next_threshold = -1
+    best_threshold, best_harmonic_mean = (0, 1, 0), 0 # best threshold is threshold, accuracy on artifact, accuracy on non-artifact
+    for prob in artifact_probs:
+        art_found -= prob  # lose a fractional artifact
+        non_art_found += (1 - prob)  # gain a fractional non-artifact
+        art_acc, non_art_acc = art_found / total_artifact, non_art_found / total_non_artifact
+        harmonic_mean = 0 if (art_acc == 0 or non_art_acc == 0) else 1/((1/art_acc) + (1/non_art_acc))
+
+        if harmonic_mean > best_harmonic_mean:
+            best_harmonic_mean = harmonic_mean
+            best_threshold = (prob, art_acc, non_art_acc)
+
+        if prob > next_threshold:
+            thresh_and_accs.append((next_threshold, art_acc, non_art_acc))
+            next_threshold = math.ceil(prob*20)/20  # we are basically having thresholds of 0.05, 0.1, 0.15. . .
     return thresh_and_accs, best_threshold
 
 

@@ -19,28 +19,6 @@ from permutect.architecture.artifact_model import MAX_COUNT, NUM_COUNT_BINS, rou
 HOM_ALPHA, HOM_BETA = torch.Tensor([98.0]), torch.Tensor([2.0])
 
 
-def compute_roc_data_and_threshold(error_probs):
-    error_probs.sort()
-    total_variants = len(error_probs) - sum(error_probs)
-
-    # start by rejecting everything, then raise threshold one datum at a time
-    threshold, tp, fp, best_f = 0.0, 0, 0, 0
-
-    sens, prec = [], []
-    for prob in error_probs:
-        tp += (1 - prob)
-        fp += prob
-        sens.append(tp / (total_variants + 0.0001))
-        prec.append(tp / (tp + fp + 0.0001))
-        current_f = utils.f_score(tp, fp, total_variants)
-
-        if current_f > best_f:
-            best_f = current_f
-            threshold = prob
-
-    return sens, prec, threshold
-
-
 # TODO: write unit test asserting that this comes out to zero when counts are zero
 # given germline, the probability of these particular reads being alt
 def germline_log_likelihood(afs, mafs, alt_counts, ref_counts):
@@ -355,22 +333,13 @@ class PosteriorModel(torch.nn.Module):
         roc_fig, roc_axes = plt.subplots(1, len(Variation), sharex='all', sharey='all', squeeze=False)
         roc_by_cnt_fig, roc_by_cnt_axes = plt.subplots(1, len(Variation), sharex='all', sharey='all', squeeze=False, figsize=(10, 6), dpi=100)
         for var_type in Variation:
-            # stratified by alt count
-            x_y_lab_tuples = []
-            for count_bin in range(NUM_COUNT_BINS):
-                error_probs = error_probs_by_type_by_cnt[var_type][count_bin]
-                sens, prec, _ = compute_roc_data_and_threshold(error_probs) # we don't need the threshold here
-                x_y_lab_tuples.append((sens, prec, str(multiple_of_three_bin_index_to_count(count_bin))))
-
             # plot all count ROC curves for this variant type
-            plotting.simple_plot_on_axis(roc_by_cnt_axes[0, var_type], x_y_lab_tuples, None, None)
+            count_bin_labels = [str(multiple_of_three_bin_index_to_count(count_bin)) for count_bin in range(NUM_COUNT_BINS)]
+            _ = plotting.plot_theoretical_roc_on_axis(error_probs_by_type_by_cnt[var_type], count_bin_labels, roc_by_cnt_axes[0, var_type])
+            best_threshold = plotting.plot_theoretical_roc_on_axis([error_probs_by_type[var_type]], [""], roc_axes[0, var_type])[0][0]
 
-            # aggregated over all counts
-            error_probs = error_probs_by_type[var_type]
-            sens, prec, threshold = compute_roc_data_and_threshold(error_probs)
-            plotting.simple_plot_on_axis(roc_axes[0, var_type], [(sens, prec, "")], None, None)
-            thresholds_by_type[var_type] = threshold
-
+            # TODO: the theoretical ROC might need to return the best threshold for this
+            thresholds_by_type[var_type] = best_threshold
 
         variation_types = [var_type.name for var_type in Variation]
         plotting.tidy_subplots(roc_by_cnt_fig, roc_by_cnt_axes, x_label="sensitivity", y_label="precision",

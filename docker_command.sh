@@ -4,4 +4,4 @@
 gcloud auth login
 gcloud auth configure-docker
 
-tag=''; docker build -t us.gcr.io/broad-dsde-methods/davidben/mutect3:${tag} .; docker push us.gcr.io/broad-dsde-methods/davidben/mutect3:${tag}
+tag=''; docker build -t us.gcr.io/broad-dsde-methods/davidben/permutect:${tag} .; docker push us.gcr.io/broad-dsde-methods/davidben/permutect:${tag}
