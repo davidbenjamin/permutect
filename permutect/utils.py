@@ -37,6 +37,10 @@ class MutableInt:
     def decrement(self, amount: int = 1):
         self.value -= amount
 
+    def get_and_then_increment(self):
+        self.value += 1
+        return self.value - 1
+
     def get(self):
         return self.value
 

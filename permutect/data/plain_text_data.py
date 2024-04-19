@@ -36,7 +36,7 @@ from sklearn.preprocessing import QuantileTransformer
 
 from permutect import utils
 from permutect.data.posterior import PosteriorDatum
-from permutect.data.read_set import ReadSet, Variant
+from permutect.data.read_set import ReadSet, Variant, CountsAndSeqLks
 
 from permutect.utils import Label, Variation, encode, MutableInt
 
@@ -76,7 +76,7 @@ def round_down_alt(n: int):
     return ALT_ROUNDING[min(len(ALT_ROUNDING) - 1, n)]
 
 
-def read_data(dataset_file, posterior: bool, round_down: bool = True, include_variant_string: bool = False, only_artifacts: bool = False):
+def read_data(dataset_file, round_down: bool = True, include_variant_string: bool = False, only_artifacts: bool = False):
     """
     generator that yields data from a plain text dataset file. In posterior mode, yield a tuple of ReadSet and PosteriorDatum
     """
@@ -98,54 +98,35 @@ def read_data(dataset_file, posterior: bool, round_down: bool = True, include_va
                 print(contig + ":" + str(position))
             ref_allele, alt_allele = mutation.strip().split("->")
 
-            if posterior:
-                skip_ref_sequence_line = file.readline()
-                skip_info_tensor_line = file.readline()
-                ref_tensor_size, alt_tensor_size, normal_ref_tensor_size, normal_alt_tensor_size = map(int, file.readline().strip().split())
+            ref_sequence_string = file.readline().strip()
+            gatk_info_tensor = line_to_tensor(file.readline())
+            ref_tensor_size, alt_tensor_size, normal_ref_tensor_size, normal_alt_tensor_size = map(int, file.readline().strip().split())
+            ref_tensor = read_2d_tensor(file, ref_tensor_size) if ref_tensor_size > 0 else None
+            alt_tensor = read_2d_tensor(file, alt_tensor_size)
 
-                tensor_lines_to_skip = ref_tensor_size + alt_tensor_size
-                for _ in range(tensor_lines_to_skip):
-                    file.readline()
-                depth, alt_count, normal_depth, normal_alt_count = read_integers(file.readline())
-                seq_error_log_likelihood = read_float(file.readline())
-                normal_seq_error_log_likelihood = read_float(file.readline())
+            if round_down:
+                ref_tensor = utils.downsample_tensor(ref_tensor, 0 if ref_tensor is None else round_down_ref(len(ref_tensor)))
+                alt_tensor = utils.downsample_tensor(alt_tensor, 0 if alt_tensor is None else round_down_alt(len(alt_tensor)))
+            # normal_ref_tensor = read_2d_tensor(file, normal_ref_tensor_size)  # not currently used
+            # normal_alt_tensor = read_2d_tensor(file, normal_alt_tensor_size)  # not currently used
+            # round down normal tensors as well
 
-                if alt_tensor_size > 0 and passes_label_filter:
-                    yield PosteriorDatum(contig, position, ref_allele, alt_allele, depth, alt_count, normal_depth,
-                                         normal_alt_count, seq_error_log_likelihood, normal_seq_error_log_likelihood,
-                                         datum_index.get())
-                    datum_index.increment()
-            else:
-                # ref base string
-                ref_sequence_string = file.readline().strip()
-                gatk_info_tensor = line_to_tensor(file.readline())
-                ref_tensor_size, alt_tensor_size, normal_ref_tensor_size, normal_alt_tensor_size = map(int, file.readline().strip().split())
+            depth, alt_count, normal_depth, normal_alt_count = read_integers(file.readline())
+            seq_error_log_lk = read_float(file.readline())
+            normal_seq_error_log_lk = read_float(file.readline())
 
-                ref_tensor = read_2d_tensor(file, ref_tensor_size) if ref_tensor_size > 0 else None
-                alt_tensor = read_2d_tensor(file, alt_tensor_size)
-
-                if round_down:
-                    ref_tensor = utils.downsample_tensor(ref_tensor, 0 if ref_tensor is None else round_down_ref(len(ref_tensor)))
-                    alt_tensor = utils.downsample_tensor(alt_tensor, 0 if alt_tensor is None else round_down_alt(len(alt_tensor)))
-
-                # normal_ref_tensor = read_2d_tensor(file, normal_ref_tensor_size)  # not currently used
-                # normal_alt_tensor = read_2d_tensor(file, normal_alt_tensor_size)  # not currently used
-                # round down normal tensors as well
-
-                skip_depths = file.readline()
-                skip_seq_error = file.readline()
-                skip_normal_seq_error = file.readline()
-
-                if alt_tensor_size > 0 and passes_label_filter:
-                    yield ReadSet.from_gatk(ref_sequence_string, Variation.get_type(ref_allele, alt_allele), ref_tensor,
-                                          alt_tensor, gatk_info_tensor, label, datum_index.get(), Variant(contig, position, ref_allele, alt_allele) if include_variant_string else None)
-                    datum_index.increment()
+            if alt_tensor_size > 0 and passes_label_filter:
+                variant = Variant(contig, position, ref_allele, alt_allele)
+                counts_and_seq_lks = CountsAndSeqLks(depth, alt_count, normal_depth, normal_alt_count, seq_error_log_lk, normal_seq_error_log_lk)
+                yield ReadSet.from_gatk(ref_sequence_string, Variation.get_type(ref_allele, alt_allele), ref_tensor,
+                        alt_tensor, gatk_info_tensor, label, datum_index.get_and_then_increment(), variant if include_variant_string else None, counts_and_seq_lks)
 
 
+# TODO: TOTALLY GET RID OF THIS BECAUSE NOW read_data does not emit PosteriorDatum!!!!!!!
 def generate_artifact_posterior_data(dataset_files, num_data_per_chunk: int):
     buffer = []
     for dataset_file in dataset_files:
-        for posterior_datum in read_data(dataset_file, posterior=True, only_artifacts=True):
+        for posterior_datum in read_data(dataset_file, only_artifacts=True):
             buffer.append(posterior_datum)
             if len(buffer) == num_data_per_chunk:
                 yield buffer
@@ -170,7 +151,7 @@ def generate_normalized_data(dataset_files, max_bytes_per_chunk: int, include_va
         info_quantile_transform = QuantileTransformer(n_quantiles=100, output_distribution='normal')
 
         num_buffers_filled = 0
-        for read_set in read_data(dataset_file, posterior=False, include_variant_string=include_variant_string):
+        for read_set in read_data(dataset_file, include_variant_string=include_variant_string):
             buffer.append(read_set)
             bytes_in_buffer += read_set.size_in_bytes()
             if bytes_in_buffer > max_bytes_per_chunk:

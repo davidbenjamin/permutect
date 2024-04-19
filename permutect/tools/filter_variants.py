@@ -180,7 +180,8 @@ def make_posterior_data_loader(dataset_file, input_vcf, artifact_model: Artifact
     # pass through the plain text dataset again, this time reading PosteriorDatum objects, looking up the previously-computed
     # allele frequencies and artifact logits.
     posterior_data = []
-    for posterior_datum in plain_text_data.read_data(dataset_file, posterior=True):
+    # TODO: TOTALLY REFACTOR THIS -- read_data no longer emits PosteriorDatum!!!!!
+    for posterior_datum in plain_text_data.read_data(dataset_file):
 
         encoding = encode_datum(posterior_datum)
         if encoding in allele_frequencies and encoding not in m2_filtering_to_keep:

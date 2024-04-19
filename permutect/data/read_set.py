@@ -32,6 +32,17 @@ class Variant:
         self.alt = alt
 
 
+class CountsAndSeqLks:
+    def __init__(self, depth: int, alt_count: int, normal_depth: int, normal_alt_count: int,
+                 seq_error_log_lk: float, normal_seq_error_log_lk: float):
+        self.depth = depth
+        self.alt_count = alt_count
+        self.normal_depth = normal_depth
+        self.normal_alt_count = normal_alt_count
+        self.seq_error_log_lk = seq_error_log_lk
+        self.normal_seq_error_log_lk = normal_seq_error_log_lk
+
+
 class ReadSet:
     """
     :param ref_sequence_2d  2D tensor with 4 rows, one for each "channel" A,C, G, T, with each column a position, centered
@@ -42,7 +53,7 @@ class ReadSet:
     :param label        an object of the Label enum artifact, non-artifact, unlabeled
     """
     def __init__(self, ref_sequence_2d: np.ndarray, ref_reads_2d: np.ndarray, alt_reads_2d: np.ndarray, info_array_1d: np.ndarray, label: utils.Label, index: int,
-                 variant: Variant = None):
+                 variant: Variant = None, counts_and_seq_lks: CountsAndSeqLks = None):
         # Note: if changing any of the data fields below, make sure to modify the size_in_bytes() method below accordingly!
         self.ref_sequence_2d = ref_sequence_2d
         self.ref_reads_2d = ref_reads_2d
@@ -51,13 +62,14 @@ class ReadSet:
         self.label = label
         self.index = index
         self.variant = variant
+        self.counts_and_seq_lks = counts_and_seq_lks
 
     # gatk_info tensor comes from GATK and does not include one-hot encoding of variant type
     @classmethod
     def from_gatk(cls, ref_sequence_string: str, variant_type: utils.Variation, ref_tensor: np.ndarray, alt_tensor: np.ndarray,
-                 gatk_info_tensor: np.ndarray, label: utils.Label, index: int, variant: Variant = None):
+                 gatk_info_tensor: np.ndarray, label: utils.Label, index: int, variant: Variant = None, counts_and_seq_lks: CountsAndSeqLks = None):
         info_tensor = np.hstack([gatk_info_tensor, variant_type.one_hot_tensor()])
-        return cls(make_sequence_tensor(ref_sequence_string), ref_tensor, alt_tensor, info_tensor, label, index, variant)
+        return cls(make_sequence_tensor(ref_sequence_string), ref_tensor, alt_tensor, info_tensor, label, index, variant, counts_and_seq_lks)
 
     def size_in_bytes(self):
         return (self.ref_reads_2d.nbytes if self.ref_reads_2d is not None else 0) + self.alt_reads_2d.nbytes + self.info_array_1d.nbytes + sys.getsizeof(self.label)
