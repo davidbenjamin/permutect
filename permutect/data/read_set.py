@@ -160,6 +160,7 @@ class ReadSetBatch:
         self.indices = IntTensor([item.index for item in data])
         self._size = len(data)
 
+        self.counts_and_likelihoods = [datum.counts_and_seq_lks for datum in data]
         self.variants = None if data[0].variant is None else [datum.variant for datum in data]
 
     # pin memory for all tensors that are sent to the GPU
