@@ -37,7 +37,7 @@ def do_work(training_datasets, training_output_file, chunk_size, artifact_poster
     indices_file = open("indices.txt", 'w')
     # we include the variant string in order to record it in the indices file
     # even though we throw it out in save_list_of_read_sets
-    for read_set_list in generate_normalized_data(training_datasets, max_bytes_per_chunk=chunk_size, include_variant_string=True):
+    for read_set_list in generate_normalized_data(training_datasets, max_bytes_per_chunk=chunk_size):
         num_read_features.check(read_set_list[0].alt_reads_2d.shape[1])
         num_info_features.check(read_set_list[0].info_array_1d.shape[0])
         ref_sequence_length.check(read_set_list[0].ref_sequence_2d.shape[-1])

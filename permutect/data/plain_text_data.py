@@ -76,7 +76,7 @@ def round_down_alt(n: int):
     return ALT_ROUNDING[min(len(ALT_ROUNDING) - 1, n)]
 
 
-def read_data(dataset_file, round_down: bool = True, include_variant_string: bool = False, only_artifacts: bool = False):
+def read_data(dataset_file, round_down: bool = True, only_artifacts: bool = False):
     """
     generator that yields data from a plain text dataset file. In posterior mode, yield a tuple of ReadSet and PosteriorDatum
     """
@@ -119,7 +119,7 @@ def read_data(dataset_file, round_down: bool = True, include_variant_string: boo
                 variant = Variant(contig, position, ref_allele, alt_allele)
                 counts_and_seq_lks = CountsAndSeqLks(depth, alt_count, normal_depth, normal_alt_count, seq_error_log_lk, normal_seq_error_log_lk)
                 yield ReadSet.from_gatk(ref_sequence_string, Variation.get_type(ref_allele, alt_allele), ref_tensor,
-                        alt_tensor, gatk_info_tensor, label, datum_index.get_and_then_increment(), variant if include_variant_string else None, counts_and_seq_lks)
+                        alt_tensor, gatk_info_tensor, label, datum_index.get_and_then_increment(), variant, counts_and_seq_lks)
 
 
 # TODO: TOTALLY GET RID OF THIS BECAUSE NOW read_data does not emit PosteriorDatum!!!!!!!
@@ -135,14 +135,13 @@ def generate_artifact_posterior_data(dataset_files, num_data_per_chunk: int):
         yield buffer
 
 
-def generate_normalized_data(dataset_files, max_bytes_per_chunk: int, include_variant_string: bool = False):
+def generate_normalized_data(dataset_files, max_bytes_per_chunk: int):
     """
     given text dataset files, generate normalized lists of read sets that fit in memory
 
     In addition to quantile-normalizing read tensors it also enlarges the info tensors
     :param dataset_files:
     :param max_bytes_per_chunk:
-    :param include_variant_string: include the variant string in generated ReadSet data
     :return:
     """
     for dataset_file in dataset_files:
@@ -151,7 +150,7 @@ def generate_normalized_data(dataset_files, max_bytes_per_chunk: int, include_va
         info_quantile_transform = QuantileTransformer(n_quantiles=100, output_distribution='normal')
 
         num_buffers_filled = 0
-        for read_set in read_data(dataset_file, include_variant_string=include_variant_string):
+        for read_set in read_data(dataset_file):
             buffer.append(read_set)
             bytes_in_buffer += read_set.size_in_bytes()
             if bytes_in_buffer > max_bytes_per_chunk:
