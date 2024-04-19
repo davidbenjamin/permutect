@@ -42,6 +42,13 @@ class CountsAndSeqLks:
         self.seq_error_log_lk = seq_error_log_lk
         self.normal_seq_error_log_lk = normal_seq_error_log_lk
 
+    def to_np_array(self):
+        return np.ndarray([self.depth, self.alt_count, self.normal_depth, self.normal_alt_count, self.seq_error_log_lk, self.normal_seq_error_log_lk])
+
+    @classmethod
+    def from_np_array(cls, np_array: np.ndarray):
+        return cls(round(np_array[0]), round(np_array[1]), round(np_array[2]), round(np_array[3]), np_array[4], np_array[5])
+
 
 class ReadSet:
     """
@@ -95,7 +102,9 @@ def save_list_of_read_sets(read_sets: List[ReadSet], file, datum_index: MutableI
     labels = IntTensor([datum.label.value for datum in read_sets])
     indices = start_index + torch.arange(num_data).int()
 
-    torch.save([ref_sequence_tensors, ref_tensors, alt_tensors, info_tensors, labels, indices], file)
+    counts_and_lks = [datum.counts_and_seq_lks.to_np_array() for datum in read_sets]
+
+    torch.save([ref_sequence_tensors, ref_tensors, alt_tensors, info_tensors, labels, indices, counts_and_lks], file)
     datum_index.increment(num_data)
 
     if indices_file is not None:
@@ -110,9 +119,9 @@ def load_list_of_read_sets(file) -> List[ReadSet]:
     :param file:
     :return:
     """
-    ref_sequence_tensors, ref_tensors, alt_tensors, info_tensors, labels, indices = torch.load(file)
-    return [ReadSet(ref_sequence_tensor, ref, alt, info, utils.Label(label), index) for ref_sequence_tensor, ref, alt, info, label, index in
-            zip(ref_sequence_tensors, ref_tensors, alt_tensors, info_tensors, labels.tolist(), indices.tolist())]
+    ref_sequence_tensors, ref_tensors, alt_tensors, info_tensors, labels, indices, counts_and_lks = torch.load(file)
+    return [ReadSet(ref_sequence_tensor, ref, alt, info, utils.Label(label), index, None, CountsAndSeqLks.from_np_array(cnts_lks)) for ref_sequence_tensor, ref, alt, info, label, index, cnts_lks in
+            zip(ref_sequence_tensors, ref_tensors, alt_tensors, info_tensors, labels.tolist(), indices.tolist(), counts_and_lks)]
 
 
 class ReadSetBatch:
