@@ -35,10 +35,9 @@ import psutil
 from sklearn.preprocessing import QuantileTransformer
 
 from permutect import utils
-from permutect.data.posterior import PosteriorDatum
 from permutect.data.read_set import ReadSet, Variant, CountsAndSeqLks
 
-from permutect.utils import Label, Variation, encode, MutableInt
+from permutect.utils import Label, Variation, MutableInt
 
 MAX_VALUE = 10000
 EPSILON = 0.00001
@@ -78,7 +77,7 @@ def round_down_alt(n: int):
 
 def read_data(dataset_file, round_down: bool = True, only_artifacts: bool = False):
     """
-    generator that yields data from a plain text dataset file. In posterior mode, yield a tuple of ReadSet and PosteriorDatum
+    generator that yields data from a plain text dataset file.
     """
     datum_index = MutableInt()
     with open(dataset_file) as file:
