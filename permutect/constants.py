@@ -9,7 +9,6 @@ HIDDEN_LAYERS_NAME = 'hidden_layers'
 
 INPUT_NAME = 'input'
 OUTPUT_NAME = 'output'
-ARTIFACT_POSTERIOR_OUTPUT_NAME = 'artifact_posterior_output'
 OUTPUT_DIR_NAME = 'output_dir'
 
 READ_EMBEDDING_DIMENSION_NAME = 'read_embedding_dimension'

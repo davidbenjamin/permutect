@@ -122,19 +122,6 @@ def read_data(dataset_file, round_down: bool = True, only_artifacts: bool = Fals
                         alt_tensor, gatk_info_tensor, label, datum_index.get_and_then_increment(), variant, counts_and_seq_lks)
 
 
-# TODO: TOTALLY GET RID OF THIS BECAUSE NOW read_data does not emit PosteriorDatum!!!!!!!
-def generate_artifact_posterior_data(dataset_files, num_data_per_chunk: int):
-    buffer = []
-    for dataset_file in dataset_files:
-        for posterior_datum in read_data(dataset_file, only_artifacts=True):
-            buffer.append(posterior_datum)
-            if len(buffer) == num_data_per_chunk:
-                yield buffer
-                buffer = []
-    if len(buffer) > 0:
-        yield buffer
-
-
 def generate_normalized_data(dataset_files, max_bytes_per_chunk: int):
     """
     given text dataset files, generate normalized lists of read sets that fit in memory
