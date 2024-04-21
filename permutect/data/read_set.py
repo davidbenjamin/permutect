@@ -5,7 +5,6 @@ from torch import Tensor, IntTensor, FloatTensor
 from typing import List
 import sys
 
-from permutect import utils
 from permutect.utils import Variation, Label, MutableInt
 
 
@@ -59,7 +58,7 @@ class ReadSet:
     :param info_array_1d  1D tensor of information about the variant as a whole
     :param label        an object of the Label enum artifact, non-artifact, unlabeled
     """
-    def __init__(self, ref_sequence_2d: np.ndarray, ref_reads_2d: np.ndarray, alt_reads_2d: np.ndarray, info_array_1d: np.ndarray, label: utils.Label, index: int,
+    def __init__(self, ref_sequence_2d: np.ndarray, ref_reads_2d: np.ndarray, alt_reads_2d: np.ndarray, info_array_1d: np.ndarray, label: Label, index: int,
                  variant: Variant = None, counts_and_seq_lks: CountsAndSeqLks = None):
         # Note: if changing any of the data fields below, make sure to modify the size_in_bytes() method below accordingly!
         self.ref_sequence_2d = ref_sequence_2d
@@ -73,8 +72,8 @@ class ReadSet:
 
     # gatk_info tensor comes from GATK and does not include one-hot encoding of variant type
     @classmethod
-    def from_gatk(cls, ref_sequence_string: str, variant_type: utils.Variation, ref_tensor: np.ndarray, alt_tensor: np.ndarray,
-                 gatk_info_tensor: np.ndarray, label: utils.Label, index: int, variant: Variant = None, counts_and_seq_lks: CountsAndSeqLks = None):
+    def from_gatk(cls, ref_sequence_string: str, variant_type: Variation, ref_tensor: np.ndarray, alt_tensor: np.ndarray,
+                 gatk_info_tensor: np.ndarray, label: Label, index: int, variant: Variant = None, counts_and_seq_lks: CountsAndSeqLks = None):
         info_tensor = np.hstack([gatk_info_tensor, variant_type.one_hot_tensor()])
         return cls(make_sequence_tensor(ref_sequence_string), ref_tensor, alt_tensor, info_tensor, label, index, variant, counts_and_seq_lks)
 
@@ -120,7 +119,7 @@ def load_list_of_read_sets(file) -> List[ReadSet]:
     :return:
     """
     ref_sequence_tensors, ref_tensors, alt_tensors, info_tensors, labels, indices, counts_and_lks = torch.load(file)
-    return [ReadSet(ref_sequence_tensor, ref, alt, info, utils.Label(label), index, None, CountsAndSeqLks.from_np_array(cnts_lks)) for ref_sequence_tensor, ref, alt, info, label, index, cnts_lks in
+    return [ReadSet(ref_sequence_tensor, ref, alt, info, Label(label), index, None, CountsAndSeqLks.from_np_array(cnts_lks)) for ref_sequence_tensor, ref, alt, info, label, index, cnts_lks in
             zip(ref_sequence_tensors, ref_tensors, alt_tensors, info_tensors, labels.tolist(), indices.tolist(), counts_and_lks)]
 
 

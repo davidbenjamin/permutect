@@ -13,7 +13,7 @@ from permutect.architecture.artifact_model import ArtifactModel
 from permutect.architecture.posterior_model import PosteriorModel
 from permutect.data import read_set_dataset, plain_text_data
 from permutect.data.posterior import PosteriorDataset, PosteriorDatum
-from permutect.utils import Call, encode_datum, encode_variant, find_variant_type, encode
+from permutect.utils import Call, find_variant_type
 
 TRUSTED_M2_FILTERS = {'contamination'}
 
@@ -46,6 +46,30 @@ def load_artifact_model(path) -> ArtifactModel:
 def get_first_numeric_element(variant, key):
     tuple_or_scalar = variant.INFO[key]
     return tuple_or_scalar[0] if type(tuple_or_scalar) is tuple else tuple_or_scalar
+
+
+# if alt and ref alleles are not in minimal representation ie have redundant matching bases at the end, trim them
+def trim_alleles_on_right(ref: str, alt: str):
+    trimmed_ref, trimmed_alt = ref, alt
+    while len(ref) > 1 and len(alt) > 1 and trimmed_alt[-1] == trimmed_ref[-1]:
+        trimmed_ref, trimmed_alt = trimmed_ref[:-1], trimmed_alt[:-1]
+    return trimmed_ref, trimmed_alt
+
+
+def encode(contig: str, position: int, ref: str, alt: str):
+    trimmed_ref, trimmed_alt = trim_alleles_on_right(ref, alt)
+    return contig + ':' + str(position) + ':' + trimmed_alt
+
+
+def encode_datum(datum: PosteriorDatum):
+    return encode(datum.contig, datum.position, datum.ref, datum.alt)
+
+
+def encode_variant(v: cyvcf2.Variant, zero_based=False):
+    alt = v.ALT[0]  # TODO: we're assuming biallelic
+    ref = v.REF
+    start = (v.start + 1) if zero_based else v.start
+    return encode(v.CHROM, start, ref, alt)
 
 
 def filters_to_keep_from_m2(v: cyvcf2.Variant) -> Set[str]:
