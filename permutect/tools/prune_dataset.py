@@ -14,7 +14,7 @@ from torch.utils.tensorboard import SummaryWriter
 
 from permutect import constants, utils
 from permutect.architecture.artifact_model import ArtifactModelParameters, ArtifactModel
-from permutect.data.read_set_dataset import ReadSetDataset, make_data_loader
+from permutect.data.read_set_dataset import ReadSetDataset, make_data_loader, make_read_set_generator_from_tarfile
 from permutect.tools.train_model import TrainingParameters, parse_hyperparams, parse_training_params, \
     add_artifact_model_hyperparameters_to_parser, add_artifact_model_training_hyperparameters_to_parser
 from permutect.utils import MutableInt
@@ -130,12 +130,18 @@ def prune_training_data(hyperparams: ArtifactModelParameters, params: TrainingPa
 
     # done with this particular fold
     # TODO: Maybe also save a dataset of discarded values?
+
+    # the read sets in the data set lose their Variant information when they are memory-mapped.  We need to get it back here
+    variant_vs_index = {}
+    for datum in make_read_set_generator_from_tarfile(data_tarfile):
+        variant_vs_index[datum.index] = datum.variant
+
     pruned_data_files = []
     pruned_datum_index = MutableInt()
     pruned_indices_file = open("pruned_indices.txt", 'w')
     for read_set_list in generate_pruned_data(dataset=dataset, max_bytes_per_chunk=chunk_size, pruned_indices=pruned_indices):
         with tempfile.NamedTemporaryFile(delete=False) as train_data_file:
-            read_set.save_list_of_read_sets(read_set_list, train_data_file, pruned_datum_index, pruned_indices_file)
+            read_set.save_list_of_read_sets(read_set_list, train_data_file, pruned_datum_index, pruned_indices_file, index_to_variant_map=variant_vs_index)
             pruned_data_files.append(train_data_file.name)
 
     pruned_indices_file.close()

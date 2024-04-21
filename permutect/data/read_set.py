@@ -84,7 +84,7 @@ class ReadSet:
         return self.info_array_1d[-len(Variation):]
 
 
-def save_list_of_read_sets(read_sets: List[ReadSet], file, datum_index: MutableInt, indices_file=None):
+def save_list_of_read_sets(read_sets: List[ReadSet], file, datum_index: MutableInt, indices_file=None, index_to_variant_map=None):
     """
     note that torch.save works fine with numpy data
     :param read_sets:
@@ -106,10 +106,14 @@ def save_list_of_read_sets(read_sets: List[ReadSet], file, datum_index: MutableI
     torch.save([ref_sequence_tensors, ref_tensors, alt_tensors, info_tensors, labels, indices, counts_and_lks], file)
     datum_index.increment(num_data)
 
+    # if variants are missing, such as when we memory-map the data, restore them with the index to variant map
+    variants = [index_to_variant_map[datum.index] for datum in read_sets] if index_to_variant_map is not None else \
+        [datum.variant for datum in read_sets]
+
     if indices_file is not None:
-        for index, datum in zip(indices.tolist(), read_sets):
-            assert datum.variant is not None
-            indices_file.write("\t".join([str(index), datum.variant.contig, str(datum.variant.position), datum.variant.ref, datum.variant.alt]) + '\n')
+        for index, variant in zip(indices.tolist(), variants):
+            assert variant is not None
+            indices_file.write("\t".join([str(index), variant.contig, str(variant.position), variant.ref, variant.alt]) + '\n')
 
 
 def load_list_of_read_sets(file) -> List[ReadSet]:
