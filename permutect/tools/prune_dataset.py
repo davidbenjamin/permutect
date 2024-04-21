@@ -145,33 +145,6 @@ def prune_training_data(hyperparams: ArtifactModelParameters, params: TrainingPa
             train_tar.add(train_file, arcname=os.path.basename(train_file))
 
 
-    # copying some stuff for artifact posterior data
-    artifact_posterior_files = []
-    # TODO: hard-coded num posteriors per chunk!
-    for list_of_posterior_data in generate_artifact_posterior_data(training_datasets, num_data_per_chunk=1000000):
-        with tempfile.NamedTemporaryFile(delete=False) as artifact_posterior_file:
-            pickle.dump(list_of_posterior_data, artifact_posterior_file)
-            artifact_posterior_files.append(artifact_posterior_file.name)
-
-    with tarfile.open(artifact_posterior_output_file, "w") as artifact_tar:
-        for artifact_file in artifact_posterior_files:
-            artifact_tar.add(artifact_file, arcname=os.path.basename(artifact_file))
-
-
-    def generate_artifact_posterior_data(dataset_files, num_data_per_chunk: int):
-        buffer = []
-        for dataset_file in dataset_files:
-            for posterior_datum in read_data(dataset_file, posterior=True, only_artifacts=True):
-                buffer.append(posterior_datum)
-                if len(buffer) == num_data_per_chunk:
-                    yield buffer
-                    buffer = []
-        if len(buffer) > 0:
-            yield buffer
-
-    # done copying
-
-
 def generate_pruned_data(dataset: ReadSetDataset, max_bytes_per_chunk: int, pruned_indices):
     buffer, bytes_in_buffer = [], 0
     for datum in dataset:

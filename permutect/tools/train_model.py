@@ -140,8 +140,6 @@ def parse_arguments():
     # inputs and outputs
     parser.add_argument('--' + constants.TRAIN_TAR_NAME, type=str, required=True,
                         help='tarfile of training/validation datasets produced by preprocess_dataset.py')
-    parser.add_argument('--' + constants.ARTIFACT_TAR_NAME, type=str, required=True,
-                        help='tarfile of artifact posterior data produced by preprocess_dataset.py')
     parser.add_argument('--' + constants.OUTPUT_NAME, type=str, required=True,
                         help='path to output saved model file')
     parser.add_argument('--' + constants.TENSORBOARD_DIR_NAME, type=str, default='tensorboard', required=False,
@@ -215,7 +213,7 @@ def main_without_parsing(args):
     model = train_artifact_model(hyperparams=hyperparams, data_tarfile=tarfile_data, params=training_params,
                                  summary_writer=summary_writer, pretrained_model=pretrained_model)
 
-    artifact_tarfile_data = getattr(args, constants.ARTIFACT_TAR_NAME)
+
     artifact_log_priors, artifact_spectra = learn_artifact_priors_and_spectra(artifact_tarfile_data, genomic_span) if learn_artifact_spectra else (None, None)
     if artifact_spectra is not None:
         art_spectra_fig, art_spectra_axs = plot_artifact_spectra(artifact_spectra)

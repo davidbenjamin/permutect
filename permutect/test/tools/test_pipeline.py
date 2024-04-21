@@ -15,7 +15,6 @@ def test_on_dream1():
 
     # Intermediate and Output Files
     training_data_tarfile = tempfile.NamedTemporaryFile()
-    artifact_posterior_tarfile = tempfile.NamedTemporaryFile()
     saved_artifact_model = tempfile.NamedTemporaryFile()
     training_tensorboard_dir = tempfile.TemporaryDirectory()
     filtering_tensorboard_dir = tempfile.TemporaryDirectory()
@@ -54,7 +53,6 @@ def test_on_dream1():
 
     # Training data inputs
     setattr(train_model_args, constants.TRAIN_TAR_NAME, training_data_tarfile.name)
-    setattr(train_model_args, constants.ARTIFACT_TAR_NAME, artifact_posterior_tarfile.name)
 
     # training hyperparameters
     setattr(train_model_args, constants.REWEIGHTING_RANGE_NAME, 0.3)

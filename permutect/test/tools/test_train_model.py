@@ -14,7 +14,6 @@ from permutect.tools.filter_variants import load_artifact_model
 def test_train_model():
     # Inputs
     training_data_tarfile = "/Users/davidben/permutect/just-dream-1/dream1-normal-small-train.tar"
-    artifact_posterior_tarfile = "/Users/davidben/permutect/just-dream-1/dream1-normal-small-artifact.tar"
 
     # Outputs
     saved_artifact_model = tempfile.NamedTemporaryFile()
@@ -45,7 +44,6 @@ def test_train_model():
 
     # Training data inputs
     setattr(train_model_args, constants.TRAIN_TAR_NAME, training_data_tarfile)
-    setattr(train_model_args, constants.ARTIFACT_TAR_NAME, artifact_posterior_tarfile)
 
     # training hyperparameters
     setattr(train_model_args, constants.REWEIGHTING_RANGE_NAME, 0.3)
