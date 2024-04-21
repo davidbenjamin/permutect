@@ -4,7 +4,6 @@ version 1.0
 workflow TrainPermutect {
     input {
         File train_tar
-        File artifact_tar
         File? pretrained_model
         Int num_epochs
         Int num_calibration_epochs
@@ -35,7 +34,6 @@ workflow TrainPermutect {
         call TrainPermutectGPU {
             input:
                 train_tar = train_tar,
-                artifact_tar = artifact_tar,
                 pretrained_model = pretrained_model,
                 permutect_docker = permutect_docker,
                 preemptible = preemptible,
@@ -65,7 +63,6 @@ workflow TrainPermutect {
         call TrainPermutectCPU {
             input:
                 train_tar = train_tar,
-                artifact_tar = artifact_tar,
                 pretrained_model = pretrained_model,
                 permutect_docker = permutect_docker,
                 preemptible = preemptible,
@@ -103,7 +100,6 @@ workflow TrainPermutect {
 task TrainPermutectGPU {
     input {
         File train_tar
-        File artifact_tar
         File? pretrained_model
 
         Int num_epochs
@@ -145,7 +141,6 @@ task TrainPermutectGPU {
 
         train_model \
             --train_tar ~{train_tar} \
-            --artifact_tar ~{artifact_tar} \
             ~{"--pretrained_model " + pretrained_model} \
             --read_embedding_dimension ~{read_embedding_dimension} \
             --num_transformer_heads ~{num_transformer_heads} \
@@ -192,7 +187,6 @@ task TrainPermutectGPU {
 task TrainPermutectCPU {
     input {
         File train_tar
-        File artifact_tar
         File? pretrained_model
 
         Int num_epochs
@@ -233,7 +227,6 @@ task TrainPermutectCPU {
 
         train_model \
             --train_tar ~{train_tar} \
-            --artifact_tar ~{artifact_tar} \
             ~{"--pretrained_model " + pretrained_model} \
             --read_embedding_dimension ~{read_embedding_dimension} \
             --num_transformer_heads ~{num_transformer_heads} \
