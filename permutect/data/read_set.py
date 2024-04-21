@@ -83,6 +83,11 @@ class ReadSet:
     def variant_type_one_hot(self):
         return self.info_array_1d[-len(Variation):]
 
+    def get_variant_type(self):
+        for n, var_type in enumerate(Variation):
+            if self.info_array_1d[-len(Variation) + n] > 0:
+                return var_type
+
 
 def save_list_of_read_sets(read_sets: List[ReadSet], file, datum_index: MutableInt, indices_file=None, index_to_variant_map=None):
     """

@@ -48,12 +48,11 @@ def train_artifact_model(hyperparams: ArtifactModelParameters, params: TrainingP
 def learn_artifact_priors_and_spectra(dataset: ReadSetDataset, genomic_span_of_data: int):
     artifact_counts = torch.zeros(len(utils.Variation))
     types_list, depths_list, alt_counts_list = [], [], []
-    types_one_hot_tensors, depths_tensors, alt_counts_tensors = [], [], []
 
     for read_set in dataset:
         if read_set.label != Label.ARTIFACT:
             continue
-        variant_type = utils.Variation.get_type(read_set.variant.ref, read_set.variant.alt)
+        variant_type = read_set.get_variant_type()
         artifact_counts[variant_type] += 1
         types_list.append(variant_type)
         depths_list.append(read_set.counts_and_seq_lks.depth)
