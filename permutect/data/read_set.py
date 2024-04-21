@@ -42,7 +42,7 @@ class CountsAndSeqLks:
         self.normal_seq_error_log_lk = normal_seq_error_log_lk
 
     def to_np_array(self):
-        return np.ndarray([self.depth, self.alt_count, self.normal_depth, self.normal_alt_count, self.seq_error_log_lk, self.normal_seq_error_log_lk])
+        return np.array([self.depth, self.alt_count, self.normal_depth, self.normal_alt_count, self.seq_error_log_lk, self.normal_seq_error_log_lk])
 
     @classmethod
     def from_np_array(cls, np_array: np.ndarray):
