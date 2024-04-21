@@ -103,12 +103,12 @@ def save_list_of_read_sets(read_sets: List[ReadSet], file, datum_index: MutableI
 
     counts_and_lks = [datum.counts_and_seq_lks.to_np_array() for datum in read_sets]
 
-    torch.save([ref_sequence_tensors, ref_tensors, alt_tensors, info_tensors, labels, indices, counts_and_lks], file)
-    datum_index.increment(num_data)
-
     # if variants are missing, such as when we memory-map the data, restore them with the index to variant map
     variants = [index_to_variant_map[datum.index] for datum in read_sets] if index_to_variant_map is not None else \
         [datum.variant for datum in read_sets]
+
+    torch.save([ref_sequence_tensors, ref_tensors, alt_tensors, info_tensors, labels, indices, counts_and_lks, variants], file)
+    datum_index.increment(num_data)
 
     if indices_file is not None:
         for index, variant in zip(indices.tolist(), variants):
@@ -122,9 +122,9 @@ def load_list_of_read_sets(file) -> List[ReadSet]:
     :param file:
     :return:
     """
-    ref_sequence_tensors, ref_tensors, alt_tensors, info_tensors, labels, indices, counts_and_lks = torch.load(file)
-    return [ReadSet(ref_sequence_tensor, ref, alt, info, Label(label), index, None, CountsAndSeqLks.from_np_array(cnts_lks)) for ref_sequence_tensor, ref, alt, info, label, index, cnts_lks in
-            zip(ref_sequence_tensors, ref_tensors, alt_tensors, info_tensors, labels.tolist(), indices.tolist(), counts_and_lks)]
+    ref_sequence_tensors, ref_tensors, alt_tensors, info_tensors, labels, indices, counts_and_lks, variants = torch.load(file)
+    return [ReadSet(ref_sequence_tensor, ref, alt, info, Label(label), index, variant, CountsAndSeqLks.from_np_array(cnts_lks)) for ref_sequence_tensor, ref, alt, info, label, index, cnts_lks, variant in
+            zip(ref_sequence_tensors, ref_tensors, alt_tensors, info_tensors, labels.tolist(), indices.tolist(), counts_and_lks, variants)]
 
 
 class ReadSetBatch:

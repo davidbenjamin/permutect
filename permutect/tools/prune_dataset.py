@@ -135,6 +135,7 @@ def prune_training_data(hyperparams: ArtifactModelParameters, params: TrainingPa
     variant_vs_index = {}
     for datum in make_read_set_generator_from_tarfile(data_tarfile):
         variant_vs_index[datum.index] = datum.variant
+    print("variant vs index map contains " + str(len(variant_vs_index)) + " entries.")
 
     pruned_data_files = []
     pruned_datum_index = MutableInt()
