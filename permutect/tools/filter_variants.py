@@ -8,12 +8,12 @@ from intervaltree import IntervalTree
 from torch.utils.tensorboard import SummaryWriter
 from tqdm.autonotebook import tqdm
 
-from permutect import constants, utils
+from permutect import constants
 from permutect.architecture.artifact_model import ArtifactModel
 from permutect.architecture.posterior_model import PosteriorModel
 from permutect.data import read_set_dataset, plain_text_data
-from permutect.data.posterior import PosteriorDataset
-from permutect.utils import Call, encode_datum, encode_variant, find_variant_type
+from permutect.data.posterior import PosteriorDataset, PosteriorDatum
+from permutect.utils import Call, find_variant_type
 
 TRUSTED_M2_FILTERS = {'contamination'}
 
@@ -46,6 +46,30 @@ def load_artifact_model(path) -> ArtifactModel:
 def get_first_numeric_element(variant, key):
     tuple_or_scalar = variant.INFO[key]
     return tuple_or_scalar[0] if type(tuple_or_scalar) is tuple else tuple_or_scalar
+
+
+# if alt and ref alleles are not in minimal representation ie have redundant matching bases at the end, trim them
+def trim_alleles_on_right(ref: str, alt: str):
+    trimmed_ref, trimmed_alt = ref, alt
+    while len(ref) > 1 and len(alt) > 1 and trimmed_alt[-1] == trimmed_ref[-1]:
+        trimmed_ref, trimmed_alt = trimmed_ref[:-1], trimmed_alt[:-1]
+    return trimmed_ref, trimmed_alt
+
+
+def encode(contig: str, position: int, ref: str, alt: str):
+    trimmed_ref, trimmed_alt = trim_alleles_on_right(ref, alt)
+    return contig + ':' + str(position) + ':' + trimmed_alt
+
+
+def encode_datum(datum: PosteriorDatum):
+    return encode(datum.contig, datum.position, datum.ref, datum.alt)
+
+
+def encode_variant(v: cyvcf2.Variant, zero_based=False):
+    alt = v.ALT[0]  # TODO: we're assuming biallelic
+    ref = v.REF
+    start = (v.start + 1) if zero_based else v.start
+    return encode(v.CHROM, start, ref, alt)
 
 
 def filters_to_keep_from_m2(v: cyvcf2.Variant) -> Set[str]:
@@ -165,27 +189,19 @@ def make_posterior_data_loader(dataset_file, input_vcf, artifact_model: Artifact
     # pass through the plain text dataset, normalizing and creating ReadSetDatasets as we go, running the artifact model
     # to get artifact logits, which we record in a dict keyed by variant strings.  These will later be added to PosteriorDatum objects.
     print("reading dataset and calculating artifact logits")
-    variant_to_logit = {}
-    for list_of_read_sets in plain_text_data.generate_normalized_data([dataset_file], chunk_size, include_variant_string=True):
+    posterior_data = []
+    for list_of_read_sets in plain_text_data.generate_normalized_data([dataset_file], chunk_size):
         artifact_dataset = read_set_dataset.ReadSetDataset(data_in_ram=list_of_read_sets)
         artifact_loader = read_set_dataset.make_data_loader(artifact_dataset, artifact_dataset.all_folds(), batch_size, pin_memory=False, num_workers=0)
 
         for artifact_batch in artifact_loader:
             artifact_logits = artifact_model.forward(batch=artifact_batch).detach().tolist()
-            variant_strings = artifact_batch.variant_strings    # format is eg chr1:1000,A->C
-            for var_string, logit in zip(variant_strings, artifact_logits):
-                variant_to_logit[var_string] = logit
-
-    # pass through the plain text dataset again, this time reading PosteriorDatum objects, looking up the previously-computed
-    # allele frequencies and artifact logits.
-    posterior_data = []
-    for posterior_datum in plain_text_data.read_data(dataset_file, posterior=True):
-
-        encoding = encode_datum(posterior_datum)
-        if encoding in allele_frequencies and encoding not in m2_filtering_to_keep:
-            posterior_datum.set_allele_frequency(allele_frequencies[encoding])
-            posterior_datum.set_artifact_logit(variant_to_logit[encoding])
-            posterior_data.append(posterior_datum)
+            for variant, counts_and_seq_lks, index, logit in zip(artifact_batch.variants, artifact_batch.counts_and_likelihoods, artifact_batch.indices, artifact_logits):
+                encoding = encode(variant.contig, variant.position, variant.ref, variant.alt)
+                if encoding in allele_frequencies and encoding not in m2_filtering_to_keep:
+                    allele_frequency = allele_frequencies[encoding]
+                    posterior_datum = PosteriorDatum(variant, counts_and_seq_lks, index, allele_frequency, logit)
+                    posterior_data.append(posterior_datum)
 
     print("Size of filtering dataset: " + str(len(posterior_data)))
     posterior_dataset = PosteriorDataset(posterior_data)

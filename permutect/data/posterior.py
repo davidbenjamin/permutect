@@ -4,38 +4,33 @@ from typing import List, Iterable
 
 from torch import Tensor, IntTensor, BoolTensor, vstack, from_numpy
 from torch.utils.data import Dataset, DataLoader
+from permutect.data.read_set import ReadSet, Variant, CountsAndSeqLks
 
 from permutect import utils
 
 
 class PosteriorDatum:
-    def __init__(self, contig: str, position: int, ref: str, alt: str,
-                 depth: int, alt_count: int, normal_depth: int, normal_alt_count: int,
-                 seq_error_log_likelihood: float, normal_seq_error_log_likelihood: float, allele_frequency: float = None,
-                 artifact_logit: float = None):
-        self.contig = contig
-        self.position = position
-        self.ref = ref
-        self.alt = alt
-        self.variant_type = utils.Variation.get_type(ref, alt)
+    def __init__(self, variant: Variant, counts_and_seq_lks: CountsAndSeqLks,  index: int, allele_frequency: float,
+                 artifact_logit: float):
 
-        self.depth = depth
-        self.alt_count = alt_count
-        self.normal_depth = normal_depth
-        self.normal_alt_count = normal_alt_count
+        self.contig = variant.contig
+        self.position = variant.position
+        self.ref = variant.ref
+        self.alt = variant.alt
+        self.variant_type = utils.Variation.get_type(self.ref, self.alt)
 
-        self.seq_error_log_likelihood = seq_error_log_likelihood
-        self.tlod_from_m2 = -seq_error_log_likelihood - math.log(depth + 1)
-        self.normal_seq_error_log_likelihood = normal_seq_error_log_likelihood
+        self.depth = counts_and_seq_lks.depth
+        self.alt_count = counts_and_seq_lks.alt_count
+        self.normal_depth = counts_and_seq_lks.normal_depth
+        self.normal_alt_count = counts_and_seq_lks.normal_alt_count
+        self.index = index
+
+        self.seq_error_log_likelihood = counts_and_seq_lks.seq_error_log_lk
+        self.tlod_from_m2 = -self.seq_error_log_likelihood - math.log(self.depth + 1)
+        self.normal_seq_error_log_likelihood = counts_and_seq_lks.normal_seq_error_log_lk
 
         self.allele_frequency = allele_frequency
         self.artifact_logit = artifact_logit
-
-    def set_allele_frequency(self, af: float):
-        self.allele_frequency = af
-
-    def set_artifact_logit(self, logit: float):
-        self.artifact_logit = logit
 
 
 class PosteriorBatch:

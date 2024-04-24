@@ -21,7 +21,6 @@ def test_on_dream1():
     setattr(preprocess_args, constants.CHUNK_SIZE_NAME, 1e6)
     setattr(preprocess_args, constants.TRAINING_DATASETS_NAME, training_datasets)
     setattr(preprocess_args, constants.OUTPUT_NAME, training_data_tarfile.name)
-    setattr(preprocess_args, constants.ARTIFACT_POSTERIOR_OUTPUT_NAME, artifact_posterior_tarfile.name)
     preprocess_dataset.main_without_parsing(preprocess_args)
 
     with tempfile.TemporaryDirectory() as train_temp_dir, tempfile.TemporaryDirectory() as artifact_temp_dir:

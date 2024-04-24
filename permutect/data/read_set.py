@@ -5,7 +5,6 @@ from torch import Tensor, IntTensor, FloatTensor
 from typing import List
 import sys
 
-from permutect import utils
 from permutect.utils import Variation, Label, MutableInt
 
 
@@ -24,6 +23,32 @@ def make_sequence_tensor(sequence_string: str) -> np.ndarray:
     return result
 
 
+class Variant:
+    def __init__(self, contig: str, position: int, ref: str, alt: str):
+        self.contig = contig
+        self.position = position
+        self.ref = ref
+        self.alt = alt
+
+
+class CountsAndSeqLks:
+    def __init__(self, depth: int, alt_count: int, normal_depth: int, normal_alt_count: int,
+                 seq_error_log_lk: float, normal_seq_error_log_lk: float):
+        self.depth = depth
+        self.alt_count = alt_count
+        self.normal_depth = normal_depth
+        self.normal_alt_count = normal_alt_count
+        self.seq_error_log_lk = seq_error_log_lk
+        self.normal_seq_error_log_lk = normal_seq_error_log_lk
+
+    def to_np_array(self):
+        return np.array([self.depth, self.alt_count, self.normal_depth, self.normal_alt_count, self.seq_error_log_lk, self.normal_seq_error_log_lk])
+
+    @classmethod
+    def from_np_array(cls, np_array: np.ndarray):
+        return cls(round(np_array[0]), round(np_array[1]), round(np_array[2]), round(np_array[3]), np_array[4], np_array[5])
+
+
 class ReadSet:
     """
     :param ref_sequence_2d  2D tensor with 4 rows, one for each "channel" A,C, G, T, with each column a position, centered
@@ -33,8 +58,8 @@ class ReadSet:
     :param info_array_1d  1D tensor of information about the variant as a whole
     :param label        an object of the Label enum artifact, non-artifact, unlabeled
     """
-    def __init__(self, ref_sequence_2d: np.ndarray, ref_reads_2d: np.ndarray, alt_reads_2d: np.ndarray, info_array_1d: np.ndarray, label: utils.Label, index: int,
-                 variant_string: str = None):
+    def __init__(self, ref_sequence_2d: np.ndarray, ref_reads_2d: np.ndarray, alt_reads_2d: np.ndarray, info_array_1d: np.ndarray, label: Label, index: int,
+                 variant: Variant = None, counts_and_seq_lks: CountsAndSeqLks = None):
         # Note: if changing any of the data fields below, make sure to modify the size_in_bytes() method below accordingly!
         self.ref_sequence_2d = ref_sequence_2d
         self.ref_reads_2d = ref_reads_2d
@@ -42,14 +67,15 @@ class ReadSet:
         self.info_array_1d = info_array_1d
         self.label = label
         self.index = index
-        self.variant_string = variant_string
+        self.variant = variant
+        self.counts_and_seq_lks = counts_and_seq_lks
 
     # gatk_info tensor comes from GATK and does not include one-hot encoding of variant type
     @classmethod
-    def from_gatk(cls, ref_sequence_string: str, variant_type: utils.Variation, ref_tensor: np.ndarray, alt_tensor: np.ndarray,
-                 gatk_info_tensor: np.ndarray, label: utils.Label, index: int, variant_string: str = None):
+    def from_gatk(cls, ref_sequence_string: str, variant_type: Variation, ref_tensor: np.ndarray, alt_tensor: np.ndarray,
+                 gatk_info_tensor: np.ndarray, label: Label, index: int, variant: Variant = None, counts_and_seq_lks: CountsAndSeqLks = None):
         info_tensor = np.hstack([gatk_info_tensor, variant_type.one_hot_tensor()])
-        return cls(make_sequence_tensor(ref_sequence_string), ref_tensor, alt_tensor, info_tensor, label, index, variant_string)
+        return cls(make_sequence_tensor(ref_sequence_string), ref_tensor, alt_tensor, info_tensor, label, index, variant, counts_and_seq_lks)
 
     def size_in_bytes(self):
         return (self.ref_reads_2d.nbytes if self.ref_reads_2d is not None else 0) + self.alt_reads_2d.nbytes + self.info_array_1d.nbytes + sys.getsizeof(self.label)
@@ -57,8 +83,13 @@ class ReadSet:
     def variant_type_one_hot(self):
         return self.info_array_1d[-len(Variation):]
 
+    def get_variant_type(self):
+        for n, var_type in enumerate(Variation):
+            if self.info_array_1d[-len(Variation) + n] > 0:
+                return var_type
 
-def save_list_of_read_sets(read_sets: List[ReadSet], file, datum_index: MutableInt, indices_file=None):
+
+def save_list_of_read_sets(read_sets: List[ReadSet], file, datum_index: MutableInt, indices_file=None, index_to_variant_map=None):
     """
     note that torch.save works fine with numpy data
     :param read_sets:
@@ -75,13 +106,19 @@ def save_list_of_read_sets(read_sets: List[ReadSet], file, datum_index: MutableI
     labels = IntTensor([datum.label.value for datum in read_sets])
     indices = start_index + torch.arange(num_data).int()
 
-    torch.save([ref_sequence_tensors, ref_tensors, alt_tensors, info_tensors, labels, indices], file)
+    counts_and_lks = [datum.counts_and_seq_lks.to_np_array() for datum in read_sets]
+
+    # if variants are missing, such as when we memory-map the data, restore them with the index to variant map
+    variants = [index_to_variant_map[datum.index] for datum in read_sets] if index_to_variant_map is not None else \
+        [datum.variant for datum in read_sets]
+
+    torch.save([ref_sequence_tensors, ref_tensors, alt_tensors, info_tensors, labels, indices, counts_and_lks, variants], file)
     datum_index.increment(num_data)
 
     if indices_file is not None:
-        for index, datum in zip(indices.tolist(), read_sets):
-            if datum.variant_string is not None:
-                indices_file.write(str(index) + "\t" + datum.variant_string + '\n')
+        for index, variant in zip(indices.tolist(), variants):
+            assert variant is not None
+            indices_file.write("\t".join([str(index), variant.contig, str(variant.position), variant.ref, variant.alt]) + '\n')
 
 
 def load_list_of_read_sets(file) -> List[ReadSet]:
@@ -90,9 +127,9 @@ def load_list_of_read_sets(file) -> List[ReadSet]:
     :param file:
     :return:
     """
-    ref_sequence_tensors, ref_tensors, alt_tensors, info_tensors, labels, indices = torch.load(file)
-    return [ReadSet(ref_sequence_tensor, ref, alt, info, utils.Label(label), index) for ref_sequence_tensor, ref, alt, info, label, index in
-            zip(ref_sequence_tensors, ref_tensors, alt_tensors, info_tensors, labels.tolist(), indices.tolist())]
+    ref_sequence_tensors, ref_tensors, alt_tensors, info_tensors, labels, indices, counts_and_lks, variants = torch.load(file)
+    return [ReadSet(ref_sequence_tensor, ref, alt, info, Label(label), index, variant, CountsAndSeqLks.from_np_array(cnts_lks)) for ref_sequence_tensor, ref, alt, info, label, index, cnts_lks, variant in
+            zip(ref_sequence_tensors, ref_tensors, alt_tensors, info_tensors, labels.tolist(), indices.tolist(), counts_and_lks, variants)]
 
 
 class ReadSetBatch:
@@ -131,7 +168,8 @@ class ReadSetBatch:
         self.indices = IntTensor([item.index for item in data])
         self._size = len(data)
 
-        self.variant_strings = None if data[0].variant_string is None else [datum.variant_string for datum in data]
+        self.counts_and_likelihoods = [datum.counts_and_seq_lks for datum in data]
+        self.variants = None if data[0].variant is None else [datum.variant for datum in data]
 
     # pin memory for all tensors that are sent to the GPU
     def pin_memory(self):

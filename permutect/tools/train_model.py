@@ -1,7 +1,6 @@
 import argparse
-import tempfile
-import pickle
 
+import numpy as np
 import torch
 from torch.utils.tensorboard import SummaryWriter
 
@@ -10,7 +9,7 @@ from permutect.architecture.artifact_model import ArtifactModelParameters, Artif
 from permutect.architecture.posterior_model import initialize_artifact_spectra, plot_artifact_spectra
 from permutect.data.read_set_dataset import ReadSetDataset
 from permutect.tools.filter_variants import load_artifact_model
-from permutect.utils import Variation
+from permutect.utils import Variation, Label
 
 
 class TrainingParameters:
@@ -22,12 +21,10 @@ class TrainingParameters:
         self.num_workers = num_workers
 
 
-def train_artifact_model(hyperparams: ArtifactModelParameters, params: TrainingParameters, summary_writer: SummaryWriter, data_tarfile,
+def train_artifact_model(hyperparams: ArtifactModelParameters, params: TrainingParameters, summary_writer: SummaryWriter, dataset,
                          pretrained_model: ArtifactModel = None):
     use_gpu = torch.cuda.is_available()
     device = torch.device('cuda' if use_gpu else 'cpu')
-
-    dataset = ReadSetDataset(data_tarfile=data_tarfile, num_folds=10)
 
     use_pretrained = (pretrained_model is not None)
     model = load_artifact_model(pretrained_model)[0] if use_pretrained else \
@@ -48,35 +45,30 @@ def train_artifact_model(hyperparams: ArtifactModelParameters, params: TrainingP
     return model
 
 
-def learn_artifact_priors_and_spectra(artifact_tarfile, genomic_span_of_data: int):
-    with tempfile.TemporaryDirectory() as temp_dir:
-        data_files = utils.extract_to_temp_dir(artifact_tarfile, temp_dir)
+def learn_artifact_priors_and_spectra(dataset: ReadSetDataset, genomic_span_of_data: int):
+    artifact_counts = torch.zeros(len(utils.Variation))
+    types_list, depths_list, alt_counts_list = [], [], []
 
-        artifact_counts = torch.zeros(len(utils.Variation))
-        types_one_hot_buffer, depths_buffer, alt_counts_buffer = [], [], []   # list of tensors as they accumulate
-        types_one_hot_tensors, depths_tensors, alt_counts_tensors = [], [], []
-        for file in data_files:
-            for artifact_posterior in pickle.load(open(file, 'rb')):
-                variant_type = utils.Variation.get_type(artifact_posterior.ref, artifact_posterior.alt)
-                artifact_counts[variant_type] += 1
-                types_one_hot_buffer.append(torch.from_numpy(variant_type.one_hot_tensor()))
-                depths_buffer.append(artifact_posterior.depth)
-                alt_counts_buffer.append(artifact_posterior.alt_count)
+    for read_set in dataset:
+        if read_set.label != Label.ARTIFACT:
+            continue
+        variant_type = read_set.get_variant_type()
+        artifact_counts[variant_type] += 1
+        types_list.append(variant_type)
+        depths_list.append(read_set.counts_and_seq_lks.depth)
+        alt_counts_list.append(read_set.counts_and_seq_lks.alt_count)
 
-            # after each file, turn the buffers into tensors
-            types_one_hot_tensors.append(torch.vstack(types_one_hot_buffer))
-            depths_tensors.append(torch.Tensor(depths_buffer))
-            alt_counts_tensors.append(torch.Tensor(alt_counts_buffer))
-            types_one_hot_buffer, depths_buffer, alt_counts_buffer = [], [], []
+    # turn the lists into tensors
+    types_one_hot_tensor = torch.from_numpy(np.vstack([var_type.one_hot_tensor() for var_type in types_list])).float()
+    depths_tensor = torch.Tensor(depths_list).float()
+    alt_counts_tensor = torch.Tensor(alt_counts_list).float()
 
     log_artifact_priors = torch.log(artifact_counts / genomic_span_of_data)
-
     artifact_spectra = initialize_artifact_spectra()
 
     # TODO: hard-coded num epochs!!!
-    artifact_spectra.fit(num_epochs=10, inputs_2d_tensor=torch.vstack(types_one_hot_tensors).float(),
-                         depths_1d_tensor=torch.hstack(depths_tensors).float(), alt_counts_1d_tensor=torch.hstack(alt_counts_tensors).float(),
-                         batch_size=64)
+    artifact_spectra.fit(num_epochs=10, inputs_2d_tensor=types_one_hot_tensor, depths_1d_tensor=depths_tensor,
+                         alt_counts_1d_tensor=alt_counts_tensor, batch_size=64)
 
     return log_artifact_priors, artifact_spectra
 
@@ -140,8 +132,6 @@ def parse_arguments():
     # inputs and outputs
     parser.add_argument('--' + constants.TRAIN_TAR_NAME, type=str, required=True,
                         help='tarfile of training/validation datasets produced by preprocess_dataset.py')
-    parser.add_argument('--' + constants.ARTIFACT_TAR_NAME, type=str, required=True,
-                        help='tarfile of artifact posterior data produced by preprocess_dataset.py')
     parser.add_argument('--' + constants.OUTPUT_NAME, type=str, required=True,
                         help='path to output saved model file')
     parser.add_argument('--' + constants.TENSORBOARD_DIR_NAME, type=str, default='tensorboard', required=False,
@@ -212,11 +202,11 @@ def main_without_parsing(args):
     pretrained_model = getattr(args, constants.PRETRAINED_MODEL_NAME)
     tensorboard_dir = getattr(args, constants.TENSORBOARD_DIR_NAME)
     summary_writer = SummaryWriter(tensorboard_dir)
-    model = train_artifact_model(hyperparams=hyperparams, data_tarfile=tarfile_data, params=training_params,
+    dataset = ReadSetDataset(data_tarfile=tarfile_data, num_folds=10)
+    model = train_artifact_model(hyperparams=hyperparams, dataset=dataset, params=training_params,
                                  summary_writer=summary_writer, pretrained_model=pretrained_model)
 
-    artifact_tarfile_data = getattr(args, constants.ARTIFACT_TAR_NAME)
-    artifact_log_priors, artifact_spectra = learn_artifact_priors_and_spectra(artifact_tarfile_data, genomic_span) if learn_artifact_spectra else (None, None)
+    artifact_log_priors, artifact_spectra = learn_artifact_priors_and_spectra(dataset, genomic_span) if learn_artifact_spectra else (None, None)
     if artifact_spectra is not None:
         art_spectra_fig, art_spectra_axs = plot_artifact_spectra(artifact_spectra)
         summary_writer.add_figure("Artifact AF Spectra", art_spectra_fig)

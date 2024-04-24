@@ -15,7 +15,6 @@ def test_on_dream1():
 
     # Intermediate and Output Files
     training_data_tarfile = tempfile.NamedTemporaryFile()
-    artifact_posterior_tarfile = tempfile.NamedTemporaryFile()
     saved_artifact_model = tempfile.NamedTemporaryFile()
     training_tensorboard_dir = tempfile.TemporaryDirectory()
     filtering_tensorboard_dir = tempfile.TemporaryDirectory()
@@ -26,7 +25,6 @@ def test_on_dream1():
     setattr(preprocess_args, constants.CHUNK_SIZE_NAME, 1e6)
     setattr(preprocess_args, constants.TRAINING_DATASETS_NAME, training_datasets)
     setattr(preprocess_args, constants.OUTPUT_NAME, training_data_tarfile.name)
-    setattr(preprocess_args, constants.ARTIFACT_POSTERIOR_OUTPUT_NAME, artifact_posterior_tarfile.name)
     preprocess_dataset.main_without_parsing(preprocess_args)
 
     # STEP 2: train a model
@@ -55,7 +53,6 @@ def test_on_dream1():
 
     # Training data inputs
     setattr(train_model_args, constants.TRAIN_TAR_NAME, training_data_tarfile.name)
-    setattr(train_model_args, constants.ARTIFACT_TAR_NAME, artifact_posterior_tarfile.name)
 
     # training hyperparameters
     setattr(train_model_args, constants.REWEIGHTING_RANGE_NAME, 0.3)

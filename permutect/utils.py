@@ -1,15 +1,9 @@
 import enum
 import numpy as np
-from permutect.data.posterior import PosteriorDatum
 import cyvcf2
-import tempfile
 import tarfile
 import os
-
-
-# variant size is alt - ref length
 import torch
-from torch.utils.data import random_split
 
 
 class ConsistentValue:
@@ -36,6 +30,10 @@ class MutableInt:
 
     def decrement(self, amount: int = 1):
         self.value -= amount
+
+    def get_and_then_increment(self):
+        self.value += 1
+        return self.value - 1
 
     def get(self):
         return self.value
@@ -182,30 +180,6 @@ def backpropagate(optimizer: torch.optim.Optimizer, loss: torch.Tensor):
     optimizer.zero_grad(set_to_none=True)
     loss.backward()
     optimizer.step()
-
-
-def encode(contig: str, position: int, ref: str, alt: str):
-    trimmed_ref, trimmed_alt = trim_alleles_on_right(ref, alt)
-    return contig + ':' + str(position) + ':' + trimmed_alt
-
-
-# if alt and ref alleles are not in minimal representation ie have redundant matching bases at the end, trim them
-def trim_alleles_on_right(ref: str, alt: str):
-    trimmed_ref, trimmed_alt = ref, alt
-    while len(ref) > 1 and len(alt) > 1 and trimmed_alt[-1] == trimmed_ref[-1]:
-        trimmed_ref, trimmed_alt = trimmed_ref[:-1], trimmed_alt[:-1]
-    return trimmed_ref, trimmed_alt
-
-
-def encode_datum(datum: PosteriorDatum):
-    return encode(datum.contig, datum.position, datum.ref, datum.alt)
-
-
-def encode_variant(v: cyvcf2.Variant, zero_based=False):
-    alt = v.ALT[0]  # TODO: we're assuming biallelic
-    ref = v.REF
-    start = (v.start + 1) if zero_based else v.start
-    return encode(v.CHROM, start, ref, alt)
 
 
 def find_variant_type(v: cyvcf2.Variant):

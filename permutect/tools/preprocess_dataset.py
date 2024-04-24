@@ -6,7 +6,7 @@ import pickle
 
 from permutect import constants
 from permutect.data import read_set
-from permutect.data.plain_text_data import generate_normalized_data, generate_artifact_posterior_data
+from permutect.data.plain_text_data import generate_normalized_data
 from permutect.utils import ConsistentValue, MutableInt
 
 """
@@ -23,12 +23,10 @@ def parse_arguments():
                         help='size in bytes of output binary data files')
     parser.add_argument('--' + constants.OUTPUT_NAME, type=str, default=None, required=True,
                         help='path to output tarfile of training data')
-    parser.add_argument('--' + constants.ARTIFACT_POSTERIOR_OUTPUT_NAME, type=str, default=None, required=True,
-                        help='path to output tarfile of artifact posteriors data')
     return parser.parse_args()
 
 
-def do_work(training_datasets, training_output_file, chunk_size, artifact_posterior_output_file):
+def do_work(training_datasets, training_output_file, chunk_size):
     data_files = []
     num_read_features, num_info_features, ref_sequence_length = ConsistentValue(), ConsistentValue(), ConsistentValue()
 
@@ -37,7 +35,7 @@ def do_work(training_datasets, training_output_file, chunk_size, artifact_poster
     indices_file = open("indices.txt", 'w')
     # we include the variant string in order to record it in the indices file
     # even though we throw it out in save_list_of_read_sets
-    for read_set_list in generate_normalized_data(training_datasets, max_bytes_per_chunk=chunk_size, include_variant_string=True):
+    for read_set_list in generate_normalized_data(training_datasets, max_bytes_per_chunk=chunk_size):
         num_read_features.check(read_set_list[0].alt_reads_2d.shape[1])
         num_info_features.check(read_set_list[0].info_array_1d.shape[0])
         ref_sequence_length.check(read_set_list[0].ref_sequence_2d.shape[-1])
@@ -53,25 +51,13 @@ def do_work(training_datasets, training_output_file, chunk_size, artifact_poster
         for train_file in data_files:
             train_tar.add(train_file, arcname=os.path.basename(train_file))
 
-    artifact_posterior_files = []
-    # TODO: hard-coded num posteriors per chunk!
-    for list_of_posterior_data in generate_artifact_posterior_data(training_datasets, num_data_per_chunk=1000000):
-        with tempfile.NamedTemporaryFile(delete=False) as artifact_posterior_file:
-            pickle.dump(list_of_posterior_data, artifact_posterior_file)
-            artifact_posterior_files.append(artifact_posterior_file.name)
-
-    with tarfile.open(artifact_posterior_output_file, "w") as artifact_tar:
-        for artifact_file in artifact_posterior_files:
-            artifact_tar.add(artifact_file, arcname=os.path.basename(artifact_file))
-
 
 def main_without_parsing(args):
     chunk_size = getattr(args, constants.CHUNK_SIZE_NAME)
     training_datasets = getattr(args, constants.TRAINING_DATASETS_NAME)
     output_file = getattr(args, constants.OUTPUT_NAME)
-    artifact_posterior_output_file = getattr(args, constants.ARTIFACT_POSTERIOR_OUTPUT_NAME)
 
-    do_work(training_datasets, output_file, chunk_size, artifact_posterior_output_file)
+    do_work(training_datasets, output_file, chunk_size)
 
 
 def main():
