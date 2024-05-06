@@ -6,6 +6,7 @@ from torch.utils.tensorboard import SummaryWriter
 
 from permutect import utils
 from permutect.data.read_set import ReadSetBatch, Variant
+from permutect.metrics import plotting
 from permutect.utils import Variation, Call
 
 MAX_COUNT = 18  # counts above this will be truncated
@@ -116,10 +117,41 @@ class EvaluationMetrics:
         self.roc_data[variant_type].append((predicted_logit, label))
         self.roc_data_by_cnt[variant_type][count_bin_index].append((predicted_logit, label))
 
-
+    # return a list of tuples.  This outer list is over the two labels, Call.SOMATIC and Call.ARTIFACT.  Each tuple consists of
+    # (list of alt counts (x axis), list of accuracies (y axis), the label)
     def make_data_for_accuracy_plot(self, var_type: Variation):
-        non_empty_count_bins = [idx for idx in range(NUM_COUNT_BINS) if not self.acc_vs_cnt[var_type][label][idx].is_empty()]
+        non_empty_count_bins_by_label = {label: [idx for idx in range(NUM_COUNT_BINS) if not self.acc_vs_cnt[var_type][label][idx].is_empty()]
+                                         for label in self.acc_vs_cnt[var_type].keys()}
 
-        acc_vs_cnt_x_y_lab_tuples = [([multiple_of_three_bin_index_to_count(idx) for idx in non_empty_count_bins],
-                                      [acc_vs_cnt[var_type][label][idx].get() for idx in non_empty_count_bins],
-                                      label.name) for label in acc_vs_cnt[var_type].keys()]
+        return [([multiple_of_three_bin_index_to_count(idx) for idx in non_empty_count_bins_by_label[label]],
+                                      [self.acc_vs_cnt[var_type][label][idx].get() for idx in non_empty_count_bins_by_label[label]],
+                                      label.name) for label in self.acc_vs_cnt[var_type].keys()]
+
+    def plot_accuracy(self, var_type: Variation, axis):
+        acc_vs_cnt_x_y_lab_tuples = self.make_data_for_accuracy_plot(var_type)
+        plotting.simple_plot_on_axis(axis, acc_vs_cnt_x_y_lab_tuples, None, None)
+
+    # similar tuple format but now it's (list of logits, list of accuracies, count)
+    def make_data_for_calibration_plot(self, var_type: Variation):
+        non_empty_logit_bins = [
+            [idx for idx in range(2 * MAX_LOGIT + 1) if not self.acc_vs_logit[var_type][count_idx][idx].is_empty()]
+            for count_idx in range(NUM_COUNT_BINS)]
+        return [([bin_center(idx) for idx in non_empty_logit_bins[count_idx]],
+                                        [self.acc_vs_logit[var_type][count_idx][idx].get() for idx in
+                                         non_empty_logit_bins[count_idx]],
+                                        str(multiple_of_three_bin_index_to_count(count_idx))) for count_idx in
+                                       range(NUM_COUNT_BINS)]
+
+    def plot_calibration(self, var_type: Variation, axis):
+        acc_vs_logit_x_y_lab_tuples = self.make_data_for_calibration_plot(var_type)
+        plotting.simple_plot_on_axis(axis, acc_vs_logit_x_y_lab_tuples, None, None)
+
+    def plot_roc_curve(self, var_type: Variation, axis):
+        plotting.plot_accuracy_vs_accuracy_roc_on_axis([self.roc_data[var_type]], [None], axis)
+
+    def plot_roc_curves_by_count(self, var_type: Variation, axis):
+        plotting.plot_accuracy_vs_accuracy_roc_on_axis(self.roc_data_by_cnt[var_type],
+                                                       [str(multiple_of_three_bin_index_to_count(idx)) for idx in
+                                                        range(NUM_COUNT_BINS)], axis)
+
+

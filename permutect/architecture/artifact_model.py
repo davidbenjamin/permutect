@@ -20,7 +20,8 @@ from permutect.architecture.dna_sequence_convolution import DNASequenceConvoluti
 from permutect.data.read_set import ReadSetBatch
 from permutect.data.read_set_dataset import ReadSetDataset, make_data_loader
 from permutect import utils
-from permutect.metrics.evaluation_metrics import LossMetrics, EvaluationMetrics
+from permutect.metrics.evaluation_metrics import LossMetrics, EvaluationMetrics, NUM_COUNT_BINS, \
+    multiple_of_three_bin_index_to_count, multiple_of_three_bin_index, MAX_COUNT, round_up_to_nearest_three
 from permutect.utils import Call, Variation
 from permutect.metrics import plotting
 
@@ -442,26 +443,10 @@ class ArtifactModel(nn.Module):
 
             # done collecting data for this particular loader, now fill in subplots for this loader's row
             for var_type in Variation:
-                # data for one particular subplot (row = train / valid, column = variant type)
-
-                non_empty_count_bins = [idx for idx in range(NUM_COUNT_BINS) if not acc_vs_cnt[var_type][label][idx].is_empty()]
-                non_empty_logit_bins = [[idx for idx in range(2 * MAX_LOGIT + 1) if not acc_vs_logit[var_type][count_idx][idx].is_empty()] for count_idx in range(NUM_COUNT_BINS)]
-                acc_vs_cnt_x_y_lab_tuples = [([multiple_of_three_bin_index_to_count(idx) for idx in non_empty_count_bins],
-                                   [acc_vs_cnt[var_type][label][idx].get() for idx in non_empty_count_bins],
-                                   label.name) for label in acc_vs_cnt[var_type].keys()]
-                acc_vs_logit_x_y_lab_tuples = [([bin_center(idx) for idx in non_empty_logit_bins[count_idx]],
-                                              [acc_vs_logit[var_type][count_idx][idx].get() for idx in non_empty_logit_bins[count_idx]],
-                                              str(multiple_of_three_bin_index_to_count(count_idx))) for count_idx in range(NUM_COUNT_BINS)]
-
-                plotting.simple_plot_on_axis(acc_vs_cnt_axes[loader_idx, var_type], acc_vs_cnt_x_y_lab_tuples, None, None)
-                plotting.plot_accuracy_vs_accuracy_roc_on_axis([roc_data[var_type]], [None], roc_axes[loader_idx, var_type])
-
-                plotting.plot_accuracy_vs_accuracy_roc_on_axis(roc_data_by_cnt[var_type],
-                                                               [str(multiple_of_three_bin_index_to_count(idx)) for idx in range(NUM_COUNT_BINS)], roc_by_cnt_axes[loader_idx, var_type])
-
-                # now the plot versus output logit
-                plotting.simple_plot_on_axis(cal_axes[loader_idx, var_type], acc_vs_logit_x_y_lab_tuples, None, None)
-
+                evaluation_metrics.plot_accuracy(var_type, acc_vs_cnt_axes[loader_idx, var_type])
+                evaluation_metrics.plot_calibration(var_type, cal_axes[loader_idx, var_type])
+                evaluation_metrics.plot_roc_curve(var_type, roc_axes[loader_idx, var_type])
+                evaluation_metrics.plot_roc_curves_by_count(var_type, roc_by_cnt_axes[loader_idx, var_type])
         # done collecting stats for all loaders and filling in subplots
 
         variation_types = [var_type.name for var_type in Variation]
