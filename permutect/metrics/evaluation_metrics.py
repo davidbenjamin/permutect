@@ -1,6 +1,7 @@
 import math
 
 import torch
+from torch.utils.tensorboard import SummaryWriter
 
 from permutect import utils
 from permutect.data.read_set import ReadSetBatch
@@ -34,6 +35,22 @@ class LossMetrics:
         self.labeled_loss_by_type = {variant_type: utils.StreamingAverage(device=self._device) for variant_type in Variation}
         self.labeled_loss_by_count = {bin_idx: utils.StreamingAverage(device=self._device) for bin_idx in range(NUM_COUNT_BINS)}
 
+    def get_labeled_loss(self):
+        return self.labeled_loss.get()
+
+    def get_unlabeled_loss(self):
+        return self.unlabeled_loss.get()
+
+    def write_to_summary_writer(self, epoch_type: utils.Epoch, epoch: int, summary_writer: SummaryWriter):
+        summary_writer.add_scalar(epoch_type.name + "/Labeled Loss", self.labeled_loss.get(), epoch)
+        summary_writer.add_scalar(epoch_type.name + "/Unlabeled Loss", self.unlabeled_loss.get(), epoch)
+
+        for bin_idx, loss in self.labeled_loss_by_count.items():
+            summary_writer.add_scalar(
+                epoch_type.name + "/Labeled Loss/By Count/" + str(multiple_of_three_bin_index_to_count(bin_idx)), loss.get(), epoch)
+
+        for var_type, loss in self.labeled_loss_by_type.items():
+            summary_writer.add_scalar(epoch_type.name + "/Labeled Loss/By Type/" + var_type.name, loss.get(), epoch)
 
     def record_total_batch_loss(self, total_loss: float, batch: ReadSetBatch):
         if batch.is_labeled():
@@ -41,6 +58,8 @@ class LossMetrics:
 
             if batch.alt_count <= MAX_COUNT:
                 self.labeled_loss_by_count[multiple_of_three_bin_index(batch.alt_count)].record_sum(total_loss, batch.size())
+        else:
+            self.unlabeled_loss.record_sum(total_loss, batch.size())
 
 
     def record_separate_losses(self, losses: torch.Tensor, batch: ReadSetBatch):

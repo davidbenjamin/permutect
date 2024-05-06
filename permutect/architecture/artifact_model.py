@@ -392,29 +392,21 @@ class ArtifactModel(nn.Module):
                     else:
                         # unlabeled loss: entropy regularization
                         posterior_probabilities = torch.sigmoid(posterior_logits)
-                        entropies =  torch.nn.functional.binary_cross_entropy_with_logits(posterior_logits, posterior_probabilities, reduction='none')
+                        entropies = torch.nn.functional.binary_cross_entropy_with_logits(posterior_logits, posterior_probabilities, reduction='none')
 
                         # TODO: we need a parameter to control the relative weight of unlabeled loss to labeled loss
                         loss = torch.sum(entropies) * labeled_to_unlabeled_ratio
-                        unlabeled_loss.record_sum(loss.detach(), batch.size())
+                        loss_metrics.record_total_batch_loss(loss.detach(), batch)
 
-                    else:
-                        if epoch_type == utils.Epoch.TRAIN:
-                            utils.backpropagate(train_optimizer, loss)
-                        if is_calibration_epoch:
-                            utils.backpropagate(calibration_optimizer, loss)
+                    if epoch_type == utils.Epoch.TRAIN:
+                        utils.backpropagate(train_optimizer, loss)
+                    if is_calibration_epoch:
+                        utils.backpropagate(calibration_optimizer, loss)
 
                 # done with one epoch type -- training or validation -- for this epoch
-                summary_writer.add_scalar(epoch_type.name + "/Labeled Loss", labeled_loss.get(), epoch)
-                summary_writer.add_scalar(epoch_type.name + "/Unlabeled Loss", unlabeled_loss.get(), epoch)
+                loss_metrics.write_to_summary_writer(epoch_type, epoch, summary_writer)
 
-                for bin_idx, loss in labeled_loss_by_count.items():
-                    summary_writer.add_scalar(epoch_type.name + "/Labeled Loss/By Count/" + str(multiple_of_three_bin_index_to_count(bin_idx)), loss.get(), epoch)
-
-                for var_type, loss in labeled_loss_by_type.items():
-                    summary_writer.add_scalar(epoch_type.name + "/Labeled Loss/By Type/" + var_type.name, loss.get(), epoch)
-
-                print("Labeled loss for epoch " + str(epoch) + " of " + epoch_type.name + ": " + str(labeled_loss.get()))
+                print("Labeled loss for epoch " + str(epoch) + " of " + epoch_type.name + ": " + str(loss_metrics.get_labeled_loss()))
             # done with training and validation for this epoch
             # note that we have not learned the AF spectrum yet
         # done with training
