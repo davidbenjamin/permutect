@@ -20,29 +20,13 @@ from permutect.architecture.dna_sequence_convolution import DNASequenceConvoluti
 from permutect.data.read_set import ReadSetBatch
 from permutect.data.read_set_dataset import ReadSetDataset, make_data_loader
 from permutect import utils
+from permutect.metrics.evaluation_metrics import LossMetrics
 from permutect.utils import Call, Variation
 from permutect.metrics import plotting
 
 warnings.filterwarnings("ignore", message="Setting attributes on ParameterList is not supported.")
 
 NUM_DATA_FOR_TENSORBOARD_PROJECTION = 10000
-
-
-def round_up_to_nearest_three(x: int):
-    return math.ceil(x / 3) * 3
-
-
-def multiple_of_three_bin_index(x: int):
-    return (round_up_to_nearest_three(x)//3) - 1    # -1 because zero is not a bin
-
-
-def multiple_of_three_bin_index_to_count(idx: int):
-    return 3 * (idx + 1)
-
-
-MAX_COUNT = 18  # counts above this will be truncated
-MAX_LOGIT = 6
-NUM_COUNT_BINS = round_up_to_nearest_three(MAX_COUNT) // 3    # zero is not a bin
 
 
 def effective_count(weights: Tensor):
@@ -387,11 +371,7 @@ class ArtifactModel(nn.Module):
                 if is_calibration_epoch:
                     utils.unfreeze(self.calibration_parameters())  # unfreeze calibration but everything else stays frozen
 
-                labeled_loss = utils.StreamingAverage(device=self._device)
-                unlabeled_loss = utils.StreamingAverage(device=self._device)
-
-                labeled_loss_by_type = {variant_type: utils.StreamingAverage(device=self._device) for variant_type in Variation}
-                labeled_loss_by_count = {bin_idx: utils.StreamingAverage(device=self._device) for bin_idx in range(NUM_COUNT_BINS)}
+                loss_metrics = LossMetrics(self._device)
 
                 loader = train_loader if epoch_type == utils.Epoch.TRAIN else valid_loader
                 pbar = tqdm(enumerate(loader), mininterval=60)
@@ -403,53 +383,21 @@ class ArtifactModel(nn.Module):
                     log_prior_ratios = torch.sum(artifact_to_non_artifact_log_prior_ratios * types_one_hot, dim=1)
                     posterior_logits = logits + log_prior_ratios
 
-                    DEBUG = None
-
                     if batch.is_labeled():
                         separate_losses = bce(posterior_logits, batch.labels)
-                        DEBUG = separate_losses
                         loss = torch.sum(separate_losses)
-                        labeled_loss.record_sum(loss.detach(), batch.size())
 
-                        if batch.alt_count <= MAX_COUNT:
-                            labeled_loss_by_count[multiple_of_three_bin_index(batch.alt_count)].record_sum(loss.detach(), batch.size())
-
-                        losses_masked_by_type = separate_losses.reshape(batch.size(), 1) * types_one_hot
-                        counts_by_type = torch.sum(types_one_hot, dim=0)
-                        total_loss_by_type = torch.sum(losses_masked_by_type, dim=0)
-                        variant_types = list(Variation)
-                        for variant_type_idx in range(len(Variation)):
-                            count_for_type = int(counts_by_type[variant_type_idx].item())
-                            loss_for_type = total_loss_by_type[variant_type_idx].item()
-                            labeled_loss_by_type[variant_types[variant_type_idx]].record_sum(loss_for_type, count_for_type)
+                        loss_metrics.record_total_batch_loss(loss.detach(), batch)
+                        loss_metrics.record_separate_losses(separate_losses, batch)
                     else:
                         # unlabeled loss: entropy regularization
                         posterior_probabilities = torch.sigmoid(posterior_logits)
-
-                        # TODO: hmmm I wonder if these are the source of the nan?
-                        #entropies = -posterior_probabilities * torch.log(posterior_probabilities) \
-                        #    - (1-posterior_probabilities) * torch.log(1-posterior_probabilities)
-
-                        # this I hope is more numerically stable
                         entropies =  torch.nn.functional.binary_cross_entropy_with_logits(posterior_logits, posterior_probabilities, reduction='none')
-
-                        DEBUG = entropies
 
                         # TODO: we need a parameter to control the relative weight of unlabeled loss to labeled loss
                         loss = torch.sum(entropies) * labeled_to_unlabeled_ratio
                         unlabeled_loss.record_sum(loss.detach(), batch.size())
 
-                    # it is probably bad practice to just ignore a nan but for now let's just skip backprop for the
-                    # offending batch and hope to carry on without problems.  This might not work.  Even if it does,
-                    # I eventually want to actually diagnose the issue.
-                    if loss.isnan().item():
-                        print("THIS BATCH's LOSS IS NAN!!!!  SKIPPING BACK-PROPAGATION.")
-                        print("batch is " + ("labeled." if batch.is_labeled else "unlabeled."))
-                        print("alt count, ref count = " + str(batch.alt_count, batch.ref_count))
-                        print("do logits contain NaN: " + "yes" if logits.isnan().any() else "no")
-                        print("do posterior logits contain NaN: " + "yes" if posterior_logits.isnan().any() else "no")
-                        if not batch.is_labeled and DEBUG.isnan().any():
-                            print("entropies contain a NaN")
                     else:
                         if epoch_type == utils.Epoch.TRAIN:
                             utils.backpropagate(train_optimizer, loss)
