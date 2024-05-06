@@ -20,7 +20,7 @@ from permutect.architecture.dna_sequence_convolution import DNASequenceConvoluti
 from permutect.data.read_set import ReadSetBatch
 from permutect.data.read_set_dataset import ReadSetDataset, make_data_loader
 from permutect import utils
-from permutect.metrics.evaluation_metrics import LossMetrics
+from permutect.metrics.evaluation_metrics import LossMetrics, EvaluationMetrics
 from permutect.utils import Call, Variation
 from permutect.metrics import plotting
 
@@ -420,10 +420,6 @@ class ArtifactModel(nn.Module):
         self.cpu()
         self._device = "cpu"
 
-        # round logit to nearest int, truncate to range, ending up with bins 0. . . 2*max_logit
-        logit_to_bin = lambda logit: min(max(round(logit), -MAX_LOGIT), MAX_LOGIT) + MAX_LOGIT
-        bin_center = lambda bin_idx: bin_idx - MAX_LOGIT
-
         # grid of figures -- rows are loaders, columns are variant types
         # each subplot has two line graphs of accuracy vs alt count, one each for artifact, non-artifact
         acc_vs_cnt_fig, acc_vs_cnt_axes = plt.subplots(len(loaders_by_name), len(Variation), sharex='all', sharey='all', squeeze=False)
@@ -433,15 +429,7 @@ class ArtifactModel(nn.Module):
 
         log_artifact_to_non_artifact_ratios = torch.from_numpy(np.log(dataset.artifact_to_non_artifact_ratios()))
         for loader_idx, (loader_name, loader) in enumerate(loaders_by_name.items()):
-            # indexed by variant type, then count bin, then logit bin
-            acc_vs_logit = {var_type: [[utils.StreamingAverage() for _ in range(2 * MAX_LOGIT + 1)] for _ in range(NUM_COUNT_BINS)] for var_type in Variation}
-
-            # indexed by variant type, then call type (artifact vs variant), then count bin
-            acc_vs_cnt = {var_type: defaultdict(lambda: [utils.StreamingAverage() for _ in range(NUM_COUNT_BINS)]) for var_type in Variation}
-
-            roc_data = {var_type: [] for var_type in Variation}     # variant type -> (predicted logit, actual label)
-            roc_data_by_cnt = {var_type: [[] for _ in range(NUM_COUNT_BINS)] for var_type in Variation}  # variant type, count -> (predicted logit, actual label)
-
+            evaluation_metrics = EvaluationMetrics()
             pbar = tqdm(enumerate(filter(lambda bat: bat.is_labeled(), loader)), mininterval=60)
             for n, batch in pbar:
                 # In training we minimize the cross entropy loss wrt the posterior probability, accounting for priors;
@@ -450,12 +438,7 @@ class ArtifactModel(nn.Module):
                 correct = ((pred > 0) == (batch.labels > 0.5)).tolist()
 
                 for variant_type, predicted_logit, label, correct_call in zip(batch.variant_types(), pred.tolist(), batch.labels.tolist(), correct):
-                    count_bin_index = multiple_of_three_bin_index(min(MAX_COUNT, batch.alt_count))
-                    acc_vs_cnt[variant_type][Call.SOMATIC if label < 0.5 else Call.ARTIFACT][count_bin_index].record(correct_call)
-                    acc_vs_logit[variant_type][count_bin_index][logit_to_bin(predicted_logit)].record(correct_call)
-
-                    roc_data[variant_type].append((predicted_logit, label))
-                    roc_data_by_cnt[variant_type][count_bin_index].append((predicted_logit, label))
+                    evaluation_metrics.record_call(variant_type, predicted_logit, label, correct_call, batch.alt_count)
 
             # done collecting data for this particular loader, now fill in subplots for this loader's row
             for var_type in Variation:

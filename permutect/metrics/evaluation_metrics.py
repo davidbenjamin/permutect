@@ -1,11 +1,15 @@
 import math
+from collections import defaultdict
 
 import torch
 from torch.utils.tensorboard import SummaryWriter
 
 from permutect import utils
-from permutect.data.read_set import ReadSetBatch
-from permutect.utils import Variation
+from permutect.data.read_set import ReadSetBatch, Variant
+from permutect.utils import Variation, Call
+
+MAX_COUNT = 18  # counts above this will be truncated
+MAX_LOGIT = 6
 
 
 def round_up_to_nearest_three(x: int):
@@ -20,9 +24,18 @@ def multiple_of_three_bin_index_to_count(idx: int):
     return 3 * (idx + 1)
 
 
-MAX_COUNT = 18  # counts above this will be truncated
-MAX_LOGIT = 6
+# round logit to nearest int, truncate to range, ending up with bins 0. . . 2*max_logit
+def logit_to_bin(logit):
+    return min(max(round(logit), -MAX_LOGIT), MAX_LOGIT) + MAX_LOGIT
+
+
+def bin_center(bin_idx):
+    return bin_idx - MAX_LOGIT
+
 NUM_COUNT_BINS = round_up_to_nearest_three(MAX_COUNT) // 3    # zero is not a bin
+
+
+
 
 # keep track of losses during training of artifact model
 class LossMetrics:
@@ -76,3 +89,37 @@ class LossMetrics:
 
 
 class EvaluationMetrics:
+    def __init__(self):
+        # indexed by variant type, then count bin, then logit bin
+        self.acc_vs_logit = {
+            var_type: [[utils.StreamingAverage() for _ in range(2 * MAX_LOGIT + 1)] for _ in range(NUM_COUNT_BINS)] for
+            var_type in Variation}
+
+        # indexed by variant type, then call type (artifact vs variant), then count bin
+        self.acc_vs_cnt = {var_type: defaultdict(lambda: [utils.StreamingAverage() for _ in range(NUM_COUNT_BINS)]) for
+                      var_type in Variation}
+
+        # variant type -> (predicted logit, actual label)
+        self.roc_data = {var_type: [] for var_type in Variation}
+
+        # variant type, count -> (predicted logit, actual label)
+        self.roc_data_by_cnt = {var_type: [[] for _ in range(NUM_COUNT_BINS)] for var_type in Variation}
+
+    # Variant is an IntEnum, so variant_type can also be integer
+    # label is 1 for artifact / error; 0 for non-artifact / true variant
+    # correct_call is boolean -- was the prediction correct?
+    def record_call(self, variant_type: Variation, predicted_logit: float, label: float, correct_call, alt_count: int):
+        count_bin_index = multiple_of_three_bin_index(min(MAX_COUNT, alt_count))
+        self.acc_vs_cnt[variant_type][Call.SOMATIC if label < 0.5 else Call.ARTIFACT][count_bin_index].record(correct_call)
+        self.acc_vs_logit[variant_type][count_bin_index][logit_to_bin(predicted_logit)].record(correct_call)
+
+        self.roc_data[variant_type].append((predicted_logit, label))
+        self.roc_data_by_cnt[variant_type][count_bin_index].append((predicted_logit, label))
+
+
+    def make_data_for_accuracy_plot(self, var_type: Variation):
+        non_empty_count_bins = [idx for idx in range(NUM_COUNT_BINS) if not self.acc_vs_cnt[var_type][label][idx].is_empty()]
+
+        acc_vs_cnt_x_y_lab_tuples = [([multiple_of_three_bin_index_to_count(idx) for idx in non_empty_count_bins],
+                                      [acc_vs_cnt[var_type][label][idx].get() for idx in non_empty_count_bins],
+                                      label.name) for label in acc_vs_cnt[var_type].keys()]
