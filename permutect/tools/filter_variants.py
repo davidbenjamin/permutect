@@ -13,7 +13,7 @@ from permutect.architecture.artifact_model import ArtifactModel
 from permutect.architecture.posterior_model import PosteriorModel
 from permutect.data import read_set_dataset, plain_text_data
 from permutect.data.posterior import PosteriorDataset, PosteriorDatum
-from permutect.utils import Call, find_variant_type
+from permutect.utils import Call, find_variant_type, Label
 
 TRUSTED_M2_FILTERS = {'contamination'}
 
@@ -163,6 +163,7 @@ def make_filtered_vcf(saved_artifact_model, initial_log_variant_prior: float, in
 
     num_ignored_sites = genomic_span - len(posterior_data_loader.dataset)
     # here is where pretrained artifact priors and spectra are used if given
+
     posterior_model.learn_priors_and_spectra(posterior_data_loader, num_iterations=num_spectrum_iterations,
         summary_writer=summary_writer, ignored_to_non_ignored_ratio=num_ignored_sites/len(posterior_data_loader.dataset),
         artifact_log_priors=artifact_log_priors, artifact_spectra_state_dict=artifact_spectra_state_dict)
@@ -171,6 +172,9 @@ def make_filtered_vcf(saved_artifact_model, initial_log_variant_prior: float, in
     error_probability_thresholds = posterior_model.calculate_probability_thresholds(posterior_data_loader, summary_writer, germline_mode=germline_mode)
     print("Optimal probability threshold: " + str(error_probability_thresholds))
     apply_filtering_to_vcf(input_vcf, output_vcf, error_probability_thresholds, posterior_data_loader, posterior_model, germline_mode=germline_mode)
+
+    # TODO: if the posterior data have truth labels, the summary writer should now generate an analysis of the calls,
+    # TODO: similar to how we evaluate a model after training
 
 
 def make_posterior_data_loader(dataset_file, input_vcf, artifact_model: ArtifactModel, batch_size: int, chunk_size: int):
@@ -196,7 +200,9 @@ def make_posterior_data_loader(dataset_file, input_vcf, artifact_model: Artifact
 
         for artifact_batch in artifact_loader:
             artifact_logits = artifact_model.forward(batch=artifact_batch).detach().tolist()
-            for variant, counts_and_seq_lks, index, logit in zip(artifact_batch.variants, artifact_batch.counts_and_likelihoods, artifact_batch.indices, artifact_logits):
+
+            labels = ([Label.ARTIFACT if x > 0.5 else Label.VARIANT for x in artifact_batch.labels]) if artifact_batch.is_labeled() else (artifact_batch.size()*[Label.UNLABELED])
+            for variant, counts_and_seq_lks, index, logit, label in zip(artifact_batch.variants, artifact_batch.counts_and_likelihoods, artifact_batch.indices, artifact_logits, labels):
                 encoding = encode(variant.contig, variant.position, variant.ref, variant.alt)
                 if encoding in allele_frequencies and encoding not in m2_filtering_to_keep:
                     allele_frequency = allele_frequencies[encoding]
