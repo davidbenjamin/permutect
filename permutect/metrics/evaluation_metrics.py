@@ -109,6 +109,7 @@ class EvaluationMetrics:
     # Variant is an IntEnum, so variant_type can also be integer
     # label is 1 for artifact / error; 0 for non-artifact / true variant
     # correct_call is boolean -- was the prediction correct?
+    # the predicted logit is the logit corresponding to the predicted probability that call in question is an artifact / error
     def record_call(self, variant_type: Variation, predicted_logit: float, label: float, correct_call, alt_count: int):
         count_bin_index = multiple_of_three_bin_index(min(MAX_COUNT, alt_count))
         self.acc_vs_cnt[variant_type][Call.SOMATIC if label < 0.5 else Call.ARTIFACT][count_bin_index].record(correct_call)

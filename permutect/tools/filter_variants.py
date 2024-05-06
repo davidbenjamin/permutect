@@ -1,10 +1,12 @@
 import argparse
+import math
 from collections import defaultdict
 from typing import Set
 
 import cyvcf2
 import torch
 from intervaltree import IntervalTree
+from matplotlib import pyplot as plt
 from torch.utils.tensorboard import SummaryWriter
 from tqdm.autonotebook import tqdm
 
@@ -13,7 +15,9 @@ from permutect.architecture.artifact_model import ArtifactModel
 from permutect.architecture.posterior_model import PosteriorModel
 from permutect.data import read_set_dataset, plain_text_data
 from permutect.data.posterior import PosteriorDataset, PosteriorDatum
-from permutect.utils import Call, find_variant_type, Label
+from permutect.metrics import plotting
+from permutect.metrics.evaluation_metrics import EvaluationMetrics
+from permutect.utils import Call, find_variant_type, Label, Variation
 
 TRUSTED_M2_FILTERS = {'contamination'}
 
@@ -171,10 +175,7 @@ def make_filtered_vcf(saved_artifact_model, initial_log_variant_prior: float, in
     print("Calculating optimal logit threshold")
     error_probability_thresholds = posterior_model.calculate_probability_thresholds(posterior_data_loader, summary_writer, germline_mode=germline_mode)
     print("Optimal probability threshold: " + str(error_probability_thresholds))
-    apply_filtering_to_vcf(input_vcf, output_vcf, error_probability_thresholds, posterior_data_loader, posterior_model, germline_mode=germline_mode)
-
-    # TODO: if the posterior data have truth labels, the summary writer should now generate an analysis of the calls,
-    # TODO: similar to how we evaluate a model after training
+    apply_filtering_to_vcf(input_vcf, output_vcf, error_probability_thresholds, posterior_data_loader, posterior_model, summary_writer=summary_writer, germline_mode=germline_mode)
 
 
 def make_posterior_data_loader(dataset_file, input_vcf, artifact_model: ArtifactModel, batch_size: int, chunk_size: int):
@@ -215,7 +216,7 @@ def make_posterior_data_loader(dataset_file, input_vcf, artifact_model: Artifact
 
 
 # error probability thresholds is a dict from Variant type to error probability threshold (float)
-def apply_filtering_to_vcf(input_vcf, output_vcf, error_probability_thresholds, posterior_loader, posterior_model, germline_mode: bool = False):
+def apply_filtering_to_vcf(input_vcf, output_vcf, error_probability_thresholds, posterior_loader, posterior_model, summary_writer: SummaryWriter, germline_mode: bool = False):
     print("Computing final error probabilities")
     passing_call_type = Call.GERMLINE if germline_mode else Call.SOMATIC
     encoding_to_post_prob = {}
@@ -224,6 +225,8 @@ def apply_filtering_to_vcf(input_vcf, output_vcf, error_probability_thresholds, 
     encoding_to_spectra_lls = {}
     encoding_to_normal_lls = {}
     encoding_to_labels = {}
+    encoding_to_alt_counts = {}
+
     pbar = tqdm(enumerate(posterior_loader), mininterval=60)
     for n, batch in pbar:
         # posterior, along with intermediate tensors for debugging/interpretation
@@ -243,6 +246,7 @@ def apply_filtering_to_vcf(input_vcf, output_vcf, error_probability_thresholds, 
             encoding_to_spectra_lls[encoding] = log_spec
             encoding_to_normal_lls[encoding] = log_normal
             encoding_to_labels[encoding] = label
+            encoding_to_alt_counts[encoding_to_post_prob] = batch.alt_count
 
     print("Applying threshold")
     unfiltered_vcf = cyvcf2.VCF(input_vcf)
@@ -265,7 +269,9 @@ def apply_filtering_to_vcf(input_vcf, output_vcf, error_probability_thresholds, 
             unfiltered_vcf.add_filter_to_header({'ID': filter_name, 'Description': filter_name})
 
     writer = cyvcf2.Writer(output_vcf, unfiltered_vcf)  # input vcf is a template for the header
+    evaluation_metrics = EvaluationMetrics()
     pbar = tqdm(enumerate(unfiltered_vcf), mininterval=60)
+    labeled_truth = False
     for n, v in pbar:
         filters = filters_to_keep_from_m2(v)
 
@@ -279,9 +285,20 @@ def apply_filtering_to_vcf(input_vcf, output_vcf, error_probability_thresholds, 
             v.INFO[ARTIFACT_LOD_INFO_KEY] = "{:.3f}".format(encoding_to_artifact_logit[encoding])
             v.INFO[NORMAL_LOG_LIKELIHOOD_INFO_KEY] = ','.join(map(lambda ll: "{:.3f}".format(ll), encoding_to_normal_lls[encoding]))
 
+            label = encoding_to_labels[encoding]    # this is the Label enum, might be UNLABELED
             error_prob = 1 - post_probs[passing_call_type]
             # TODO: threshold by variant type
-            if error_prob > error_probability_thresholds[find_variant_type(v)]:
+            variant_type = find_variant_type(v)
+            called_as_error = error_prob > error_probability_thresholds[variant_type]
+
+            if label != Label.UNLABELED:
+                labeled_truth = True
+                error_logit = math.log(error_prob / (1 - error_prob))   # inverse of sigmoid
+                float_label = 1.0 if label == Label.ARTIFACT else 0.0
+                is_correct = (called_as_error and label == Label.ARTIFACT) or (not called_as_error and label == Label.VARIANT)
+                evaluation_metrics.record_call(variant_type, error_logit, float_label, is_correct, encoding_to_alt_counts[encoding])
+
+            if called_as_error:
                 # get the error type with the largest posterior probability
                 highest_prob_indices = torch.topk(torch.Tensor(post_probs), 2).indices.tolist()
                 highest_prob_index = highest_prob_indices[1] if highest_prob_indices[0] == passing_call_type else highest_prob_indices[0]
@@ -292,6 +309,37 @@ def apply_filtering_to_vcf(input_vcf, output_vcf, error_probability_thresholds, 
     print("closing resources")
     writer.close()
     unfiltered_vcf.close()
+
+    # plot evaluation analysis if test dataset had labeled truth
+    # TODO: duplication with artifact_model:evaluate_model_after_training
+    if labeled_truth:
+        # 1D grids of figures -- rows are loaders, columns are variant types
+        # each subplot has two line graphs of accuracy vs alt count, one each for artifact, non-artifact
+        acc_vs_cnt_fig, acc_vs_cnt_axes = plt.subplots(1, len(Variation), sharex='all', sharey='all', squeeze=False)
+        roc_fig, roc_axes = plt.subplots(1, len(Variation), sharex='all', sharey='all', squeeze=False)
+        cal_fig, cal_axes = plt.subplots(1, len(Variation), sharex='all', sharey='all', squeeze=False)
+        roc_by_cnt_fig, roc_by_cnt_axes = plt.subplots(1, len(Variation), sharex='all', sharey='all', squeeze=False, figsize=(10, 6), dpi=100)
+
+        for var_type in Variation:
+            evaluation_metrics.plot_accuracy(var_type, acc_vs_cnt_axes[0, var_type])
+            evaluation_metrics.plot_calibration(var_type, cal_axes[0, var_type])
+            evaluation_metrics.plot_roc_curve(var_type, roc_axes[0, var_type])
+            evaluation_metrics.plot_roc_curves_by_count(var_type, roc_by_cnt_axes[0, var_type])
+
+        variation_types = [var_type.name for var_type in Variation]
+        plotting.tidy_subplots(acc_vs_cnt_fig, acc_vs_cnt_axes, x_label="alt count", y_label="accuracy",
+                               row_labels=[""], column_labels=variation_types)
+        plotting.tidy_subplots(roc_fig, roc_axes, x_label="non-artifact accuracy", y_label="artifact accuracy",
+                               row_labels=[""], column_labels=variation_types)
+        plotting.tidy_subplots(roc_by_cnt_fig, roc_by_cnt_axes, x_label="non-artifact accuracy",
+                               y_label="artifact accuracy", row_labels=[""], column_labels=variation_types)
+        plotting.tidy_subplots(cal_fig, cal_axes, x_label="predicted logit", y_label="accuracy",
+                               row_labels=[""], column_labels=variation_types)
+
+        summary_writer.add_figure("accuracy by alt count", acc_vs_cnt_fig)
+        summary_writer.add_figure("accuracy by logit output", cal_fig)
+        summary_writer.add_figure("variant accuracy vs artifact accuracy curve", roc_fig)
+        summary_writer.add_figure(" variant accuracy vs artifact accuracy curves by alt count", roc_by_cnt_fig)
 
 
 def main():
