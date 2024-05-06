@@ -53,7 +53,6 @@ class PosteriorBatch:
         self.normal_seq_error_log_likelihoods = Tensor([item.normal_seq_error_log_likelihood for item in self._original_list])
         self.allele_frequencies = Tensor([item.allele_frequency for item in self._original_list])
         self.artifact_logits = Tensor([item.artifact_logit for item in self._original_list])
-        self.labels = [datum.label for datum in data]  # note this is a Python list of Label, not a FloatTensor
 
     def original_list(self) -> List[PosteriorDatum]:
         return self._original_list
