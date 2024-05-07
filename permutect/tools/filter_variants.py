@@ -30,6 +30,11 @@ NORMAL_LOG_LIKELIHOOD_INFO_KEY = 'NORMLL'
 FILTER_NAMES = [call_type.name.lower() for call_type in Call]
 
 
+# the inverse of the sigmoid function.  Convert a probability to a logit.
+def prob_to_logit(prob: float):
+    return math.log(prob / (1 - prob))
+
+
 # this presumes that we have an ArtifactModel and we have saved it via save_permutect_model as in train_model.py
 # it includes log artifact priors and artifact spectra, but these may be None
 def load_artifact_model(path) -> ArtifactModel:
@@ -295,7 +300,7 @@ def apply_filtering_to_vcf(input_vcf, output_vcf, error_probability_thresholds, 
             if label != Label.UNLABELED:
                 labeled_truth = True
                 clipped_error_prob = 0.5 + 0.9999999 * (error_prob - 0.5)
-                error_logit = math.log(clipped_error_prob / (1 - clipped_error_prob))   # inverse of sigmoid
+                error_logit = prob_to_logit(clipped_error_prob)
                 float_label = 1.0 if label == Label.ARTIFACT else 0.0
                 is_correct = (called_as_error and label == Label.ARTIFACT) or (not called_as_error and label == Label.VARIANT)
                 evaluation_metrics.record_call(Epoch.TEST, variant_type, error_logit, float_label, is_correct, encoding_to_alt_counts[encoding])
@@ -313,7 +318,8 @@ def apply_filtering_to_vcf(input_vcf, output_vcf, error_probability_thresholds, 
     unfiltered_vcf.close()
 
     if labeled_truth:
-        evaluation_metrics.make_plots(summary_writer)
+        given_thresholds = {var_type: prob_to_logit(error_probability_thresholds[var_type]) for var_type in Variation}
+        evaluation_metrics.make_plots(summary_writer, given_thresholds)
 
 
 def main():

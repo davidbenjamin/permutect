@@ -149,13 +149,13 @@ class EvaluationMetricsForOneEpochType:
         acc_vs_logit_x_y_lab_tuples = self.make_data_for_calibration_plot(var_type)
         plotting.simple_plot_on_axis(axis, acc_vs_logit_x_y_lab_tuples, None, None)
 
-    def plot_roc_curve(self, var_type: Variation, axis):
-        plotting.plot_accuracy_vs_accuracy_roc_on_axis([self.roc_data[var_type]], [None], axis)
+    def plot_roc_curve(self, var_type: Variation, axis, given_threshold: float = None):
+        plotting.plot_accuracy_vs_accuracy_roc_on_axis([self.roc_data[var_type]], [None], axis, given_threshold)
 
-    def plot_roc_curves_by_count(self, var_type: Variation, axis):
+    def plot_roc_curves_by_count(self, var_type: Variation, axis, given_threshold: float = None):
         plotting.plot_accuracy_vs_accuracy_roc_on_axis(self.roc_data_by_cnt[var_type],
                                                        [str(multiple_of_three_bin_index_to_count(idx)) for idx in
-                                                        range(NUM_COUNT_BINS)], axis)
+                                                        range(NUM_COUNT_BINS)], axis, given_threshold)
 
 
 class EvaluationMetrics:
@@ -170,7 +170,8 @@ class EvaluationMetrics:
     def record_call(self, epoch_type: Epoch, variant_type: Variation, predicted_logit: float, label: float, correct_call, alt_count: int):
         self.metrics[epoch_type].record_call(variant_type, predicted_logit, label, correct_call, alt_count)
 
-    def make_plots(self, summary_writer: SummaryWriter):
+    def make_plots(self, summary_writer: SummaryWriter, given_thresholds=None):
+        # given_thresholds is a dict from Variation to float (logit-scaled) used in the ROC curves
         keys = self.metrics.keys()
         num_rows = len(keys)
         # grid of figures -- rows are epoch types, columns are variant types
@@ -183,10 +184,11 @@ class EvaluationMetrics:
         for row_idx, key in enumerate(keys):
             metric = self.metrics[key]
             for var_type in Variation:
+                given_threshold = None if given_thresholds is None else given_thresholds[var_type]
                 metric.plot_accuracy(var_type, acc_vs_cnt_axes[row_idx, var_type])
                 metric.plot_calibration(var_type, cal_axes[row_idx, var_type])
-                metric.plot_roc_curve(var_type, roc_axes[row_idx, var_type])
-                metric.plot_roc_curves_by_count(var_type, roc_by_cnt_axes[row_idx, var_type])
+                metric.plot_roc_curve(var_type, roc_axes[row_idx, var_type], given_threshold)
+                metric.plot_roc_curves_by_count(var_type, roc_by_cnt_axes[row_idx, var_type], given_threshold)
         # done collecting stats for all loaders and filling in subplots
 
         variation_types = [var_type.name for var_type in Variation]

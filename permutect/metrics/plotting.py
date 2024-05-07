@@ -3,10 +3,8 @@ from matplotlib.figure import Figure
 import math
 from typing import List
 
+
 # one or more simple plots of y data vs x data on shared axes
-from tqdm.autonotebook import tqdm
-
-
 def simple_plot(x_y_lab_tuples, x_label, y_label, title):
     fig = plt.figure()
     curve = fig.gca()
@@ -62,19 +60,28 @@ def grouped_bar_plot(heights_by_category, x_labels, y_label):
 
 # labels are 0 for non-artifact, 1 for artifact
 # predictions_and_labels has form [[(pred, label), (pred, label). . . for roc 1], [likewise for roc 2] etc]
-def plot_accuracy_vs_accuracy_roc_on_axis(lists_of_predictions_and_labels, curve_labels, axis):
+# predictions are logits, not probabilities!!
+def plot_accuracy_vs_accuracy_roc_on_axis(lists_of_predictions_and_labels, curve_labels, axis, given_threshold: float = None):
     x_y_lab_tuples = []
-    dots = []
+    small_dots = []
+    big_dots = []
     for predictions_and_labels, curve_label in zip(lists_of_predictions_and_labels, curve_labels):
-        thresh_and_accs, _ = get_roc_data(predictions_and_labels)
+        thresh_and_accs, _ = get_roc_data(predictions_and_labels, given_threshold)
         x_y_lab_tuples.append(([x[1] for x in thresh_and_accs], [x[2] for x in thresh_and_accs], curve_label))
 
         for threshold, art_acc, non_art_acc in thresh_and_accs:
-            dots.append((art_acc, non_art_acc, 'ro' if threshold == 0 else 'go'))
+            if threshold == 0:
+                big_dots.append((art_acc, non_art_acc, 'rs'))   # red square
+            elif given_threshold is not None and math.abs(threshold - given_threshold) < 0.001:
+                big_dots.append((art_acc, non_art_acc, 'kd'))  # black diamond
+            else:
+                small_dots.append((art_acc, non_art_acc, 'go'))     # green circle
 
     simple_plot_on_axis(axis, x_y_lab_tuples, "artifact accuracy", "non-artifact accuracy")
-    for x, y, spec in dots:
+    for x, y, spec in small_dots:
         axis.plot(x, y, spec, markersize=2)  # point
+    for x, y, spec in big_dots:
+        axis.plot(x, y, spec, markersize=4)  # point
 
 
 # similar to the above, but labels are not known and we just have the predicted error probabilities
@@ -102,11 +109,10 @@ def plot_theoretical_roc_on_axis(predicted_error_probs, curve_labels, axis):
     return best_thresholds
 
 
-
 # input is list of (predicted artifact logit, binary artifact/non-artifact label) tuples
 # 1st output is (threshold, accuracy on artifacts, accuracy on non-artifacts) tuples
 # 2nd output is the threshold that maximizes harmonic mean of accuracy on artifacts and accuracy on non-artifacts
-def get_roc_data(predictions_and_labels):
+def get_roc_data(predictions_and_labels, given_threshold: float = None):
     predictions_and_labels.sort(key=lambda p_and_l: p_and_l[0])  # sort from least to greatest artifact logit
     num_calls = len(predictions_and_labels)
     total_artifact = sum([label for _, label in predictions_and_labels]) + 0.0001
@@ -116,6 +122,7 @@ def get_roc_data(predictions_and_labels):
     art_found, non_art_found = total_artifact, 0
     next_threshold = -10
     best_threshold, best_harmonic_mean = -99999, 0
+    given_threshold_reached = (given_threshold is None)
     for pred_logit, label in predictions_and_labels:
         art_found -= label  # if labeled as artifact, one artifact has slipped below threshold
         non_art_found += (1 - label)  # if labeled as non-artifact, one non-artifact has been gained
@@ -129,6 +136,12 @@ def get_roc_data(predictions_and_labels):
         if pred_logit > next_threshold:
             thresh_and_accs.append((next_threshold, art_acc, non_art_acc))
             next_threshold = math.ceil(pred_logit)
+
+        # the first time we reach a logit greater than the given threshold, we are basically *at* that threshold
+        if not given_threshold_reached and pred_logit > given_threshold:
+            thresh_and_accs.append((given_threshold, art_acc, non_art_acc))
+            given_threshold_reached = True
+
     return thresh_and_accs, best_threshold
 
 
