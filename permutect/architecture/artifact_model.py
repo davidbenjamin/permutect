@@ -22,7 +22,7 @@ from permutect.data.read_set_dataset import ReadSetDataset, make_data_loader
 from permutect import utils
 from permutect.metrics.evaluation_metrics import LossMetrics, EvaluationMetrics, NUM_COUNT_BINS, \
     multiple_of_three_bin_index_to_count, multiple_of_three_bin_index, MAX_COUNT, round_up_to_nearest_three
-from permutect.utils import Call, Variation
+from permutect.utils import Call, Variation, Epoch
 from permutect.metrics import plotting
 
 warnings.filterwarnings("ignore", message="Setting attributes on ParameterList is not supported.")
@@ -413,24 +413,19 @@ class ArtifactModel(nn.Module):
         # done with training
 
     # generators by name is eg {"train": train_generator, "valid": valid_generator}
-    def evaluate_model_after_training(self, dataset, batch_size, num_workers, summary_writer: SummaryWriter, prefix: str = ""):
+    def evaluate_model_after_training(self, dataset, batch_size, num_workers, summary_writer: SummaryWriter):
         train_loader = make_data_loader(dataset, dataset.all_but_the_last_fold(), batch_size, self._device.type == 'cuda', num_workers)
         valid_loader = make_data_loader(dataset, dataset.last_fold_only(), batch_size, self._device.type == 'cuda', num_workers)
-        loaders_by_name = {"training": train_loader, "validation": valid_loader}
+        epoch_types = [Epoch.TRAIN, Epoch.VALID]
         self.freeze_all()
         self.cpu()
         self._device = "cpu"
 
-        # grid of figures -- rows are loaders, columns are variant types
-        # each subplot has two line graphs of accuracy vs alt count, one each for artifact, non-artifact
-        acc_vs_cnt_fig, acc_vs_cnt_axes = plt.subplots(len(loaders_by_name), len(Variation), sharex='all', sharey='all', squeeze=False)
-        roc_fig, roc_axes = plt.subplots(len(loaders_by_name), len(Variation), sharex='all', sharey='all', squeeze=False)
-        cal_fig, cal_axes = plt.subplots(len(loaders_by_name), len(Variation), sharex='all', sharey='all', squeeze=False)
-        roc_by_cnt_fig, roc_by_cnt_axes = plt.subplots(len(loaders_by_name), len(Variation), sharex='all', sharey='all', squeeze=False, figsize=(10, 6), dpi=100)
-
         log_artifact_to_non_artifact_ratios = torch.from_numpy(np.log(dataset.artifact_to_non_artifact_ratios()))
-        for loader_idx, (loader_name, loader) in enumerate(loaders_by_name.items()):
-            evaluation_metrics = EvaluationMetrics()
+        evaluation_metrics = EvaluationMetrics()
+        for epoch_type in epoch_types:
+            assert epoch_type == Epoch.TRAIN or epoch_type == Epoch.VALID   # not doing TEST here
+            loader = train_loader if epoch_type == Epoch.TRAIN else valid_loader
             pbar = tqdm(enumerate(filter(lambda bat: bat.is_labeled(), loader)), mininterval=60)
             for n, batch in pbar:
                 # In training we minimize the cross entropy loss wrt the posterior probability, accounting for priors;
@@ -439,27 +434,11 @@ class ArtifactModel(nn.Module):
                 correct = ((pred > 0) == (batch.labels > 0.5)).tolist()
 
                 for variant_type, predicted_logit, label, correct_call in zip(batch.variant_types(), pred.tolist(), batch.labels.tolist(), correct):
-                    evaluation_metrics.record_call(variant_type, predicted_logit, label, correct_call, batch.alt_count)
+                    evaluation_metrics.record_call(epoch_type, variant_type, predicted_logit, label, correct_call, batch.alt_count)
+            # done with this epoch type
+        # done collecting data
 
-            # done collecting data for this particular loader, now fill in subplots for this loader's row
-            for var_type in Variation:
-                evaluation_metrics.plot_accuracy(var_type, acc_vs_cnt_axes[loader_idx, var_type])
-                evaluation_metrics.plot_calibration(var_type, cal_axes[loader_idx, var_type])
-                evaluation_metrics.plot_roc_curve(var_type, roc_axes[loader_idx, var_type])
-                evaluation_metrics.plot_roc_curves_by_count(var_type, roc_by_cnt_axes[loader_idx, var_type])
-        # done collecting stats for all loaders and filling in subplots
-
-        variation_types = [var_type.name for var_type in Variation]
-        loader_names = [name for (name, loader) in loaders_by_name.items()]
-        plotting.tidy_subplots(acc_vs_cnt_fig, acc_vs_cnt_axes, x_label="alt count", y_label="accuracy", row_labels=loader_names, column_labels=variation_types)
-        plotting.tidy_subplots(roc_fig, roc_axes, x_label="non-artifact accuracy", y_label="artifact accuracy", row_labels=loader_names, column_labels=variation_types)
-        plotting.tidy_subplots(roc_by_cnt_fig, roc_by_cnt_axes, x_label="non-artifact accuracy", y_label="artifact accuracy", row_labels=loader_names, column_labels=variation_types)
-        plotting.tidy_subplots(cal_fig, cal_axes, x_label="predicted logit", y_label="accuracy", row_labels=loader_names, column_labels=variation_types)
-
-        summary_writer.add_figure("{} accuracy by alt count".format(prefix), acc_vs_cnt_fig)
-        summary_writer.add_figure(prefix + " accuracy by logit output", cal_fig)
-        summary_writer.add_figure(prefix + " variant accuracy vs artifact accuracy curve", roc_fig)
-        summary_writer.add_figure(prefix + " variant accuracy vs artifact accuracy curves by alt count", roc_by_cnt_fig)
+        evaluation_metrics.make_plots(summary_writer)
 
         # now go over just the validation data and generate feature vectors / metadata for tensorboard projectors (UMAP)
         # also generate histograms of magnitudes of average read embeddings

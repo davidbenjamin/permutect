@@ -17,7 +17,7 @@ from permutect.data import read_set_dataset, plain_text_data
 from permutect.data.posterior import PosteriorDataset, PosteriorDatum
 from permutect.metrics import plotting
 from permutect.metrics.evaluation_metrics import EvaluationMetrics
-from permutect.utils import Call, find_variant_type, Label, Variation
+from permutect.utils import Call, find_variant_type, Label, Variation, Epoch
 
 TRUSTED_M2_FILTERS = {'contamination'}
 
@@ -298,7 +298,7 @@ def apply_filtering_to_vcf(input_vcf, output_vcf, error_probability_thresholds, 
                 error_logit = math.log(clipped_error_prob / (1 - clipped_error_prob))   # inverse of sigmoid
                 float_label = 1.0 if label == Label.ARTIFACT else 0.0
                 is_correct = (called_as_error and label == Label.ARTIFACT) or (not called_as_error and label == Label.VARIANT)
-                evaluation_metrics.record_call(variant_type, error_logit, float_label, is_correct, encoding_to_alt_counts[encoding])
+                evaluation_metrics.record_call(Epoch.TEST, variant_type, error_logit, float_label, is_correct, encoding_to_alt_counts[encoding])
 
             if called_as_error:
                 # get the error type with the largest posterior probability
@@ -312,36 +312,8 @@ def apply_filtering_to_vcf(input_vcf, output_vcf, error_probability_thresholds, 
     writer.close()
     unfiltered_vcf.close()
 
-    # plot evaluation analysis if test dataset had labeled truth
-    # TODO: duplication with artifact_model:evaluate_model_after_training
     if labeled_truth:
-        # 1D grids of figures -- rows are loaders, columns are variant types
-        # each subplot has two line graphs of accuracy vs alt count, one each for artifact, non-artifact
-        acc_vs_cnt_fig, acc_vs_cnt_axes = plt.subplots(1, len(Variation), sharex='all', sharey='all', squeeze=False)
-        roc_fig, roc_axes = plt.subplots(1, len(Variation), sharex='all', sharey='all', squeeze=False)
-        cal_fig, cal_axes = plt.subplots(1, len(Variation), sharex='all', sharey='all', squeeze=False)
-        roc_by_cnt_fig, roc_by_cnt_axes = plt.subplots(1, len(Variation), sharex='all', sharey='all', squeeze=False, figsize=(10, 6), dpi=100)
-
-        for var_type in Variation:
-            evaluation_metrics.plot_accuracy(var_type, acc_vs_cnt_axes[0, var_type])
-            evaluation_metrics.plot_calibration(var_type, cal_axes[0, var_type])
-            evaluation_metrics.plot_roc_curve(var_type, roc_axes[0, var_type])
-            evaluation_metrics.plot_roc_curves_by_count(var_type, roc_by_cnt_axes[0, var_type])
-
-        variation_types = [var_type.name for var_type in Variation]
-        plotting.tidy_subplots(acc_vs_cnt_fig, acc_vs_cnt_axes, x_label="alt count", y_label="accuracy",
-                               row_labels=[""], column_labels=variation_types)
-        plotting.tidy_subplots(roc_fig, roc_axes, x_label="non-artifact accuracy", y_label="artifact accuracy",
-                               row_labels=[""], column_labels=variation_types)
-        plotting.tidy_subplots(roc_by_cnt_fig, roc_by_cnt_axes, x_label="non-artifact accuracy",
-                               y_label="artifact accuracy", row_labels=[""], column_labels=variation_types)
-        plotting.tidy_subplots(cal_fig, cal_axes, x_label="predicted logit", y_label="accuracy",
-                               row_labels=[""], column_labels=variation_types)
-
-        summary_writer.add_figure("accuracy by alt count", acc_vs_cnt_fig)
-        summary_writer.add_figure("accuracy by logit output", cal_fig)
-        summary_writer.add_figure("variant accuracy vs artifact accuracy curve", roc_fig)
-        summary_writer.add_figure(" variant accuracy vs artifact accuracy curves by alt count", roc_by_cnt_fig)
+        evaluation_metrics.make_plots(summary_writer)
 
 
 def main():
