@@ -247,7 +247,7 @@ def apply_filtering_to_vcf(input_vcf, output_vcf, error_probability_thresholds, 
             encoding_to_spectra_lls[encoding] = log_spec
             encoding_to_normal_lls[encoding] = log_normal
             encoding_to_labels[encoding] = label
-            encoding_to_alt_counts[encoding_to_post_prob] = alt_count
+            encoding_to_alt_counts[encoding] = alt_count
 
     print("Applying threshold")
     unfiltered_vcf = cyvcf2.VCF(input_vcf)
