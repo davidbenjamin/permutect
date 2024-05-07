@@ -207,7 +207,7 @@ def make_posterior_data_loader(dataset_file, input_vcf, artifact_model: Artifact
                 encoding = encode(variant.contig, variant.position, variant.ref, variant.alt)
                 if encoding in allele_frequencies and encoding not in m2_filtering_to_keep:
                     allele_frequency = allele_frequencies[encoding]
-                    posterior_datum = PosteriorDatum(variant, counts_and_seq_lks, index, allele_frequency, logit)
+                    posterior_datum = PosteriorDatum(variant, counts_and_seq_lks, index, allele_frequency, logit, label)
                     posterior_data.append(posterior_datum)
 
     print("Size of filtering dataset: " + str(len(posterior_data)))
