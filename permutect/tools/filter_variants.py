@@ -294,7 +294,8 @@ def apply_filtering_to_vcf(input_vcf, output_vcf, error_probability_thresholds, 
 
             if label != Label.UNLABELED:
                 labeled_truth = True
-                error_logit = math.log(error_prob / (1 - error_prob))   # inverse of sigmoid
+                clipped_error_prob = 0.5 + 0.9999999 * (error_prob - 0.5)
+                error_logit = math.log(clipped_error_prob / (1 - clipped_error_prob))   # inverse of sigmoid
                 float_label = 1.0 if label == Label.ARTIFACT else 0.0
                 is_correct = (called_as_error and label == Label.ARTIFACT) or (not called_as_error and label == Label.VARIANT)
                 evaluation_metrics.record_call(variant_type, error_logit, float_label, is_correct, encoding_to_alt_counts[encoding])
