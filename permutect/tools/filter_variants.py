@@ -238,15 +238,16 @@ def apply_filtering_to_vcf(input_vcf, output_vcf, error_probability_thresholds, 
         encodings = [encode_datum(datum) for datum in batch.original_list()]
         artifact_logits = [datum.artifact_logit for datum in batch.original_list()]
         labels = [datum.label for datum in batch.original_list()]
+        alt_counts = batch.alt_counts.tolist()
 
-        for encoding, post_probs, logit, log_prior, log_spec, log_normal, label in zip(encodings, posterior_probs, artifact_logits, log_priors, spectra_lls, normal_lls, labels):
+        for encoding, post_probs, logit, log_prior, log_spec, log_normal, label, alt_count in zip(encodings, posterior_probs, artifact_logits, log_priors, spectra_lls, normal_lls, labels, alt_counts):
             encoding_to_post_prob[encoding] = post_probs.tolist()
             encoding_to_artifact_logit[encoding] = logit
             encoding_to_log_priors[encoding] = log_prior
             encoding_to_spectra_lls[encoding] = log_spec
             encoding_to_normal_lls[encoding] = log_normal
             encoding_to_labels[encoding] = label
-            encoding_to_alt_counts[encoding_to_post_prob] = batch.alt_count
+            encoding_to_alt_counts[encoding_to_post_prob] = alt_count
 
     print("Applying threshold")
     unfiltered_vcf = cyvcf2.VCF(input_vcf)
