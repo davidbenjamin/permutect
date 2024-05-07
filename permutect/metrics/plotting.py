@@ -81,7 +81,7 @@ def plot_accuracy_vs_accuracy_roc_on_axis(lists_of_predictions_and_labels, curve
     for x, y, spec in small_dots:
         axis.plot(x, y, spec, markersize=2)  # point
     for x, y, spec in big_dots:
-        axis.plot(x, y, spec, markersize=4)  # point
+        axis.plot(x, y, spec, markersize=6)  # point
 
 
 # similar to the above, but labels are not known and we just have the predicted error probabilities

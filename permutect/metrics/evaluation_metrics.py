@@ -177,9 +177,9 @@ class EvaluationMetrics:
         # grid of figures -- rows are epoch types, columns are variant types
         # each subplot has two line graphs of accuracy vs alt count, one each for artifact, non-artifact
         acc_vs_cnt_fig, acc_vs_cnt_axes = plt.subplots(num_rows, len(Variation), sharex='all', sharey='all', squeeze=False)
-        roc_fig, roc_axes = plt.subplots(num_rows, len(Variation), sharex='all', sharey='all', squeeze=False)
+        roc_fig, roc_axes = plt.subplots(num_rows, len(Variation), sharex='all', sharey='all', squeeze=False, figsize=(8 * len(Variation), 8 * len(keys)), dpi=200)
         cal_fig, cal_axes = plt.subplots(num_rows, len(Variation), sharex='all', sharey='all', squeeze=False)
-        roc_by_cnt_fig, roc_by_cnt_axes = plt.subplots(num_rows, len(Variation), sharex='all', sharey='all', squeeze=False, figsize=(4 * len(Variation), 4 * len(keys)), dpi=200)
+        roc_by_cnt_fig, roc_by_cnt_axes = plt.subplots(num_rows, len(Variation), sharex='all', sharey='all', squeeze=False, figsize=(8 * len(Variation), 8 * len(keys)), dpi=200)
 
         for row_idx, key in enumerate(keys):
             metric = self.metrics[key]
