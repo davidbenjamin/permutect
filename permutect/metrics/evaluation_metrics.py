@@ -199,7 +199,7 @@ class EvaluationMetrics:
         mistake_calls = posterior_result_mistakes_by_call_and_var_type.keys()
         num_rows = len(mistake_calls)
 
-        af_fig, af_axes = plt.subplots(num_rows, len(Variation), sharex='all', sharey='all', squeeze=False)
+        af_fig, af_axes = plt.subplots(num_rows, len(Variation), sharex='all', sharey='none', squeeze=False)
 
         for row_idx, mistake_call in enumerate(mistake_calls):
             for var_type in Variation:
