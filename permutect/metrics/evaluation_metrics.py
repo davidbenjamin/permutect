@@ -6,6 +6,7 @@ from matplotlib import pyplot as plt
 from torch.utils.tensorboard import SummaryWriter
 
 from permutect import utils
+from permutect.architecture.posterior_model import PosteriorResult
 from permutect.data.read_set import ReadSetBatch, Variant
 from permutect.metrics import plotting
 from permutect.utils import Variation, Call, Epoch
@@ -163,12 +164,44 @@ class EvaluationMetrics:
         # we will have a map from epoch type to EvaluationMetricsForOneEpochType
         self.metrics = defaultdict(EvaluationMetricsForOneEpochType)
 
+        # list of (PosteriorResult, Call) tuples
+        self.mistakes = []
+
     # Variant is an IntEnum, so variant_type can also be integer
     # label is 1 for artifact / error; 0 for non-artifact / true variant
     # correct_call is boolean -- was the prediction correct?
     # the predicted logit is the logit corresponding to the predicted probability that call in question is an artifact / error
     def record_call(self, epoch_type: Epoch, variant_type: Variation, predicted_logit: float, label: float, correct_call, alt_count: int):
         self.metrics[epoch_type].record_call(variant_type, predicted_logit, label, correct_call, alt_count)
+
+    # track bad calls when filtering is given an optional evaluation truth VCF
+    def record_mistake(self, posterior_result: PosteriorResult, call: Call):
+        self.mistakes.append((posterior_result, call))
+
+    def make_mistake_histograms(self, summary_writer: SummaryWriter):
+        # indexed by call then var_type, inner is a list of posterior results with that call and var type
+        posterior_result_mistakes_by_call_and_var_type = defaultdict(lambda call : defaultdict(list))
+        for posterior_result, call in self.mistakes:
+            posterior_result_mistakes_by_call_and_var_type[call][posterior_result.variant_type].append(posterior_result)
+
+        mistake_calls = posterior_result_mistakes_by_call_and_var_type.keys()
+        num_rows = len(mistake_calls)
+
+        af_fig, af_axes = plt.subplots(num_rows, len(Variation), sharex='all', sharey='all', squeeze=False)
+
+        for row_idx, mistake_call in enumerate(mistake_calls):
+            for var_type in Variation:
+                posterior_results = posterior_result_mistakes_by_call_and_var_type[mistake_call][var_type]
+
+                af_data = [pr.alt_count / pr.depth for pr in posterior_results]
+                plotting.simple_histograms_on_axis(af_axes[row_idx, var_type], [af_data], [""], 20)
+
+        variation_types = [var_type.name for var_type in Variation]
+        row_names = [mistake.name for mistake in mistake_calls]
+        plotting.tidy_subplots(af_fig, af_axes, x_label="alt allele fraction", y_label="",
+                               row_labels=row_names, column_labels=variation_types)
+
+        summary_writer.add_figure("mistake allele fractions", af_fig)
 
     def make_plots(self, summary_writer: SummaryWriter, given_thresholds=None):
         # given_thresholds is a dict from Variation to float (logit-scaled) used in the ROC curves

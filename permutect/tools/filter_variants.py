@@ -236,12 +236,13 @@ def apply_filtering_to_vcf(input_vcf, output_vcf, error_probability_thresholds, 
 
         encodings = [encode_datum(datum) for datum in batch.original_list()]
         artifact_logits = [datum.artifact_logit for datum in batch.original_list()]
+        var_types = [datum.variant_type for datum in batch.original_list()]
         labels = [datum.label for datum in batch.original_list()]
         alt_counts = batch.alt_counts.tolist()
         depths = batch.depths.tolist()
 
-        for encoding, post_probs, logit, log_prior, log_spec, log_normal, label, alt_count, depth in zip(encodings, posterior_probs, artifact_logits, log_priors, spectra_lls, normal_lls, labels, alt_counts, depths):
-            encoding_to_posterior_results[encoding] = PosteriorResult(logit, post_probs.tolist(), log_prior, log_spec, log_normal, label, alt_count, depth)
+        for encoding, post_probs, logit, log_prior, log_spec, log_normal, label, alt_count, depth, var_type in zip(encodings, posterior_probs, artifact_logits, log_priors, spectra_lls, normal_lls, labels, alt_counts, depths, var_types):
+            encoding_to_posterior_results[encoding] = PosteriorResult(logit, post_probs.tolist(), log_prior, log_spec, log_normal, label, alt_count, depth, var_type)
 
     print("Applying threshold")
     unfiltered_vcf = cyvcf2.VCF(input_vcf)
@@ -286,6 +287,15 @@ def apply_filtering_to_vcf(input_vcf, output_vcf, error_probability_thresholds, 
             variant_type = find_variant_type(v)
             called_as_error = error_prob > error_probability_thresholds[variant_type]
 
+            error_call = None
+
+            if called_as_error:
+                # get the error type with the largest posterior probability
+                highest_prob_indices = torch.topk(torch.Tensor(post_probs), 2).indices.tolist()
+                highest_prob_index = highest_prob_indices[1] if highest_prob_indices[0] == passing_call_type else highest_prob_indices[0]
+                error_call = Call[highest_prob_index]
+                filters.add(FILTER_NAMES[highest_prob_index])
+
             if label != Label.UNLABELED:
                 labeled_truth = True
                 clipped_error_prob = 0.5 + 0.9999999 * (error_prob - 0.5)
@@ -295,19 +305,8 @@ def apply_filtering_to_vcf(input_vcf, output_vcf, error_probability_thresholds, 
                 evaluation_metrics.record_call(Epoch.TEST, variant_type, error_logit, float_label, is_correct, posterior_result.alt_count)
 
                 if not is_correct:
-                    pass
-                    # TODO: have evaluation metrics record the alt count, depth, incorrect FILTER or PASS status, and variant type
-                    # TODO: in order to make spectra plots of mistakes
-                    # TODO: using posterior_model:plot_artifact_spectra (should probably move the method)
-                    # TODO: and train_model:learn_artifact_priors_and_spectra (should probably refactor to avoid code duplication)
-                    # TODO: in the resulting plot, rows will be the eroneous FILTER or PASS, columns will be variant type
-
-
-            if called_as_error:
-                # get the error type with the largest posterior probability
-                highest_prob_indices = torch.topk(torch.Tensor(post_probs), 2).indices.tolist()
-                highest_prob_index = highest_prob_indices[1] if highest_prob_indices[0] == passing_call_type else highest_prob_indices[0]
-                filters.add(FILTER_NAMES[highest_prob_index])
+                    bad_call = error_call if called_as_error else Call.SOMATIC
+                    evaluation_metrics.record_mistake(posterior_result, bad_call)
 
         v.FILTER = ';'.join(filters) if filters else 'PASS'
         writer.write_record(v)
@@ -318,6 +317,7 @@ def apply_filtering_to_vcf(input_vcf, output_vcf, error_probability_thresholds, 
     if labeled_truth:
         given_thresholds = {var_type: prob_to_logit(error_probability_thresholds[var_type]) for var_type in Variation}
         evaluation_metrics.make_plots(summary_writer, given_thresholds)
+        evaluation_metrics.make_mistake_histograms(summary_writer)
 
 
 def main():
