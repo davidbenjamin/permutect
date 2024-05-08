@@ -192,7 +192,7 @@ class EvaluationMetrics:
 
     def make_mistake_histograms(self, summary_writer: SummaryWriter):
         # indexed by call then var_type, inner is a list of posterior results with that call and var type
-        posterior_result_mistakes_by_call_and_var_type = defaultdict(lambda call : defaultdict(list))
+        posterior_result_mistakes_by_call_and_var_type = defaultdict(lambda: defaultdict(list))
         for posterior_result, call in self.mistakes:
             posterior_result_mistakes_by_call_and_var_type[call][posterior_result.variant_type].append(posterior_result)
 
