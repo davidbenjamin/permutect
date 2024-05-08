@@ -293,7 +293,7 @@ def apply_filtering_to_vcf(input_vcf, output_vcf, error_probability_thresholds, 
                 # get the error type with the largest posterior probability
                 highest_prob_indices = torch.topk(torch.Tensor(post_probs), 2).indices.tolist()
                 highest_prob_index = highest_prob_indices[1] if highest_prob_indices[0] == passing_call_type else highest_prob_indices[0]
-                error_call = Call[highest_prob_index]
+                error_call = list(Call)[highest_prob_index]
                 filters.add(FILTER_NAMES[highest_prob_index])
 
             if label != Label.UNLABELED:
