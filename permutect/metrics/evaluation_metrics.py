@@ -7,7 +7,7 @@ from torch.utils.tensorboard import SummaryWriter
 
 from permutect import utils
 from permutect.architecture.posterior_model import PosteriorResult
-from permutect.data.read_set import ReadSetBatch, Variant
+from permutect.data.read_set import ReadSetBatch
 from permutect.metrics import plotting
 from permutect.utils import Variation, Call, Epoch
 

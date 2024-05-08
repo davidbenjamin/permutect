@@ -1,7 +1,5 @@
 # bug before PyTorch 1.7.1 that warns when constructing ParameterList
 import warnings
-from collections import defaultdict
-import math
 from typing import List
 
 import torch
@@ -22,7 +20,7 @@ from permutect.data.read_set_dataset import ReadSetDataset, make_data_loader
 from permutect import utils
 from permutect.metrics.evaluation_metrics import LossMetrics, EvaluationMetrics, NUM_COUNT_BINS, \
     multiple_of_three_bin_index_to_count, multiple_of_three_bin_index, MAX_COUNT, round_up_to_nearest_three
-from permutect.utils import Call, Variation, Epoch
+from permutect.utils import Variation, Epoch
 from permutect.metrics import plotting
 
 warnings.filterwarnings("ignore", message="Setting attributes on ParameterList is not supported.")

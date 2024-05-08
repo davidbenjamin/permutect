@@ -14,7 +14,7 @@ from permutect.architecture.normal_seq_error_spectrum import NormalSeqErrorSpect
 from permutect.data.posterior import PosteriorBatch
 from permutect.metrics import plotting
 from permutect.utils import Variation, Call
-from permutect.architecture.artifact_model import MAX_COUNT, NUM_COUNT_BINS, round_up_to_nearest_three, multiple_of_three_bin_index, multiple_of_three_bin_index_to_count
+from permutect.metrics.evaluation_metrics import MAX_COUNT, NUM_COUNT_BINS, multiple_of_three_bin_index, multiple_of_three_bin_index_to_count
 
 HOM_ALPHA, HOM_BETA = torch.Tensor([98.0]), torch.Tensor([2.0])
 
