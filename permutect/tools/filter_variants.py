@@ -12,7 +12,7 @@ from tqdm.autonotebook import tqdm
 
 from permutect import constants
 from permutect.architecture.artifact_model import ArtifactModel
-from permutect.architecture.posterior_model import PosteriorModel
+from permutect.architecture.posterior_model import PosteriorModel, PosteriorResult
 from permutect.data import read_set_dataset, plain_text_data
 from permutect.data.posterior import PosteriorDataset, PosteriorDatum
 from permutect.metrics import plotting
@@ -224,13 +224,7 @@ def make_posterior_data_loader(dataset_file, input_vcf, artifact_model: Artifact
 def apply_filtering_to_vcf(input_vcf, output_vcf, error_probability_thresholds, posterior_loader, posterior_model, summary_writer: SummaryWriter, germline_mode: bool = False):
     print("Computing final error probabilities")
     passing_call_type = Call.GERMLINE if germline_mode else Call.SOMATIC
-    encoding_to_post_prob = {}
-    encoding_to_artifact_logit = {}
-    encoding_to_log_priors = {}
-    encoding_to_spectra_lls = {}
-    encoding_to_normal_lls = {}
-    encoding_to_labels = {}
-    encoding_to_alt_counts = {}
+    encoding_to_posterior_results = {}
 
     pbar = tqdm(enumerate(posterior_loader), mininterval=60)
     for n, batch in pbar:
@@ -244,15 +238,10 @@ def apply_filtering_to_vcf(input_vcf, output_vcf, error_probability_thresholds, 
         artifact_logits = [datum.artifact_logit for datum in batch.original_list()]
         labels = [datum.label for datum in batch.original_list()]
         alt_counts = batch.alt_counts.tolist()
+        depths = batch.depths.tolist()
 
-        for encoding, post_probs, logit, log_prior, log_spec, log_normal, label, alt_count in zip(encodings, posterior_probs, artifact_logits, log_priors, spectra_lls, normal_lls, labels, alt_counts):
-            encoding_to_post_prob[encoding] = post_probs.tolist()
-            encoding_to_artifact_logit[encoding] = logit
-            encoding_to_log_priors[encoding] = log_prior
-            encoding_to_spectra_lls[encoding] = log_spec
-            encoding_to_normal_lls[encoding] = log_normal
-            encoding_to_labels[encoding] = label
-            encoding_to_alt_counts[encoding] = alt_count
+        for encoding, post_probs, logit, log_prior, log_spec, log_normal, label, alt_count, depth in zip(encodings, posterior_probs, artifact_logits, log_priors, spectra_lls, normal_lls, labels, alt_counts, depths):
+            encoding_to_posterior_results[encoding] = PosteriorResult(logit, post_probs.tolist(), log_prior, log_spec, log_normal, label, alt_count, depth)
 
     print("Applying threshold")
     unfiltered_vcf = cyvcf2.VCF(input_vcf)
@@ -283,15 +272,16 @@ def apply_filtering_to_vcf(input_vcf, output_vcf, error_probability_thresholds, 
 
         # TODO: in germline mode, somatic doesn't exist (or is just highly irrelevant) and germline is not an error!
         encoding = encode_variant(v, zero_based=True)  # cyvcf2 is zero-based
-        if encoding in encoding_to_post_prob:
-            post_probs = encoding_to_post_prob[encoding]
+        if encoding in encoding_to_posterior_results:
+            posterior_result = encoding_to_posterior_results[encoding]
+            post_probs = posterior_result.posterior_probabilities
             v.INFO[POST_PROB_INFO_KEY] = ','.join(map(lambda prob: "{:.3f}".format(prob), post_probs))
-            v.INFO[LOG_PRIOR_INFO_KEY] = ','.join(map(lambda pri: "{:.3f}".format(pri), encoding_to_log_priors[encoding]))
-            v.INFO[SPECTRA_LOG_LIKELIHOOD_INFO_KEY] = ','.join(map(lambda ll: "{:.3f}".format(ll), encoding_to_spectra_lls[encoding]))
-            v.INFO[ARTIFACT_LOD_INFO_KEY] = "{:.3f}".format(encoding_to_artifact_logit[encoding])
-            v.INFO[NORMAL_LOG_LIKELIHOOD_INFO_KEY] = ','.join(map(lambda ll: "{:.3f}".format(ll), encoding_to_normal_lls[encoding]))
+            v.INFO[LOG_PRIOR_INFO_KEY] = ','.join(map(lambda pri: "{:.3f}".format(pri), posterior_result.log_priors))
+            v.INFO[SPECTRA_LOG_LIKELIHOOD_INFO_KEY] = ','.join(map(lambda ll: "{:.3f}".format(ll), posterior_result.spectra_lls))
+            v.INFO[ARTIFACT_LOD_INFO_KEY] = "{:.3f}".format(posterior_result.artifact_logit)
+            v.INFO[NORMAL_LOG_LIKELIHOOD_INFO_KEY] = ','.join(map(lambda ll: "{:.3f}".format(ll), posterior_result.normal_lls))
 
-            label = encoding_to_labels[encoding]    # this is the Label enum, might be UNLABELED
+            label = posterior_result.label    # this is the Label enum, might be UNLABELED
             error_prob = 1 - post_probs[passing_call_type]
             variant_type = find_variant_type(v)
             called_as_error = error_prob > error_probability_thresholds[variant_type]
@@ -302,7 +292,7 @@ def apply_filtering_to_vcf(input_vcf, output_vcf, error_probability_thresholds, 
                 error_logit = prob_to_logit(clipped_error_prob)
                 float_label = 1.0 if label == Label.ARTIFACT else 0.0
                 is_correct = (called_as_error and label == Label.ARTIFACT) or (not called_as_error and label == Label.VARIANT)
-                evaluation_metrics.record_call(Epoch.TEST, variant_type, error_logit, float_label, is_correct, encoding_to_alt_counts[encoding])
+                evaluation_metrics.record_call(Epoch.TEST, variant_type, error_logit, float_label, is_correct, posterior_result.alt_count)
 
                 if not is_correct:
                     pass
