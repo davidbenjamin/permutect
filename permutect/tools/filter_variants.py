@@ -12,11 +12,11 @@ from tqdm.autonotebook import tqdm
 
 from permutect import constants
 from permutect.architecture.artifact_model import ArtifactModel
-from permutect.architecture.posterior_model import PosteriorModel, PosteriorResult
+from permutect.architecture.posterior_model import PosteriorModel
 from permutect.data import read_set_dataset, plain_text_data
 from permutect.data.posterior import PosteriorDataset, PosteriorDatum
 from permutect.metrics import plotting
-from permutect.metrics.evaluation_metrics import EvaluationMetrics
+from permutect.metrics.evaluation_metrics import EvaluationMetrics, PosteriorResult
 from permutect.utils import Call, find_variant_type, Label, Variation, Epoch
 
 TRUSTED_M2_FILTERS = {'contamination'}

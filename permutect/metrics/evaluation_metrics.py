@@ -5,11 +5,9 @@ import torch
 from matplotlib import pyplot as plt
 from torch.utils.tensorboard import SummaryWriter
 
-from permutect import utils
-from permutect.architecture.posterior_model import PosteriorResult
 from permutect.data.read_set import ReadSetBatch
 from permutect.metrics import plotting
-from permutect.utils import Variation, Call, Epoch
+from permutect.utils import Variation, Call, Epoch, StreamingAverage
 
 MAX_COUNT = 18  # counts above this will be truncated
 MAX_LOGIT = 6
@@ -35,9 +33,23 @@ def logit_to_bin(logit):
 def bin_center(bin_idx):
     return bin_idx - MAX_LOGIT
 
+
 NUM_COUNT_BINS = round_up_to_nearest_three(MAX_COUNT) // 3    # zero is not a bin
 
 
+# simple container class for holding results of the posterior model and other things that get output to the VCF and
+# tensorboard analysis
+class PosteriorResult:
+    def __init__(self, artifact_logit: float, posterior_probabilities, log_priors, spectra_lls, normal_lls, label, alt_count, depth, var_type):
+        self.artifact_logit = artifact_logit
+        self.posterior_probabilities = posterior_probabilities
+        self.log_priors = log_priors
+        self.spectra_lls = spectra_lls
+        self.normal_lls = normal_lls
+        self.label = label
+        self.alt_count = alt_count
+        self.depth = depth
+        self.variant_type = var_type
 
 
 # keep track of losses during training of artifact model
@@ -45,11 +57,11 @@ class LossMetrics:
     def __init__(self, device):
         self.device = device
 
-        self.labeled_loss = utils.StreamingAverage(device=self._device)
-        self.unlabeled_loss = utils.StreamingAverage(device=self._device)
+        self.labeled_loss = StreamingAverage(device=self._device)
+        self.unlabeled_loss = StreamingAverage(device=self._device)
 
-        self.labeled_loss_by_type = {variant_type: utils.StreamingAverage(device=self._device) for variant_type in Variation}
-        self.labeled_loss_by_count = {bin_idx: utils.StreamingAverage(device=self._device) for bin_idx in range(NUM_COUNT_BINS)}
+        self.labeled_loss_by_type = {variant_type: StreamingAverage(device=self._device) for variant_type in Variation}
+        self.labeled_loss_by_count = {bin_idx: StreamingAverage(device=self._device) for bin_idx in range(NUM_COUNT_BINS)}
 
     def get_labeled_loss(self):
         return self.labeled_loss.get()
@@ -57,7 +69,7 @@ class LossMetrics:
     def get_unlabeled_loss(self):
         return self.unlabeled_loss.get()
 
-    def write_to_summary_writer(self, epoch_type: utils.Epoch, epoch: int, summary_writer: SummaryWriter):
+    def write_to_summary_writer(self, epoch_type: Epoch, epoch: int, summary_writer: SummaryWriter):
         summary_writer.add_scalar(epoch_type.name + "/Labeled Loss", self.labeled_loss.get(), epoch)
         summary_writer.add_scalar(epoch_type.name + "/Unlabeled Loss", self.unlabeled_loss.get(), epoch)
 
@@ -95,11 +107,11 @@ class EvaluationMetricsForOneEpochType:
     def __init__(self):
         # indexed by variant type, then count bin, then logit bin
         self.acc_vs_logit = {
-            var_type: [[utils.StreamingAverage() for _ in range(2 * MAX_LOGIT + 1)] for _ in range(NUM_COUNT_BINS)] for
+            var_type: [[StreamingAverage() for _ in range(2 * MAX_LOGIT + 1)] for _ in range(NUM_COUNT_BINS)] for
             var_type in Variation}
 
         # indexed by variant type, then call type (artifact vs variant), then count bin
-        self.acc_vs_cnt = {var_type: defaultdict(lambda: [utils.StreamingAverage() for _ in range(NUM_COUNT_BINS)]) for
+        self.acc_vs_cnt = {var_type: defaultdict(lambda: [StreamingAverage() for _ in range(NUM_COUNT_BINS)]) for
                       var_type in Variation}
 
         # variant type -> (predicted logit, actual label)
@@ -235,6 +247,5 @@ class EvaluationMetrics:
         summary_writer.add_figure(" accuracy by logit output", cal_fig)
         summary_writer.add_figure(" variant accuracy vs artifact accuracy curve", roc_fig)
         summary_writer.add_figure(" variant accuracy vs artifact accuracy curves by alt count", roc_by_cnt_fig)
-
 
 
