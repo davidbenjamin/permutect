@@ -72,7 +72,7 @@ def plot_accuracy_vs_accuracy_roc_on_axis(lists_of_predictions_and_labels, curve
         for threshold, art_acc, non_art_acc in thresh_and_accs:
             if threshold == 0:
                 big_dots.append((art_acc, non_art_acc, 'rs'))   # red square
-            elif given_threshold is not None and math.abs(threshold - given_threshold) < 0.001:
+            elif given_threshold is not None and abs(threshold - given_threshold) < 0.001:
                 big_dots.append((art_acc, non_art_acc, 'kd'))  # black diamond
             else:
                 small_dots.append((art_acc, non_art_acc, 'go'))     # green circle

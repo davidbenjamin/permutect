@@ -293,7 +293,6 @@ def apply_filtering_to_vcf(input_vcf, output_vcf, error_probability_thresholds, 
 
             label = encoding_to_labels[encoding]    # this is the Label enum, might be UNLABELED
             error_prob = 1 - post_probs[passing_call_type]
-            # TODO: threshold by variant type
             variant_type = find_variant_type(v)
             called_as_error = error_prob > error_probability_thresholds[variant_type]
 
@@ -304,6 +303,15 @@ def apply_filtering_to_vcf(input_vcf, output_vcf, error_probability_thresholds, 
                 float_label = 1.0 if label == Label.ARTIFACT else 0.0
                 is_correct = (called_as_error and label == Label.ARTIFACT) or (not called_as_error and label == Label.VARIANT)
                 evaluation_metrics.record_call(Epoch.TEST, variant_type, error_logit, float_label, is_correct, encoding_to_alt_counts[encoding])
+
+                if not is_correct:
+                    pass
+                    # TODO: have evaluation metrics record the alt count, depth, incorrect FILTER or PASS status, and variant type
+                    # TODO: in order to make spectra plots of mistakes
+                    # TODO: using posterior_model:plot_artifact_spectra (should probably move the method)
+                    # TODO: and train_model:learn_artifact_priors_and_spectra (should probably refactor to avoid code duplication)
+                    # TODO: in the resulting plot, rows will be the eroneous FILTER or PASS, columns will be variant type
+
 
             if called_as_error:
                 # get the error type with the largest posterior probability
