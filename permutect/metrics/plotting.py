@@ -160,15 +160,20 @@ def get_theoretical_roc_data(artifact_probs):
     thresh_and_accs = []  # tuples of threshold, accuracy on artifacts, accuracy on non-artifacts
     art_found, non_art_found = total_artifact, 0
     next_threshold = -1
-    best_threshold, best_harmonic_mean = (0, 1, 0), 0 # best threshold is threshold, accuracy on artifact, accuracy on non-artifact
+    best_threshold, best_f1_score = (0, 1, 0), 0 # best threshold is threshold, accuracy on artifact, accuracy on non-artifact
     for prob in artifact_probs:
         art_found -= prob  # lose a fractional artifact
         non_art_found += (1 - prob)  # gain a fractional non-artifact
         art_acc, non_art_acc = art_found / total_artifact, non_art_found / total_non_artifact
-        harmonic_mean = 0 if (art_acc == 0 or non_art_acc == 0) else 1/((1/art_acc) + (1/non_art_acc))
 
-        if harmonic_mean > best_harmonic_mean:
-            best_harmonic_mean = harmonic_mean
+        tp = non_art_found  # non-artifacts that pass threshold are true positives
+        fn = total_non_artifact - non_art_found # false negatives
+        fp = total_artifact - art_found     # artifacts that do not fail threshold are false positives
+
+        f1_score = (2 * tp) / (2 * tp + fp + fn)
+
+        if f1_score > best_f1_score:
+            best_f1_score = f1_score
             best_threshold = (prob, art_acc, non_art_acc)
 
         if prob > next_threshold:
