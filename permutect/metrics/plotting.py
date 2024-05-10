@@ -61,12 +61,12 @@ def grouped_bar_plot(heights_by_category, x_labels, y_label):
 # labels are 0 for non-artifact, 1 for artifact
 # predictions_and_labels has form [[(pred, label), (pred, label). . . for roc 1], [likewise for roc 2] etc]
 # predictions are logits, not probabilities!!
-def plot_accuracy_vs_accuracy_roc_on_axis(lists_of_predictions_and_labels, curve_labels, axis, given_threshold: float = None):
+def plot_accuracy_vs_accuracy_roc_on_axis(lists_of_predictions_and_labels, curve_labels, axis, given_threshold: float = None, sens_prec: bool = False):
     x_y_lab_tuples = []
     small_dots = []
     big_dots = []
     for predictions_and_labels, curve_label in zip(lists_of_predictions_and_labels, curve_labels):
-        thresh_and_accs, _ = get_roc_data(predictions_and_labels, given_threshold)
+        thresh_and_accs, _ = get_roc_data(predictions_and_labels, given_threshold, sens_prec)
         x_y_lab_tuples.append(([x[1] for x in thresh_and_accs], [x[2] for x in thresh_and_accs], curve_label))
 
         for threshold, art_acc, non_art_acc in thresh_and_accs:
@@ -112,7 +112,7 @@ def plot_theoretical_roc_on_axis(predicted_error_probs, curve_labels, axis):
 # input is list of (predicted artifact logit, binary artifact/non-artifact label) tuples
 # 1st output is (threshold, accuracy on artifacts, accuracy on non-artifacts) tuples
 # 2nd output is the threshold that maximizes harmonic mean of accuracy on artifacts and accuracy on non-artifacts
-def get_roc_data(predictions_and_labels, given_threshold: float = None):
+def get_roc_data(predictions_and_labels, given_threshold: float = None, sens_prec: bool = False):
     predictions_and_labels.sort(key=lambda p_and_l: p_and_l[0])  # sort from least to greatest artifact logit
     num_calls = len(predictions_and_labels)
     total_artifact = sum([label for _, label in predictions_and_labels]) + 0.0001
@@ -127,19 +127,27 @@ def get_roc_data(predictions_and_labels, given_threshold: float = None):
         art_found -= label  # if labeled as artifact, one artifact has slipped below threshold
         non_art_found += (1 - label)  # if labeled as non-artifact, one non-artifact has been gained
         art_acc, non_art_acc = art_found / total_artifact, non_art_found / total_non_artifact
-        harmonic_mean = 0 if (art_acc == 0 or non_art_acc == 0) else 1/((1/art_acc) + (1/non_art_acc))
+
+        # stuff for sensitivity-precision mode
+        tp = non_art_found  # non-artifacts that pass threshold are true positives
+        fp = total_artifact - art_found  # artifacts that do not fail threshold are false positives
+
+        # in sensitivity-precision mode we care about the precision, not the absolute accuracy of artifact calls
+        art_metric = (tp/(tp + fp)) if sens_prec else art_acc
+
+        harmonic_mean = 0 if (art_metric == 0 or non_art_acc == 0) else 1 / ((1 / art_metric) + (1 / non_art_acc))
 
         if harmonic_mean > best_harmonic_mean:
             best_harmonic_mean = harmonic_mean
             best_threshold = pred_logit
 
         if pred_logit > next_threshold:
-            thresh_and_accs.append((next_threshold, art_acc, non_art_acc))
+            thresh_and_accs.append((next_threshold, art_metric, non_art_acc))
             next_threshold = math.ceil(pred_logit)
 
         # the first time we reach a logit greater than the given threshold, we are basically *at* that threshold
         if not given_threshold_reached and pred_logit > given_threshold:
-            thresh_and_accs.append((given_threshold, art_acc, non_art_acc))
+            thresh_and_accs.append((given_threshold, art_metric, non_art_acc))
             given_threshold_reached = True
 
     return thresh_and_accs, best_threshold

@@ -316,7 +316,7 @@ def apply_filtering_to_vcf(input_vcf, output_vcf, error_probability_thresholds, 
 
     if labeled_truth:
         given_thresholds = {var_type: prob_to_logit(error_probability_thresholds[var_type]) for var_type in Variation}
-        evaluation_metrics.make_plots(summary_writer, given_thresholds)
+        evaluation_metrics.make_plots(summary_writer, given_thresholds, sens_prec=True)
         evaluation_metrics.make_mistake_histograms(summary_writer)
 
 
