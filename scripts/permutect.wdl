@@ -30,6 +30,8 @@ workflow Permutect {
         String? split_intervals_extra_args
         Int batch_size
         Int chunk_size
+        File? test_dataset_truth_vcf    # used for evaluation
+        File? test_dataset_truth_vcf_idx
 
         String? m3_filtering_extra_args
         String gatk_docker
@@ -45,6 +47,8 @@ workflow Permutect {
         input:
             make_m3_training_dataset = false,
             make_m3_test_dataset = true,
+            m3_training_dataset_truth_vcf = test_dataset_truth_vcf,
+            m3_training_dataset_truth_vcf_idx = test_dataset_truth_vcf_idx,
             intervals = intervals,
             ref_fasta = ref_fasta,
             ref_fai = ref_fai,

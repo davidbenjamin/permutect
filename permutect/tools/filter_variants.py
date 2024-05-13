@@ -1,10 +1,12 @@
 import argparse
+import math
 from collections import defaultdict
 from typing import Set
 
 import cyvcf2
 import torch
 from intervaltree import IntervalTree
+from matplotlib import pyplot as plt
 from torch.utils.tensorboard import SummaryWriter
 from tqdm.autonotebook import tqdm
 
@@ -13,7 +15,9 @@ from permutect.architecture.artifact_model import ArtifactModel
 from permutect.architecture.posterior_model import PosteriorModel
 from permutect.data import read_set_dataset, plain_text_data
 from permutect.data.posterior import PosteriorDataset, PosteriorDatum
-from permutect.utils import Call, find_variant_type
+from permutect.metrics import plotting
+from permutect.metrics.evaluation_metrics import EvaluationMetrics, PosteriorResult
+from permutect.utils import Call, find_variant_type, Label, Variation, Epoch
 
 TRUSTED_M2_FILTERS = {'contamination'}
 
@@ -24,6 +28,11 @@ SPECTRA_LOG_LIKELIHOOD_INFO_KEY = 'SPECLL'
 NORMAL_LOG_LIKELIHOOD_INFO_KEY = 'NORMLL'
 
 FILTER_NAMES = [call_type.name.lower() for call_type in Call]
+
+
+# the inverse of the sigmoid function.  Convert a probability to a logit.
+def prob_to_logit(prob: float):
+    return math.log(prob / (1 - prob))
 
 
 # this presumes that we have an ArtifactModel and we have saved it via save_permutect_model as in train_model.py
@@ -163,6 +172,7 @@ def make_filtered_vcf(saved_artifact_model, initial_log_variant_prior: float, in
 
     num_ignored_sites = genomic_span - len(posterior_data_loader.dataset)
     # here is where pretrained artifact priors and spectra are used if given
+
     posterior_model.learn_priors_and_spectra(posterior_data_loader, num_iterations=num_spectrum_iterations,
         summary_writer=summary_writer, ignored_to_non_ignored_ratio=num_ignored_sites/len(posterior_data_loader.dataset),
         artifact_log_priors=artifact_log_priors, artifact_spectra_state_dict=artifact_spectra_state_dict)
@@ -170,7 +180,7 @@ def make_filtered_vcf(saved_artifact_model, initial_log_variant_prior: float, in
     print("Calculating optimal logit threshold")
     error_probability_thresholds = posterior_model.calculate_probability_thresholds(posterior_data_loader, summary_writer, germline_mode=germline_mode)
     print("Optimal probability threshold: " + str(error_probability_thresholds))
-    apply_filtering_to_vcf(input_vcf, output_vcf, error_probability_thresholds, posterior_data_loader, posterior_model, germline_mode=germline_mode)
+    apply_filtering_to_vcf(input_vcf, output_vcf, error_probability_thresholds, posterior_data_loader, posterior_model, summary_writer=summary_writer, germline_mode=germline_mode)
 
 
 def make_posterior_data_loader(dataset_file, input_vcf, artifact_model: ArtifactModel, batch_size: int, chunk_size: int):
@@ -196,11 +206,13 @@ def make_posterior_data_loader(dataset_file, input_vcf, artifact_model: Artifact
 
         for artifact_batch in artifact_loader:
             artifact_logits = artifact_model.forward(batch=artifact_batch).detach().tolist()
-            for variant, counts_and_seq_lks, index, logit in zip(artifact_batch.variants, artifact_batch.counts_and_likelihoods, artifact_batch.indices, artifact_logits):
+
+            labels = ([Label.ARTIFACT if x > 0.5 else Label.VARIANT for x in artifact_batch.labels]) if artifact_batch.is_labeled() else (artifact_batch.size()*[Label.UNLABELED])
+            for variant, counts_and_seq_lks, index, logit, label in zip(artifact_batch.variants, artifact_batch.counts_and_likelihoods, artifact_batch.indices, artifact_logits, labels):
                 encoding = encode(variant.contig, variant.position, variant.ref, variant.alt)
                 if encoding in allele_frequencies and encoding not in m2_filtering_to_keep:
                     allele_frequency = allele_frequencies[encoding]
-                    posterior_datum = PosteriorDatum(variant, counts_and_seq_lks, index, allele_frequency, logit)
+                    posterior_datum = PosteriorDatum(variant, counts_and_seq_lks, index, allele_frequency, logit, label)
                     posterior_data.append(posterior_datum)
 
     print("Size of filtering dataset: " + str(len(posterior_data)))
@@ -209,14 +221,11 @@ def make_posterior_data_loader(dataset_file, input_vcf, artifact_model: Artifact
 
 
 # error probability thresholds is a dict from Variant type to error probability threshold (float)
-def apply_filtering_to_vcf(input_vcf, output_vcf, error_probability_thresholds, posterior_loader, posterior_model, germline_mode: bool = False):
+def apply_filtering_to_vcf(input_vcf, output_vcf, error_probability_thresholds, posterior_loader, posterior_model, summary_writer: SummaryWriter, germline_mode: bool = False):
     print("Computing final error probabilities")
     passing_call_type = Call.GERMLINE if germline_mode else Call.SOMATIC
-    encoding_to_post_prob = {}
-    encoding_to_artifact_logit = {}
-    encoding_to_log_priors = {}
-    encoding_to_spectra_lls = {}
-    encoding_to_normal_lls = {}
+    encoding_to_posterior_results = {}
+
     pbar = tqdm(enumerate(posterior_loader), mininterval=60)
     for n, batch in pbar:
         # posterior, along with intermediate tensors for debugging/interpretation
@@ -227,13 +236,13 @@ def apply_filtering_to_vcf(input_vcf, output_vcf, error_probability_thresholds, 
 
         encodings = [encode_datum(datum) for datum in batch.original_list()]
         artifact_logits = [datum.artifact_logit for datum in batch.original_list()]
+        var_types = [datum.variant_type for datum in batch.original_list()]
+        labels = [datum.label for datum in batch.original_list()]
+        alt_counts = batch.alt_counts.tolist()
+        depths = batch.depths.tolist()
 
-        for encoding, post_probs, logit, log_prior, log_spec, log_normal in zip(encodings, posterior_probs, artifact_logits, log_priors, spectra_lls, normal_lls):
-            encoding_to_post_prob[encoding] = post_probs.tolist()
-            encoding_to_artifact_logit[encoding] = logit
-            encoding_to_log_priors[encoding] = log_prior
-            encoding_to_spectra_lls[encoding] = log_spec
-            encoding_to_normal_lls[encoding] = log_normal
+        for encoding, post_probs, logit, log_prior, log_spec, log_normal, label, alt_count, depth, var_type in zip(encodings, posterior_probs, artifact_logits, log_priors, spectra_lls, normal_lls, labels, alt_counts, depths, var_types):
+            encoding_to_posterior_results[encoding] = PosteriorResult(logit, post_probs.tolist(), log_prior, log_spec, log_normal, label, alt_count, depth, var_type)
 
     print("Applying threshold")
     unfiltered_vcf = cyvcf2.VCF(input_vcf)
@@ -256,33 +265,59 @@ def apply_filtering_to_vcf(input_vcf, output_vcf, error_probability_thresholds, 
             unfiltered_vcf.add_filter_to_header({'ID': filter_name, 'Description': filter_name})
 
     writer = cyvcf2.Writer(output_vcf, unfiltered_vcf)  # input vcf is a template for the header
+    evaluation_metrics = EvaluationMetrics()
     pbar = tqdm(enumerate(unfiltered_vcf), mininterval=60)
+    labeled_truth = False
     for n, v in pbar:
         filters = filters_to_keep_from_m2(v)
 
         # TODO: in germline mode, somatic doesn't exist (or is just highly irrelevant) and germline is not an error!
         encoding = encode_variant(v, zero_based=True)  # cyvcf2 is zero-based
-        if encoding in encoding_to_post_prob:
-            post_probs = encoding_to_post_prob[encoding]
+        if encoding in encoding_to_posterior_results:
+            posterior_result = encoding_to_posterior_results[encoding]
+            post_probs = posterior_result.posterior_probabilities
             v.INFO[POST_PROB_INFO_KEY] = ','.join(map(lambda prob: "{:.3f}".format(prob), post_probs))
-            v.INFO[LOG_PRIOR_INFO_KEY] = ','.join(map(lambda pri: "{:.3f}".format(pri), encoding_to_log_priors[encoding]))
-            v.INFO[SPECTRA_LOG_LIKELIHOOD_INFO_KEY] = ','.join(map(lambda ll: "{:.3f}".format(ll), encoding_to_spectra_lls[encoding]))
-            v.INFO[ARTIFACT_LOD_INFO_KEY] = "{:.3f}".format(encoding_to_artifact_logit[encoding])
-            v.INFO[NORMAL_LOG_LIKELIHOOD_INFO_KEY] = ','.join(map(lambda ll: "{:.3f}".format(ll), encoding_to_normal_lls[encoding]))
+            v.INFO[LOG_PRIOR_INFO_KEY] = ','.join(map(lambda pri: "{:.3f}".format(pri), posterior_result.log_priors))
+            v.INFO[SPECTRA_LOG_LIKELIHOOD_INFO_KEY] = ','.join(map(lambda ll: "{:.3f}".format(ll), posterior_result.spectra_lls))
+            v.INFO[ARTIFACT_LOD_INFO_KEY] = "{:.3f}".format(posterior_result.artifact_logit)
+            v.INFO[NORMAL_LOG_LIKELIHOOD_INFO_KEY] = ','.join(map(lambda ll: "{:.3f}".format(ll), posterior_result.normal_lls))
 
+            label = posterior_result.label    # this is the Label enum, might be UNLABELED
             error_prob = 1 - post_probs[passing_call_type]
-            # TODO: threshold by variant type
-            if error_prob > error_probability_thresholds[find_variant_type(v)]:
+            variant_type = find_variant_type(v)
+            called_as_error = error_prob > error_probability_thresholds[variant_type]
+
+            error_call = None
+
+            if called_as_error:
                 # get the error type with the largest posterior probability
                 highest_prob_indices = torch.topk(torch.Tensor(post_probs), 2).indices.tolist()
                 highest_prob_index = highest_prob_indices[1] if highest_prob_indices[0] == passing_call_type else highest_prob_indices[0]
+                error_call = list(Call)[highest_prob_index]
                 filters.add(FILTER_NAMES[highest_prob_index])
+
+            if label != Label.UNLABELED:
+                labeled_truth = True
+                clipped_error_prob = 0.5 + 0.9999999 * (error_prob - 0.5)
+                error_logit = prob_to_logit(clipped_error_prob)
+                float_label = 1.0 if label == Label.ARTIFACT else 0.0
+                is_correct = (called_as_error and label == Label.ARTIFACT) or (not called_as_error and label == Label.VARIANT)
+                evaluation_metrics.record_call(Epoch.TEST, variant_type, error_logit, float_label, is_correct, posterior_result.alt_count)
+
+                if not is_correct:
+                    bad_call = error_call if called_as_error else Call.SOMATIC
+                    evaluation_metrics.record_mistake(posterior_result, bad_call)
 
         v.FILTER = ';'.join(filters) if filters else 'PASS'
         writer.write_record(v)
     print("closing resources")
     writer.close()
     unfiltered_vcf.close()
+
+    if labeled_truth:
+        given_thresholds = {var_type: prob_to_logit(error_probability_thresholds[var_type]) for var_type in Variation}
+        evaluation_metrics.make_plots(summary_writer, given_thresholds, sens_prec=True)
+        evaluation_metrics.make_mistake_histograms(summary_writer)
 
 
 def main():

@@ -4,14 +4,15 @@ from typing import List, Iterable
 
 from torch import Tensor, IntTensor, BoolTensor, vstack, from_numpy
 from torch.utils.data import Dataset, DataLoader
-from permutect.data.read_set import ReadSet, Variant, CountsAndSeqLks
+from permutect.data.read_set import Variant, CountsAndSeqLks
 
 from permutect import utils
+from permutect.utils import Label
 
 
 class PosteriorDatum:
     def __init__(self, variant: Variant, counts_and_seq_lks: CountsAndSeqLks,  index: int, allele_frequency: float,
-                 artifact_logit: float):
+                 artifact_logit: float, label: Label):
 
         self.contig = variant.contig
         self.position = variant.position
@@ -24,6 +25,7 @@ class PosteriorDatum:
         self.normal_depth = counts_and_seq_lks.normal_depth
         self.normal_alt_count = counts_and_seq_lks.normal_alt_count
         self.index = index
+        self.label = label
 
         self.seq_error_log_likelihood = counts_and_seq_lks.seq_error_log_lk
         self.tlod_from_m2 = -self.seq_error_log_likelihood - math.log(self.depth + 1)

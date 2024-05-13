@@ -1,7 +1,5 @@
 # bug before PyTorch 1.7.1 that warns when constructing ParameterList
 import warnings
-from collections import defaultdict
-import math
 from typing import List
 
 import torch
@@ -20,29 +18,14 @@ from permutect.architecture.dna_sequence_convolution import DNASequenceConvoluti
 from permutect.data.read_set import ReadSetBatch
 from permutect.data.read_set_dataset import ReadSetDataset, make_data_loader
 from permutect import utils
-from permutect.utils import Call, Variation
+from permutect.metrics.evaluation_metrics import LossMetrics, EvaluationMetrics, NUM_COUNT_BINS, \
+    multiple_of_three_bin_index_to_count, multiple_of_three_bin_index, MAX_COUNT, round_up_to_nearest_three
+from permutect.utils import Variation, Epoch
 from permutect.metrics import plotting
 
 warnings.filterwarnings("ignore", message="Setting attributes on ParameterList is not supported.")
 
 NUM_DATA_FOR_TENSORBOARD_PROJECTION = 10000
-
-
-def round_up_to_nearest_three(x: int):
-    return math.ceil(x / 3) * 3
-
-
-def multiple_of_three_bin_index(x: int):
-    return (round_up_to_nearest_three(x)//3) - 1    # -1 because zero is not a bin
-
-
-def multiple_of_three_bin_index_to_count(idx: int):
-    return 3 * (idx + 1)
-
-
-MAX_COUNT = 18  # counts above this will be truncated
-MAX_LOGIT = 6
-NUM_COUNT_BINS = round_up_to_nearest_three(MAX_COUNT) // 3    # zero is not a bin
 
 
 def effective_count(weights: Tensor):
@@ -387,11 +370,7 @@ class ArtifactModel(nn.Module):
                 if is_calibration_epoch:
                     utils.unfreeze(self.calibration_parameters())  # unfreeze calibration but everything else stays frozen
 
-                labeled_loss = utils.StreamingAverage(device=self._device)
-                unlabeled_loss = utils.StreamingAverage(device=self._device)
-
-                labeled_loss_by_type = {variant_type: utils.StreamingAverage(device=self._device) for variant_type in Variation}
-                labeled_loss_by_count = {bin_idx: utils.StreamingAverage(device=self._device) for bin_idx in range(NUM_COUNT_BINS)}
+                loss_metrics = LossMetrics(self._device)
 
                 loader = train_loader if epoch_type == utils.Epoch.TRAIN else valid_loader
                 pbar = tqdm(enumerate(loader), mininterval=60)
@@ -403,105 +382,48 @@ class ArtifactModel(nn.Module):
                     log_prior_ratios = torch.sum(artifact_to_non_artifact_log_prior_ratios * types_one_hot, dim=1)
                     posterior_logits = logits + log_prior_ratios
 
-                    DEBUG = None
-
                     if batch.is_labeled():
                         separate_losses = bce(posterior_logits, batch.labels)
-                        DEBUG = separate_losses
                         loss = torch.sum(separate_losses)
-                        labeled_loss.record_sum(loss.detach(), batch.size())
 
-                        if batch.alt_count <= MAX_COUNT:
-                            labeled_loss_by_count[multiple_of_three_bin_index(batch.alt_count)].record_sum(loss.detach(), batch.size())
-
-                        losses_masked_by_type = separate_losses.reshape(batch.size(), 1) * types_one_hot
-                        counts_by_type = torch.sum(types_one_hot, dim=0)
-                        total_loss_by_type = torch.sum(losses_masked_by_type, dim=0)
-                        variant_types = list(Variation)
-                        for variant_type_idx in range(len(Variation)):
-                            count_for_type = int(counts_by_type[variant_type_idx].item())
-                            loss_for_type = total_loss_by_type[variant_type_idx].item()
-                            labeled_loss_by_type[variant_types[variant_type_idx]].record_sum(loss_for_type, count_for_type)
+                        loss_metrics.record_total_batch_loss(loss.detach(), batch)
+                        loss_metrics.record_separate_losses(separate_losses, batch)
                     else:
                         # unlabeled loss: entropy regularization
                         posterior_probabilities = torch.sigmoid(posterior_logits)
-
-                        # TODO: hmmm I wonder if these are the source of the nan?
-                        #entropies = -posterior_probabilities * torch.log(posterior_probabilities) \
-                        #    - (1-posterior_probabilities) * torch.log(1-posterior_probabilities)
-
-                        # this I hope is more numerically stable
-                        entropies =  torch.nn.functional.binary_cross_entropy_with_logits(posterior_logits, posterior_probabilities, reduction='none')
-
-                        DEBUG = entropies
+                        entropies = torch.nn.functional.binary_cross_entropy_with_logits(posterior_logits, posterior_probabilities, reduction='none')
 
                         # TODO: we need a parameter to control the relative weight of unlabeled loss to labeled loss
                         loss = torch.sum(entropies) * labeled_to_unlabeled_ratio
-                        unlabeled_loss.record_sum(loss.detach(), batch.size())
+                        loss_metrics.record_total_batch_loss(loss.detach(), batch)
 
-                    # it is probably bad practice to just ignore a nan but for now let's just skip backprop for the
-                    # offending batch and hope to carry on without problems.  This might not work.  Even if it does,
-                    # I eventually want to actually diagnose the issue.
-                    if loss.isnan().item():
-                        print("THIS BATCH's LOSS IS NAN!!!!  SKIPPING BACK-PROPAGATION.")
-                        print("batch is " + ("labeled." if batch.is_labeled else "unlabeled."))
-                        print("alt count, ref count = " + str(batch.alt_count, batch.ref_count))
-                        print("do logits contain NaN: " + "yes" if logits.isnan().any() else "no")
-                        print("do posterior logits contain NaN: " + "yes" if posterior_logits.isnan().any() else "no")
-                        if not batch.is_labeled and DEBUG.isnan().any():
-                            print("entropies contain a NaN")
-                    else:
-                        if epoch_type == utils.Epoch.TRAIN:
-                            utils.backpropagate(train_optimizer, loss)
-                        if is_calibration_epoch:
-                            utils.backpropagate(calibration_optimizer, loss)
+                    if epoch_type == utils.Epoch.TRAIN:
+                        utils.backpropagate(train_optimizer, loss)
+                    if is_calibration_epoch:
+                        utils.backpropagate(calibration_optimizer, loss)
 
                 # done with one epoch type -- training or validation -- for this epoch
-                summary_writer.add_scalar(epoch_type.name + "/Labeled Loss", labeled_loss.get(), epoch)
-                summary_writer.add_scalar(epoch_type.name + "/Unlabeled Loss", unlabeled_loss.get(), epoch)
+                loss_metrics.write_to_summary_writer(epoch_type, epoch, summary_writer)
 
-                for bin_idx, loss in labeled_loss_by_count.items():
-                    summary_writer.add_scalar(epoch_type.name + "/Labeled Loss/By Count/" + str(multiple_of_three_bin_index_to_count(bin_idx)), loss.get(), epoch)
-
-                for var_type, loss in labeled_loss_by_type.items():
-                    summary_writer.add_scalar(epoch_type.name + "/Labeled Loss/By Type/" + var_type.name, loss.get(), epoch)
-
-                print("Labeled loss for epoch " + str(epoch) + " of " + epoch_type.name + ": " + str(labeled_loss.get()))
+                print("Labeled loss for epoch " + str(epoch) + " of " + epoch_type.name + ": " + str(loss_metrics.get_labeled_loss()))
             # done with training and validation for this epoch
             # note that we have not learned the AF spectrum yet
         # done with training
 
     # generators by name is eg {"train": train_generator, "valid": valid_generator}
-    def evaluate_model_after_training(self, dataset, batch_size, num_workers, summary_writer: SummaryWriter, prefix: str = ""):
+    def evaluate_model_after_training(self, dataset, batch_size, num_workers, summary_writer: SummaryWriter):
         train_loader = make_data_loader(dataset, dataset.all_but_the_last_fold(), batch_size, self._device.type == 'cuda', num_workers)
         valid_loader = make_data_loader(dataset, dataset.last_fold_only(), batch_size, self._device.type == 'cuda', num_workers)
-        loaders_by_name = {"training": train_loader, "validation": valid_loader}
+        epoch_types = [Epoch.TRAIN, Epoch.VALID]
         self.freeze_all()
         self.cpu()
         self._device = "cpu"
 
-        # round logit to nearest int, truncate to range, ending up with bins 0. . . 2*max_logit
-        logit_to_bin = lambda logit: min(max(round(logit), -MAX_LOGIT), MAX_LOGIT) + MAX_LOGIT
-        bin_center = lambda bin_idx: bin_idx - MAX_LOGIT
-
-        # grid of figures -- rows are loaders, columns are variant types
-        # each subplot has two line graphs of accuracy vs alt count, one each for artifact, non-artifact
-        acc_vs_cnt_fig, acc_vs_cnt_axes = plt.subplots(len(loaders_by_name), len(Variation), sharex='all', sharey='all', squeeze=False)
-        roc_fig, roc_axes = plt.subplots(len(loaders_by_name), len(Variation), sharex='all', sharey='all', squeeze=False)
-        cal_fig, cal_axes = plt.subplots(len(loaders_by_name), len(Variation), sharex='all', sharey='all', squeeze=False)
-        roc_by_cnt_fig, roc_by_cnt_axes = plt.subplots(len(loaders_by_name), len(Variation), sharex='all', sharey='all', squeeze=False, figsize=(10, 6), dpi=100)
-
         log_artifact_to_non_artifact_ratios = torch.from_numpy(np.log(dataset.artifact_to_non_artifact_ratios()))
-        for loader_idx, (loader_name, loader) in enumerate(loaders_by_name.items()):
-            # indexed by variant type, then count bin, then logit bin
-            acc_vs_logit = {var_type: [[utils.StreamingAverage() for _ in range(2 * MAX_LOGIT + 1)] for _ in range(NUM_COUNT_BINS)] for var_type in Variation}
-
-            # indexed by variant type, then call type (artifact vs variant), then count bin
-            acc_vs_cnt = {var_type: defaultdict(lambda: [utils.StreamingAverage() for _ in range(NUM_COUNT_BINS)]) for var_type in Variation}
-
-            roc_data = {var_type: [] for var_type in Variation}     # variant type -> (predicted logit, actual label)
-            roc_data_by_cnt = {var_type: [[] for _ in range(NUM_COUNT_BINS)] for var_type in Variation}  # variant type, count -> (predicted logit, actual label)
-
+        evaluation_metrics = EvaluationMetrics()
+        for epoch_type in epoch_types:
+            assert epoch_type == Epoch.TRAIN or epoch_type == Epoch.VALID   # not doing TEST here
+            loader = train_loader if epoch_type == Epoch.TRAIN else valid_loader
             pbar = tqdm(enumerate(filter(lambda bat: bat.is_labeled(), loader)), mininterval=60)
             for n, batch in pbar:
                 # In training we minimize the cross entropy loss wrt the posterior probability, accounting for priors;
@@ -510,48 +432,11 @@ class ArtifactModel(nn.Module):
                 correct = ((pred > 0) == (batch.labels > 0.5)).tolist()
 
                 for variant_type, predicted_logit, label, correct_call in zip(batch.variant_types(), pred.tolist(), batch.labels.tolist(), correct):
-                    count_bin_index = multiple_of_three_bin_index(min(MAX_COUNT, batch.alt_count))
-                    acc_vs_cnt[variant_type][Call.SOMATIC if label < 0.5 else Call.ARTIFACT][count_bin_index].record(correct_call)
-                    acc_vs_logit[variant_type][count_bin_index][logit_to_bin(predicted_logit)].record(correct_call)
+                    evaluation_metrics.record_call(epoch_type, variant_type, predicted_logit, label, correct_call, batch.alt_count)
+            # done with this epoch type
+        # done collecting data
 
-                    roc_data[variant_type].append((predicted_logit, label))
-                    roc_data_by_cnt[variant_type][count_bin_index].append((predicted_logit, label))
-
-            # done collecting data for this particular loader, now fill in subplots for this loader's row
-            for var_type in Variation:
-                # data for one particular subplot (row = train / valid, column = variant type)
-
-                non_empty_count_bins = [idx for idx in range(NUM_COUNT_BINS) if not acc_vs_cnt[var_type][label][idx].is_empty()]
-                non_empty_logit_bins = [[idx for idx in range(2 * MAX_LOGIT + 1) if not acc_vs_logit[var_type][count_idx][idx].is_empty()] for count_idx in range(NUM_COUNT_BINS)]
-                acc_vs_cnt_x_y_lab_tuples = [([multiple_of_three_bin_index_to_count(idx) for idx in non_empty_count_bins],
-                                   [acc_vs_cnt[var_type][label][idx].get() for idx in non_empty_count_bins],
-                                   label.name) for label in acc_vs_cnt[var_type].keys()]
-                acc_vs_logit_x_y_lab_tuples = [([bin_center(idx) for idx in non_empty_logit_bins[count_idx]],
-                                              [acc_vs_logit[var_type][count_idx][idx].get() for idx in non_empty_logit_bins[count_idx]],
-                                              str(multiple_of_three_bin_index_to_count(count_idx))) for count_idx in range(NUM_COUNT_BINS)]
-
-                plotting.simple_plot_on_axis(acc_vs_cnt_axes[loader_idx, var_type], acc_vs_cnt_x_y_lab_tuples, None, None)
-                plotting.plot_accuracy_vs_accuracy_roc_on_axis([roc_data[var_type]], [None], roc_axes[loader_idx, var_type])
-
-                plotting.plot_accuracy_vs_accuracy_roc_on_axis(roc_data_by_cnt[var_type],
-                                                               [str(multiple_of_three_bin_index_to_count(idx)) for idx in range(NUM_COUNT_BINS)], roc_by_cnt_axes[loader_idx, var_type])
-
-                # now the plot versus output logit
-                plotting.simple_plot_on_axis(cal_axes[loader_idx, var_type], acc_vs_logit_x_y_lab_tuples, None, None)
-
-        # done collecting stats for all loaders and filling in subplots
-
-        variation_types = [var_type.name for var_type in Variation]
-        loader_names = [name for (name, loader) in loaders_by_name.items()]
-        plotting.tidy_subplots(acc_vs_cnt_fig, acc_vs_cnt_axes, x_label="alt count", y_label="accuracy", row_labels=loader_names, column_labels=variation_types)
-        plotting.tidy_subplots(roc_fig, roc_axes, x_label="non-artifact accuracy", y_label="artifact accuracy", row_labels=loader_names, column_labels=variation_types)
-        plotting.tidy_subplots(roc_by_cnt_fig, roc_by_cnt_axes, x_label="non-artifact accuracy", y_label="artifact accuracy", row_labels=loader_names, column_labels=variation_types)
-        plotting.tidy_subplots(cal_fig, cal_axes, x_label="predicted logit", y_label="accuracy", row_labels=loader_names, column_labels=variation_types)
-
-        summary_writer.add_figure("{} accuracy by alt count".format(prefix), acc_vs_cnt_fig)
-        summary_writer.add_figure(prefix + " accuracy by logit output", cal_fig)
-        summary_writer.add_figure(prefix + " variant accuracy vs artifact accuracy curve", roc_fig)
-        summary_writer.add_figure(prefix + " variant accuracy vs artifact accuracy curves by alt count", roc_by_cnt_fig)
+        evaluation_metrics.make_plots(summary_writer)
 
         # now go over just the validation data and generate feature vectors / metadata for tensorboard projectors (UMAP)
         # also generate histograms of magnitudes of average read embeddings
