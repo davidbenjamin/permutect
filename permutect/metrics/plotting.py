@@ -103,7 +103,7 @@ def plot_theoretical_roc_on_axis(predicted_error_probs, curve_labels, axis):
         dots.append((best_threshold[1], best_threshold[2], 'ro'))
         best_thresholds.append(best_threshold)
 
-    simple_plot_on_axis(axis, x_y_lab_tuples, "artifact accuracy", "non-artifact accuracy")
+    simple_plot_on_axis(axis, x_y_lab_tuples, "precision", "sensitivity")
     for x, y, spec in dots:
         axis.plot(x, y, spec, markersize=2)  # point
     return best_thresholds
@@ -168,24 +168,26 @@ def get_theoretical_roc_data(artifact_probs):
     thresh_and_accs = []  # tuples of threshold, accuracy on artifacts, accuracy on non-artifacts
     art_found, non_art_found = total_artifact, 0
     next_threshold = -1
-    best_threshold, best_f1_score = (0, 1, 0), 0 # best threshold is threshold, accuracy on artifact, accuracy on non-artifact
+    best_threshold, best_harmonic_mean = (0, 1, 0), 0 # best threshold is threshold, precision, sensitivity
     for prob in artifact_probs:
         art_found -= prob  # lose a fractional artifact
         non_art_found += (1 - prob)  # gain a fractional non-artifact
-        art_acc, non_art_acc = art_found / total_artifact, non_art_found / total_non_artifact
 
         tp = non_art_found  # non-artifacts that pass threshold are true positives
-        fn = total_non_artifact - non_art_found # false negatives
         fp = total_artifact - art_found     # artifacts that do not fail threshold are false positives
 
-        f1_score = (2 * tp) / (2 * tp + fp + fn)
+        # in sensitivity-precision mode we care about the precision, not the absolute accuracy of artifact calls
+        sensitivity = tp / total_non_artifact
+        precision = tp / (tp + fp)
 
-        if f1_score > best_f1_score:
-            best_f1_score = f1_score
-            best_threshold = (prob, art_acc, non_art_acc)
+        harmonic_mean = 0 if (precision == 0 or sensitivity == 0) else 1 / ((1 / sensitivity) + (1 / precision))
+
+        if harmonic_mean > best_harmonic_mean:
+            best_harmonic_mean = harmonic_mean
+            best_threshold = (prob, precision, sensitivity)
 
         if prob > next_threshold:
-            thresh_and_accs.append((next_threshold, art_acc, non_art_acc))
+            thresh_and_accs.append((next_threshold, precision, sensitivity))
             next_threshold = math.ceil(prob*20)/20  # we are basically having thresholds of 0.05, 0.1, 0.15. . .
     return thresh_and_accs, best_threshold
 
