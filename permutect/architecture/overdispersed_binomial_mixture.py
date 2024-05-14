@@ -6,24 +6,42 @@ from torch import nn, exp, unsqueeze, logsumexp
 from torch.nn.functional import softmax, log_softmax
 
 from permutect.metrics.plotting import simple_plot
-from permutect.utils import beta_binomial
+from permutect.utils import beta_binomial, gamma_binomial
 
 
-class BetaBinomialMixture(nn.Module):
+class OverdispersedBinomialMixture(nn.Module):
     """
     This model takes in 2D tensor inputs (1st dimension is batch, 2nd is a feature vector that in practice is one-hot
-    encoding of variant type) and as a function of input has a Beta mixture model.  That is, it computes for each input
+    encoding of variant type) and as a function of input has a Beta OR Gamma mixture model.  That is, it computes for each input
     vector 1) a vector of mixture component weights 2) a vector of the alpha shape parameters of each component and 3) a
     vector of beta shape parameters of each component.  Due to batching these are all represented as 2D tensors.
+
+    Note that both the Beta and Gamma distributions' shape parameters are traditionally called "alpha" and "beta".
 
     The computed likelihoods take in a 1D batch of total counts n and 1D batch of "success" counts k.
 
     It optionally has a max mean that scales every mean to some amount less than or equal to 1, which is useful when we want
-    to force the mixture to represent only small fractions
+    to force the mixture to represent only small fractions.
+
+    When using a BetaBinomial mixture, due to conjugacy the integral over the latent probability of success (in our uses,
+    this is the allele fraction of variants or artifacts) is exact and we use a closed form analytic expression for the
+    density of a BetaBinomial.  That is, the probability (k = alt count, n = depth, f = latent allele fraction)
+
+    P(k|n, alpha, beta) = integral{Beta(f|alpha, beta) * Binomial(k|n, f)}
+
+    is exact.
+
+    When using a GammaBinomial mixture, i.e. one with a Gamma prior Gamma(f, alpha, beta) the cannot do the integral exactly.
+    However, the *binomial* factor Binom(k|n,f), which as a function of f is a Beta distribution, is extremely well-approximated
+    by a Gamma distribution, and the product of this Gamma approximation and the Gamma prior on f *is* exactly integrable.
+
+    The approximation breaks down if the allele fractions are not small (since then the support of the Gamma for f > 1
+    becaomes significant), so we should only use the Gamma prior version to model artifact allele fractions.
     """
 
-    def __init__(self, input_size: int, num_components: int, max_mean: float = 1):
-        super(BetaBinomialMixture, self).__init__()
+    def __init__(self, input_size: int, num_components: int, max_mean: float = 1, mode: str = 'beta'):
+        super(OverdispersedBinomialMixture, self).__init__()
+        self.mode = mode
         self.num_components = num_components
         self.input_size = input_size
         self.max_mean = max_mean
@@ -68,18 +86,26 @@ class BetaBinomialMixture(nn.Module):
 
         log_weights = log_softmax(self.weights_pre_softmax(x), dim=1)
 
-        # 2D tensors -- 1st dim batch, 2nd dim mixture component
-        means = self.max_mean * torch.sigmoid(self.mean_pre_sigmoid(x))
-        concentrations = torch.exp(self.concentration_pre_exp(x))
-        alphas = means * concentrations
-        betas = (1 - means) * concentrations
-
         # we make them 2D, with 1st dim batch, to match alpha and beta.  A single column is OK because the single value of
         # n/k are broadcast over all mixture components
         n_2d = unsqueeze(n, dim=1)
         k_2d = unsqueeze(k, dim=1)
 
-        log_component_likelihoods = beta_binomial(n_2d, k_2d, alphas, betas)
+        # 2D tensors -- 1st dim batch, 2nd dim mixture component
+        means = self.max_mean * torch.sigmoid(self.mean_pre_sigmoid(x))
+        concentrations = torch.exp(self.concentration_pre_exp(x))
+
+        if self.mode == 'beta':
+            alphas = means * concentrations
+            betas = (1 - means) * concentrations
+            log_component_likelihoods = beta_binomial(n_2d, k_2d, alphas, betas)
+        elif self.mode == 'gamma':
+            alphas = means * concentrations
+            betas = concentrations
+            log_component_likelihoods = gamma_binomial(n_2d, k_2d, alphas, betas)
+        else:
+            raise Exception("we don't have that kind of mode!")
+
         log_weighted_component_likelihoods = log_weights + log_component_likelihoods
 
         # yields one number per batch, squeezed into 1D output tensor
@@ -93,7 +119,7 @@ class BetaBinomialMixture(nn.Module):
         means = self.max_mean * torch.sigmoid(self.mean_pre_sigmoid(input_2d)).squeeze()
         concentrations = torch.exp(self.concentration_pre_exp(input_2d)).squeeze()
         alphas = means * concentrations
-        betas = (1 - means) * concentrations
+        betas = (1 - means) * concentrations if self.mode == 'beta' else concentrations
         return alphas, betas
 
     def component_weights(self, input_1d):
@@ -104,6 +130,7 @@ class BetaBinomialMixture(nn.Module):
     # given 1D input tensor, return the moments E[x], E[ln(x)], and E[x ln(x)] of the underlying beta mixture
     def moments_of_underlying_beta_mixture(self, input_1d):
         assert input_1d.dim() == 1
+        assert self.mode == 'beta'
         alphas, betas = self.component_shapes(input_1d)
         weights = self.component_weights(input_1d)
 
@@ -141,9 +168,9 @@ class BetaBinomialMixture(nn.Module):
         means = self.max_mean * torch.sigmoid(self.mean_pre_sigmoid(x).detach()).gather(dim=1, index=component_indices).squeeze()
         concentrations = torch.exp(self.concentration_pre_exp(x).detach()).gather(dim=1, index=component_indices).squeeze()
         alphas = means * concentrations
-        betas = (1 - means) * concentrations
-
-        fractions = torch.distributions.beta.Beta(alphas, betas).sample()  # 1D tensor
+        betas = (1 - means) * concentrations if self.mode == 'beta' else concentrations
+        dist = torch.distributions.beta.Beta(alphas, betas) if self.mode == 'beta' else torch.distributions.gamma.Gamma(alphas, betas)
+        fractions = dist.sample()  # 1D tensor
 
         # recall, n and fractions are 1D tensors; result is also 1D tensor, one "success" count per datum
         return torch.distributions.binomial.Binomial(total_count=n, probs=fractions).sample()
@@ -178,12 +205,13 @@ class BetaBinomialMixture(nn.Module):
         means = self.max_mean * torch.sigmoid(self.mean_pre_sigmoid(unsqueezed).detach())
         concentrations = torch.exp(self.concentration_pre_exp(unsqueezed).detach())
         alphas = means * concentrations
-        betas = (1 - means) * concentrations
+        betas = (1 - means) * concentrations if self.mode == 'beta' else concentrations
 
         # since f.unsqueeze(dim=1) is 2D column vector, log_prob produces 2D tensor where row index is f and column index is mixture component
         # adding the single-row 2D tensor log_weights broadcasts to each row / value of f
         # then we apply log_sum_exp, dim= 1, to sum over components and get a log_density for each f
-        densities = exp(torch.logsumexp(log_weights + torch.distributions.beta.Beta(alphas, betas).log_prob(fractions.unsqueeze(dim=1)), dim=1, keepdim=False))  # 1D tensor
+        dist = torch.distributions.beta.Beta(alphas, betas) if self.mode == 'beta' else torch.distributions.gamma.Gamma(alphas, betas)
+        densities = exp(torch.logsumexp(log_weights + dist.log_prob(fractions.unsqueeze(dim=1)), dim=1, keepdim=False))  # 1D tensor
 
         return fractions, densities
 
@@ -202,7 +230,7 @@ class FeaturelessBetaBinomialMixture(nn.Module):
 
     def __init__(self, num_components):
         super(FeaturelessBetaBinomialMixture, self).__init__()
-        self.beta_binomial_mixture = BetaBinomialMixture(1, num_components)
+        self.beta_binomial_mixture = OverdispersedBinomialMixture(1, num_components)
 
     '''
     n and k are 1D tensors, the only dimension being batch.
