@@ -6,7 +6,7 @@ from torch import nn, exp, unsqueeze, logsumexp
 from torch.nn.functional import softmax, log_softmax
 
 from permutect.metrics.plotting import simple_plot
-from permutect.utils import beta_binomial, gamma_binomial
+from permutect.utils import beta_binomial, gamma_binomial, binomial
 
 
 class OverdispersedBinomialMixture(nn.Module):
@@ -37,6 +37,9 @@ class OverdispersedBinomialMixture(nn.Module):
 
     The approximation breaks down if the allele fractions are not small (since then the support of the Gamma for f > 1
     becaomes significant), so we should only use the Gamma prior version to model artifact allele fractions.
+
+    In addition to 'beta' and 'gamma' modes, there is also the 'none' mode which has no overdispersion in the individual components.
+    That is, each component is a plain binomial, though of course by virtue of being a mixture the distribution as a whole is overdispersed.
     """
 
     def __init__(self, input_size: int, num_components: int, max_mean: float = 1, mode: str = 'beta'):
@@ -103,6 +106,9 @@ class OverdispersedBinomialMixture(nn.Module):
             alphas = means * concentrations
             betas = concentrations
             log_component_likelihoods = gamma_binomial(n_2d, k_2d, alphas, betas)
+        elif self.mode == 'none':
+            # each mean is the center of a binomial
+            log_component_likelihoods = binomial(n_2d, k_2d, means)
         else:
             raise Exception("we don't have that kind of mode!")
 
@@ -198,22 +204,31 @@ class OverdispersedBinomialMixture(nn.Module):
     here x is a 1D tensor, a single datum/row of the 2D tensors as above
     '''
     def spectrum_density_vs_fraction(self, x):
-        fractions = torch.arange(0.01, 0.99, 0.01)  # 1D tensor
+        fractions = torch.arange(0.01, 0.99, 0.001)  # 1D tensor
 
         unsqueezed = x.unsqueeze(dim=0)  # this and the three following tensors are 2D tensors with one row
         log_weights = log_softmax(self.weights_pre_softmax(unsqueezed).detach(), dim=1)
         means = self.max_mean * torch.sigmoid(self.mean_pre_sigmoid(unsqueezed).detach())
-        concentrations = torch.exp(self.concentration_pre_exp(unsqueezed).detach())
-        alphas = means * concentrations
-        betas = (1 - means) * concentrations if self.mode == 'beta' else concentrations
 
-        # since f.unsqueeze(dim=1) is 2D column vector, log_prob produces 2D tensor where row index is f and column index is mixture component
-        # adding the single-row 2D tensor log_weights broadcasts to each row / value of f
-        # then we apply log_sum_exp, dim= 1, to sum over components and get a log_density for each f
-        dist = torch.distributions.beta.Beta(alphas, betas) if self.mode == 'beta' else torch.distributions.gamma.Gamma(alphas, betas)
-        densities = exp(torch.logsumexp(log_weights + dist.log_prob(fractions.unsqueeze(dim=1)), dim=1, keepdim=False))  # 1D tensor
+        if self.mode == 'none':
+            # this is copied from the beta case below -- basically we smear each delta function / discrete binomial
+            # into a narrow Gaussian
+            dist = torch.distributions.normal.Normal(means, 0.01 * torch.ones_like(means))
+            densities = exp(torch.logsumexp(log_weights + dist.log_prob(fractions.unsqueeze(dim=1)), dim=1,
+                                            keepdim=False))  # 1D tensor
+            return fractions, densities
+        else:
+            concentrations = torch.exp(self.concentration_pre_exp(unsqueezed).detach())
+            alphas = means * concentrations
+            betas = (1 - means) * concentrations if self.mode == 'beta' else concentrations
 
-        return fractions, densities
+            # since f.unsqueeze(dim=1) is 2D column vector, log_prob produces 2D tensor where row index is f and column index is mixture component
+            # adding the single-row 2D tensor log_weights broadcasts to each row / value of f
+            # then we apply log_sum_exp, dim= 1, to sum over components and get a log_density for each f
+            dist = torch.distributions.beta.Beta(alphas, betas) if self.mode == 'beta' else torch.distributions.gamma.Gamma(alphas, betas)
+            densities = exp(torch.logsumexp(log_weights + dist.log_prob(fractions.unsqueeze(dim=1)), dim=1, keepdim=False))  # 1D tensor
+
+            return fractions, densities
 
     '''
     here x is a 1D tensor, a single datum/row of the 2D tensors as above
