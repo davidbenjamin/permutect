@@ -43,7 +43,7 @@ def germline_log_likelihood(afs, mafs, alt_counts, ref_counts):
 
 
 def initialize_artifact_spectra():
-    return OverdispersedBinomialMixture(input_size=len(Variation), num_components=20, max_mean=0.4, mode='none')
+    return OverdispersedBinomialMixture(input_size=len(Variation), num_components=5, max_mean=0.4, mode='gamma')
 
 
 # TODO: max_mean is hard-coded magic constant!!
