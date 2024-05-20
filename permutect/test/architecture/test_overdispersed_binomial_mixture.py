@@ -1,6 +1,6 @@
 import torch
 from torch.distributions.binomial import Binomial
-from permutect.architecture.beta_binomial_mixture import BetaBinomialMixture
+from permutect.architecture.overdispersed_binomial_mixture import OverdispersedBinomialMixture
 
 
 # given a discrete distribution of allele fractions between 0 and 1, and desired depths, generate alt counts,
@@ -15,7 +15,7 @@ def test_on_discrete_af_distribution(fractions_1d: torch.Tensor, weights_1d: tor
     empirical_counts = Binomial(training_depths_1d, empirical_fractions_1d).sample().squeeze()
     dummy_input = torch.ones((len(empirical_counts), 1))
 
-    model = BetaBinomialMixture(input_size=1, num_components=num_components)
+    model = OverdispersedBinomialMixture(input_size=1, num_components=num_components)
     model.fit(num_epochs=num_epochs, inputs_2d_tensor=dummy_input, depths_1d_tensor=training_depths_1d,
               alt_counts_1d_tensor=empirical_counts)
 

@@ -9,7 +9,7 @@ from torch.utils.tensorboard import SummaryWriter
 from tqdm.autonotebook import trange, tqdm
 
 from permutect import utils
-from permutect.architecture.beta_binomial_mixture import BetaBinomialMixture, FeaturelessBetaBinomialMixture
+from permutect.architecture.overdispersed_binomial_mixture import OverdispersedBinomialMixture, FeaturelessBetaBinomialMixture
 from permutect.architecture.normal_seq_error_spectrum import NormalSeqErrorSpectrum
 from permutect.data.posterior import PosteriorBatch
 from permutect.metrics import plotting
@@ -43,15 +43,15 @@ def germline_log_likelihood(afs, mafs, alt_counts, ref_counts):
 
 
 def initialize_artifact_spectra():
-    return BetaBinomialMixture(input_size=len(Variation), num_components=5)
+    return OverdispersedBinomialMixture(input_size=len(Variation), num_components=5, max_mean=0.4, mode='gamma')
 
 
 # TODO: max_mean is hard-coded magic constant!!
 def initialize_normal_artifact_spectra():
-    return BetaBinomialMixture(input_size=len(Variation), num_components=1, max_mean=0.1)
+    return OverdispersedBinomialMixture(input_size=len(Variation), num_components=1, max_mean=0.1, mode='beta')
 
 
-def plot_artifact_spectra(artifact_spectra: BetaBinomialMixture):
+def plot_artifact_spectra(artifact_spectra: OverdispersedBinomialMixture):
     # plot AF spectra in two-column grid with as many rows as needed
     art_spectra_fig, art_spectra_axs = plt.subplots(ceil(len(Variation) / 2), 2, sharex='all', sharey='all')
     for variant_type in Variation:

@@ -136,11 +136,38 @@ def f_score(tp, fp, total_true):
 # the result is computed element-wise ie result[i,j. . .] = beta_binomial(n[i,j..], k[i,j..], alpha[i,j..], beta[i,j..)
 # often n, k will correspond to a batch dimension and alpha, beta correspond to a model, in which case
 # unsqueezing is necessary
-# NOTE: this excludes the nCk factor
+# NOTE: this includes the nCk factor
 def beta_binomial(n, k, alpha, beta):
     combinatorial_term = torch.lgamma(n + 1) - torch.lgamma(n - k + 1) - torch.lgamma(k + 1)
     return combinatorial_term + torch.lgamma(k + alpha) + torch.lgamma(n - k + beta) + torch.lgamma(alpha + beta) \
            - torch.lgamma(n + alpha + beta) - torch.lgamma(alpha) - torch.lgamma(beta)
+
+
+# note: this function works for n, k, p tensors of the same shape
+# the result is computed element-wise ie result[i,j. . .] = binomial(n[i,j..], k[i,j..], p[i,j..])
+# often n, k will correspond to a batch dimension and p correspond to a model, in which case
+# unsqueezing is necessary
+# NOTE: this includes the nCk factor
+def binomial(n, k, p):
+    combinatorial_term = torch.lgamma(n + 1) - torch.lgamma(n - k + 1) - torch.lgamma(k + 1)
+    return combinatorial_term + k * torch.log(p) + (n - k) * torch.log(1 - p)
+
+
+# note: this function works for n, k, alpha, beta tensors of the same shape
+# the result is computed element-wise ie result[i,j. . .] = gamma_binomial(n[i,j..], k[i,j..], alpha[i,j..], beta[i,j..)
+# often n, k will correspond to a batch dimension and alpha, beta correspond to a model, in which case
+# unsqueezing is necessary
+# NOTE: this includes the nCk factor
+# WARNING: the approximations here only work if Gamma(f|alpha, beta) has very little density for f > 1
+# see pp 2 - 4 of my notebook
+def gamma_binomial(n, k, alpha, beta):
+    alpha_tilde = (k + 1) * (n + 2) / (n - k + 1)
+    beta_tilde = (n + 1) * (n + 2) / (n - k + 1)
+
+    exponent_term = alpha_tilde * torch.log(beta_tilde) + alpha * torch.log(beta) -\
+                    (alpha + alpha_tilde - 1) * torch.log(beta + beta_tilde)
+    gamma_term = torch.lgamma(alpha + alpha_tilde - 1) - torch.lgamma(alpha) - torch.lgamma(alpha_tilde)
+    return exponent_term + gamma_term - torch.log(n + 1)
 
 
 class StreamingAverage:
