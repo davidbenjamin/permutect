@@ -1,54 +1,13 @@
-# bug before PyTorch 1.7.1 that warns when constructing ParameterList
-import warnings
-from typing import List
-
-import torch
-from torch import nn, Tensor
-import numpy as np
-from torch.utils.tensorboard import SummaryWriter
-
-
-from tqdm.autonotebook import trange, tqdm
-from itertools import chain
-from matplotlib import pyplot as plt
-
-from permutect.architecture.mlp import MLP
-from permutect.architecture.monotonic import MonoDense
-from permutect.architecture.dna_sequence_convolution import DNASequenceConvolution
-from permutect.data.read_set import ReadSetBatch
-from permutect.data.read_set_dataset import ReadSetDataset, make_data_loader
-from permutect import utils
-from permutect.metrics.evaluation_metrics import LossMetrics, EvaluationMetrics, NUM_COUNT_BINS, \
-    multiple_of_three_bin_index_to_count, multiple_of_three_bin_index, MAX_COUNT, round_up_to_nearest_three
-from permutect.utils import Variation, Epoch
-from permutect.metrics import plotting
-
-warnings.filterwarnings("ignore", message="Setting attributes on ParameterList is not supported.")
-
-NUM_DATA_FOR_TENSORBOARD_PROJECTION = 10000
-
-
-def effective_count(weights: Tensor):
-    return (torch.square(torch.sum(weights)) / torch.sum(torch.square(weights))).item()
-
-
-# group rows into consecutive chunks to yield a 3D tensor, average over dim=1 to get
-# 2D tensor of sums within each chunk
-def sums_over_chunks(tensor2d: Tensor, chunk_size: int):
-    assert len(tensor2d) % chunk_size == 0
-    return torch.sum(tensor2d.reshape([len(tensor2d) // chunk_size, chunk_size, -1]), dim=1)
-
-
 # note that read layers and info layers exclude the input dimension
 # read_embedding_dimension: read tensors are linear-transformed to this dimension before
 #    input to the transformer.  This is also the output dimension of reads from the transformer
 # num_transformer_heads: number of attention heads in the read transformer.  Must be a divisor
 #    of the read_embedding_dimension
 # num_transformer_layers: number of layers of read transformer
-class ArtifactModelParameters:
+class ReadSetEmbeddingParameters:
     def __init__(self,
-                 read_embedding_dimension: int, num_transformer_heads: int, transformer_hidden_dimension: int,
-                 num_transformer_layers: int, info_layers, aggregation_layers, calibration_layers,
+                 read_embedding_dimension, num_transformer_heads, transformer_hidden_dimension,
+                 num_transformer_layers, info_layers, aggregation_layers, calibration_layers,
                  ref_seq_layers_strings, dropout_p, batch_normalize, learning_rate, weight_decay,
                  alt_downsample):
 
@@ -69,61 +28,10 @@ class ArtifactModelParameters:
         self.alt_downsample = alt_downsample
 
 
-class Calibration(nn.Module):
 
-    def __init__(self, hidden_layer_sizes: List[int]):
-        super(Calibration, self).__init__()
+# Just copy-pasted below this point
 
-        # calibration takes [logit, ref count, alt count] as input and maps it to [calibrated logit]
-        # it is monotonically increasing in each input
-        # we initialize it to calibrated logit = input logit
-
-        # likewise, we cap the effective alt and ref counts to avoid arbitrarily large confidence
-        self.max_alt = nn.Parameter(torch.tensor(20.0))
-        self.max_ref = nn.Parameter(torch.tensor(20.0))
-
-        # because calibration is monotonic in the magnitude of the logit, not the logit itself i.e. more reads pushes
-        # the logit away from zero, not simply up, we have two monotonic networks, one for positive and one for negative
-
-        # for positive input logit the calibrated logit grows more positive with the input and the read support
-        self.monotonic_positive = MonoDense(3, hidden_layer_sizes + [1], 3, 0)
-
-        # for negative input logit the calibrated logit grows more negative with the read support
-        self.monotonic_negative = MonoDense(3, hidden_layer_sizes + [1], 1, 2)  # monotonically increasing in each input
-
-    def calibrated_logits(self, logits: Tensor, ref_counts: Tensor, alt_counts: Tensor):
-
-        # scale counts and make everything batch size x 1 column tensors
-        ref_eff = torch.tanh(ref_counts / self.max_ref).reshape(-1, 1)
-        alt_eff = torch.tanh(alt_counts / self.max_alt).reshape(-1, 1)
-        logits_2d = logits.reshape(-1, 1)
-        input_2d = torch.hstack([logits_2d, ref_eff, alt_eff])
-
-        is_positive = torch.where(logits > 0, 1.0, 0.0)
-        return self.monotonic_positive.forward(input_2d).squeeze() * is_positive + self.monotonic_negative.forward(input_2d).squeeze() * (1 - is_positive)
-
-    def forward(self, logits, ref_counts: Tensor, alt_counts: Tensor):
-        return self.calibrated_logits(logits, ref_counts, alt_counts)
-
-    def plot_calibration(self):
-        alt_counts = [1, 3, 5, 10, 15, 20]
-        ref_counts = [1, 3, 5, 10, 15, 20]
-        logits = torch.range(-10, 10, 0.1)
-        cal_fig,cal_axes = plt.subplots(len(alt_counts), len(ref_counts), sharex='all', sharey='all',
-                                        squeeze=False, figsize=(10, 6), dpi=100)
-
-        for row_idx, alt_count in enumerate(alt_counts):
-            for col_idx, ref_count in enumerate(ref_counts):
-                calibrated = self.forward(logits, ref_count * torch.ones_like(logits), alt_count * torch.ones_like(logits))
-                plotting.simple_plot_on_axis(cal_axes[row_idx, col_idx], [(logits.detach(), calibrated.detach(), "")], None, None)
-
-        plotting.tidy_subplots(cal_fig, cal_axes, x_label="alt count", y_label="ref count",
-                               row_labels=[str(n) for n in ref_counts], column_labels=[str(n) for n in alt_counts])
-
-        return cal_fig, cal_axes
-
-
-class ArtifactModel(nn.Module):
+class ReadSetEmbedding(nn.Module):
     """
     DeepSets framework for reads and variant info.  We embed each read and concatenate the mean ref read
     embedding, mean alt read embedding, and variant info embedding, then apply an aggregation function to

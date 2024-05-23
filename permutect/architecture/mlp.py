@@ -1,4 +1,5 @@
-from torch import nn
+from torch import nn, Tensor
+from typing import List
 
 
 class DenseSkipBlock(nn.Module):
@@ -6,7 +7,7 @@ class DenseSkipBlock(nn.Module):
     computes x + f(x) where f(x) has some given number of linear layers, each with input and output dimension equal
     to that of the input x.  As suggested in arxiv:1603.05027, Identity Maps in Deep Residual Networks, nonlinearities come before each linear transformation
     """
-    def __init__(self, input_size: int, num_layers: int, batch_normalize: bool = False, dropout_p=None):
+    def __init__(self, input_size: int, num_layers: int, batch_normalize: bool = False, dropout_p: float = 0):
         super(DenseSkipBlock, self).__init__()
         self.mlp = MLP((num_layers + 1)*[input_size], batch_normalize, dropout_p, prepend_relu=True)
 
@@ -22,7 +23,7 @@ class MLP(nn.Module):
     is applied after the last linear transformation.
     """
 
-    def __init__(self, layer_sizes, batch_normalize=False, dropout_p=None, prepend_relu=False):
+    def __init__(self, layer_sizes: List[int], batch_normalize: bool = False, dropout_p: float = 0, prepend_relu: bool = False):
         super(MLP, self).__init__()
 
         layers = [nn.LeakyReLU()] if prepend_relu else []
@@ -39,7 +40,7 @@ class MLP(nn.Module):
 
             layers.append(nn.Linear(input_dim, output_dim))
 
-            if dropout_p is not None and dropout_p > 0:
+            if dropout_p > 0:
                 layers.append(nn.Dropout(p=dropout_p))
 
             # k runs from 0 to len(layer_sizes) - 2.  Omit the nonlinearity after the last layer.
@@ -51,8 +52,8 @@ class MLP(nn.Module):
         self._output_dim = input_dim
         self._model = nn.Sequential(*layers)
 
-    def output_dimension(self):
+    def output_dimension(self) -> int:
         return self._output_dim
 
-    def forward(self, x):
+    def forward(self, x: Tensor) -> Tensor:
         return self._model.forward(x)
