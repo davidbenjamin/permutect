@@ -37,13 +37,14 @@ class LearningMethod(Enum):
 
 
 class ReadSetEmbeddingParameters:
-    ''' note that read layers and info layers exclude the input dimension
+    """
+    note that read layers and info layers exclude the input dimension
     read_embedding_dimension: read tensors are linear-transformed to this dimension before
     input to the transformer.  This is also the output dimension of reads from the transformer
     num_transformer_heads: number of attention heads in the read transformer.  Must be a divisor
         of the read_embedding_dimension
     num_transformer_layers: number of layers of read transformer
-    '''
+    """
     def __init__(self, read_embedding_dimension: int, num_transformer_heads: int, transformer_hidden_dimension: int,
                  num_transformer_layers: int, info_layers: List[int], aggregation_layers: List[int],
                  ref_seq_layers_strings: List[str], dropout_p: float, batch_normalize: bool = False, alt_downsample: int = 100):
@@ -305,101 +306,3 @@ class ReadSetEmbedding(torch.nn.Module):
             # done with training and validation for this epoch
             # note that we have not learned the AF spectrum yet
         # done with training
-
-    # generators by name is eg {"train": train_generator, "valid": valid_generator}
-    def evaluate_model_after_training(self, dataset, batch_size, num_workers, summary_writer: SummaryWriter):
-        train_loader = dataset.make_data_loader(dataset.all_but_the_last_fold(), batch_size, self._device.type == 'cuda', num_workers)
-        valid_loader = dataset.make_data_loader(dataset.last_fold_only(), batch_size, self._device.type == 'cuda', num_workers)
-        epoch_types = [Epoch.TRAIN, Epoch.VALID]
-        utils.freeze(self.parameters())
-        self.cpu()
-        self._device = "cpu"
-
-        log_artifact_to_non_artifact_ratios = torch.from_numpy(np.log(dataset.artifact_to_non_artifact_ratios()))
-        evaluation_metrics = EvaluationMetrics()
-        for epoch_type in epoch_types:
-            assert epoch_type == Epoch.TRAIN or epoch_type == Epoch.VALID   # not doing TEST here
-            loader = train_loader if epoch_type == Epoch.TRAIN else valid_loader
-            pbar = tqdm(enumerate(filter(lambda bat: bat.is_labeled(), loader)), mininterval=60)
-            for n, batch in pbar:
-                # In training we minimize the cross entropy loss wrt the posterior probability, accounting for priors;
-                # Here we are considering artifacts and non-artifacts separately and use the uncorrected likelihood logits
-                pred = self.forward(batch)
-                correct = ((pred > 0) == (batch.labels > 0.5)).tolist()
-
-                for variant_type, predicted_logit, label, correct_call in zip(batch.variant_types(), pred.tolist(), batch.labels.tolist(), correct):
-                    evaluation_metrics.record_call(epoch_type, variant_type, predicted_logit, label, correct_call, batch.alt_count)
-            # done with this epoch type
-        # done collecting data
-
-        evaluation_metrics.make_plots(summary_writer)
-
-        # now go over just the validation data and generate feature vectors / metadata for tensorboard projectors (UMAP)
-        # also generate histograms of magnitudes of average read embeddings
-        pbar = tqdm(enumerate(filter(lambda bat: bat.is_labeled(), valid_loader)), mininterval=60)
-
-        # things we will collect for the projections
-        label_metadata = []     # list (extended by each batch) 1 if artifact, 0 if not
-        correct_metadata = []   # list (extended by each batch), 1 if correct prediction, 0 if not
-        type_metadata = []      # list of lists, strings of variant type
-        truncated_count_metadata = []   # list of lists
-        average_read_embedding_features = []    # list of 2D tensors (to be stacked into a single 2D tensor), average read embedding over batches
-
-        for n, batch in pbar:
-            types_one_hot = batch.variant_type_one_hot()
-            log_prior_odds = torch.sum(log_artifact_to_non_artifact_ratios * types_one_hot, dim=1)
-
-            pred = self.forward(batch)
-            posterior_pred = pred + log_prior_odds
-            correct = ((posterior_pred > 0) == (batch.labels > 0.5)).tolist()
-
-            label_metadata.extend(["artifact" if x > 0.5 else "non-artifact" for x in batch.labels.tolist()])
-            correct_metadata.extend([str(val) for val in correct])
-            type_metadata.extend([Variation(idx).name for idx in batch.variant_types()])
-            truncated_count_metadata.extend(batch.size() * [str(round_up_to_nearest_three(min(MAX_COUNT, batch.alt_count)))])
-
-            transformed_reads = self.apply_transformer_to_reads(batch)
-            alt_means = self.embeddings_from_transformed_reads(transformed_reads, batch, extra_output=True)
-            average_read_embedding_features.append(alt_means)
-        # done collecting data
-
-        # downsample to a reasonable amount of UMAP data
-        all_metadata=list(zip(label_metadata, correct_metadata, type_metadata, truncated_count_metadata))
-        idx = np.random.choice(len(all_metadata), size=min(NUM_DATA_FOR_TENSORBOARD_PROJECTION, len(all_metadata)), replace=False)
-
-        summary_writer.add_embedding(torch.vstack(average_read_embedding_features)[idx],
-                                     metadata=[all_metadata[n] for n in idx],
-                                     metadata_header=["Labels", "Correctness", "Types", "Counts"],
-                                     tag="mean read embedding")
-
-        # read average embeddings stratified by variant type
-        for variant_type in Variation:
-            variant_name = variant_type.name
-            indices = [n for n, type_name in enumerate(type_metadata) if type_name == variant_name]
-            indices = sample_indices_for_tensorboard(indices)
-            summary_writer.add_embedding(torch.vstack(average_read_embedding_features)[indices],
-                                         metadata=[all_metadata[n] for n in indices],
-                                         metadata_header=["Labels", "Correctness", "Types", "Counts"],
-                                         tag="mean read embedding for variant type " + variant_name)
-
-        # read average embeddings stratified by alt count
-        for row_idx in range(NUM_COUNT_BINS):
-            count = multiple_of_three_bin_index_to_count(row_idx)
-            indices = [n for n, alt_count in enumerate(truncated_count_metadata) if alt_count == str(count)]
-            indices = sample_indices_for_tensorboard(indices)
-            if len(indices) > 0:
-                summary_writer.add_embedding(torch.vstack(average_read_embedding_features)[indices],
-                                        metadata=[all_metadata[n] for n in indices],
-                                        metadata_header=["Labels", "Correctness", "Types", "Counts"],
-                                        tag="mean read embedding for alt count " + str(count))
-
-
-def sample_indices_for_tensorboard(indices: List[int]):
-    indices_np = np.array(indices)
-
-    if len(indices_np) <= NUM_DATA_FOR_TENSORBOARD_PROJECTION:
-        return indices_np
-
-    idx = np.random.choice(len(indices_np), size=NUM_DATA_FOR_TENSORBOARD_PROJECTION, replace=False)
-    return indices_np[idx]
-
