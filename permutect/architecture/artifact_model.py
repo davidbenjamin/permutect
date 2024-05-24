@@ -16,7 +16,7 @@ from permutect.architecture.mlp import MLP
 from permutect.architecture.monotonic import MonoDense
 from permutect.architecture.dna_sequence_convolution import DNASequenceConvolution
 from permutect.data.read_set import ReadSetBatch
-from permutect.data.read_set_dataset import ReadSetDataset, make_data_loader
+from permutect.data.read_set_dataset import ReadSetDataset
 from permutect import utils
 from permutect.metrics.evaluation_metrics import LossMetrics, EvaluationMetrics, NUM_COUNT_BINS, \
     multiple_of_three_bin_index_to_count, multiple_of_three_bin_index, MAX_COUNT, round_up_to_nearest_three
@@ -360,8 +360,8 @@ class ArtifactModel(nn.Module):
                   .format(variation_type.name, dataset.artifact_totals[idx].item(), dataset.non_artifact_totals[idx].item()))
 
         validation_fold_to_use = (dataset.num_folds - 1) if validation_fold is None else validation_fold
-        train_loader = make_data_loader(dataset, dataset.all_but_one_fold(validation_fold_to_use), batch_size, self._device.type == 'cuda', num_workers)
-        valid_loader = make_data_loader(dataset, [validation_fold_to_use], batch_size, self._device.type == 'cuda', num_workers)
+        train_loader = dataset.make_data_loader(dataset.all_but_one_fold(validation_fold_to_use), batch_size, self._device.type == 'cuda', num_workers)
+        valid_loader = dataset.make_data_loader([validation_fold_to_use], batch_size, self._device.type == 'cuda', num_workers)
 
         for epoch in trange(1, num_epochs + 1 + num_calibration_epochs, desc="Epoch"):
             is_calibration_epoch = epoch > num_epochs
@@ -412,8 +412,8 @@ class ArtifactModel(nn.Module):
 
     # generators by name is eg {"train": train_generator, "valid": valid_generator}
     def evaluate_model_after_training(self, dataset, batch_size, num_workers, summary_writer: SummaryWriter):
-        train_loader = make_data_loader(dataset, dataset.all_but_the_last_fold(), batch_size, self._device.type == 'cuda', num_workers)
-        valid_loader = make_data_loader(dataset, dataset.last_fold_only(), batch_size, self._device.type == 'cuda', num_workers)
+        train_loader = dataset.make_data_loader(dataset.all_but_the_last_fold(), batch_size, self._device.type == 'cuda', num_workers)
+        valid_loader = dataset.make_data_loader(dataset.last_fold_only(), batch_size, self._device.type == 'cuda', num_workers)
         epoch_types = [Epoch.TRAIN, Epoch.VALID]
         self.freeze_all()
         self.cpu()

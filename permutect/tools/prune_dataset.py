@@ -14,7 +14,7 @@ from torch.utils.tensorboard import SummaryWriter
 
 from permutect import constants, utils
 from permutect.architecture.artifact_model import ArtifactModelParameters, ArtifactModel
-from permutect.data.read_set_dataset import ReadSetDataset, make_data_loader, make_read_set_generator_from_tarfile
+from permutect.data.read_set_dataset import ReadSetDataset, make_read_set_generator_from_tarfile
 from permutect.tools.train_model import TrainingParameters, parse_hyperparams, parse_training_params, \
     add_artifact_model_hyperparameters_to_parser, add_artifact_model_training_hyperparameters_to_parser
 from permutect.utils import MutableInt
@@ -44,7 +44,7 @@ def prune_training_data(hyperparams: ArtifactModelParameters, params: TrainingPa
         average_artifact_confidence, average_nonartifact_confidence = utils.StreamingAverage(), utils.StreamingAverage()
 
         # now we go over all the labeled data in the validation set -- that is, the current fold -- and perform rank pruning
-        valid_loader = make_data_loader(dataset, [fold], params.batch_size, use_gpu, params.num_workers)
+        valid_loader = dataset.make_data_loader([fold], params.batch_size, use_gpu, params.num_workers)
 
         # TODO: eventually this should all be segregated by variant type
 

@@ -105,6 +105,10 @@ class ReadSetDataset(Dataset):
     def all_folds(self):
         return list(range(self.num_folds))
 
+    def make_data_loader(self, folds_to_use: List[int], batch_size: int, pin_memory=False, num_workers: int = 0):
+        sampler = SemiSupervisedBatchSampler(self, batch_size, folds_to_use)
+        return DataLoader(dataset=self, batch_sampler=sampler, collate_fn=ReadSetBatch, pin_memory=pin_memory, num_workers=num_workers)
+
 
 # from a generator that yields read sets, create a generator that yields
 # ref tensor, alt tensor, ref sequence tensor, info tensor, label tensor, ref tensor alt tensor. . .
@@ -135,11 +139,6 @@ def make_read_set_generator_from_tarfile(data_tarfile):
     for file in data_files:
         for datum in load_list_of_read_sets(file):
             yield datum
-
-
-def make_data_loader(dataset: ReadSetDataset, folds_to_use: List[int], batch_size: int, pin_memory=False, num_workers: int = 0):
-    sampler = SemiSupervisedBatchSampler(dataset, batch_size, folds_to_use)
-    return DataLoader(dataset=dataset, batch_sampler=sampler, collate_fn=ReadSetBatch, pin_memory=pin_memory, num_workers=num_workers)
 
 
 # ex: chunk([a,b,c,d,e], 3) = [[a,b,c], [d,e]]

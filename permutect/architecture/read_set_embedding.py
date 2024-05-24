@@ -2,23 +2,33 @@ from itertools import chain
 from typing import List, Iterable
 
 import torch
+from torch.utils.tensorboard import SummaryWriter
+from tqdm.notebook import trange, tqdm
 
-
-
-# note that read layers and info layers exclude the input dimension
-# read_embedding_dimension: read tensors are linear-transformed to this dimension before
-#    input to the transformer.  This is also the output dimension of reads from the transformer
-# num_transformer_heads: number of attention heads in the read transformer.  Must be a divisor
-#    of the read_embedding_dimension
-# num_transformer_layers: number of layers of read transformer
 from permutect import utils
 from permutect.architecture.dna_sequence_convolution import DNASequenceConvolution
 from permutect.architecture.mlp import MLP
 from permutect.data.read_set import ReadSetBatch
-from permutect.utils import Variation
+from permutect.data.read_set_dataset import ReadSetDataset
+from permutect.metrics.evaluation_metrics import LossMetrics, EvaluationMetrics
+from permutect.utils import Variation, Epoch
+
+
+# group rows into consecutive chunks to yield a 3D tensor, average over dim=1 to get
+# 2D tensor of sums within each chunk
+def sums_over_chunks(tensor2d: torch.Tensor, chunk_size: int):
+    assert len(tensor2d) % chunk_size == 0
+    return torch.sum(tensor2d.reshape([len(tensor2d) // chunk_size, chunk_size, -1]), dim=1)
 
 
 class ReadSetEmbeddingParameters:
+    ''' note that read layers and info layers exclude the input dimension
+    read_embedding_dimension: read tensors are linear-transformed to this dimension before
+    input to the transformer.  This is also the output dimension of reads from the transformer
+    num_transformer_heads: number of attention heads in the read transformer.  Must be a divisor
+        of the read_embedding_dimension
+    num_transformer_layers: number of layers of read transformer
+    '''
     def __init__(self, read_embedding_dimension: int, num_transformer_heads: int, transformer_hidden_dimension: int,
                  num_transformer_layers: int, info_layers: List[int], aggregation_layers: List[int],
                  ref_seq_layers_strings: List[str], dropout_p: float, batch_normalize: bool = False, alt_downsample: int = 100):
@@ -166,14 +176,11 @@ class ReadSetEmbedding(torch.nn.Module):
 
     # input: reads that have passed through the alt/ref transformers
     # output: reads that have been refined through the rho subnetwork that sees the transformed alts along with ref, alt, and info
-    def forward_from_transformed_reads_to_refined_reads(self, transformed_reads: torch.Tensor, batch: ReadSetBatch, weight_range: float = 0, extra_output: bool = False):
+    def embeddings_from_transformed_reads(self, transformed_reads: torch.Tensor, batch: ReadSetBatch, weight_range: float = 0, extra_output: bool = False):
         weights = torch.ones(len(transformed_reads), 1, device=self._device) if weight_range == 0 else (1 + weight_range * (1 - 2 * torch.rand(len(transformed_reads), 1, device=self._device)))
 
         ref_count, alt_count = batch.ref_count, min(batch.alt_count, self.alt_downsample)
         total_ref, total_alt = ref_count * batch.size(), alt_count * batch.size()
-
-        alt_wts = weights[total_ref:]
-        alt_wt_sums = sums_over_chunks(alt_wts, alt_count)
 
         # mean embedding of every read, alt and ref, at each datum
         all_read_means = ((0 if ref_count == 0 else sums_over_chunks(transformed_reads[:total_ref], ref_count)) + sums_over_chunks(transformed_reads[total_ref:], alt_count)) / (alt_count + ref_count)
@@ -199,16 +206,16 @@ class ReadSetEmbedding(torch.nn.Module):
             refined_alt += mask * self.rho[n].forward(padded_transformed_alt_reads)
 
         # weighted mean is sum of reads in a chunk divided by sum of weights in same chunk
+        alt_wts = weights[total_ref:]
+        alt_wt_sums = sums_over_chunks(alt_wts, alt_count)
         return sums_over_chunks(alt_wts * refined_alt, alt_count) / alt_wt_sums     # shape is (batch size, output dimension)
 
-
-
-    def train_model(self, dataset: ReadSetDataset, num_epochs, batch_size, num_workers,
-                    summary_writer: SummaryWriter, reweighting_range: float, hyperparams: ArtifactModelParameters,
+    # TODO: we need to attach an MLP on top of the embedding model to output logits, then train this combination
+    def train_model(self, dataset: ReadSetDataset, num_epochs: int, batch_size: int, num_workers: int,
+                    summary_writer: SummaryWriter, reweighting_range: float, learning_rate: float, weight_decay: float,
                     validation_fold: int = None):
         bce = torch.nn.BCEWithLogitsLoss(reduction='none')  # no reduction because we may want to first multiply by weights for unbalanced data
-        train_optimizer = torch.optim.AdamW( self.training_parameters(), lr=hyperparams.learning_rate, weight_decay=hyperparams.weight_decay)
-        calibration_optimizer = torch.optim.AdamW(self.calibration_parameters(), lr=hyperparams.learning_rate, weight_decay=hyperparams.weight_decay)
+        train_optimizer = torch.optim.AdamW( self.training_parameters(), lr=learning_rate, weight_decay=weight_decay)
 
         artifact_to_non_artifact_ratios = torch.from_numpy(dataset.artifact_to_non_artifact_ratios()).to(self._device)
         artifact_to_non_artifact_log_prior_ratios = torch.log(artifact_to_non_artifact_ratios)
@@ -225,8 +232,8 @@ class ReadSetEmbedding(torch.nn.Module):
                   .format(variation_type.name, dataset.artifact_totals[idx].item(), dataset.non_artifact_totals[idx].item()))
 
         validation_fold_to_use = (dataset.num_folds - 1) if validation_fold is None else validation_fold
-        train_loader = make_data_loader(dataset, dataset.all_but_one_fold(validation_fold_to_use), batch_size, self._device.type == 'cuda', num_workers)
-        valid_loader = make_data_loader(dataset, [validation_fold_to_use], batch_size, self._device.type == 'cuda', num_workers)
+        train_loader = dataset.make_data_loader(dataset.all_but_one_fold(validation_fold_to_use), batch_size, self._device.type == 'cuda', num_workers)
+        valid_loader = dataset.make_data_loader([validation_fold_to_use], batch_size, self._device.type == 'cuda', num_workers)
 
         for epoch in trange(1, num_epochs + 1, desc="Epoch"):
             for epoch_type in (utils.Epoch.TRAIN, utils.Epoch.VALID):
@@ -272,8 +279,8 @@ class ReadSetEmbedding(torch.nn.Module):
 
     # generators by name is eg {"train": train_generator, "valid": valid_generator}
     def evaluate_model_after_training(self, dataset, batch_size, num_workers, summary_writer: SummaryWriter):
-        train_loader = make_data_loader(dataset, dataset.all_but_the_last_fold(), batch_size, self._device.type == 'cuda', num_workers)
-        valid_loader = make_data_loader(dataset, dataset.last_fold_only(), batch_size, self._device.type == 'cuda', num_workers)
+        train_loader = dataset.make_data_loader(dataset.all_but_the_last_fold(), batch_size, self._device.type == 'cuda', num_workers)
+        valid_loader = dataset.make_data_loader(dataset.last_fold_only(), batch_size, self._device.type == 'cuda', num_workers)
         epoch_types = [Epoch.TRAIN, Epoch.VALID]
         self.freeze_all()
         self.cpu()
@@ -308,21 +315,6 @@ class ReadSetEmbedding(torch.nn.Module):
         type_metadata = []      # list of lists, strings of variant type
         truncated_count_metadata = []   # list of lists
         average_read_embedding_features = []    # list of 2D tensors (to be stacked into a single 2D tensor), average read embedding over batches
-        info_embedding_features = []
-        ref_seq_embedding_features = []
-
-        # we output array figures of histograms.  The rows of each histogram are (rounded) alt counts, the columns
-        # are variant types, and each subplot has overlapping histograms for non-artifacts and artifacts.
-
-        # There are several figures of this type, which for now we enocde as tuples.  The first element is 0, 1, 2 for L0, L1, or L2 norm
-        # the second is a boolean norm first for whether we take the norm then the means (if true) or vice versa (if false)
-        # the third is a boolean for transformed (True) or refined (False)
-        norm_types = [1, 2, 100]
-        norm_first_values = [True, False]
-        trans_or_refined_values = [True, False]
-        histogram_tuples = [(x, y, z) for x in norm_types for y in norm_first_values for z in trans_or_refined_values]
-
-        hists_by_type_cnt = [{var_type: [([], []) for _ in range(NUM_COUNT_BINS)] for var_type in Variation} for tup in histogram_tuples]
 
         for n, batch in pbar:
             types_one_hot = batch.variant_type_one_hot()
@@ -337,48 +329,10 @@ class ReadSetEmbedding(torch.nn.Module):
             type_metadata.extend([Variation(idx).name for idx in batch.variant_types()])
             truncated_count_metadata.extend(batch.size() * [str(round_up_to_nearest_three(min(MAX_COUNT, batch.alt_count)))])
 
-            read_embeddings = self.apply_transformer_to_reads(batch)
-
-            all_read_means, alt_means, omega_info, ref_seq_embedding, effective_alt_counts, transformed_alt_3d, refined_alt_3d = \
-                self.forward_from_transformed_reads_to_refined_reads(read_embeddings, batch, extra_output=True)
+            transformed_reads = self.apply_transformer_to_reads(batch)
+            alt_means = self.embeddings_from_transformed_reads(transformed_reads, batch, extra_output=True)
             average_read_embedding_features.append(alt_means)
-            info_embedding_features.append(omega_info)
-            ref_seq_embedding_features.append(ref_seq_embedding)
-
-            # code for the norm histograms
-            for n, (norm_type, norm_first, transformed_vs_refined) in enumerate(histogram_tuples):
-                tensor_3d = transformed_alt_3d if transformed_vs_refined else refined_alt_3d
-
-                # norm over representation dimension (2), then mean over read index (1) if norm_first
-                # else mean over read index (1) then norm over the new representation dimension (1)
-                output_1d = (tensor_3d.norm(dim=2, p=norm_type).mean(dim=1) if norm_first else \
-                    tensor_3d.mean(dim=1).norm(dim=1, p=norm_type)) if norm_type < 100 else \
-                    (tensor_3d.max(dim=2).values.mean(dim=1) if norm_first else tensor_3d.mean(dim=1).max(dim=1).values)
-
-                for variant_type,  label, output_value, in zip(batch.variant_types(), batch.labels.tolist(), output_1d):
-                    bin_idx = multiple_of_three_bin_index(min(MAX_COUNT, batch.alt_count))
-                    is_artifact_index = 0 if label < 0.5 else 1
-                    hists_by_type_cnt[n][variant_type][bin_idx][is_artifact_index].append(output_value.item())
-
         # done collecting data
-
-        for n, (norm_type, norm_first, transformed_vs_refined) in enumerate(histogram_tuples):
-            hist_fig, hist_axes = plt.subplots(NUM_COUNT_BINS, len(Variation), sharex='none', sharey='none',
-                                                   squeeze=False, figsize=(15, 15), dpi=100)
-
-            name1 = "L" + str(norm_type) + " norm"
-            name2 = ("mean of " + name1) if norm_first else (name1 + " of mean")
-            name3 = name2 + " transformed" if transformed_vs_refined else " refined"
-
-            for col_idx, var_type in enumerate(Variation):
-                for row_idx in range(NUM_COUNT_BINS):
-                    # data for one particular subplot (row = count bin, column = variant type)
-                    plotting.simple_histograms_on_axis(hist_axes[row_idx, col_idx], hists_by_type_cnt[n][var_type][row_idx], ["good", "bad"], 25)
-            variation_types = [var_type.name for var_type in Variation]
-            plotting.tidy_subplots(hist_fig, hist_axes, x_label=name3, y_label="",
-                                   row_labels=["alt count " + str(multiple_of_three_bin_index_to_count(idx)) for idx in range(NUM_COUNT_BINS)],
-                                   column_labels=variation_types, keep_axes_tick_labels=True)
-            summary_writer.add_figure(name3, hist_fig)
 
         # downsample to a reasonable amount of UMAP data
         all_metadata=list(zip(label_metadata, correct_metadata, type_metadata, truncated_count_metadata))
@@ -388,16 +342,6 @@ class ReadSetEmbedding(torch.nn.Module):
                                      metadata=[all_metadata[n] for n in idx],
                                      metadata_header=["Labels", "Correctness", "Types", "Counts"],
                                      tag="mean read embedding")
-
-        summary_writer.add_embedding(torch.vstack(info_embedding_features)[idx],
-                                     metadata=[all_metadata[n] for n in idx],
-                                     metadata_header=["Labels", "Correctness", "Types", "Counts"],
-                                     tag="info embedding")
-
-        summary_writer.add_embedding(torch.vstack(ref_seq_embedding_features)[idx],
-                                     metadata=[all_metadata[n] for n in idx],
-                                     metadata_header=["Labels", "Correctness", "Types", "Counts"],
-                                     tag="ref seq embedding")
 
         # read average embeddings stratified by variant type
         for variant_type in Variation:

@@ -202,7 +202,7 @@ def make_posterior_data_loader(dataset_file, input_vcf, artifact_model: Artifact
     posterior_data = []
     for list_of_read_sets in plain_text_data.generate_normalized_data([dataset_file], chunk_size):
         artifact_dataset = read_set_dataset.ReadSetDataset(data_in_ram=list_of_read_sets)
-        artifact_loader = read_set_dataset.make_data_loader(artifact_dataset, artifact_dataset.all_folds(), batch_size, pin_memory=False, num_workers=0)
+        artifact_loader = artifact_dataset.make_data_loader(artifact_dataset.all_folds(), batch_size, pin_memory=False, num_workers=0)
 
         for artifact_batch in artifact_loader:
             artifact_logits = artifact_model.forward(batch=artifact_batch).detach().tolist()
