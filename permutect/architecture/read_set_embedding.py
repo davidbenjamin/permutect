@@ -211,6 +211,9 @@ class ReadSetEmbedding(torch.nn.Module):
         return sums_over_chunks(alt_wts * refined_alt, alt_count) / alt_wt_sums     # shape is (batch size, output dimension)
 
     # TODO: we need to attach an MLP on top of the embedding model to output logits, then train this combination
+    # TODO: actually, this can be the framework of a LOT of different ways to train.  There's a ton of overlap.  There's always going to
+    # TODO: be running the model over epochs, loading the dataset, backpropagating the loss.
+    # TODO: the differences will mainly be in auxiliary tasks attached to the embedding and different loss functions
     def train_model(self, dataset: ReadSetDataset, num_epochs: int, batch_size: int, num_workers: int,
                     summary_writer: SummaryWriter, reweighting_range: float, learning_rate: float, weight_decay: float,
                     validation_fold: int = None):
