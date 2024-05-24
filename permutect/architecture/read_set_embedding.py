@@ -1,3 +1,4 @@
+from enum import Enum
 from itertools import chain
 from typing import List, Iterable
 
@@ -19,6 +20,20 @@ from permutect.utils import Variation, Epoch
 def sums_over_chunks(tensor2d: torch.Tensor, chunk_size: int):
     assert len(tensor2d) % chunk_size == 0
     return torch.sum(tensor2d.reshape([len(tensor2d) // chunk_size, chunk_size, -1]), dim=1)
+
+
+class LearningMethod(Enum):
+    # train the embedding by minimizing cross-entropy loss of binary predictor on labeled data
+    SUPERVISED = "supervised"
+
+    # same but use entropy regularization loss on unlabeled data
+    SEMISUPERVISED = "semisupervised"
+
+    # optimize a clustering model with center triplet loss
+    SUPERVISED_CLUSTERING = "supervised_clustering"
+
+    # modify data via a finite set of affine transformations and train the embedding to recognize which was applied
+    AFFINE_TRANSFORMATION = "affine"
 
 
 class ReadSetEmbeddingParameters:
@@ -115,7 +130,7 @@ class ReadSetEmbedding(torch.nn.Module):
         # we have a different aggregation subnetwork for each variant type.  Everything below, in particular the read
         # transformers, is shared
         # The [1] is for the output of binary classification, represented as a single artifact/non-artifact logit
-        self.output_dimension = params.aggregation_layers[-1]
+        self._output_dimension = params.aggregation_layers[-1]
         self.rho = torch.nn.ModuleList([MLP([ref_alt_info_ref_seq_embedding_dimension] + params.aggregation_layers, batch_normalize=params.batch_normalize,
                        dropout_p=params.dropout_p) for variant_type in Variation])
         self.rho.to(self._device)
@@ -126,28 +141,28 @@ class ReadSetEmbedding(torch.nn.Module):
     def num_info_features(self) -> int:
         return self._num_info_features
 
+    def output_dimension(self) -> int:
+        return self._output_dimension
+
     def ref_sequence_length(self) -> int:
         return self._ref_sequence_length
-
-    def training_parameters(self) -> Iterable[torch.Parameter]:
-        return chain(self.initial_read_embedding.parameters(), self.alt_transformer_encoder.parameters(),
-                     self.ref_transformer_encoder.parameters(), self.omega.parameters(), self.rho.parameters())
-
-    def freeze_all(self):
-        utils.freeze(self.parameters())
 
     def set_epoch_type(self, epoch_type: utils.Epoch):
         if epoch_type == utils.Epoch.TRAIN:
             self.train(True)
-            utils.freeze(self.parameters())
-            utils.unfreeze(self.training_parameters())
+            utils.unfreeze(self.parameters())
         else:
-            self.freeze_all()
+            self.train(False)
+            utils.freeze(self.parameters())
 
-    # returns 1D tensor of length batch_size of log odds ratio (logits) between artifact and non-artifact
-    def forward(self, batch: ReadSetBatch):
+    # return 2D tensor of shape (batch size x output dimension)
+    def calculate_embeddings(self, batch: ReadSetBatch, weight_range: float = 0) -> torch.Tensor:
         transformed_reads = self.apply_transformer_to_reads(batch)
-        return self.forward_from_transformed_reads(transformed_reads=transformed_reads, batch=batch)
+        return self.embeddings_from_transformed_reads(transformed_reads, batch, weight_range)
+
+    # I really don't like the forward method of torch.nn.Module with its implicit calling that PyCharm doesn't recognize
+    def forward(self, batch: ReadSetBatch):
+        pass
 
     def apply_transformer_to_reads(self, batch: ReadSetBatch) -> torch.Tensor:
         initial_embedded_reads = self.initial_read_embedding(batch.get_reads_2d().to(self._device))
@@ -176,7 +191,7 @@ class ReadSetEmbedding(torch.nn.Module):
 
     # input: reads that have passed through the alt/ref transformers
     # output: reads that have been refined through the rho subnetwork that sees the transformed alts along with ref, alt, and info
-    def embeddings_from_transformed_reads(self, transformed_reads: torch.Tensor, batch: ReadSetBatch, weight_range: float = 0, extra_output: bool = False):
+    def embeddings_from_transformed_reads(self, transformed_reads: torch.Tensor, batch: ReadSetBatch, weight_range: float = 0):
         weights = torch.ones(len(transformed_reads), 1, device=self._device) if weight_range == 0 else (1 + weight_range * (1 - 2 * torch.rand(len(transformed_reads), 1, device=self._device)))
 
         ref_count, alt_count = batch.ref_count, min(batch.alt_count, self.alt_downsample)
@@ -196,7 +211,7 @@ class ReadSetEmbedding(torch.nn.Module):
         padded_transformed_alt_reads = torch.hstack([transformed_reads[total_ref:], extra_tensor_2d])
 
         # now we refine the alt reads -- no need to separate between read sets yet as this broadcasts over every read
-        refined_alt = torch.zeros(total_alt, self.output_dimension)
+        refined_alt = torch.zeros(total_alt, self._output_dimension)
         one_hot_types_2d = batch.variant_type_one_hot()
         for n, _ in enumerate(Variation):
             # multiply the result of this variant type's aggregation layers by its
@@ -214,11 +229,20 @@ class ReadSetEmbedding(torch.nn.Module):
     # TODO: actually, this can be the framework of a LOT of different ways to train.  There's a ton of overlap.  There's always going to
     # TODO: be running the model over epochs, loading the dataset, backpropagating the loss.
     # TODO: the differences will mainly be in auxiliary tasks attached to the embedding and different loss functions
-    def train_model(self, dataset: ReadSetDataset, num_epochs: int, batch_size: int, num_workers: int,
+    def train_model(self, dataset: ReadSetDataset, learning_method: LearningMethod, num_epochs: int, batch_size: int, num_workers: int,
                     summary_writer: SummaryWriter, reweighting_range: float, learning_rate: float, weight_decay: float,
                     validation_fold: int = None):
         bce = torch.nn.BCEWithLogitsLoss(reduction='none')  # no reduction because we may want to first multiply by weights for unbalanced data
-        train_optimizer = torch.optim.AdamW( self.training_parameters(), lr=learning_rate, weight_decay=weight_decay)
+
+        match learning_method:
+            case LearningMethod.SUPERVISED | LearningMethod.SEMISUPERVISED:
+                # top layer maps the embedding to a logit for binary classification
+                # TODO: make this an MLP??
+                top_layer = torch.nn.Linear(in_features=self._output_dimension, out_features=1)
+            case _:
+                raise Exception("not implemented yet")
+
+        train_optimizer = torch.optim.AdamW(chain(self.parameters(), top_layer.parameters()), lr=learning_rate, weight_decay=weight_decay)
 
         artifact_to_non_artifact_ratios = torch.from_numpy(dataset.artifact_to_non_artifact_ratios()).to(self._device)
         artifact_to_non_artifact_log_prior_ratios = torch.log(artifact_to_non_artifact_ratios)
@@ -247,9 +271,11 @@ class ReadSetEmbedding(torch.nn.Module):
                 loader = train_loader if epoch_type == utils.Epoch.TRAIN else valid_loader
                 pbar = tqdm(enumerate(loader), mininterval=60)
                 for n, batch in pbar:
-                    transformed_reads = self.apply_transformer_to_reads(batch)
+                    embeddings = self.calculate_embeddings(batch, reweighting_range)
 
-                    logits = self.forward_from_transformed_reads(transformed_reads, batch, weight_range=reweighting_range)
+                    # TODO: this is only handling the supervised/semi-supervised cases
+                    logits = top_layer(embeddings)
+
                     types_one_hot = batch.variant_type_one_hot()
                     log_prior_ratios = torch.sum(artifact_to_non_artifact_log_prior_ratios * types_one_hot, dim=1)
                     posterior_logits = logits + log_prior_ratios
@@ -285,7 +311,7 @@ class ReadSetEmbedding(torch.nn.Module):
         train_loader = dataset.make_data_loader(dataset.all_but_the_last_fold(), batch_size, self._device.type == 'cuda', num_workers)
         valid_loader = dataset.make_data_loader(dataset.last_fold_only(), batch_size, self._device.type == 'cuda', num_workers)
         epoch_types = [Epoch.TRAIN, Epoch.VALID]
-        self.freeze_all()
+        utils.freeze(self.parameters())
         self.cpu()
         self._device = "cpu"
 
