@@ -63,6 +63,17 @@ class ReadSetEmbeddingParameters:
         self.alt_downsample = alt_downsample
 
 
+class EmbeddingTrainingParameters:
+    def __init__(self, batch_size: int, num_epochs: int, reweighting_range: float, learning_rate: float = 0.001,
+                 weight_decay: float = 0.01, num_workers: int = 0):
+        self.batch_size = batch_size
+        self.num_epochs = num_epochs
+        self.reweighting_range = reweighting_range
+        self.learning_rate = learning_rate
+        self.weight_decay = weight_decay
+        self.num_workers = num_workers
+
+
 # Just copy-pasted below this point
 class ReadSetEmbedding(torch.nn.Module):
     """
@@ -230,9 +241,8 @@ class ReadSetEmbedding(torch.nn.Module):
     # TODO: actually, this can be the framework of a LOT of different ways to train.  There's a ton of overlap.  There's always going to
     # TODO: be running the model over epochs, loading the dataset, backpropagating the loss.
     # TODO: the differences will mainly be in auxiliary tasks attached to the embedding and different loss functions
-    def train_model(self, dataset: ReadSetDataset, learning_method: LearningMethod, num_epochs: int, batch_size: int, num_workers: int,
-                    summary_writer: SummaryWriter, reweighting_range: float, learning_rate: float, weight_decay: float,
-                    validation_fold: int = None):
+    def train_model(self, dataset: ReadSetDataset, learning_method: LearningMethod, training_params: EmbeddingTrainingParameters,
+                    summary_writer: SummaryWriter, validation_fold: int = None):
         bce = torch.nn.BCEWithLogitsLoss(reduction='none')  # no reduction because we may want to first multiply by weights for unbalanced data
 
         match learning_method:
@@ -243,7 +253,8 @@ class ReadSetEmbedding(torch.nn.Module):
             case _:
                 raise Exception("not implemented yet")
 
-        train_optimizer = torch.optim.AdamW(chain(self.parameters(), top_layer.parameters()), lr=learning_rate, weight_decay=weight_decay)
+        train_optimizer = torch.optim.AdamW(chain(self.parameters(), top_layer.parameters()),
+                                            lr=training_params.learning_rate, weight_decay=training_params.weight_decay)
 
         artifact_to_non_artifact_ratios = torch.from_numpy(dataset.artifact_to_non_artifact_ratios()).to(self._device)
         artifact_to_non_artifact_log_prior_ratios = torch.log(artifact_to_non_artifact_ratios)
@@ -260,10 +271,10 @@ class ReadSetEmbedding(torch.nn.Module):
                   .format(variation_type.name, dataset.artifact_totals[idx].item(), dataset.non_artifact_totals[idx].item()))
 
         validation_fold_to_use = (dataset.num_folds - 1) if validation_fold is None else validation_fold
-        train_loader = dataset.make_data_loader(dataset.all_but_one_fold(validation_fold_to_use), batch_size, self._device.type == 'cuda', num_workers)
-        valid_loader = dataset.make_data_loader([validation_fold_to_use], batch_size, self._device.type == 'cuda', num_workers)
+        train_loader = dataset.make_data_loader(dataset.all_but_one_fold(validation_fold_to_use), training_params.batch_size, self._device.type == 'cuda', training_params.num_workers)
+        valid_loader = dataset.make_data_loader([validation_fold_to_use], training_params.batch_size, self._device.type == 'cuda', training_params.num_workers)
 
-        for epoch in trange(1, num_epochs + 1, desc="Epoch"):
+        for epoch in trange(1, training_params.num_epochs + 1, desc="Epoch"):
             for epoch_type in (utils.Epoch.TRAIN, utils.Epoch.VALID):
                 self.set_epoch_type(epoch_type)
 
@@ -272,7 +283,7 @@ class ReadSetEmbedding(torch.nn.Module):
                 loader = train_loader if epoch_type == utils.Epoch.TRAIN else valid_loader
                 pbar = tqdm(enumerate(loader), mininterval=60)
                 for n, batch in pbar:
-                    embeddings = self.calculate_embeddings(batch, reweighting_range)
+                    embeddings = self.calculate_embeddings(batch, training_params.reweighting_range)
 
                     # TODO: this is only handling the supervised/semi-supervised cases
                     logits = top_layer(embeddings)

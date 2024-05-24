@@ -10,6 +10,7 @@ setup(
     packages=find_packages(),
     entry_points={
         'console_scripts': ['train_model=permutect.tools.train_model:main',
+                            'train_embedding_model=permutect.tools.train_embedding_model:main',
                             'filter_variants=permutect.tools.filter_variants:main',
                             'preprocess_dataset=permutect.tools.preprocess_dataset:main',
                             'prune_dataset=permutect.tools.prune_dataset:main',
