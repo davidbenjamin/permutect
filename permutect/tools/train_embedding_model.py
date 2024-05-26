@@ -26,7 +26,7 @@ def train_embedding_model(params: ReadSetEmbeddingParameters, training_params: E
     return model
 
 
-def save_embedding_model(model, hyperparams, path):
+def save_embedding_model(model: ReadSetEmbedding, hyperparams: ReadSetEmbeddingParameters, path):
     torch.save({
         constants.STATE_DICT_NAME: model.state_dict(),
         constants.HYPERPARAMS_NAME: hyperparams,
@@ -34,6 +34,21 @@ def save_embedding_model(model, hyperparams, path):
         constants.NUM_INFO_FEATURES_NAME: model.num_info_features(),
         constants.REF_SEQUENCE_LENGTH_NAME: model.ref_sequence_length()
     }, path)
+
+
+# this presumes that we have a ReadSetEmbedding and we have saved it via save_embedding_model above
+def load_embedding_model(path) -> ReadSetEmbedding:
+    saved = torch.load(path)
+    hyperparams = saved[constants.HYPERPARAMS_NAME]
+    num_read_features = saved[constants.NUM_READ_FEATURES_NAME]
+    num_info_features = saved[constants.NUM_INFO_FEATURES_NAME]
+    ref_sequence_length = saved[constants.REF_SEQUENCE_LENGTH_NAME]
+
+    model = ReadSetEmbedding(hyperparams, num_read_features=num_read_features, num_info_features=num_info_features,
+                             ref_sequence_length=ref_sequence_length)
+    model.load_state_dict(saved[constants.STATE_DICT_NAME])
+
+    return model
 
 
 def parse_training_params(args) -> EmbeddingTrainingParameters:

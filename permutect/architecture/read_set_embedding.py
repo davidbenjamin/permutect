@@ -4,7 +4,7 @@ from typing import List, Iterable
 
 import torch
 from torch.utils.tensorboard import SummaryWriter
-from tqdm.notebook import trange, tqdm
+from tqdm.autonotebook import trange, tqdm
 
 from permutect import utils
 from permutect.architecture.dna_sequence_convolution import DNASequenceConvolution
@@ -286,7 +286,7 @@ class ReadSetEmbedding(torch.nn.Module):
                     embeddings = self.calculate_embeddings(batch, training_params.reweighting_range)
 
                     # TODO: this is only handling the supervised/semi-supervised cases
-                    logits = top_layer(embeddings)
+                    logits = torch.squeeze(top_layer(embeddings), dim=1)
 
                     types_one_hot = batch.variant_type_one_hot()
                     log_prior_ratios = torch.sum(artifact_to_non_artifact_log_prior_ratios * types_one_hot, dim=1)

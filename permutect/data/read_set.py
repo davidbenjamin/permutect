@@ -165,7 +165,7 @@ class ReadSetBatch:
         self.reads_2d = torch.from_numpy(np.vstack(list_of_ref_tensors + [item.alt_reads_2d for item in data])).float()
         self.info_2d = torch.from_numpy(np.vstack([item.info_array_1d for item in data])).float()
         self.labels = FloatTensor([1.0 if item.label == Label.ARTIFACT else 0.0 for item in data]) if self.labeled else None
-        self.indices = IntTensor([item.index for item in data])
+        self.indices = IntTensor([int(item.index) for item in data])
         self._size = len(data)
 
         self.counts_and_likelihoods = [datum.counts_and_seq_lks for datum in data]
