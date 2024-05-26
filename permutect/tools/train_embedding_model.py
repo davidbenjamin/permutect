@@ -21,7 +21,6 @@ def train_embedding_model(params: ReadSetEmbeddingParameters, training_params: E
                       ref_sequence_length=dataset.ref_sequence_length, device=device).float()
 
     print("Training. . .")
-    # TODO: fix params here
     model.train_model(dataset, LearningMethod.SEMISUPERVISED, training_params, summary_writer=summary_writer)
 
     return model
