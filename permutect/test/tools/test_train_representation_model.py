@@ -47,9 +47,9 @@ def test_train_representation_model():
     setattr(train_model_args, constants.OUTPUT_NAME, saved_embedding_model.name)
     setattr(train_model_args, constants.TENSORBOARD_DIR_NAME, training_tensorboard_dir.name)
 
-    train_embedding_model.main_without_parsing(train_model_args)
+    train_representation_model.main_without_parsing(train_model_args)
 
     events = EventAccumulator(training_tensorboard_dir.name)
     events.Reload()
 
-    loaded_embedding_model = load_representation_model(saved_embedding_model)
+    loaded_representation_model = load_representation_model(saved_embedding_model)
