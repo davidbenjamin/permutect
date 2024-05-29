@@ -14,9 +14,8 @@ from matplotlib import pyplot as plt
 
 from permutect.architecture.mlp import MLP
 from permutect.architecture.monotonic import MonoDense
-from permutect.architecture.dna_sequence_convolution import DNASequenceConvolution
-from permutect.data.read_set import ReadSetBatch, RepresentationReadSetBatch
-from permutect.data.read_set_dataset import ReadSetDataset, RepresentationDataset
+from permutect.data.read_set import RepresentationReadSetBatch
+from permutect.data.read_set_dataset import RepresentationDataset
 from permutect import utils
 from permutect.metrics.evaluation_metrics import LossMetrics, EvaluationMetrics, NUM_COUNT_BINS, \
     multiple_of_three_bin_index_to_count, multiple_of_three_bin_index, MAX_COUNT, round_up_to_nearest_three

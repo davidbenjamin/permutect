@@ -202,6 +202,8 @@ def main_without_parsing(args):
     pretrained_model = getattr(args, constants.PRETRAINED_MODEL_NAME)
     tensorboard_dir = getattr(args, constants.TENSORBOARD_DIR_NAME)
     summary_writer = SummaryWriter(tensorboard_dir)
+    # TODO: load the representation model
+    # TODO: construct the representation dataset
     dataset = ReadSetDataset(data_tarfile=tarfile_data, num_folds=10)
     model = train_artifact_model(hyperparams=hyperparams, dataset=dataset, params=training_params,
                                  summary_writer=summary_writer, pretrained_model=pretrained_model)
