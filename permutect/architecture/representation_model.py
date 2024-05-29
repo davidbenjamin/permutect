@@ -36,7 +36,7 @@ class LearningMethod(Enum):
     AFFINE_TRANSFORMATION = "affine"
 
 
-class ReadSetEmbeddingParameters:
+class RepresentationModelParameters:
     """
     note that read layers and info layers exclude the input dimension
     read_embedding_dimension: read tensors are linear-transformed to this dimension before
@@ -63,7 +63,7 @@ class ReadSetEmbeddingParameters:
         self.alt_downsample = alt_downsample
 
 
-class EmbeddingTrainingParameters:
+class RepresentationModelTrainingParameters:
     def __init__(self, batch_size: int, num_epochs: int, reweighting_range: float, learning_rate: float = 0.001,
                  weight_decay: float = 0.01, num_workers: int = 0):
         self.batch_size = batch_size
@@ -75,7 +75,7 @@ class EmbeddingTrainingParameters:
 
 
 # Just copy-pasted below this point
-class ReadSetEmbedding(torch.nn.Module):
+class RepresentationModel(torch.nn.Module):
     """
     DeepSets framework for reads and variant info.  We embed each read and concatenate the mean ref read
     embedding, mean alt read embedding, and variant info embedding, then apply an aggregation function to
@@ -96,8 +96,8 @@ class ReadSetEmbedding(torch.nn.Module):
     because we have different output layers for each variant type.
     """
 
-    def __init__(self, params: ReadSetEmbeddingParameters, num_read_features: int, num_info_features: int, ref_sequence_length: int, device=torch.device("cpu")):
-        super(ReadSetEmbedding, self).__init__()
+    def __init__(self, params: RepresentationModelParameters, num_read_features: int, num_info_features: int, ref_sequence_length: int, device=torch.device("cpu")):
+        super(RepresentationModel, self).__init__()
 
         self._device = device
         self._num_read_features = num_read_features
@@ -136,7 +136,7 @@ class ReadSetEmbedding(torch.nn.Module):
         self.ref_seq_cnn = DNASequenceConvolution(params.ref_seq_layer_strings, ref_sequence_length)
         self.ref_seq_cnn.to(self._device)
 
-        # rho is the aggregation function that combines read, info, and sequence tensors and maps to the final embedding dimension
+        # rho is the aggregation function that combines read, info, and sequence tensors and maps to the output representation
         ref_alt_info_ref_seq_embedding_dimension = 2 * self.read_embedding_dimension + self.omega.output_dimension() + self.ref_seq_cnn.output_dimension()
 
         # we have a different aggregation subnetwork for each variant type.  Everything below, in particular the read
@@ -168,9 +168,9 @@ class ReadSetEmbedding(torch.nn.Module):
             utils.freeze(self.parameters())
 
     # return 2D tensor of shape (batch size x output dimension)
-    def calculate_embeddings(self, batch: ReadSetBatch, weight_range: float = 0) -> torch.Tensor:
+    def calculate_representations(self, batch: ReadSetBatch, weight_range: float = 0) -> torch.Tensor:
         transformed_reads = self.apply_transformer_to_reads(batch)
-        return self.embeddings_from_transformed_reads(transformed_reads, batch, weight_range)
+        return self.representations_from_transformed_reads(transformed_reads, batch, weight_range)
 
     # I really don't like the forward method of torch.nn.Module with its implicit calling that PyCharm doesn't recognize
     def forward(self, batch: ReadSetBatch):
@@ -203,7 +203,7 @@ class ReadSetEmbedding(torch.nn.Module):
 
     # input: reads that have passed through the alt/ref transformers
     # output: reads that have been refined through the rho subnetwork that sees the transformed alts along with ref, alt, and info
-    def embeddings_from_transformed_reads(self, transformed_reads: torch.Tensor, batch: ReadSetBatch, weight_range: float = 0):
+    def representations_from_transformed_reads(self, transformed_reads: torch.Tensor, batch: ReadSetBatch, weight_range: float = 0):
         weights = torch.ones(len(transformed_reads), 1, device=self._device) if weight_range == 0 else (1 + weight_range * (1 - 2 * torch.rand(len(transformed_reads), 1, device=self._device)))
 
         ref_count, alt_count = batch.ref_count, min(batch.alt_count, self.alt_downsample)
@@ -241,8 +241,8 @@ class ReadSetEmbedding(torch.nn.Module):
     # TODO: actually, this can be the framework of a LOT of different ways to train.  There's a ton of overlap.  There's always going to
     # TODO: be running the model over epochs, loading the dataset, backpropagating the loss.
     # TODO: the differences will mainly be in auxiliary tasks attached to the embedding and different loss functions
-    def train_model(self, dataset: ReadSetDataset, learning_method: LearningMethod, training_params: EmbeddingTrainingParameters,
-                    summary_writer: SummaryWriter, validation_fold: int = None):
+    def learn(self, dataset: ReadSetDataset, learning_method: LearningMethod, training_params: RepresentationModelTrainingParameters,
+              summary_writer: SummaryWriter, validation_fold: int = None):
         bce = torch.nn.BCEWithLogitsLoss(reduction='none')  # no reduction because we may want to first multiply by weights for unbalanced data
 
         match learning_method:
@@ -283,7 +283,7 @@ class ReadSetEmbedding(torch.nn.Module):
                 loader = train_loader if epoch_type == utils.Epoch.TRAIN else valid_loader
                 pbar = tqdm(enumerate(loader), mininterval=60)
                 for n, batch in pbar:
-                    embeddings = self.calculate_embeddings(batch, training_params.reweighting_range)
+                    embeddings = self.calculate_representations(batch, training_params.reweighting_range)
 
                     # TODO: this is only handling the supervised/semi-supervised cases
                     logits = torch.squeeze(top_layer(embeddings), dim=1)

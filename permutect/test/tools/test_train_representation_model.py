@@ -5,11 +5,11 @@ from tensorboard.backend.event_processing.event_accumulator import EventAccumula
 from torch.utils.tensorboard import SummaryWriter
 
 from permutect import constants
-from permutect.tools import train_embedding_model
-from permutect.tools.train_embedding_model import load_embedding_model
+from permutect.tools import train_representation_model
+from permutect.tools.train_representation_model import load_representation_model
 
 
-def test_train_embedding_model():
+def test_train_representation_model():
     training_data_tarfile = "/Users/davidben/mutect3/permutect/integration-tests/singular-10-Mb/preprocessed-dataset.tar"
     saved_embedding_model = tempfile.NamedTemporaryFile()
     training_tensorboard_dir = tempfile.TemporaryDirectory()
@@ -52,4 +52,4 @@ def test_train_embedding_model():
     events = EventAccumulator(training_tensorboard_dir.name)
     events.Reload()
 
-    loaded_artifact_model = load_embedding_model(saved_embedding_model)
+    loaded_embedding_model = load_representation_model(saved_embedding_model)

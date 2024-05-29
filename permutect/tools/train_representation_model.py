@@ -4,29 +4,29 @@ import torch
 from torch.utils.tensorboard import SummaryWriter
 
 from permutect import constants
-from permutect.architecture.read_set_embedding import ReadSetEmbeddingParameters, ReadSetEmbedding, LearningMethod, \
-    EmbeddingTrainingParameters
+from permutect.architecture.representation_model import RepresentationModelParameters, RepresentationModel, LearningMethod, \
+    RepresentationModelTrainingParameters
 from permutect.data.read_set_dataset import ReadSetDataset
 from permutect.tools.filter_variants import load_artifact_model
 
 
-def train_embedding_model(params: ReadSetEmbeddingParameters, training_params: EmbeddingTrainingParameters, summary_writer: SummaryWriter,
-                          dataset: ReadSetDataset, pretrained_model: ReadSetEmbedding = None) -> ReadSetEmbedding:
+def train_representation_model(params: RepresentationModelParameters, training_params: RepresentationModelTrainingParameters, summary_writer: SummaryWriter,
+                               dataset: ReadSetDataset, pretrained_model: RepresentationModel = None) -> RepresentationModel:
     use_gpu = torch.cuda.is_available()
     device = torch.device('cuda' if use_gpu else 'cpu')
 
     use_pretrained = (pretrained_model is not None)
     model = load_artifact_model(pretrained_model)[0] if use_pretrained else \
-        ReadSetEmbedding(params=params, num_read_features=dataset.num_read_features, num_info_features=dataset.num_info_features,
-                      ref_sequence_length=dataset.ref_sequence_length, device=device).float()
+        RepresentationModel(params=params, num_read_features=dataset.num_read_features, num_info_features=dataset.num_info_features,
+                            ref_sequence_length=dataset.ref_sequence_length, device=device).float()
 
     print("Training. . .")
-    model.train_model(dataset, LearningMethod.SEMISUPERVISED, training_params, summary_writer=summary_writer)
+    model.learn(dataset, LearningMethod.SEMISUPERVISED, training_params, summary_writer=summary_writer)
 
     return model
 
 
-def save_embedding_model(model: ReadSetEmbedding, hyperparams: ReadSetEmbeddingParameters, path):
+def save_representation_model(model: RepresentationModel, hyperparams: RepresentationModelParameters, path):
     torch.save({
         constants.STATE_DICT_NAME: model.state_dict(),
         constants.HYPERPARAMS_NAME: hyperparams,
@@ -37,31 +37,31 @@ def save_embedding_model(model: ReadSetEmbedding, hyperparams: ReadSetEmbeddingP
 
 
 # this presumes that we have a ReadSetEmbedding and we have saved it via save_embedding_model above
-def load_embedding_model(path) -> ReadSetEmbedding:
+def load_representation_model(path) -> RepresentationModel:
     saved = torch.load(path)
     hyperparams = saved[constants.HYPERPARAMS_NAME]
     num_read_features = saved[constants.NUM_READ_FEATURES_NAME]
     num_info_features = saved[constants.NUM_INFO_FEATURES_NAME]
     ref_sequence_length = saved[constants.REF_SEQUENCE_LENGTH_NAME]
 
-    model = ReadSetEmbedding(hyperparams, num_read_features=num_read_features, num_info_features=num_info_features,
-                             ref_sequence_length=ref_sequence_length)
+    model = RepresentationModel(hyperparams, num_read_features=num_read_features, num_info_features=num_info_features,
+                                ref_sequence_length=ref_sequence_length)
     model.load_state_dict(saved[constants.STATE_DICT_NAME])
 
     return model
 
 
-def parse_training_params(args) -> EmbeddingTrainingParameters:
+def parse_training_params(args) -> RepresentationModelTrainingParameters:
     reweighting_range = getattr(args, constants.REWEIGHTING_RANGE_NAME)
     learning_rate = getattr(args, constants.LEARNING_RATE_NAME)
     weight_decay = getattr(args, constants.WEIGHT_DECAY_NAME)
     batch_size = getattr(args, constants.BATCH_SIZE_NAME)
     num_epochs = getattr(args, constants.NUM_EPOCHS_NAME)
     num_workers = getattr(args, constants.NUM_WORKERS_NAME)
-    return EmbeddingTrainingParameters(batch_size, num_epochs, reweighting_range, learning_rate, weight_decay, num_workers=num_workers)
+    return RepresentationModelTrainingParameters(batch_size, num_epochs, reweighting_range, learning_rate, weight_decay, num_workers=num_workers)
 
 
-def parse_model_params(args) -> ReadSetEmbeddingParameters:
+def parse_model_params(args) -> RepresentationModelParameters:
     read_embedding_dimension = getattr(args, constants.READ_EMBEDDING_DIMENSION_NAME)
     num_transformer_heads = getattr(args, constants.NUM_TRANSFORMER_HEADS_NAME)
     transformer_hidden_dimension = getattr(args, constants.TRANSFORMER_HIDDEN_DIMENSION_NAME)
@@ -73,13 +73,13 @@ def parse_model_params(args) -> ReadSetEmbeddingParameters:
     dropout_p = getattr(args, constants.DROPOUT_P_NAME)
     batch_normalize = getattr(args, constants.BATCH_NORMALIZE_NAME)
     alt_downsample = getattr(args, constants.ALT_DOWNSAMPLE_NAME)
-    return ReadSetEmbeddingParameters(read_embedding_dimension, num_transformer_heads, transformer_hidden_dimension,
-                 num_transformer_layers, info_layers, aggregation_layers, ref_seq_layer_strings, dropout_p,
-        batch_normalize, alt_downsample)
+    return RepresentationModelParameters(read_embedding_dimension, num_transformer_heads, transformer_hidden_dimension,
+                                         num_transformer_layers, info_layers, aggregation_layers, ref_seq_layer_strings, dropout_p,
+                                         batch_normalize, alt_downsample)
 
 
 def parse_arguments():
-    parser = argparse.ArgumentParser(description='train the Mutect3 artifact model')
+    parser = argparse.ArgumentParser(description='train the Permutect read set representation model')
     add_embedding_model_params_to_parser(parser)
     add_embedding_training_params_to_parser(parser)
     parser.add_argument('--' + constants.TRAIN_TAR_NAME, type=str, required=True,
@@ -145,11 +145,11 @@ def main_without_parsing(args):
     tensorboard_dir = getattr(args, constants.TENSORBOARD_DIR_NAME)
     summary_writer = SummaryWriter(tensorboard_dir)
     dataset = ReadSetDataset(data_tarfile=tarfile_data, num_folds=10)
-    model = train_embedding_model(params=hyperparams, dataset=dataset, training_params=training_params,
-                                  summary_writer=summary_writer, pretrained_model=pretrained_model)
+    model = train_representation_model(params=hyperparams, dataset=dataset, training_params=training_params,
+                                       summary_writer=summary_writer, pretrained_model=pretrained_model)
 
     summary_writer.close()
-    save_embedding_model(model, hyperparams, getattr(args, constants.OUTPUT_NAME))
+    save_representation_model(model, hyperparams, getattr(args, constants.OUTPUT_NAME))
 
 
 def main():
