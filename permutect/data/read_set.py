@@ -84,9 +84,7 @@ class ReadSet:
         return self.info_array_1d[-len(Variation):]
 
     def get_variant_type(self):
-        for n, var_type in enumerate(Variation):
-            if self.info_array_1d[-len(Variation) + n] > 0:
-                return var_type
+        return Variation.get_type(self.variant.ref, str, self.variant.alt)
 
 
 def save_list_of_read_sets(read_sets: List[ReadSet], file, datum_index: MutableInt, indices_file=None, index_to_variant_map=None):
@@ -204,3 +202,68 @@ class ReadSetBatch:
     def variant_types(self):
         one_hot = self.variant_type_one_hot()
         return [int(x) for x in sum([n*one_hot[:, n] for n in range(len(Variation))])]
+
+
+class RepresentationReadSet:
+    """
+    """
+    def __init__(self, read_set: ReadSet, representation: Tensor):
+        # Note: if changing any of the data fields below, make sure to modify the size_in_bytes() method below accordingly!
+        assert representation.dim() == 1
+        self.representation = representation
+        self.label = read_set.label
+        self.index = read_set.index
+        self.variant = read_set.variant
+        self.counts_and_seq_lks = read_set.counts_and_seq_lks
+        self.ref_count = len(read_set.ref_reads_2d) if read_set.ref_reads_2d is not None else 0
+        self.alt_count = len(read_set.alt_reads_2d)
+
+    def size_in_bytes(self):
+        pass
+
+    def get_variant_type(self):
+        return Variation.get_type(self.variant.ref, self.variant.alt)
+
+    def is_labeled(self):
+        return self.label != Label.UNLABELED
+
+
+class RepresentationReadSetBatch:
+    def __init__(self, data: List[RepresentationReadSet]):
+        self.labeled = data[0].label != Label.UNLABELED
+
+        self.representations_2d = torch.vstack([item.representation for item in data]).float()
+        self.labels = FloatTensor([1.0 if item.label == Label.ARTIFACT else 0.0 for item in data]) if self.labeled else None
+        self.indices = IntTensor([int(item.index) for item in data])
+        self.ref_counts = IntTensor([int(item.ref_count) for item in data])
+        self.alt_counts = IntTensor([int(item.alt_count) for item in data])
+        self._size = len(data)
+        self.counts_and_likelihoods = [item.counts_and_seq_lks for item in data]
+        self.variants = None if data[0].variant is None else [datum.variant for datum in data]
+
+        self.variant_type_one_hot = torch.from_numpy(np.vstack([Variation.get_type(item.variant.ref, item.variant.alt).one_hot_tensor() for item in data]))
+
+    # pin memory for all tensors that are sent to the GPU
+    def pin_memory(self):
+        self.representations_2d = self.representations_2d.pin_memory()
+        self.labels = self.labels.pin_memory()
+        return self
+
+    def get_representations_2d(self) -> Tensor:
+        return self.representations_2d
+
+    def is_labeled(self) -> bool:
+        return self.labeled
+
+    def size(self) -> int:
+        return self._size
+
+    def variant_type_one_hot(self) -> Tensor:
+        return self.variant_type_one_hot()
+
+    def variant_type_mask(self, variant_type: Variation) -> Tensor:
+        pass
+
+    # return list of variant type integer indices
+    def variant_types(self):
+        pass

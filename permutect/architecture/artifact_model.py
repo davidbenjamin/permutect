@@ -15,8 +15,8 @@ from matplotlib import pyplot as plt
 from permutect.architecture.mlp import MLP
 from permutect.architecture.monotonic import MonoDense
 from permutect.architecture.dna_sequence_convolution import DNASequenceConvolution
-from permutect.data.read_set import ReadSetBatch
-from permutect.data.read_set_dataset import ReadSetDataset
+from permutect.data.read_set import ReadSetBatch, RepresentationReadSetBatch
+from permutect.data.read_set_dataset import ReadSetDataset, RepresentationDataset
 from permutect import utils
 from permutect.metrics.evaluation_metrics import LossMetrics, EvaluationMetrics, NUM_COUNT_BINS, \
     multiple_of_three_bin_index_to_count, multiple_of_three_bin_index, MAX_COUNT, round_up_to_nearest_three
@@ -115,30 +115,20 @@ class ArtifactModel(nn.Module):
     because we have different output layers for each variant type.
     """
 
-    def __init__(self, params: ArtifactModelParameters, num_read_features: int, num_info_features: int, ref_sequence_length: int, device=torch.device("cpu")):
+    def __init__(self, params: ArtifactModelParameters, device=torch.device("cpu")):
         super(ArtifactModel, self).__init__()
 
         self._device = device
         self._representation_dimension = params.representation_dimension
 
-        # we have a different aggregation subnetwork for each variant type.  The [1] is for the output logit
-        self.refined_dimension = params.aggregation_layers[-1]
-        self.rho = nn.ModuleList([MLP([params.representation_dimension] + params.aggregation_layers + [1], batch_normalize=params.batch_normalize,
-                       dropout_p=params.dropout_p) for variant_type in Variation])
+        # The [1] is for the output logit
+        self.rho = MLP([params.representation_dimension] + params.aggregation_layers + [1], batch_normalize=params.batch_normalize,
+                       dropout_p=params.dropout_p)
         self.rho.to(self._device)
 
         # one Calibration module for each variant type; that is, calibration depends on both count and type
         self.calibration = nn.ModuleList([Calibration(params.calibration_layers) for variant_type in Variation])
         self.calibration.to(self._device)
-
-    def num_read_features(self) -> int:
-        return self._num_read_features
-
-    def num_info_features(self) -> int:
-        return self._num_info_features
-
-    def ref_sequence_length(self) -> int:
-        return self._ref_sequence_length
 
     def training_parameters(self):
         return chain(self.rho.parameters(), self.calibration.parameters())
@@ -161,85 +151,20 @@ class ArtifactModel(nn.Module):
             self.freeze_all()
 
     # returns 1D tensor of length batch_size of log odds ratio (logits) between artifact and non-artifact
-    def forward(self, batch: ReadSetBatch):
-        transformed_reads = self.apply_transformer_to_reads(batch)
-        return self.forward_from_transformed_reads(transformed_reads=transformed_reads, batch=batch)
+    def forward(self, batch: RepresentationReadSetBatch):
+        logits = self.rho.forward(batch.get_representations_2d().to(self._device)).reshape(batch.size())
 
-
-    # input: reads that have passed through the alt/ref transformers
-    # output: reads that have been refined through the rho subnetwork that sees the transformed alts along with ref, alt, and info
-    def forward_from_transformed_reads_to_refined_reads(self, transformed_reads: Tensor, batch: ReadSetBatch, weight_range: float = 0, extra_output=False):
-        weights = torch.ones(len(transformed_reads), 1, device=self._device) if weight_range == 0 else (1 + weight_range * (1 - 2 * torch.rand(len(transformed_reads), 1, device=self._device)))
-
-        ref_count, alt_count = batch.ref_count, min(batch.alt_count, self.alt_downsample)
-        total_ref, total_alt = ref_count * batch.size(), alt_count * batch.size()
-
-        alt_wts = weights[total_ref:]
-        alt_wt_sums = sums_over_chunks(alt_wts, alt_count)
-        alt_wt_sq_sums = sums_over_chunks(torch.square(alt_wts), alt_count)
-
-        # mean embedding of every read, alt and ref, at each datum
-        all_read_means = ((0 if ref_count == 0 else sums_over_chunks(transformed_reads[:total_ref], ref_count)) + sums_over_chunks(transformed_reads[total_ref:], alt_count)) / (alt_count + ref_count)
-        omega_info = self.omega(batch.get_info_2d().to(self._device))
-        ref_seq_embedding = self.ref_seq_cnn(batch.get_ref_sequences_2d())
-
-        # dimension is batch_size x ref transformer output size + omega output size + ref seq embedding size
-        extra_tensor_2d = torch.hstack([all_read_means, omega_info, ref_seq_embedding])
-        extra_tensor_2d = torch.repeat_interleave(extra_tensor_2d, repeats=alt_count, dim=0)
-
-        # the alt reads have not been averaged yet to we need to copy each row of the extra tensor batch.alt_count times
-        padded_transformed_alt_reads = torch.hstack([transformed_reads[total_ref:], extra_tensor_2d])
-
-        # now we refine the alt reads -- no need to separate between read sets yet as this broadcasts over every read
-        refined_alt = torch.zeros(total_alt, self.refined_dimension)
-        one_hot_types_2d = batch.variant_type_one_hot()
-        for n, _ in enumerate(Variation):
-            # multiply the result of this variant type's aggregation layers by its
-            # one-hot mask.  Yes, this is wasteful because we apply every aggregation to every datum.
-            # TODO: make this more efficient.
-            mask = torch.repeat_interleave(one_hot_types_2d[:, n], repeats=alt_count).reshape(total_alt, 1)  # 2D column tensor
-            refined_alt += mask * self.rho[n].forward(padded_transformed_alt_reads)
-
-        weighted_refined = alt_wts * refined_alt
-        # weighted mean is sum of reads in a chunk divided by sum of weights in same chunk
-        alt_means = sums_over_chunks(weighted_refined, alt_count) / alt_wt_sums
-
-        # these are fed to the calibration, since reweighting effectively reduces the read counts
-        effective_alt_counts = torch.square(alt_wt_sums) / alt_wt_sq_sums
-
-        # 3D tensors -- batch size x alt count x transformed / refined dimension
-        # TODO: maybe I should output these regardless -- they probably get garbage-collected all the same
-        # TODO: with no hit in performance
-        transformed_alt_output = transformed_reads[total_ref:].reshape(batch.size(), alt_count, -1) if extra_output else None
-        refined_alt_output = refined_alt.reshape(batch.size(), alt_count, -1) if extra_output else None
-
-        # note all_read_means pertains to transformer; alt_means pertains to refined
-        return all_read_means, alt_means, omega_info, ref_seq_embedding, effective_alt_counts, transformed_alt_output, refined_alt_output
-
-    def forward_from_transformed_reads_to_calibration(self, phi_reads: Tensor, batch: ReadSetBatch, weight_range: float = 0):
-        all_read_means, alt_means, omega_info, ref_seq_embedding, effective_alt_counts, _, _ = self.forward_from_transformed_reads_to_refined_reads(phi_reads, batch, weight_range)
-
-        logits = self.final_logit(alt_means).reshape(batch.size())
-
-        return logits, batch.ref_count * torch.ones_like(effective_alt_counts), effective_alt_counts
-
-    def forward_from_transformed_reads(self, transformed_reads: Tensor, batch: ReadSetBatch, weight_range: float = 0):
-        logits, ref_counts, effective_alt_counts = self.forward_from_transformed_reads_to_calibration(transformed_reads, batch, weight_range)
-
-        result = torch.zeros_like(logits)
-
+        calibrated = torch.zeros_like(logits)
         one_hot_types_2d = batch.variant_type_one_hot()
         for n, _ in enumerate(Variation):
             mask = one_hot_types_2d[:, n]
-            result += mask * self.calibration[n].forward(logits, ref_counts, effective_alt_counts)
+            calibrated += mask * self.calibration[n].forward(logits, batch.ref_counts, batch.alt_counts)
+        return calibrated
 
-        return result
-
-    def train_model(self, dataset: ReadSetDataset, num_epochs, num_calibration_epochs, batch_size, num_workers,
-                    summary_writer: SummaryWriter, reweighting_range: float, hyperparams: ArtifactModelParameters,
-                    validation_fold: int = None, freeze_lower_layers: bool = False):
+    def train_model(self, dataset: RepresentationDataset, num_epochs, num_calibration_epochs, batch_size, num_workers,
+                    summary_writer: SummaryWriter, hyperparams: ArtifactModelParameters, validation_fold: int = None):
         bce = nn.BCEWithLogitsLoss(reduction='none')  # no reduction because we may want to first multiply by weights for unbalanced data
-        train_optimizer = torch.optim.AdamW(self.training_parameters_if_using_pretrained_model() if freeze_lower_layers else self.training_parameters(), lr=hyperparams.learning_rate, weight_decay=hyperparams.weight_decay)
+        train_optimizer = torch.optim.AdamW(self.training_parameters(), lr=hyperparams.learning_rate, weight_decay=hyperparams.weight_decay)
         calibration_optimizer = torch.optim.AdamW(self.calibration_parameters(), lr=hyperparams.learning_rate, weight_decay=hyperparams.weight_decay)
 
         artifact_to_non_artifact_ratios = torch.from_numpy(dataset.artifact_to_non_artifact_ratios()).to(self._device)
@@ -272,9 +197,7 @@ class ArtifactModel(nn.Module):
                 loader = train_loader if epoch_type == utils.Epoch.TRAIN else valid_loader
                 pbar = tqdm(enumerate(loader), mininterval=60)
                 for n, batch in pbar:
-                    transformed_reads = self.apply_transformer_to_reads(batch)
-
-                    logits = self.forward_from_transformed_reads(transformed_reads, batch, weight_range=reweighting_range)
+                    logits = self.forward(batch)
                     types_one_hot = batch.variant_type_one_hot()
                     log_prior_ratios = torch.sum(artifact_to_non_artifact_log_prior_ratios * types_one_hot, dim=1)
                     posterior_logits = logits + log_prior_ratios
@@ -308,7 +231,7 @@ class ArtifactModel(nn.Module):
         # done with training
 
     # generators by name is eg {"train": train_generator, "valid": valid_generator}
-    def evaluate_model_after_training(self, dataset, batch_size, num_workers, summary_writer: SummaryWriter):
+    def evaluate_model_after_training(self, dataset: RepresentationDataset, batch_size, num_workers, summary_writer: SummaryWriter):
         train_loader = dataset.make_data_loader(dataset.all_but_the_last_fold(), batch_size, self._device.type == 'cuda', num_workers)
         valid_loader = dataset.make_data_loader(dataset.last_fold_only(), batch_size, self._device.type == 'cuda', num_workers)
         epoch_types = [Epoch.TRAIN, Epoch.VALID]
@@ -336,7 +259,6 @@ class ArtifactModel(nn.Module):
         evaluation_metrics.make_plots(summary_writer)
 
         # now go over just the validation data and generate feature vectors / metadata for tensorboard projectors (UMAP)
-        # also generate histograms of magnitudes of average read embeddings
         pbar = tqdm(enumerate(filter(lambda bat: bat.is_labeled(), valid_loader)), mininterval=60)
 
         # things we will collect for the projections
@@ -344,22 +266,7 @@ class ArtifactModel(nn.Module):
         correct_metadata = []   # list (extended by each batch), 1 if correct prediction, 0 if not
         type_metadata = []      # list of lists, strings of variant type
         truncated_count_metadata = []   # list of lists
-        average_read_embedding_features = []    # list of 2D tensors (to be stacked into a single 2D tensor), average read embedding over batches
-        info_embedding_features = []
-        ref_seq_embedding_features = []
-
-        # we output array figures of histograms.  The rows of each histogram are (rounded) alt counts, the columns
-        # are variant types, and each subplot has overlapping histograms for non-artifacts and artifacts.
-
-        # There are several figures of this type, which for now we enocde as tuples.  The first element is 0, 1, 2 for L0, L1, or L2 norm
-        # the second is a boolean norm first for whether we take the norm then the means (if true) or vice versa (if false)
-        # the third is a boolean for transformed (True) or refined (False)
-        norm_types = [1, 2, 100]
-        norm_first_values = [True, False]
-        trans_or_refined_values = [True, False]
-        histogram_tuples = [(x, y, z) for x in norm_types for y in norm_first_values for z in trans_or_refined_values]
-
-        hists_by_type_cnt = [{var_type: [([], []) for _ in range(NUM_COUNT_BINS)] for var_type in Variation} for tup in histogram_tuples]
+        representations = []    # list of 2D tensors (to be stacked into a single 2D tensor), representations over batches
 
         for n, batch in pbar:
             types_one_hot = batch.variant_type_one_hot()
@@ -374,74 +281,25 @@ class ArtifactModel(nn.Module):
             type_metadata.extend([Variation(idx).name for idx in batch.variant_types()])
             truncated_count_metadata.extend(batch.size() * [str(round_up_to_nearest_three(min(MAX_COUNT, batch.alt_count)))])
 
-            read_embeddings = self.apply_transformer_to_reads(batch)
-
-            all_read_means, alt_means, omega_info, ref_seq_embedding, effective_alt_counts, transformed_alt_3d, refined_alt_3d = \
-                self.forward_from_transformed_reads_to_refined_reads(read_embeddings, batch, extra_output=True)
-            average_read_embedding_features.append(alt_means)
-            info_embedding_features.append(omega_info)
-            ref_seq_embedding_features.append(ref_seq_embedding)
-
-            # code for the norm histograms
-            for n, (norm_type, norm_first, transformed_vs_refined) in enumerate(histogram_tuples):
-                tensor_3d = transformed_alt_3d if transformed_vs_refined else refined_alt_3d
-
-                # norm over representation dimension (2), then mean over read index (1) if norm_first
-                # else mean over read index (1) then norm over the new representation dimension (1)
-                output_1d = (tensor_3d.norm(dim=2, p=norm_type).mean(dim=1) if norm_first else \
-                    tensor_3d.mean(dim=1).norm(dim=1, p=norm_type)) if norm_type < 100 else \
-                    (tensor_3d.max(dim=2).values.mean(dim=1) if norm_first else tensor_3d.mean(dim=1).max(dim=1).values)
-
-                for variant_type,  label, output_value, in zip(batch.variant_types(), batch.labels.tolist(), output_1d):
-                    bin_idx = multiple_of_three_bin_index(min(MAX_COUNT, batch.alt_count))
-                    is_artifact_index = 0 if label < 0.5 else 1
-                    hists_by_type_cnt[n][variant_type][bin_idx][is_artifact_index].append(output_value.item())
+            representations.append(batch.get_representations_2d())
 
         # done collecting data
-
-        for n, (norm_type, norm_first, transformed_vs_refined) in enumerate(histogram_tuples):
-            hist_fig, hist_axes = plt.subplots(NUM_COUNT_BINS, len(Variation), sharex='none', sharey='none',
-                                                   squeeze=False, figsize=(15, 15), dpi=100)
-
-            name1 = "L" + str(norm_type) + " norm"
-            name2 = ("mean of " + name1) if norm_first else (name1 + " of mean")
-            name3 = name2 + " transformed" if transformed_vs_refined else " refined"
-
-            for col_idx, var_type in enumerate(Variation):
-                for row_idx in range(NUM_COUNT_BINS):
-                    # data for one particular subplot (row = count bin, column = variant type)
-                    plotting.simple_histograms_on_axis(hist_axes[row_idx, col_idx], hists_by_type_cnt[n][var_type][row_idx], ["good", "bad"], 25)
-            variation_types = [var_type.name for var_type in Variation]
-            plotting.tidy_subplots(hist_fig, hist_axes, x_label=name3, y_label="",
-                                   row_labels=["alt count " + str(multiple_of_three_bin_index_to_count(idx)) for idx in range(NUM_COUNT_BINS)],
-                                   column_labels=variation_types, keep_axes_tick_labels=True)
-            summary_writer.add_figure(name3, hist_fig)
 
         # downsample to a reasonable amount of UMAP data
         all_metadata=list(zip(label_metadata, correct_metadata, type_metadata, truncated_count_metadata))
         idx = np.random.choice(len(all_metadata), size=min(NUM_DATA_FOR_TENSORBOARD_PROJECTION, len(all_metadata)), replace=False)
 
-        summary_writer.add_embedding(torch.vstack(average_read_embedding_features)[idx],
+        summary_writer.add_embedding(torch.vstack(representations)[idx],
                                      metadata=[all_metadata[n] for n in idx],
                                      metadata_header=["Labels", "Correctness", "Types", "Counts"],
                                      tag="mean read embedding")
-
-        summary_writer.add_embedding(torch.vstack(info_embedding_features)[idx],
-                                     metadata=[all_metadata[n] for n in idx],
-                                     metadata_header=["Labels", "Correctness", "Types", "Counts"],
-                                     tag="info embedding")
-
-        summary_writer.add_embedding(torch.vstack(ref_seq_embedding_features)[idx],
-                                     metadata=[all_metadata[n] for n in idx],
-                                     metadata_header=["Labels", "Correctness", "Types", "Counts"],
-                                     tag="ref seq embedding")
 
         # read average embeddings stratified by variant type
         for variant_type in Variation:
             variant_name = variant_type.name
             indices = [n for n, type_name in enumerate(type_metadata) if type_name == variant_name]
             indices = sample_indices_for_tensorboard(indices)
-            summary_writer.add_embedding(torch.vstack(average_read_embedding_features)[indices],
+            summary_writer.add_embedding(torch.vstack(representations)[indices],
                                          metadata=[all_metadata[n] for n in indices],
                                          metadata_header=["Labels", "Correctness", "Types", "Counts"],
                                          tag="mean read embedding for variant type " + variant_name)
@@ -452,7 +310,7 @@ class ArtifactModel(nn.Module):
             indices = [n for n, alt_count in enumerate(truncated_count_metadata) if alt_count == str(count)]
             indices = sample_indices_for_tensorboard(indices)
             if len(indices) > 0:
-                summary_writer.add_embedding(torch.vstack(average_read_embedding_features)[indices],
+                summary_writer.add_embedding(torch.vstack(representations)[indices],
                                         metadata=[all_metadata[n] for n in indices],
                                         metadata_header=["Labels", "Correctness", "Types", "Counts"],
                                         tag="mean read embedding for alt count " + str(count))

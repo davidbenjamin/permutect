@@ -33,7 +33,7 @@ def train_artifact_model(hyperparams: ArtifactModelParameters, params: TrainingP
 
     print("Training. . .")
     model.train_model(dataset, params.num_epochs, params.num_calibration_epochs, params.batch_size, params.num_workers, summary_writer=summary_writer,
-                      reweighting_range=params.reweighting_range, hyperparams=hyperparams, freeze_lower_layers=use_pretrained)
+                      reweighting_range=params.reweighting_range, hyperparams=hyperparams)
 
     for n, var_type in enumerate(Variation):
         cal_fig, cal_axes = model.calibration[n].plot_calibration()
