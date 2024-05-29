@@ -6,7 +6,7 @@ from torch.utils.tensorboard import SummaryWriter
 
 from permutect import constants
 from permutect.tools import train_representation_model
-from permutect.tools.train_representation_model import load_representation_model
+from permutect.architecture.representation_model import load_representation_model
 
 
 def test_train_representation_model():

@@ -4,8 +4,8 @@ import torch
 from torch.utils.tensorboard import SummaryWriter
 
 from permutect import constants
-from permutect.architecture.representation_model import RepresentationModelParameters, RepresentationModel, LearningMethod, \
-    RepresentationModelTrainingParameters
+from permutect.architecture.representation_model import RepresentationModelParameters, RepresentationModel, \
+    LearningMethod, RepresentationModelTrainingParameters
 from permutect.data.read_set_dataset import ReadSetDataset
 from permutect.tools.filter_variants import load_artifact_model
 
@@ -22,31 +22,6 @@ def train_representation_model(params: RepresentationModelParameters, training_p
 
     print("Training. . .")
     model.learn(dataset, LearningMethod.SEMISUPERVISED, training_params, summary_writer=summary_writer)
-
-    return model
-
-
-def save_representation_model(model: RepresentationModel, hyperparams: RepresentationModelParameters, path):
-    torch.save({
-        constants.STATE_DICT_NAME: model.state_dict(),
-        constants.HYPERPARAMS_NAME: hyperparams,
-        constants.NUM_READ_FEATURES_NAME: model.num_read_features(),
-        constants.NUM_INFO_FEATURES_NAME: model.num_info_features(),
-        constants.REF_SEQUENCE_LENGTH_NAME: model.ref_sequence_length()
-    }, path)
-
-
-# this presumes that we have a ReadSetEmbedding and we have saved it via save_embedding_model above
-def load_representation_model(path) -> RepresentationModel:
-    saved = torch.load(path)
-    hyperparams = saved[constants.HYPERPARAMS_NAME]
-    num_read_features = saved[constants.NUM_READ_FEATURES_NAME]
-    num_info_features = saved[constants.NUM_INFO_FEATURES_NAME]
-    ref_sequence_length = saved[constants.REF_SEQUENCE_LENGTH_NAME]
-
-    model = RepresentationModel(hyperparams, num_read_features=num_read_features, num_info_features=num_info_features,
-                                ref_sequence_length=ref_sequence_length)
-    model.load_state_dict(saved[constants.STATE_DICT_NAME])
 
     return model
 
@@ -149,7 +124,7 @@ def main_without_parsing(args):
                                        summary_writer=summary_writer, pretrained_model=pretrained_model)
 
     summary_writer.close()
-    save_representation_model(model, hyperparams, getattr(args, constants.OUTPUT_NAME))
+    model.save(getattr(args, constants.OUTPUT_NAME))
 
 
 def main():

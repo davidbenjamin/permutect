@@ -6,7 +6,7 @@ import torch
 from torch.utils.tensorboard import SummaryWriter
 from tqdm.autonotebook import trange, tqdm
 
-from permutect import utils
+from permutect import utils, constants
 from permutect.architecture.dna_sequence_convolution import DNASequenceConvolution
 from permutect.architecture.mlp import MLP
 from permutect.data.read_set import ReadSetBatch
@@ -103,6 +103,7 @@ class RepresentationModel(torch.nn.Module):
         self._num_read_features = num_read_features
         self._num_info_features = num_info_features
         self._ref_sequence_length = ref_sequence_length
+        self._params = params
         self.alt_downsample = params.alt_downsample
 
         # linear transformation to convert read tensors from their initial dimensionality
@@ -317,3 +318,26 @@ class RepresentationModel(torch.nn.Module):
             # done with training and validation for this epoch
             # note that we have not learned the AF spectrum yet
         # done with training
+
+    def save(self, path):
+        torch.save({
+            constants.STATE_DICT_NAME: self.state_dict(),
+            constants.HYPERPARAMS_NAME: self._params,
+            constants.NUM_READ_FEATURES_NAME: self.num_read_features(),
+            constants.NUM_INFO_FEATURES_NAME: self.num_info_features(),
+            constants.REF_SEQUENCE_LENGTH_NAME: self.ref_sequence_length()
+        }, path)
+
+
+def load_representation_model(path) -> RepresentationModel:
+    saved = torch.load(path)
+    hyperparams = saved[constants.HYPERPARAMS_NAME]
+    num_read_features = saved[constants.NUM_READ_FEATURES_NAME]
+    num_info_features = saved[constants.NUM_INFO_FEATURES_NAME]
+    ref_sequence_length = saved[constants.REF_SEQUENCE_LENGTH_NAME]
+
+    model = RepresentationModel(hyperparams, num_read_features=num_read_features, num_info_features=num_info_features,
+                                ref_sequence_length=ref_sequence_length)
+    model.load_state_dict(saved[constants.STATE_DICT_NAME])
+
+    return model
