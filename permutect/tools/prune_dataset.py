@@ -13,10 +13,11 @@ import torch
 from torch.utils.tensorboard import SummaryWriter
 
 from permutect import constants, utils
-from permutect.architecture.artifact_model import ArtifactModelParameters, ArtifactModel
+from permutect.architecture.artifact_model import ArtifactModel
+from permutect.parameters import ArtifactModelParameters, parse_artifact_model_params, \
+    add_artifact_model_params_to_parser
 from permutect.data.read_set_dataset import ReadSetDataset, make_read_set_generator_from_tarfile
-from permutect.tools.train_model import TrainingParameters, parse_hyperparams, parse_training_params, \
-    add_artifact_model_hyperparameters_to_parser
+from permutect.tools.train_model import TrainingParameters, parse_training_params
 from permutect.utils import MutableInt
 
 NUM_FOLDS = 3
@@ -174,7 +175,7 @@ def generate_pruned_data(dataset: ReadSetDataset, max_bytes_per_chunk: int, prun
 def parse_arguments():
     parser = argparse.ArgumentParser(description='train the Mutect3 artifact model')
 
-    add_artifact_model_hyperparameters_to_parser(parser)
+    add_artifact_model_params_to_parser(parser)
     add_artifact_model_training_hyperparameters_to_parser(parser)
 
     parser.add_argument('--' + constants.CHUNK_SIZE_NAME, type=int, default=int(2e9), required=False,
@@ -193,7 +194,7 @@ def parse_arguments():
 
 
 def main_without_parsing(args):
-    hyperparams = parse_hyperparams(args)
+    hyperparams = parse_artifact_model_params(args)
     training_params = parse_training_params(args)
 
     tarfile_data = getattr(args, constants.TRAIN_TAR_NAME)

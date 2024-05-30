@@ -5,10 +5,11 @@ import torch
 from tensorboard.backend.event_processing.event_accumulator import EventAccumulator
 from torch.utils.tensorboard import SummaryWriter
 
+import permutect.parameters
 from permutect import constants
 from permutect.architecture import artifact_model
 from permutect.tools import train_model
-from permutect.tools.filter_variants import load_artifact_model
+from permutect.architecture.artifact_model import load_artifact_model
 
 
 def test_train_model():
@@ -74,10 +75,10 @@ def test_train_model():
 
 
 def test_training(dataset):
-    hyperparams = artifact_model.ArtifactModelParameters(read_embedding_dimension=12, num_transformer_heads=3,
-                 transformer_hidden_dimension=20, num_transformer_layers=2,
-        info_layers=[20, 20], aggregation_layers=[20, 20], calibration_layers=[6],
-        dropout_p=0.0, batch_normalize=False, learning_rate=0.001, weight_decay=0.01, alt_downsample=20)
+    hyperparams = permutect.parameters.ArtifactModelParameters(read_embedding_dimension=12, num_transformer_heads=3,
+                                                               transformer_hidden_dimension=20, num_transformer_layers=2,
+                                                               info_layers=[20, 20], aggregation_layers=[20, 20], calibration_layers=[6],
+                                                               dropout_p=0.0, batch_normalize=False, learning_rate=0.001, weight_decay=0.01, alt_downsample=20)
     training_params = train_model.TrainingParameters(batch_size=64, num_epochs=5, num_calibration_epochs=2, reweighting_range=0.3)
 
     with tempfile.TemporaryDirectory() as tensorboard_dir:

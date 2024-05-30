@@ -4,12 +4,10 @@ import torch
 from torch.utils.tensorboard import SummaryWriter
 
 from permutect import constants
-from permutect.architecture.representation_model import RepresentationModel, \
-    LearningMethod
+from permutect.architecture.representation_model import RepresentationModel, LearningMethod, load_representation_model
 from permutect.parameters import RepresentationModelParameters, TrainingParameters, parse_training_params, \
     parse_representation_model_params, add_representation_model_params_to_parser, add_training_params_to_parser
 from permutect.data.read_set_dataset import ReadSetDataset
-from permutect.tools.filter_variants import load_artifact_model
 
 
 def train_representation_model(params: RepresentationModelParameters, training_params: TrainingParameters, summary_writer: SummaryWriter,
@@ -18,7 +16,7 @@ def train_representation_model(params: RepresentationModelParameters, training_p
     device = torch.device('cuda' if use_gpu else 'cpu')
 
     use_pretrained = (pretrained_model is not None)
-    model = load_artifact_model(pretrained_model)[0] if use_pretrained else \
+    model = pretrained_model if use_pretrained else \
         RepresentationModel(params=params, num_read_features=dataset.num_read_features, num_info_features=dataset.num_info_features,
                             ref_sequence_length=dataset.ref_sequence_length, device=device).float()
 
@@ -33,7 +31,8 @@ def main_without_parsing(args):
     training_params = parse_training_params(args)
 
     tarfile_data = getattr(args, constants.TRAIN_TAR_NAME)
-    pretrained_model = getattr(args, constants.PRETRAINED_MODEL_NAME)
+    pretrained_model_path = getattr(args, constants.PRETRAINED_MODEL_NAME)
+    pretrained_model = None if pretrained_model_path is None else load_representation_model(pretrained_model_path)
     tensorboard_dir = getattr(args, constants.TENSORBOARD_DIR_NAME)
     summary_writer = SummaryWriter(tensorboard_dir)
     dataset = ReadSetDataset(data_tarfile=tarfile_data, num_folds=10)

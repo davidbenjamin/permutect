@@ -6,16 +6,14 @@ from typing import Set
 import cyvcf2
 import torch
 from intervaltree import IntervalTree
-from matplotlib import pyplot as plt
 from torch.utils.tensorboard import SummaryWriter
 from tqdm.autonotebook import tqdm
 
 from permutect import constants
-from permutect.architecture.artifact_model import ArtifactModel
+from permutect.architecture.artifact_model import ArtifactModel, load_artifact_model
 from permutect.architecture.posterior_model import PosteriorModel
 from permutect.data import read_set_dataset, plain_text_data
 from permutect.data.posterior import PosteriorDataset, PosteriorDatum
-from permutect.metrics import plotting
 from permutect.metrics.evaluation_metrics import EvaluationMetrics, PosteriorResult
 from permutect.utils import Call, find_variant_type, Label, Variation, Epoch
 
@@ -33,23 +31,6 @@ FILTER_NAMES = [call_type.name.lower() for call_type in Call]
 # the inverse of the sigmoid function.  Convert a probability to a logit.
 def prob_to_logit(prob: float):
     return math.log(prob / (1 - prob))
-
-
-# this presumes that we have an ArtifactModel and we have saved it via save_permutect_model as in train_model.py
-# it includes log artifact priors and artifact spectra, but these may be None
-def load_artifact_model(path) -> ArtifactModel:
-    saved = torch.load(path)
-    hyperparams = saved[constants.HYPERPARAMS_NAME]
-    num_read_features = saved[constants.NUM_READ_FEATURES_NAME]
-    num_info_features = saved[constants.NUM_INFO_FEATURES_NAME]
-    ref_sequence_length = saved[constants.REF_SEQUENCE_LENGTH_NAME]
-
-    model = ArtifactModel(hyperparams, num_read_features=num_read_features, num_info_features=num_info_features, ref_sequence_length=ref_sequence_length)
-    model.load_state_dict(saved[constants.STATE_DICT_NAME])
-
-    artifact_log_priors = saved[constants.ARTIFACT_LOG_PRIORS_NAME]     # possibly None
-    artifact_spectra_state_dict = saved[constants.ARTIFACT_SPECTRA_STATE_DICT_NAME]     #possibly None
-    return model, artifact_log_priors, artifact_spectra_state_dict
 
 
 def get_first_numeric_element(variant, key):

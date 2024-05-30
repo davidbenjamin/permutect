@@ -16,10 +16,10 @@ from permutect.architecture.mlp import MLP
 from permutect.architecture.monotonic import MonoDense
 from permutect.data.read_set import RepresentationReadSetBatch
 from permutect.data.read_set_dataset import RepresentationDataset
-from permutect import utils
+from permutect import utils, constants
 from permutect.metrics.evaluation_metrics import LossMetrics, EvaluationMetrics, NUM_COUNT_BINS, \
-    multiple_of_three_bin_index_to_count, multiple_of_three_bin_index, MAX_COUNT, round_up_to_nearest_three
-from permutect.parameters import TrainingParameters
+    multiple_of_three_bin_index_to_count, MAX_COUNT, round_up_to_nearest_three
+from permutect.parameters import TrainingParameters, ArtifactModelParameters
 from permutect.utils import Variation, Epoch
 from permutect.metrics import plotting
 
@@ -37,18 +37,6 @@ def effective_count(weights: Tensor):
 def sums_over_chunks(tensor2d: Tensor, chunk_size: int):
     assert len(tensor2d) % chunk_size == 0
     return torch.sum(tensor2d.reshape([len(tensor2d) // chunk_size, chunk_size, -1]), dim=1)
-
-
-class ArtifactModelParameters:
-    def __init__(self, representation_dimension: int, aggregation_layers: List[int], calibration_layers: List[int],
-                 dropout_p: float = 0.0, batch_normalize: bool = False, learning_rate: float = 0.001, weight_decay: float = 0.01):
-        self.representation_dimension = representation_dimension
-        self.aggregation_layers = aggregation_layers
-        self.calibration_layers = calibration_layers
-        self.dropout_p = dropout_p
-        self.batch_normalize = batch_normalize
-        self.learning_rate = learning_rate
-        self.weight_decay = weight_decay
 
 
 class Calibration(nn.Module):
@@ -120,6 +108,7 @@ class ArtifactModel(nn.Module):
 
         self._device = device
         self._representation_dimension = params.representation_dimension
+        self.params = params
 
         # The [1] is for the output logit
         self.rho = MLP([params.representation_dimension] + params.aggregation_layers + [1], batch_normalize=params.batch_normalize,
@@ -314,6 +303,26 @@ class ArtifactModel(nn.Module):
                                         metadata_header=["Labels", "Correctness", "Types", "Counts"],
                                         tag="mean read embedding for alt count " + str(count))
 
+    def save(self, path, artifact_log_priors, artifact_spectra):
+        torch.save({
+            constants.STATE_DICT_NAME: self.state_dict(),
+            constants.HYPERPARAMS_NAME: self.params,
+            constants.ARTIFACT_LOG_PRIORS_NAME: artifact_log_priors,
+            constants.ARTIFACT_SPECTRA_STATE_DICT_NAME: artifact_spectra.state_dict()
+        }, path)
+
+
+# log artifact priors and artifact spectra may be None
+def load_artifact_model(path) -> ArtifactModel:
+    saved = torch.load(path)
+    model_params = saved[constants.HYPERPARAMS_NAME]
+    model = ArtifactModel(model_params)
+    model.load_state_dict(saved[constants.STATE_DICT_NAME])
+
+    artifact_log_priors = saved[constants.ARTIFACT_LOG_PRIORS_NAME]     # possibly None
+    artifact_spectra_state_dict = saved[constants.ARTIFACT_SPECTRA_STATE_DICT_NAME]     #possibly None
+    return model, artifact_log_priors, artifact_spectra_state_dict
+
 
 def sample_indices_for_tensorboard(indices: List[int]):
     indices_np = np.array(indices)
@@ -323,4 +332,3 @@ def sample_indices_for_tensorboard(indices: List[int]):
 
     idx = np.random.choice(len(indices_np), size=NUM_DATA_FOR_TENSORBOARD_PROJECTION, replace=False)
     return indices_np[idx]
-

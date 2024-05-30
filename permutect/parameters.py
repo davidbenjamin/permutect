@@ -116,3 +116,33 @@ def add_training_params_to_parser(parser):
                         help='number of epochs for primary training loop')
     parser.add_argument('--' + constants.NUM_CALIBRATION_EPOCHS_NAME, type=int, default=0, required=False,
                         help='number of calibration-only epochs')
+
+
+class ArtifactModelParameters:
+    def __init__(self, aggregation_layers: List[int], calibration_layers: List[int],
+                 dropout_p: float = 0.0, batch_normalize: bool = False):
+        self.aggregation_layers = aggregation_layers
+        self.calibration_layers = calibration_layers
+        self.dropout_p = dropout_p
+        self.batch_normalize = batch_normalize
+
+
+def parse_artifact_model_params(args) -> ArtifactModelParameters:
+    aggregation_layers = getattr(args, constants.AGGREGATION_LAYERS_NAME)
+    calibration_layers = getattr(args, constants.CALIBRATION_LAYERS_NAME)
+    dropout_p = getattr(args, constants.DROPOUT_P_NAME)
+    batch_normalize = getattr(args, constants.BATCH_NORMALIZE_NAME)
+    return ArtifactModelParameters(aggregation_layers, calibration_layers, dropout_p, batch_normalize)
+
+
+def add_artifact_model_params_to_parser(parser):
+    parser.add_argument('--' + constants.AGGREGATION_LAYERS_NAME, nargs='+', type=int, required=True,
+                        help='dimensions of hidden layers in the aggregation subnetwork, excluding the dimension of input from lower subnetworks '
+                             'and the dimension (1) of the output logit.  Negative values indicate residual skip connections')
+    parser.add_argument('--' + constants.CALIBRATION_LAYERS_NAME, nargs='+', type=int, required=True,
+                        help='dimensions of hidden layers in the calibration subnetwork, excluding the dimension (1) of input logit and) '
+                             'and the dimension (also 1) of the output logit.')
+    parser.add_argument('--' + constants.DROPOUT_P_NAME, type=float, default=0.0, required=False,
+                        help='dropout probability')
+    parser.add_argument('--' + constants.BATCH_NORMALIZE_NAME, action='store_true',
+                        help='flag to turn on batch normalization')

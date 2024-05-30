@@ -5,11 +5,12 @@ import torch
 from torch.utils.tensorboard import SummaryWriter
 
 from permutect import constants, utils
-from permutect.architecture.artifact_model import ArtifactModelParameters, ArtifactModel
+from permutect.architecture.artifact_model import ArtifactModel
 from permutect.architecture.posterior_model import initialize_artifact_spectra, plot_artifact_spectra
+from permutect.architecture.representation_model import load_representation_model
 from permutect.data.read_set_dataset import ReadSetDataset, RepresentationDataset
-from permutect.parameters import TrainingParameters, add_training_params_to_parser, parse_training_params
-from permutect.tools.filter_variants import load_artifact_model
+from permutect.parameters import TrainingParameters, add_training_params_to_parser, parse_training_params, \
+    ArtifactModelParameters, parse_artifact_model_params, add_artifact_model_params_to_parser
 from permutect.utils import Variation, Label
 
 
@@ -60,42 +61,10 @@ def learn_artifact_priors_and_spectra(dataset: RepresentationDataset, genomic_sp
     return log_artifact_priors, artifact_spectra
 
 
-def save_artifact_model(model, hyperparams, path, artifact_log_priors, artifact_spectra):
-    torch.save({
-        constants.STATE_DICT_NAME: model.state_dict(),
-        constants.HYPERPARAMS_NAME: hyperparams,
-        constants.NUM_READ_FEATURES_NAME: model.num_read_features(),
-        constants.NUM_INFO_FEATURES_NAME: model.num_info_features(),
-        constants.REF_SEQUENCE_LENGTH_NAME: model.ref_sequence_length(),
-        constants.ARTIFACT_LOG_PRIORS_NAME: artifact_log_priors,
-        constants.ARTIFACT_SPECTRA_STATE_DICT_NAME: artifact_spectra.state_dict()
-    }, path)
-
-
-def parse_hyperparams(args) -> ArtifactModelParameters:
-    read_embedding_dimension = getattr(args, constants.READ_EMBEDDING_DIMENSION_NAME)
-    num_transformer_heads = getattr(args, constants.NUM_TRANSFORMER_HEADS_NAME)
-    transformer_hidden_dimension = getattr(args, constants.TRANSFORMER_HIDDEN_DIMENSION_NAME)
-    num_transformer_layers = getattr(args, constants.NUM_TRANSFORMER_LAYERS_NAME)
-
-    info_layers = getattr(args, constants.INFO_LAYERS_NAME)
-    aggregation_layers = getattr(args, constants.AGGREGATION_LAYERS_NAME)
-    calibration_layers = getattr(args, constants.CALIBRATION_LAYERS_NAME)
-    ref_seq_layer_strings = getattr(args, constants.REF_SEQ_LAYER_STRINGS_NAME)
-    dropout_p = getattr(args, constants.DROPOUT_P_NAME)
-    batch_normalize = getattr(args, constants.BATCH_NORMALIZE_NAME)
-    learning_rate = getattr(args, constants.LEARNING_RATE_NAME)
-    weight_decay = getattr(args, constants.WEIGHT_DECAY_NAME)
-    alt_downsample = getattr(args, constants.ALT_DOWNSAMPLE_NAME)
-    return ArtifactModelParameters(read_embedding_dimension, num_transformer_heads, transformer_hidden_dimension,
-                 num_transformer_layers, info_layers, aggregation_layers, calibration_layers, ref_seq_layer_strings, dropout_p,
-        batch_normalize, learning_rate, weight_decay, alt_downsample)
-
-
 def parse_arguments():
     parser = argparse.ArgumentParser(description='train the Permutect artifact model')
 
-    add_artifact_model_hyperparameters_to_parser(parser)
+    add_artifact_model_params_to_parser(parser)
     add_training_params_to_parser(parser)
 
     parser.add_argument('--' + constants.LEARN_ARTIFACT_SPECTRA_NAME, action='store_true',
@@ -120,43 +89,29 @@ def parse_arguments():
     return parser.parse_args()
 
 
-def add_artifact_model_hyperparameters_to_parser(parser):
-    parser.add_argument('--' + constants.AGGREGATION_LAYERS_NAME, nargs='+', type=int, required=True,
-                        help='dimensions of hidden layers in the aggregation subnetwork, excluding the dimension of input from lower subnetworks '
-                             'and the dimension (1) of the output logit.  Negative values indicate residual skip connections')
-    parser.add_argument('--' + constants.CALIBRATION_LAYERS_NAME, nargs='+', type=int, required=True,
-                        help='dimensions of hidden layers in the calibration subnetwork, excluding the dimension (1) of input logit and) '
-                             'and the dimension (also 1) of the output logit.')
-    parser.add_argument('--' + constants.DROPOUT_P_NAME, type=float, default=0.0, required=False,
-                        help='dropout probability')
-    parser.add_argument('--' + constants.BATCH_NORMALIZE_NAME, action='store_true',
-                        help='flag to turn on batch normalization')
-
-
-
 def main_without_parsing(args):
-    hyperparams = parse_hyperparams(args)
+    params = parse_artifact_model_params(args)
     training_params = parse_training_params(args)
     learn_artifact_spectra = getattr(args, constants.LEARN_ARTIFACT_SPECTRA_NAME)
     genomic_span = getattr(args, constants.GENOMIC_SPAN_NAME)
 
-    tarfile_data = getattr(args, constants.TRAIN_TAR_NAME)
-    pretrained_model = getattr(args, constants.PRETRAINED_MODEL_NAME)
     tensorboard_dir = getattr(args, constants.TENSORBOARD_DIR_NAME)
     summary_writer = SummaryWriter(tensorboard_dir)
-    # TODO: load the representation model
-    # TODO: construct the representation dataset
-    dataset = ReadSetDataset(data_tarfile=tarfile_data, num_folds=10)
-    model = train_artifact_model(hyperparams=hyperparams, dataset=dataset, training_params=training_params,
-                                 summary_writer=summary_writer, pretrained_model=pretrained_model)
 
-    artifact_log_priors, artifact_spectra = learn_artifact_priors_and_spectra(dataset, genomic_span) if learn_artifact_spectra else (None, None)
+    representation_model = load_representation_model(getattr(args, constants.PRETRAINED_MODEL_NAME))
+    read_set_dataset = ReadSetDataset(data_tarfile=getattr(args, constants.TRAIN_TAR_NAME), num_folds=10)
+    representation_dataset = RepresentationDataset(read_set_dataset, representation_model)
+
+    model = train_artifact_model(hyperparams=params,  training_params=training_params,
+                                 summary_writer=summary_writer, dataset=representation_dataset)
+
+    artifact_log_priors, artifact_spectra = learn_artifact_priors_and_spectra(representation_dataset, genomic_span) if learn_artifact_spectra else (None, None)
     if artifact_spectra is not None:
         art_spectra_fig, art_spectra_axs = plot_artifact_spectra(artifact_spectra)
         summary_writer.add_figure("Artifact AF Spectra", art_spectra_fig)
 
     summary_writer.close()
-    save_artifact_model(model, hyperparams, getattr(args, constants.OUTPUT_NAME), artifact_log_priors, artifact_spectra)
+    model.save(getattr(args, constants.OUTPUT_NAME), artifact_log_priors, artifact_spectra)
 
 
 def main():

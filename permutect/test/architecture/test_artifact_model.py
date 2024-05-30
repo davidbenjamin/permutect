@@ -2,7 +2,8 @@ from permutect.test.test_utils import artificial_data
 from permutect.data.read_set_dataset import ReadSetDataset, make_test_data_loader
 from permutect.data.read_set import ReadSet
 from typing import Iterable
-from permutect.architecture.artifact_model import ArtifactModel, ArtifactModelParameters
+from permutect.architecture.artifact_model import ArtifactModel
+from permutect.parameters import ArtifactModelParameters
 from permutect import utils
 from permutect.tools.train_model import TrainingParameters
 
