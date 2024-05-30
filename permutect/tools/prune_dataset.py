@@ -16,7 +16,7 @@ from permutect import constants, utils
 from permutect.architecture.artifact_model import ArtifactModelParameters, ArtifactModel
 from permutect.data.read_set_dataset import ReadSetDataset, make_read_set_generator_from_tarfile
 from permutect.tools.train_model import TrainingParameters, parse_hyperparams, parse_training_params, \
-    add_artifact_model_hyperparameters_to_parser, add_artifact_model_training_hyperparameters_to_parser
+    add_artifact_model_hyperparameters_to_parser
 from permutect.utils import MutableInt
 
 NUM_FOLDS = 3
@@ -38,8 +38,8 @@ def prune_training_data(hyperparams: ArtifactModelParameters, params: TrainingPa
         print("Training model on fold " + str(fold) + " of " + str(NUM_FOLDS))
         # note: not training from scratch.  I assume that there are enough epochs to forget any overfitting from
         # previous folds
-        model.train_model(dataset, params.num_epochs, params.num_calibration_epochs, params.batch_size, params.num_workers, summary_writer=summary_writer,
-                          reweighting_range=params.reweighting_range, hyperparams=hyperparams, validation_fold=fold)
+        model.learn(dataset, params.num_epochs, params.num_calibration_epochs, params.batch_size, params.num_workers, summary_writer=summary_writer,
+                    reweighting_range=params.reweighting_range, hyperparams=hyperparams, validation_fold=fold)
 
         average_artifact_confidence, average_nonartifact_confidence = utils.StreamingAverage(), utils.StreamingAverage()
 

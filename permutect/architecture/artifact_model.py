@@ -19,6 +19,7 @@ from permutect.data.read_set_dataset import RepresentationDataset
 from permutect import utils
 from permutect.metrics.evaluation_metrics import LossMetrics, EvaluationMetrics, NUM_COUNT_BINS, \
     multiple_of_three_bin_index_to_count, multiple_of_three_bin_index, MAX_COUNT, round_up_to_nearest_three
+from permutect.parameters import TrainingParameters
 from permutect.utils import Variation, Epoch
 from permutect.metrics import plotting
 
@@ -160,11 +161,10 @@ class ArtifactModel(nn.Module):
             calibrated += mask * self.calibration[n].forward(logits, batch.ref_counts, batch.alt_counts)
         return calibrated
 
-    def train_model(self, dataset: RepresentationDataset, num_epochs, num_calibration_epochs, batch_size, num_workers,
-                    summary_writer: SummaryWriter, hyperparams: ArtifactModelParameters, validation_fold: int = None):
+    def learn(self, dataset: RepresentationDataset, training_params: TrainingParameters, summary_writer: SummaryWriter, validation_fold: int = None):
         bce = nn.BCEWithLogitsLoss(reduction='none')  # no reduction because we may want to first multiply by weights for unbalanced data
-        train_optimizer = torch.optim.AdamW(self.training_parameters(), lr=hyperparams.learning_rate, weight_decay=hyperparams.weight_decay)
-        calibration_optimizer = torch.optim.AdamW(self.calibration_parameters(), lr=hyperparams.learning_rate, weight_decay=hyperparams.weight_decay)
+        train_optimizer = torch.optim.AdamW(self.training_parameters(), lr=training_params.learning_rate, weight_decay=training_params.weight_decay)
+        calibration_optimizer = torch.optim.AdamW(self.calibration_parameters(), lr=training_params.learning_rate, weight_decay=training_params.weight_decay)
 
         artifact_to_non_artifact_ratios = torch.from_numpy(dataset.artifact_to_non_artifact_ratios()).to(self._device)
         artifact_to_non_artifact_log_prior_ratios = torch.log(artifact_to_non_artifact_ratios)
@@ -181,11 +181,11 @@ class ArtifactModel(nn.Module):
                   .format(variation_type.name, dataset.artifact_totals[idx].item(), dataset.non_artifact_totals[idx].item()))
 
         validation_fold_to_use = (dataset.num_folds - 1) if validation_fold is None else validation_fold
-        train_loader = dataset.make_data_loader(dataset.all_but_one_fold(validation_fold_to_use), batch_size, self._device.type == 'cuda', num_workers)
-        valid_loader = dataset.make_data_loader([validation_fold_to_use], batch_size, self._device.type == 'cuda', num_workers)
+        train_loader = dataset.make_data_loader(dataset.all_but_one_fold(validation_fold_to_use), training_params.batch_size, self._device.type == 'cuda', training_params.num_workers)
+        valid_loader = dataset.make_data_loader([validation_fold_to_use], training_params.batch_size, self._device.type == 'cuda', training_params.num_workers)
 
-        for epoch in trange(1, num_epochs + 1 + num_calibration_epochs, desc="Epoch"):
-            is_calibration_epoch = epoch > num_epochs
+        for epoch in trange(1, training_params.num_epochs + 1 + training_params.num_calibration_epochs, desc="Epoch"):
+            is_calibration_epoch = epoch > training_params.num_epochs
             for epoch_type in ([utils.Epoch.VALID] if is_calibration_epoch else [utils.Epoch.TRAIN, utils.Epoch.VALID]):
                 self.set_epoch_type(epoch_type)
                 if is_calibration_epoch:

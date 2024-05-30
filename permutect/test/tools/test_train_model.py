@@ -82,7 +82,7 @@ def test_training(dataset):
 
     with tempfile.TemporaryDirectory() as tensorboard_dir:
         summary_writer = SummaryWriter(tensorboard_dir)
-        train_model.train_artifact_model(hyperparams=hyperparams, training_datasets=[dataset], params=training_params, summary_writer=summary_writer)
+        train_model.train_artifact_model(hyperparams=hyperparams, training_datasets=[dataset], training_params=training_params, summary_writer=summary_writer)
         summary_writer.close()
         events = EventAccumulator(tensorboard_dir)
         events.Reload()

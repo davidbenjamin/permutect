@@ -1,6 +1,5 @@
 from enum import Enum
 from itertools import chain
-from typing import List, Iterable
 
 import torch
 from torch.utils.tensorboard import SummaryWriter
@@ -11,8 +10,9 @@ from permutect.architecture.dna_sequence_convolution import DNASequenceConvoluti
 from permutect.architecture.mlp import MLP
 from permutect.data.read_set import ReadSetBatch
 from permutect.data.read_set_dataset import ReadSetDataset
-from permutect.metrics.evaluation_metrics import LossMetrics, EvaluationMetrics
-from permutect.utils import Variation, Epoch
+from permutect.metrics.evaluation_metrics import LossMetrics
+from permutect.parameters import RepresentationModelParameters, TrainingParameters
+from permutect.utils import Variation
 
 
 # group rows into consecutive chunks to yield a 3D tensor, average over dim=1 to get
@@ -36,45 +36,6 @@ class LearningMethod(Enum):
     AFFINE_TRANSFORMATION = "affine"
 
 
-class RepresentationModelParameters:
-    """
-    note that read layers and info layers exclude the input dimension
-    read_embedding_dimension: read tensors are linear-transformed to this dimension before
-    input to the transformer.  This is also the output dimension of reads from the transformer
-    num_transformer_heads: number of attention heads in the read transformer.  Must be a divisor
-        of the read_embedding_dimension
-    num_transformer_layers: number of layers of read transformer
-    """
-    def __init__(self, read_embedding_dimension: int, num_transformer_heads: int, transformer_hidden_dimension: int,
-                 num_transformer_layers: int, info_layers: List[int], aggregation_layers: List[int],
-                 ref_seq_layers_strings: List[str], dropout_p: float, batch_normalize: bool = False, alt_downsample: int = 100):
-
-        assert read_embedding_dimension % num_transformer_heads == 0
-
-        self.read_embedding_dimension = read_embedding_dimension
-        self.num_transformer_heads = num_transformer_heads
-        self.transformer_hidden_dimension = transformer_hidden_dimension
-        self.num_transformer_layers = num_transformer_layers
-        self.info_layers = info_layers
-        self.aggregation_layers = aggregation_layers
-        self.ref_seq_layer_strings = ref_seq_layers_strings
-        self.dropout_p = dropout_p
-        self.batch_normalize = batch_normalize
-        self.alt_downsample = alt_downsample
-
-
-class RepresentationModelTrainingParameters:
-    def __init__(self, batch_size: int, num_epochs: int, reweighting_range: float, learning_rate: float = 0.001,
-                 weight_decay: float = 0.01, num_workers: int = 0):
-        self.batch_size = batch_size
-        self.num_epochs = num_epochs
-        self.reweighting_range = reweighting_range
-        self.learning_rate = learning_rate
-        self.weight_decay = weight_decay
-        self.num_workers = num_workers
-
-
-# Just copy-pasted below this point
 class RepresentationModel(torch.nn.Module):
     """
     DeepSets framework for reads and variant info.  We embed each read and concatenate the mean ref read
@@ -242,7 +203,7 @@ class RepresentationModel(torch.nn.Module):
     # TODO: actually, this can be the framework of a LOT of different ways to train.  There's a ton of overlap.  There's always going to
     # TODO: be running the model over epochs, loading the dataset, backpropagating the loss.
     # TODO: the differences will mainly be in auxiliary tasks attached to the embedding and different loss functions
-    def learn(self, dataset: ReadSetDataset, learning_method: LearningMethod, training_params: RepresentationModelTrainingParameters,
+    def learn(self, dataset: ReadSetDataset, learning_method: LearningMethod, training_params: TrainingParameters,
               summary_writer: SummaryWriter, validation_fold: int = None):
         bce = torch.nn.BCEWithLogitsLoss(reduction='none')  # no reduction because we may want to first multiply by weights for unbalanced data
 
