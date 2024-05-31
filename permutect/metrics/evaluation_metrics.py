@@ -80,14 +80,17 @@ class LossMetrics:
         for var_type, loss in self.labeled_loss_by_type.items():
             summary_writer.add_scalar(epoch_type.name + "/Labeled Loss/By Type/" + var_type.name, loss.get(), epoch)
 
-    def record_total_batch_loss(self, total_loss: float, batch: ReadSetBatch | RepresentationReadSetBatch):
+
+    # TODO: put type hint batch: ReadSetBatch | RepresentationReadSetBatch once docker update
+    def record_total_batch_loss(self, total_loss: float, batch):
         if batch.is_labeled():
             self.labeled_loss.record_sum(total_loss, batch.size())
         else:
             self.unlabeled_loss.record_sum(total_loss, batch.size())
 
     # record the losses by type
-    def record_losses_by_type_and_count(self, losses: torch.Tensor, batch: ReadSetBatch | RepresentationReadSetBatch):
+    # TODO: put type hint batch: ReadSetBatch | RepresentationReadSetBatch once docker update
+    def record_losses_by_type_and_count(self, losses: torch.Tensor, batch):
         if batch.is_labeled():
             # by type
             types_one_hot = batch.variant_type_one_hot()
