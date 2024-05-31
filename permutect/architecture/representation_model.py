@@ -207,13 +207,11 @@ class RepresentationModel(torch.nn.Module):
               summary_writer: SummaryWriter, validation_fold: int = None):
         bce = torch.nn.BCEWithLogitsLoss(reduction='none')  # no reduction because we may want to first multiply by weights for unbalanced data
 
-        match learning_method:
-            case LearningMethod.SUPERVISED | LearningMethod.SEMISUPERVISED:
-                # top layer maps the embedding to a logit for binary classification
-                # TODO: make this an MLP??
-                top_layer = torch.nn.Linear(in_features=self._output_dimension, out_features=1)
-            case _:
-                raise Exception("not implemented yet")
+        # TODO: use Python's match syntax, but this requires updating Python version in the docker
+        if learning_method == LearningMethod.SUPERVISED or learning_method == LearningMethod.SEMISUPERVISED:
+            top_layer = torch.nn.Linear(in_features=self._output_dimension, out_features=1)
+        else:
+            raise Exception("not implemented yet")
 
         train_optimizer = torch.optim.AdamW(chain(self.parameters(), top_layer.parameters()),
                                             lr=training_params.learning_rate, weight_decay=training_params.weight_decay)
