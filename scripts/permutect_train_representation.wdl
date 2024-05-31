@@ -122,7 +122,7 @@ task TrainPermutectRepresentationGPU {
     command <<<
         set -e
 
-        train_model \
+        train_representation_model \
             --train_tar ~{train_tar} \
             ~{"--pretrained_model " + pretrained_model} \
             --read_embedding_dimension ~{read_embedding_dimension} \
@@ -199,7 +199,7 @@ task TrainPermutectRepresentationCPU {
     command <<<
         set -e
 
-        train_model \
+        train_representation_model \
             --train_tar ~{train_tar} \
             ~{"--pretrained_model " + pretrained_model} \
             --read_embedding_dimension ~{read_embedding_dimension} \
