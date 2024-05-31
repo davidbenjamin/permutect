@@ -15,7 +15,7 @@ from matplotlib import pyplot as plt
 from permutect.architecture.mlp import MLP
 from permutect.architecture.monotonic import MonoDense
 from permutect.data.read_set import RepresentationReadSetBatch
-from permutect.data.read_set_dataset import RepresentationDataset
+from permutect.data.representation_dataset import RepresentationDataset
 from permutect import utils, constants
 from permutect.metrics.evaluation_metrics import LossMetrics, EvaluationMetrics, NUM_COUNT_BINS, \
     multiple_of_three_bin_index_to_count, MAX_COUNT, round_up_to_nearest_three
@@ -103,15 +103,15 @@ class ArtifactModel(nn.Module):
     because we have different output layers for each variant type.
     """
 
-    def __init__(self, params: ArtifactModelParameters, device=torch.device("cpu")):
+    def __init__(self, params: ArtifactModelParameters, num_representation_features: int, device=torch.device("cpu")):
         super(ArtifactModel, self).__init__()
 
         self._device = device
-        self._representation_dimension = params.representation_dimension
+        self.num_representation_features = num_representation_features
         self.params = params
 
         # The [1] is for the output logit
-        self.rho = MLP([params.representation_dimension] + params.aggregation_layers + [1], batch_normalize=params.batch_normalize,
+        self.rho = MLP([num_representation_features] + params.aggregation_layers + [1], batch_normalize=params.batch_normalize,
                        dropout_p=params.dropout_p)
         self.rho.to(self._device)
 
@@ -195,7 +195,7 @@ class ArtifactModel(nn.Module):
                         loss = torch.sum(separate_losses)
 
                         loss_metrics.record_total_batch_loss(loss.detach(), batch)
-                        loss_metrics.record_separate_losses(separate_losses, batch)
+                        loss_metrics.record_losses_by_type_and_count(separate_losses, batch)
                     else:
                         # unlabeled loss: entropy regularization
                         posterior_probabilities = torch.sigmoid(posterior_logits)
@@ -239,8 +239,8 @@ class ArtifactModel(nn.Module):
                 pred = self.forward(batch)
                 correct = ((pred > 0) == (batch.labels > 0.5)).tolist()
 
-                for variant_type, predicted_logit, label, correct_call in zip(batch.variant_types(), pred.tolist(), batch.labels.tolist(), correct):
-                    evaluation_metrics.record_call(epoch_type, variant_type, predicted_logit, label, correct_call, batch.alt_count)
+                for variant_type, predicted_logit, label, correct_call, alt_count in zip(batch.variant_types(), pred.tolist(), batch.labels.tolist(), correct, batch.alt_counts):
+                    evaluation_metrics.record_call(epoch_type, variant_type, predicted_logit, label, correct_call, alt_count)
             # done with this epoch type
         # done collecting data
 
@@ -267,7 +267,7 @@ class ArtifactModel(nn.Module):
             label_metadata.extend(["artifact" if x > 0.5 else "non-artifact" for x in batch.labels.tolist()])
             correct_metadata.extend([str(val) for val in correct])
             type_metadata.extend([Variation(idx).name for idx in batch.variant_types()])
-            truncated_count_metadata.extend(batch.size() * [str(round_up_to_nearest_three(min(MAX_COUNT, batch.alt_count)))])
+            truncated_count_metadata.extend([str(round_up_to_nearest_three(min(MAX_COUNT, alt_count))) for alt_count in batch.alt_counts])
 
             representations.append(batch.get_representations_2d())
 
@@ -306,6 +306,7 @@ class ArtifactModel(nn.Module):
     def save(self, path, artifact_log_priors, artifact_spectra):
         torch.save({
             constants.STATE_DICT_NAME: self.state_dict(),
+            constants.NUM_REPRESENTATION_FEATURES_NAME: self.num_representation_features,
             constants.HYPERPARAMS_NAME: self.params,
             constants.ARTIFACT_LOG_PRIORS_NAME: artifact_log_priors,
             constants.ARTIFACT_SPECTRA_STATE_DICT_NAME: artifact_spectra.state_dict()
@@ -316,7 +317,8 @@ class ArtifactModel(nn.Module):
 def load_artifact_model(path) -> ArtifactModel:
     saved = torch.load(path)
     model_params = saved[constants.HYPERPARAMS_NAME]
-    model = ArtifactModel(model_params)
+    num_representation_features = saved[constants.NUM_REPRESENTATION_FEATURES_NAME]
+    model = ArtifactModel(model_params, num_representation_features)
     model.load_state_dict(saved[constants.STATE_DICT_NAME])
 
     artifact_log_priors = saved[constants.ARTIFACT_LOG_PRIORS_NAME]     # possibly None

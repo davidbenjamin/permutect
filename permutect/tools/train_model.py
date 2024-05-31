@@ -8,7 +8,8 @@ from permutect import constants, utils
 from permutect.architecture.artifact_model import ArtifactModel
 from permutect.architecture.posterior_model import initialize_artifact_spectra, plot_artifact_spectra
 from permutect.architecture.representation_model import load_representation_model
-from permutect.data.read_set_dataset import ReadSetDataset, RepresentationDataset
+from permutect.data.read_set_dataset import ReadSetDataset
+from permutect.data.representation_dataset import RepresentationDataset
 from permutect.parameters import TrainingParameters, add_training_params_to_parser, parse_training_params, \
     ArtifactModelParameters, parse_artifact_model_params, add_artifact_model_params_to_parser
 from permutect.utils import Variation, Label
@@ -18,7 +19,7 @@ def train_artifact_model(hyperparams: ArtifactModelParameters, training_params: 
     use_gpu = torch.cuda.is_available()
     device = torch.device('cuda' if use_gpu else 'cpu')
 
-    model = ArtifactModel(params=hyperparams, device=device).float()
+    model = ArtifactModel(params=hyperparams, num_representation_features=dataset.num_representation_features, device=device).float()
 
     print("Training. . .")
     model.learn(dataset, training_params, summary_writer=summary_writer)
@@ -102,7 +103,7 @@ def main_without_parsing(args):
     read_set_dataset = ReadSetDataset(data_tarfile=getattr(args, constants.TRAIN_TAR_NAME), num_folds=10)
     representation_dataset = RepresentationDataset(read_set_dataset, representation_model)
 
-    model = train_artifact_model(hyperparams=params,  training_params=training_params,
+    model = train_artifact_model(hyperparams=params, training_params=training_params,
                                  summary_writer=summary_writer, dataset=representation_dataset)
 
     artifact_log_priors, artifact_spectra = learn_artifact_priors_and_spectra(representation_dataset, genomic_span) if learn_artifact_spectra else (None, None)

@@ -245,7 +245,7 @@ class RepresentationModel(torch.nn.Module):
                 loader = train_loader if epoch_type == utils.Epoch.TRAIN else valid_loader
                 pbar = tqdm(enumerate(loader), mininterval=60)
                 for n, batch in pbar:
-                    embeddings = self.calculate_representations(batch, training_params.reweighting_range)
+                    embeddings = self.calculate_representations(batch, self._params.reweighting_range)
 
                     # TODO: this is only handling the supervised/semi-supervised cases
                     logits = torch.squeeze(top_layer(embeddings), dim=1)
@@ -259,7 +259,7 @@ class RepresentationModel(torch.nn.Module):
                         loss = torch.sum(separate_losses)
 
                         loss_metrics.record_total_batch_loss(loss.detach(), batch)
-                        loss_metrics.record_separate_losses(separate_losses, batch)
+                        loss_metrics.record_losses_by_type_and_count(separate_losses, batch)
                     else:
                         # unlabeled loss: entropy regularization
                         posterior_probabilities = torch.sigmoid(posterior_logits)

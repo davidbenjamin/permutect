@@ -149,6 +149,7 @@ class ReadSetBatch:
     """
 
     def __init__(self, data: List[ReadSet]):
+        self._original_list = data
         self.labeled = data[0].label != Label.UNLABELED
         self.ref_count = len(data[0].ref_reads_2d) if data[0].ref_reads_2d is not None else 0
         self.alt_count = len(data[0].alt_reads_2d)
@@ -176,6 +177,9 @@ class ReadSetBatch:
         self.info_2d = self.info_2d.pin_memory()
         self.labels = self.labels.pin_memory()
         return self
+
+    def original_list(self):
+        return self._original_list
 
     def get_reads_2d(self) -> Tensor:
         return self.reads_2d
@@ -217,12 +221,15 @@ class RepresentationReadSet:
         self.counts_and_seq_lks = read_set.counts_and_seq_lks
         self.ref_count = len(read_set.ref_reads_2d) if read_set.ref_reads_2d is not None else 0
         self.alt_count = len(read_set.alt_reads_2d)
+        self.variant_type_one_hot = read_set.variant_type_one_hot()
 
     def size_in_bytes(self):
         pass
 
     def get_variant_type(self):
-        return Variation.get_type(self.variant.ref, self.variant.alt)
+        for n, var_type in enumerate(Variation):
+            if self.variant_type_one_hot[n] > 0:
+                return var_type
 
     def is_labeled(self):
         return self.label != Label.UNLABELED
@@ -241,7 +248,7 @@ class RepresentationReadSetBatch:
         self.counts_and_likelihoods = [item.counts_and_seq_lks for item in data]
         self.variants = None if data[0].variant is None else [datum.variant for datum in data]
 
-        self.variant_type_one_hot = torch.from_numpy(np.vstack([Variation.get_type(item.variant.ref, item.variant.alt).one_hot_tensor() for item in data]))
+        self._variant_type_one_hot = torch.from_numpy(np.vstack([item.variant_type_one_hot for item in data]))
 
     # pin memory for all tensors that are sent to the GPU
     def pin_memory(self):
@@ -259,11 +266,12 @@ class RepresentationReadSetBatch:
         return self._size
 
     def variant_type_one_hot(self) -> Tensor:
-        return self.variant_type_one_hot()
+        return self._variant_type_one_hot
 
     def variant_type_mask(self, variant_type: Variation) -> Tensor:
         pass
 
     # return list of variant type integer indices
     def variant_types(self):
-        pass
+        one_hot = self.variant_type_one_hot()
+        return [int(x) for x in sum([n * one_hot[:, n] for n in range(len(Variation))])]
