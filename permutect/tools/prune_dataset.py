@@ -5,6 +5,8 @@ import tempfile
 import pickle
 
 import psutil
+
+from permutect.architecture.representation_model import load_representation_model
 from permutect.data import read_set
 from tqdm.autonotebook import tqdm
 
@@ -14,8 +16,9 @@ from torch.utils.tensorboard import SummaryWriter
 
 from permutect import constants, utils
 from permutect.architecture.artifact_model import ArtifactModel
+from permutect.data.representation_dataset import RepresentationDataset
 from permutect.parameters import ArtifactModelParameters, parse_artifact_model_params, \
-    add_artifact_model_params_to_parser
+    add_artifact_model_params_to_parser, add_training_params_to_parser
 from permutect.data.read_set_dataset import ReadSetDataset, make_read_set_generator_from_tarfile
 from permutect.tools.train_model import TrainingParameters, parse_training_params
 from permutect.utils import MutableInt
@@ -23,15 +26,10 @@ from permutect.utils import MutableInt
 NUM_FOLDS = 3
 
 
-def prune_training_data(hyperparams: ArtifactModelParameters, params: TrainingParameters, tensorboard_dir, data_tarfile, pruned_tarfile, chunk_size):
+def prune_training_data(representation_dataset: RepresentationDataset, hyperparams: ArtifactModelParameters, training_params: TrainingParameters, tensorboard_dir, pruned_tarfile, chunk_size):
     use_gpu = torch.cuda.is_available()
     device = torch.device('cuda' if use_gpu else 'cpu')
-
-    dataset = ReadSetDataset(data_tarfile=data_tarfile, num_folds=NUM_FOLDS)
-
-    model = ArtifactModel(params=hyperparams, num_read_features=dataset.num_read_features,
-                          num_info_features=dataset.num_info_features, ref_sequence_length=dataset.ref_sequence_length,
-                          device=device).float()
+    model = ArtifactModel(params=hyperparams, num_representation_features=representation_dataset.num_representation_features, device=device).float()
 
     pruned_indices = []
     for fold in range(NUM_FOLDS):
@@ -39,17 +37,14 @@ def prune_training_data(hyperparams: ArtifactModelParameters, params: TrainingPa
         print("Training model on fold " + str(fold) + " of " + str(NUM_FOLDS))
         # note: not training from scratch.  I assume that there are enough epochs to forget any overfitting from
         # previous folds
-        model.learn(dataset, params.num_epochs, params.num_calibration_epochs, params.batch_size, params.num_workers, summary_writer=summary_writer,
-                    reweighting_range=params.reweighting_range, hyperparams=hyperparams, validation_fold=fold)
+        model.learn(representation_dataset, training_params, summary_writer=summary_writer, validation_fold=fold)
 
         average_artifact_confidence, average_nonartifact_confidence = utils.StreamingAverage(), utils.StreamingAverage()
 
         # now we go over all the labeled data in the validation set -- that is, the current fold -- and perform rank pruning
-        valid_loader = dataset.make_data_loader([fold], params.batch_size, use_gpu, params.num_workers)
+        valid_loader = representation_dataset.make_data_loader([fold], training_params.batch_size, use_gpu, training_params.num_workers)
 
-        # TODO: eventually this should all be segregated by variant type
-
-        # TODO: may also want to segregate by alt count
+        # TODO: eventually this should all be segregated by variant type and maybe also alt count
 
         # the 0th/1st element is a list of predicted probabilities that data labeled as non-artifact/artifact are actually non-artifact/artifact
         probs_of_agreeing_with_label = [[],[]]
@@ -96,7 +91,7 @@ def prune_training_data(hyperparams: ArtifactModelParameters, params: TrainingPa
         nonart_error_rate = confusion[1][0] / (confusion[0][0] + confusion[1][0])
 
         # fraction of labeled data that are labeled as artifact
-        label_art_frac = np.sum(dataset.artifact_totals) / (np.sum(dataset.artifact_totals + dataset.non_artifact_totals))
+        label_art_frac = np.sum(representation_dataset.artifact_totals) / (np.sum(representation_dataset.artifact_totals + representation_dataset.non_artifact_totals))
         label_nonart_frac = 1 - label_art_frac
 
         # these are the inverse probabilities that something labeled as artifact/non-artifact was actually a mislabeled nonartifact/artifact
@@ -176,7 +171,7 @@ def parse_arguments():
     parser = argparse.ArgumentParser(description='train the Mutect3 artifact model')
 
     add_artifact_model_params_to_parser(parser)
-    add_artifact_model_training_hyperparameters_to_parser(parser)
+    add_training_params_to_parser(parser)
 
     parser.add_argument('--' + constants.CHUNK_SIZE_NAME, type=int, default=int(2e9), required=False,
                         help='size in bytes of output binary data files')
@@ -184,9 +179,10 @@ def parse_arguments():
     # input / output
     parser.add_argument('--' + constants.TRAIN_TAR_NAME, type=str, required=True,
                         help='tarfile of training/validation datasets produced by preprocess_dataset.py')
+    parser.add_argument('--' + constants.PRETRAINED_MODEL_NAME, type=str,
+                        help='Pre-trained representation model from train_representation_model.py')
     parser.add_argument('--' + constants.OUTPUT_NAME, type=str, required=True,
                         help='path to output saved model file')
-
     parser.add_argument('--' + constants.TENSORBOARD_DIR_NAME, type=str, default='tensorboard', required=False,
                         help='path to output tensorboard directory')
 
@@ -194,16 +190,19 @@ def parse_arguments():
 
 
 def main_without_parsing(args):
-    hyperparams = parse_artifact_model_params(args)
+    params = parse_artifact_model_params(args)
     training_params = parse_training_params(args)
 
-    tarfile_data = getattr(args, constants.TRAIN_TAR_NAME)
     tensorboard_dir = getattr(args, constants.TENSORBOARD_DIR_NAME)
     pruned_tarfile = getattr(args, constants.OUTPUT_NAME)
     chunk_size = getattr(args, constants.CHUNK_SIZE_NAME)
 
+    representation_model = load_representation_model(getattr(args, constants.PRETRAINED_MODEL_NAME))
+    read_set_dataset = ReadSetDataset(data_tarfile=getattr(args, constants.TRAIN_TAR_NAME), num_folds=10)
+    representation_dataset = RepresentationDataset(read_set_dataset, representation_model)
+
     # this writes the new pruned data tarfile and the new post-pruning indices files
-    prune_training_data(hyperparams=hyperparams, data_tarfile=tarfile_data, params=training_params, tensorboard_dir=tensorboard_dir,
+    prune_training_data(representation_dataset=representation_dataset, hyperparams=params, training_params=training_params, tensorboard_dir=tensorboard_dir,
                         pruned_tarfile=pruned_tarfile, chunk_size=chunk_size)
 
 
