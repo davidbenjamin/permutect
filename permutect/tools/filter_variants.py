@@ -126,8 +126,8 @@ def get_segmentation(segments_file) -> defaultdict:
 
 
 def main_without_parsing(args):
-    make_filtered_vcf(saved_artifact_model=getattr(args, constants.M3_MODEL_NAME),
-                      representation_model=getattr(args, constants.PRETRAINED_MODEL_NAME),
+    make_filtered_vcf(saved_artifact_model_path=getattr(args, constants.M3_MODEL_NAME),
+                      representation_model_path=getattr(args, constants.PRETRAINED_MODEL_NAME),
                       initial_log_variant_prior=getattr(args, constants.INITIAL_LOG_VARIANT_PRIOR_NAME),
                       initial_log_artifact_prior=getattr(args, constants.INITIAL_LOG_ARTIFACT_PRIOR_NAME),
                       test_dataset_file=getattr(args, constants.TEST_DATASET_NAME),
