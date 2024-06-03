@@ -3,9 +3,6 @@ from argparse import Namespace
 import torch
 
 from tensorboard.backend.event_processing.event_accumulator import EventAccumulator
-from torch.utils.tensorboard import SummaryWriter
-
-import permutect.parameters
 from permutect import constants
 from permutect.tools import train_model
 from permutect.architecture.artifact_model import load_artifact_model
@@ -22,7 +19,6 @@ def test_train_model():
 
     # STEP 2: train a model
     train_model_args = Namespace()
-    setattr(train_model_args, constants.INFO_LAYERS_NAME, [20, 20])
     setattr(train_model_args, constants.AGGREGATION_LAYERS_NAME, [20, 20, 20])
     setattr(train_model_args, constants.CALIBRATION_LAYERS_NAME, [6,6])
     setattr(train_model_args, constants.DROPOUT_P_NAME, 0.0)
@@ -62,22 +58,3 @@ def test_train_model():
     print(artifact_log_priors)
     h = 99
 
-
-def test_training(dataset):
-    hyperparams = permutect.parameters.ArtifactModelParameters(read_embedding_dimension=12, num_transformer_heads=3,
-                                                               transformer_hidden_dimension=20, num_transformer_layers=2,
-                                                               info_layers=[20, 20], aggregation_layers=[20, 20], calibration_layers=[6],
-                                                               dropout_p=0.0, batch_normalize=False, learning_rate=0.001, weight_decay=0.01, alt_downsample=20)
-    training_params = train_model.TrainingParameters(batch_size=64, num_epochs=5, num_calibration_epochs=2, reweighting_range=0.3)
-
-    with tempfile.TemporaryDirectory() as tensorboard_dir:
-        summary_writer = SummaryWriter(tensorboard_dir)
-        train_model.train_artifact_model(hyperparams=hyperparams, training_datasets=[dataset], training_params=training_params, summary_writer=summary_writer)
-        summary_writer.close()
-        events = EventAccumulator(tensorboard_dir)
-        events.Reload()
-        h = 99
-
-
-def test_on_dream1():
-    test_training("/Users/davidben/permutect/just-dream-1/dream1-normal-medium-training.dataset")

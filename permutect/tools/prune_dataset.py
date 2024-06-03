@@ -3,6 +3,7 @@ import os
 import tarfile
 import tempfile
 import pickle
+from typing import List
 
 import psutil
 
@@ -26,10 +27,11 @@ from permutect.utils import MutableInt
 NUM_FOLDS = 3
 
 
-def prune_training_data(representation_dataset: RepresentationDataset, hyperparams: ArtifactModelParameters, training_params: TrainingParameters, tensorboard_dir, pruned_tarfile, chunk_size):
+def find_indices_to_prune(representation_dataset: RepresentationDataset, params: ArtifactModelParameters,
+                          training_params: TrainingParameters, tensorboard_dir) -> List[int]:
     use_gpu = torch.cuda.is_available()
     device = torch.device('cuda' if use_gpu else 'cpu')
-    model = ArtifactModel(params=hyperparams, num_representation_features=representation_dataset.num_representation_features, device=device).float()
+    model = ArtifactModel(params=params, num_representation_features=representation_dataset.num_representation_features, device=device).float()
 
     pruned_indices = []
     for fold in range(NUM_FOLDS):
@@ -126,17 +128,21 @@ def prune_training_data(representation_dataset: RepresentationDataset, hyperpara
 
     # done with this particular fold
     # TODO: Maybe also save a dataset of discarded values?
+    return pruned_indices
 
+
+def make_pruned_training_dataset(pruned_indices: List[int], original_tarfile, original_read_set_dataset: ReadSetDataset,
+                           pruned_tarfile, chunk_size: int):
     # the read sets in the data set lose their Variant information when they are memory-mapped.  We need to get it back here
     variant_vs_index = {}
-    for datum in make_read_set_generator_from_tarfile(data_tarfile):
+    for datum in make_read_set_generator_from_tarfile(original_tarfile):
         variant_vs_index[datum.index] = datum.variant
     print("variant vs index map contains " + str(len(variant_vs_index)) + " entries.")
 
     pruned_data_files = []
     pruned_datum_index = MutableInt()
     pruned_indices_file = open("pruned_indices.txt", 'w')
-    for read_set_list in generate_pruned_data(dataset=dataset, max_bytes_per_chunk=chunk_size, pruned_indices=pruned_indices):
+    for read_set_list in generate_pruned_data(dataset=original_read_set_dataset, max_bytes_per_chunk=chunk_size, pruned_indices=pruned_indices):
         with tempfile.NamedTemporaryFile(delete=False) as train_data_file:
             read_set.save_list_of_read_sets(read_set_list, train_data_file, pruned_datum_index, pruned_indices_file, index_to_variant_map=variant_vs_index)
             pruned_data_files.append(train_data_file.name)
@@ -182,7 +188,7 @@ def parse_arguments():
     parser.add_argument('--' + constants.PRETRAINED_MODEL_NAME, type=str,
                         help='Pre-trained representation model from train_representation_model.py')
     parser.add_argument('--' + constants.OUTPUT_NAME, type=str, required=True,
-                        help='path to output saved model file')
+                        help='path to pruned dataset file')
     parser.add_argument('--' + constants.TENSORBOARD_DIR_NAME, type=str, default='tensorboard', required=False,
                         help='path to output tensorboard directory')
 
@@ -196,14 +202,17 @@ def main_without_parsing(args):
     tensorboard_dir = getattr(args, constants.TENSORBOARD_DIR_NAME)
     pruned_tarfile = getattr(args, constants.OUTPUT_NAME)
     chunk_size = getattr(args, constants.CHUNK_SIZE_NAME)
+    original_tarfile = getattr(args, constants.TRAIN_TAR_NAME)
 
     representation_model = load_representation_model(getattr(args, constants.PRETRAINED_MODEL_NAME))
-    read_set_dataset = ReadSetDataset(data_tarfile=getattr(args, constants.TRAIN_TAR_NAME), num_folds=10)
+    read_set_dataset = ReadSetDataset(data_tarfile=original_tarfile, num_folds=10)
     representation_dataset = RepresentationDataset(read_set_dataset, representation_model)
 
     # this writes the new pruned data tarfile and the new post-pruning indices files
-    prune_training_data(representation_dataset=representation_dataset, hyperparams=params, training_params=training_params, tensorboard_dir=tensorboard_dir,
-                        pruned_tarfile=pruned_tarfile, chunk_size=chunk_size)
+    pruned_indices = find_indices_to_prune(representation_dataset=representation_dataset, params=params,
+                                           training_params=training_params, tensorboard_dir=tensorboard_dir)
+    make_pruned_training_dataset(pruned_indices=pruned_indices, original_tarfile=original_tarfile,
+            original_read_set_dataset=read_set_dataset, pruned_tarfile=pruned_tarfile, chunk_size=chunk_size)
 
 
 def main():
