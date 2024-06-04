@@ -24,7 +24,7 @@ def make_sequence_tensor(sequence_string: str) -> np.ndarray:
 
 
 class Variant:
-    def __init__(self, contig: str, position: int, ref: str, alt: str):
+    def __init__(self, contig: int, position: int, ref: str, alt: str):
         self.contig = contig
         self.position = position
         self.ref = ref
@@ -116,7 +116,7 @@ def save_list_of_read_sets(read_sets: List[ReadSet], file, datum_index: MutableI
     if indices_file is not None:
         for index, variant in zip(indices.tolist(), variants):
             assert variant is not None
-            indices_file.write("\t".join([str(index), variant.contig, str(variant.position), variant.ref, variant.alt]) + '\n')
+            indices_file.write("\t".join([str(index), str(variant.contig), str(variant.position), variant.ref, variant.alt]) + '\n')
 
 
 def load_list_of_read_sets(file) -> List[ReadSet]:

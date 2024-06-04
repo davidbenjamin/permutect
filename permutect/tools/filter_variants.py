@@ -48,6 +48,7 @@ def trim_alleles_on_right(ref: str, alt: str):
     return trimmed_ref, trimmed_alt
 
 
+# TODO: contigs stored as integer index must be converted back to string to compare VCF variants with dataset variants!!!
 def encode(contig: str, position: int, ref: str, alt: str):
     trimmed_ref, trimmed_alt = trim_alleles_on_right(ref, alt)
     return contig + ':' + str(position) + ':' + trimmed_alt

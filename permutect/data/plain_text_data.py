@@ -90,11 +90,10 @@ def read_data(dataset_file, round_down: bool = True, only_artifacts: bool = Fals
             # contig:position,ref->alt
             variant_line = file.readline().strip()
             locus, mutation = variant_line.split(",")
-            contig, position = locus.split(":")
-            position = int(position)
+            contig, position = map(int, locus.split(":"))   # contig is an integer *index* from a sequence dictionary
             # TODO: replace with tqdm progress bar by counting file in initial pass.  It can't be that expensive.
             if n % 100000 == 0:
-                print(contig + ":" + str(position))
+                print(str(contig) + ":" + str(position))
             ref_allele, alt_allele = mutation.strip().split("->")
 
             ref_sequence_string = file.readline().strip()
