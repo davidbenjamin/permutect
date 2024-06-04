@@ -11,7 +11,7 @@ from permutect.utils import Label
 
 
 class PosteriorDatum:
-    def __init__(self, variant: Variant, counts_and_seq_lks: CountsAndSeqLks,  index: int, allele_frequency: float,
+    def __init__(self, variant: Variant, counts_and_seq_lks: CountsAndSeqLks, allele_frequency: float,
                  artifact_logit: float, label: Label):
 
         self.contig = variant.contig
@@ -24,7 +24,6 @@ class PosteriorDatum:
         self.alt_count = counts_and_seq_lks.alt_count
         self.normal_depth = counts_and_seq_lks.normal_depth
         self.normal_alt_count = counts_and_seq_lks.normal_alt_count
-        self.index = index
         self.label = label
 
         self.seq_error_log_likelihood = counts_and_seq_lks.seq_error_log_lk

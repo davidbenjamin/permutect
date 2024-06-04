@@ -79,7 +79,6 @@ def read_data(dataset_file, round_down: bool = True, only_artifacts: bool = Fals
     """
     generator that yields data from a plain text dataset file.
     """
-    datum_index = MutableInt()
     with open(dataset_file) as file:
         n = 0
         while label_str := file.readline().strip():
@@ -117,7 +116,7 @@ def read_data(dataset_file, round_down: bool = True, only_artifacts: bool = Fals
                 variant = Variant(contig, position, ref_allele, alt_allele)
                 counts_and_seq_lks = CountsAndSeqLks(depth, alt_count, normal_depth, normal_alt_count, seq_error_log_lk, normal_seq_error_log_lk)
                 yield ReadSet.from_gatk(ref_sequence_string, Variation.get_type(ref_allele, alt_allele), ref_tensor,
-                        alt_tensor, gatk_info_tensor, label, datum_index.get_and_then_increment(), variant, counts_and_seq_lks)
+                        alt_tensor, gatk_info_tensor, label, variant, counts_and_seq_lks)
 
 
 def generate_normalized_data(dataset_files, max_bytes_per_chunk: int):

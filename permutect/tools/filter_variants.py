@@ -197,11 +197,11 @@ def make_posterior_data_loader(dataset_file, input_vcf, representation_model: Re
             artifact_logits = artifact_model.forward(batch=artifact_batch).detach().tolist()
 
             labels = ([Label.ARTIFACT if x > 0.5 else Label.VARIANT for x in artifact_batch.labels]) if artifact_batch.is_labeled() else (artifact_batch.size()*[Label.UNLABELED])
-            for variant, counts_and_seq_lks, index, logit, label in zip(artifact_batch.variants, artifact_batch.counts_and_likelihoods, artifact_batch.indices, artifact_logits, labels):
+            for variant, counts_and_seq_lks, logit, label in zip(artifact_batch.variants, artifact_batch.counts_and_likelihoods, artifact_logits, labels):
                 encoding = encode(variant.contig, variant.position, variant.ref, variant.alt)
                 if encoding in allele_frequencies and encoding not in m2_filtering_to_keep:
                     allele_frequency = allele_frequencies[encoding]
-                    posterior_datum = PosteriorDatum(variant, counts_and_seq_lks, index, allele_frequency, logit, label)
+                    posterior_datum = PosteriorDatum(variant, counts_and_seq_lks, allele_frequency, logit, label)
                     posterior_data.append(posterior_datum)
 
     print("Size of filtering dataset: " + str(len(posterior_data)))

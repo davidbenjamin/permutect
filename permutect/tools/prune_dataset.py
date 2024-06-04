@@ -122,7 +122,8 @@ def find_indices_to_prune(representation_dataset: RepresentationDataset, params:
             art_probs = torch.sigmoid(model.forward(batch).detach())
             art_label_mask = (batch.labels > 0.5)
 
-            for art_prob, labeled_as_art, index in zip(art_probs.tolist(), art_label_mask.tolist(), batch.indices.tolist()):
+            # TODO: we need a way to track what is pruned to replace the old indices system!!!
+            for art_prob, labeled_as_art in zip(art_probs.tolist(), art_label_mask.tolist()):
                 if (labeled_as_art and art_prob < art_threshold) or ((not labeled_as_art) and (1-art_prob) < nonart_threshold):
                     pruned_indices.append(index)
 
@@ -133,21 +134,12 @@ def find_indices_to_prune(representation_dataset: RepresentationDataset, params:
 
 def make_pruned_training_dataset(pruned_indices: List[int], original_tarfile, original_read_set_dataset: ReadSetDataset,
                            pruned_tarfile, chunk_size: int):
-    # the read sets in the data set lose their Variant information when they are memory-mapped.  We need to get it back here
-    variant_vs_index = {}
-    for datum in make_read_set_generator_from_tarfile(original_tarfile):
-        variant_vs_index[datum.index] = datum.variant
-    print("variant vs index map contains " + str(len(variant_vs_index)) + " entries.")
-
     pruned_data_files = []
-    pruned_datum_index = MutableInt()
-    pruned_indices_file = open("pruned_indices.txt", 'w')
     for read_set_list in generate_pruned_data(dataset=original_read_set_dataset, max_bytes_per_chunk=chunk_size, pruned_indices=pruned_indices):
         with tempfile.NamedTemporaryFile(delete=False) as train_data_file:
-            read_set.save_list_of_read_sets(read_set_list, train_data_file, pruned_datum_index, pruned_indices_file, index_to_variant_map=variant_vs_index)
+            read_set.save_list_of_read_sets(read_set_list, train_data_file)
             pruned_data_files.append(train_data_file.name)
 
-    pruned_indices_file.close()
     # bundle them in a tarfile
     with tarfile.open(pruned_tarfile, "w") as train_tar:
         for train_file in pruned_data_files:
