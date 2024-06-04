@@ -6,6 +6,7 @@ import "https://api.firecloud.org/ga4gh/v1/tools/davidben:mutect2/versions/2/pla
 workflow Permutect {
     input {
         File permutect_model
+        File representation_model
 
         File? intervals
         File? masks
@@ -97,6 +98,7 @@ workflow Permutect {
             mutect2_vcf = IndexAfterSplitting.vcf,
             mutect2_vcf_idx = IndexAfterSplitting.vcf_index,
             permutect_model = permutect_model,
+            representation_model = representation_model,
             test_dataset = select_first([Mutect2.m3_dataset]),
             maf_segments = Mutect2.maf_segments,
             mutect_stats = Mutect2.mutect_stats,
@@ -126,6 +128,7 @@ workflow Permutect {
 task PermutectFiltering {
     input {
         File permutect_model
+        File representation_model
         File test_dataset
         File mutect2_vcf
         File mutect2_vcf_idx
@@ -154,7 +157,10 @@ task PermutectFiltering {
         # set -e
         genomic_span=`grep "callable" ~{mutect_stats} | while read name value; do echo $value; done`
 
-        filter_variants --input ~{mutect2_vcf} --test_dataset ~{test_dataset} --permutect_model ~{permutect_model} --output permutect-filtered.vcf \
+        filter_variants --input ~{mutect2_vcf} --test_dataset ~{test_dataset} \
+            --permutect_model ~{permutect_model} \
+            --pretrained_model ~{representation_model} \
+            --output permutect-filtered.vcf \
             --batch_size ~{batch_size} --chunk_size ~{chunk_size} ~{"--num_spectrum_iterations " + num_spectrum_iterations} ~{"--maf_segments " + maf_segments} ~{"--normal_maf_segments " + normal_maf_segments} --genomic_span $genomic_span ~{m3_filtering_extra_args}
     >>>
 

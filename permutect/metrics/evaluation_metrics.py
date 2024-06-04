@@ -5,7 +5,7 @@ import torch
 from matplotlib import pyplot as plt
 from torch.utils.tensorboard import SummaryWriter
 
-from permutect.data.read_set import ReadSetBatch
+from permutect.data.read_set import ReadSetBatch, RepresentationReadSetBatch
 from permutect.metrics import plotting
 from permutect.utils import Variation, Call, Epoch, StreamingAverage
 
@@ -80,18 +80,19 @@ class LossMetrics:
         for var_type, loss in self.labeled_loss_by_type.items():
             summary_writer.add_scalar(epoch_type.name + "/Labeled Loss/By Type/" + var_type.name, loss.get(), epoch)
 
-    def record_total_batch_loss(self, total_loss: float, batch: ReadSetBatch):
+
+    # TODO: put type hint batch: ReadSetBatch | RepresentationReadSetBatch once docker update
+    def record_total_batch_loss(self, total_loss: float, batch):
         if batch.is_labeled():
             self.labeled_loss.record_sum(total_loss, batch.size())
-
-            if batch.alt_count <= MAX_COUNT:
-                self.labeled_loss_by_count[multiple_of_three_bin_index(batch.alt_count)].record_sum(total_loss, batch.size())
         else:
             self.unlabeled_loss.record_sum(total_loss, batch.size())
 
-
-    def record_separate_losses(self, losses: torch.Tensor, batch: ReadSetBatch):
+    # record the losses by type
+    # TODO: put type hint batch: ReadSetBatch | RepresentationReadSetBatch once docker update
+    def record_losses_by_type_and_count(self, losses: torch.Tensor, batch):
         if batch.is_labeled():
+            # by type
             types_one_hot = batch.variant_type_one_hot()
             losses_masked_by_type = losses.reshape(batch.size(), 1) * types_one_hot
             counts_by_type = torch.sum(types_one_hot, dim=0)
@@ -101,6 +102,15 @@ class LossMetrics:
                 count_for_type = int(counts_by_type[variant_type_idx].item())
                 loss_for_type = total_loss_by_type[variant_type_idx].item()
                 self.labeled_loss_by_type[variant_types[variant_type_idx]].record_sum(loss_for_type, count_for_type)
+
+            # by count
+            if isinstance(batch, ReadSetBatch):
+                if batch.alt_count <= MAX_COUNT:
+                    self.labeled_loss_by_count[multiple_of_three_bin_index(batch.alt_count)].record_sum(torch.sum(losses), batch.size())
+            elif isinstance(batch, RepresentationReadSetBatch):
+                for loss, alt_count in zip(losses.tolist(), batch.alt_counts.tolist()):
+                    if alt_count <= MAX_COUNT:
+                        self.labeled_loss_by_count[multiple_of_three_bin_index(alt_count)].record(loss)
 
 
 class EvaluationMetricsForOneEpochType:

@@ -2,7 +2,7 @@ import argparse
 from torch.utils.tensorboard import SummaryWriter
 from permutect import constants
 from permutect.data.read_set_dataset import ReadSetDataset
-from permutect.tools.filter_variants import load_artifact_model
+from permutect.architecture.artifact_model import load_artifact_model
 
 
 def parse_arguments():
