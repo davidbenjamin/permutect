@@ -23,12 +23,44 @@ def make_sequence_tensor(sequence_string: str) -> np.ndarray:
     return result
 
 
+# here we just butcher variants longer than 13 bases and chop!!!
+def bases_as_base5_int(bases: str) -> int:
+    power_of_5 = 1
+    bases_to_use = bases if len(bases) < 14 else bases[:13]
+    result = 0
+    for nuc in bases_to_use:
+        coeff = 1 if nuc == 'A' else (2 if nuc == 'C' else (3 if nuc == 'G' else 4))
+        result += power_of_5 * coeff
+        power_of_5 *= 5
+    return result
+
+
+def bases5_as_base_string(base5: int) -> str:
+    result = ""
+    remaining = base5
+    while remaining > 0:
+        digit = remaining % 5
+        nuc = 'A' if digit == 1 else ('C' if digit == 2 else ('G' if digit == 3 else 'T'))
+        result += nuc
+        remaining = (remaining - digit) // 5
+    return result
+
+
 class Variant:
     def __init__(self, contig: int, position: int, ref: str, alt: str):
         self.contig = contig
         self.position = position
         self.ref = ref
         self.alt = alt
+
+    # note: if base strings are treated as numbers in base 5, uint32 can hold up to 13 bases
+    def to_np_array(self):
+        return np.array([self.contig, self.position, bases_as_base5_int(self.ref), bases_as_base5_int(self.alt)], dtype=np.uint32)
+
+    # do we need to specify that it's a uint32 array?
+    @classmethod
+    def from_np_array(cls, np_array: np.ndarray):
+        return cls(np_array[0], np_array[1], bases5_as_base_string(np_array[2]), bases5_as_base_string(np_array[3]))
 
 
 class CountsAndSeqLks:
@@ -98,11 +130,8 @@ def save_list_of_read_sets(read_sets: List[ReadSet], file):
     alt_tensors = [datum.alt_reads_2d for datum in read_sets]
     info_tensors = [datum.info_array_1d for datum in read_sets]
     labels = IntTensor([datum.label.value for datum in read_sets])
-
     counts_and_lks = [datum.counts_and_seq_lks.to_np_array() for datum in read_sets]
-
-    # TODO: save variants as np_array, too
-    variants = [datum.variant for datum in read_sets]
+    variants = [datum.variant.to_np_array() for datum in read_sets]
 
     torch.save([ref_sequence_tensors, ref_tensors, alt_tensors, info_tensors, labels, counts_and_lks, variants], file)
 
@@ -114,7 +143,7 @@ def load_list_of_read_sets(file) -> List[ReadSet]:
     :return:
     """
     ref_sequence_tensors, ref_tensors, alt_tensors, info_tensors, labels, counts_and_lks, variants = torch.load(file)
-    return [ReadSet(ref_sequence_tensor, ref, alt, info, Label(label), variant, CountsAndSeqLks.from_np_array(cnts_lks)) for ref_sequence_tensor, ref, alt, info, label, index, cnts_lks, variant in
+    return [ReadSet(ref_sequence_tensor, ref, alt, info, Label(label), Variant.from_np_array(variant), CountsAndSeqLks.from_np_array(cnts_lks)) for ref_sequence_tensor, ref, alt, info, label, index, cnts_lks, variant in
             zip(ref_sequence_tensors, ref_tensors, alt_tensors, info_tensors, labels.tolist(), counts_and_lks, variants)]
 
 
