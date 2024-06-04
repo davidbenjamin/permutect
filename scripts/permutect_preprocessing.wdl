@@ -21,7 +21,6 @@ workflow PreprocessPermutect {
 
     output {
         File train_tar = Preprocess.train_tar
-        File indices = Preprocess.indices
     }
 }
 
@@ -62,6 +61,5 @@ task Preprocess {
 
     output {
         File train_tar = "train.tar"
-        File indices = "indices.txt"
     }
 }

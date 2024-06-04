@@ -2,12 +2,11 @@ import argparse
 import os
 import tarfile
 import tempfile
-import pickle
 
 from permutect import constants
 from permutect.data import read_set
 from permutect.data.plain_text_data import generate_normalized_data
-from permutect.utils import ConsistentValue, MutableInt
+from permutect.utils import ConsistentValue
 
 """
 This tool takes as input a list of text file Mutect3 training datasets, reads them in chunks that fit in memory,

@@ -134,7 +134,6 @@ task PrunePermutectGPU {
 
     output {
         File pruned_dataset_tarfile = "pruned_dataset.tar"
-        File pruned_indices_file = "pruned_indices.txt"
         File tensorboard_tar = "tensorboard.tar"
     }
 }
@@ -200,7 +199,6 @@ task PrunePermutectCPU {
 
     output {
         File pruned_dataset_tarfile = "pruned_dataset.tar"
-        File pruned_indices_file = "pruned_indices.txt"
         File tensorboard_tar = "tensorboard.tar"
     }
 }
