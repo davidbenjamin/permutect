@@ -60,7 +60,7 @@ class Variant:
     # do we need to specify that it's a uint32 array?
     @classmethod
     def from_np_array(cls, np_array: np.ndarray):
-        return cls(np_array[0], np_array[1], bases5_as_base_string(np_array[2]), bases5_as_base_string(np_array[3]))
+        return cls(round(np_array[0]), round(np_array[1]), bases5_as_base_string(round(np_array[2])), bases5_as_base_string(round(np_array[3])))
 
 
 class CountsAndSeqLks:
