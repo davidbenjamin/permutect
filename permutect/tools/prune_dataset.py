@@ -16,6 +16,7 @@ from torch.utils.tensorboard import SummaryWriter
 
 from permutect import constants, utils
 from permutect.architecture.artifact_model import ArtifactModel
+from permutect.data.read_set import RepresentationReadSet, RepresentationReadSetBatch
 from permutect.data.representation_dataset import RepresentationDataset
 from permutect.parameters import ArtifactModelParameters, parse_artifact_model_params, \
     add_artifact_model_params_to_parser, add_training_params_to_parser
@@ -108,7 +109,9 @@ def generated_pruned_data_for_fold(art_threshold: float, nonart_threshold: float
     for n, batch in pbar:
         # apply the representation model AND the artifact model to go from the original read set to artifact logits
         representation = representation_model.forward(batch)
-        art_probs = torch.sigmoid(artifact_model.forward(representation).detach())
+
+        rrs_batch = RepresentationReadSetBatch([RepresentationReadSet(rs, rep) for rs, rep in zip(batch.original_list(), representation)])
+        art_probs = torch.sigmoid(artifact_model.forward(rrs_batch).detach())
         art_label_mask = (batch.labels > 0.5)
 
         for art_prob, labeled_as_art, datum in zip(art_probs.tolist(), art_label_mask.tolist(), batch.original_list()):
