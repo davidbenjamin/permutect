@@ -2,7 +2,6 @@ import argparse
 import os
 import tarfile
 import tempfile
-import pickle
 from typing import List
 
 import psutil
@@ -20,9 +19,8 @@ from permutect.architecture.artifact_model import ArtifactModel
 from permutect.data.representation_dataset import RepresentationDataset
 from permutect.parameters import ArtifactModelParameters, parse_artifact_model_params, \
     add_artifact_model_params_to_parser, add_training_params_to_parser
-from permutect.data.read_set_dataset import ReadSetDataset, make_read_set_generator_from_tarfile
+from permutect.data.read_set_dataset import ReadSetDataset
 from permutect.tools.train_model import TrainingParameters, parse_training_params
-from permutect.utils import MutableInt
 
 NUM_FOLDS = 3
 

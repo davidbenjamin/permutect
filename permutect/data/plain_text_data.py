@@ -98,8 +98,11 @@ def read_data(dataset_file, round_down: bool = True, only_artifacts: bool = Fals
             ref_sequence_string = file.readline().strip()
             gatk_info_tensor = line_to_tensor(file.readline())
             ref_tensor_size, alt_tensor_size, normal_ref_tensor_size, normal_alt_tensor_size = map(int, file.readline().strip().split())
-            ref_tensor = read_2d_tensor(file, ref_tensor_size) if ref_tensor_size > 0 else None
-            alt_tensor = read_2d_tensor(file, alt_tensor_size)
+
+            # the first column is read group index, which we currently discard
+            # later we're going to want to use this
+            ref_tensor = read_2d_tensor(file, ref_tensor_size)[:,1:] if ref_tensor_size > 0 else None
+            alt_tensor = read_2d_tensor(file, alt_tensor_size)[:,1:]
 
             if round_down:
                 ref_tensor = utils.downsample_tensor(ref_tensor, 0 if ref_tensor is None else round_down_ref(len(ref_tensor)))
