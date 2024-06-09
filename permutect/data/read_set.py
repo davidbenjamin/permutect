@@ -143,7 +143,7 @@ def load_list_of_read_sets(file) -> List[ReadSet]:
     :return:
     """
     ref_sequence_tensors, ref_tensors, alt_tensors, info_tensors, labels, counts_and_lks, variants = torch.load(file)
-    return [ReadSet(ref_sequence_tensor, ref, alt, info, Label(label), Variant.from_np_array(variant), CountsAndSeqLks.from_np_array(cnts_lks)) for ref_sequence_tensor, ref, alt, info, label, index, cnts_lks, variant in
+    return [ReadSet(ref_sequence_tensor, ref, alt, info, Label(label), Variant.from_np_array(variant), CountsAndSeqLks.from_np_array(cnts_lks)) for ref_sequence_tensor, ref, alt, info, label, cnts_lks, variant in
             zip(ref_sequence_tensors, ref_tensors, alt_tensors, info_tensors, labels.tolist(), counts_and_lks, variants)]
 
 
