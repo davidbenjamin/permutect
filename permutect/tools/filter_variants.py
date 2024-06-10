@@ -162,7 +162,7 @@ def make_filtered_vcf(saved_artifact_model_path, representation_model_path,  ini
 
     artifact_model, artifact_log_priors, artifact_spectra_state_dict = load_artifact_model(saved_artifact_model_path)
     posterior_model = PosteriorModel(initial_log_variant_prior, initial_log_artifact_prior, segmentation=segmentation, normal_segmentation=normal_segmentation, no_germline_mode=no_germline_mode)
-    posterior_data_loader = make_posterior_data_loader(test_dataset_file, input_vcf, representation_model, artifact_model, batch_size, chunk_size=chunk_size)
+    posterior_data_loader = make_posterior_data_loader(test_dataset_file, input_vcf, contig_index_to_name_map, representation_model, artifact_model, batch_size, chunk_size=chunk_size)
 
     print("Learning AF spectra")
     summary_writer = SummaryWriter(tensorboard_dir)
@@ -180,7 +180,7 @@ def make_filtered_vcf(saved_artifact_model_path, representation_model_path,  ini
     apply_filtering_to_vcf(input_vcf, output_vcf, contig_index_to_name_map, error_probability_thresholds, posterior_data_loader, posterior_model, summary_writer=summary_writer, germline_mode=germline_mode)
 
 
-def make_posterior_data_loader(dataset_file, input_vcf, representation_model: RepresentationModel, artifact_model: ArtifactModel, batch_size: int, chunk_size: int):
+def make_posterior_data_loader(dataset_file, input_vcf, contig_index_to_name_map, representation_model: RepresentationModel, artifact_model: ArtifactModel, batch_size: int, chunk_size: int):
     print("Reading test dataset")
 
     m2_filtering_to_keep = set()
@@ -207,7 +207,7 @@ def make_posterior_data_loader(dataset_file, input_vcf, representation_model: Re
 
             labels = ([Label.ARTIFACT if x > 0.5 else Label.VARIANT for x in artifact_batch.labels]) if artifact_batch.is_labeled() else (artifact_batch.size()*[Label.UNLABELED])
             for variant, counts_and_seq_lks, logit, label in zip(artifact_batch.variants, artifact_batch.counts_and_likelihoods, artifact_logits, labels):
-                encoding = encode(variant.contig, variant.position, variant.ref, variant.alt)
+                encoding = encode(contig_index_to_name_map[variant.contig], variant.position, variant.ref, variant.alt)
                 if encoding in allele_frequencies and encoding not in m2_filtering_to_keep:
                     allele_frequency = allele_frequencies[encoding]
                     posterior_datum = PosteriorDatum(variant, counts_and_seq_lks, allele_frequency, logit, label)
