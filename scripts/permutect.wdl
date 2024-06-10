@@ -1,7 +1,6 @@
 version 1.0
 
-import "https://api.firecloud.org/ga4gh/v1/tools/davidben:mutect2/versions/2/plain-WDL/descriptor" as m2
-
+import "https://api.firecloud.org/ga4gh/v1/tools/davidben:mutect2/versions/12/plain-WDL/descriptor" as m2
 
 workflow Permutect {
     input {
@@ -100,6 +99,7 @@ workflow Permutect {
             permutect_model = permutect_model,
             representation_model = representation_model,
             test_dataset = select_first([Mutect2.m3_dataset]),
+            contigs_table = Mutect2.permutect_contigs_table,
             maf_segments = Mutect2.maf_segments,
             mutect_stats = Mutect2.mutect_stats,
             batch_size = batch_size,
@@ -130,6 +130,7 @@ task PermutectFiltering {
         File permutect_model
         File representation_model
         File test_dataset
+        File contigs_table
         File mutect2_vcf
         File mutect2_vcf_idx
         File? maf_segments
@@ -160,6 +161,7 @@ task PermutectFiltering {
         filter_variants --input ~{mutect2_vcf} --test_dataset ~{test_dataset} \
             --permutect_model ~{permutect_model} \
             --pretrained_model ~{representation_model} \
+            --contigs_table ~{contigs_table} \ 
             --output permutect-filtered.vcf \
             --batch_size ~{batch_size} --chunk_size ~{chunk_size} ~{"--num_spectrum_iterations " + num_spectrum_iterations} ~{"--maf_segments " + maf_segments} ~{"--normal_maf_segments " + normal_maf_segments} --genomic_span $genomic_span ~{m3_filtering_extra_args}
     >>>
