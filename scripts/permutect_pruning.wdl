@@ -63,7 +63,6 @@ workflow PrunePermutect {
 
     output {
         File pruned_dataset_tarfile = select_first([PrunePermutectGPU.pruned_dataset_tarfile, PrunePermutectCPU.pruned_dataset_tarfile])
-        File pruned_indices_file = select_first([PrunePermutectGPU.pruned_indices_file, PrunePermutectCPU.pruned_indices_file])
         File training_tensorboard_tar = select_first([PrunePermutectGPU.tensorboard_tar, PrunePermutectCPU.tensorboard_tar])
     }
 }
@@ -134,7 +133,6 @@ task PrunePermutectGPU {
 
     output {
         File pruned_dataset_tarfile = "pruned_dataset.tar"
-        File pruned_indices_file = "pruned_indices.txt"
         File tensorboard_tar = "tensorboard.tar"
     }
 }
@@ -200,7 +198,6 @@ task PrunePermutectCPU {
 
     output {
         File pruned_dataset_tarfile = "pruned_dataset.tar"
-        File pruned_indices_file = "pruned_indices.txt"
         File tensorboard_tar = "tensorboard.tar"
     }
 }

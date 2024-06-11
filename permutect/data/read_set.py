@@ -23,12 +23,44 @@ def make_sequence_tensor(sequence_string: str) -> np.ndarray:
     return result
 
 
+# here we just butcher variants longer than 13 bases and chop!!!
+def bases_as_base5_int(bases: str) -> int:
+    power_of_5 = 1
+    bases_to_use = bases if len(bases) < 14 else bases[:13]
+    result = 0
+    for nuc in bases_to_use:
+        coeff = 1 if nuc == 'A' else (2 if nuc == 'C' else (3 if nuc == 'G' else 4))
+        result += power_of_5 * coeff
+        power_of_5 *= 5
+    return result
+
+
+def bases5_as_base_string(base5: int) -> str:
+    result = ""
+    remaining = base5
+    while remaining > 0:
+        digit = remaining % 5
+        nuc = 'A' if digit == 1 else ('C' if digit == 2 else ('G' if digit == 3 else 'T'))
+        result += nuc
+        remaining = (remaining - digit) // 5
+    return result
+
+
 class Variant:
-    def __init__(self, contig: str, position: int, ref: str, alt: str):
+    def __init__(self, contig: int, position: int, ref: str, alt: str):
         self.contig = contig
         self.position = position
         self.ref = ref
         self.alt = alt
+
+    # note: if base strings are treated as numbers in base 5, uint32 can hold up to 13 bases
+    def to_np_array(self):
+        return np.array([self.contig, self.position, bases_as_base5_int(self.ref), bases_as_base5_int(self.alt)], dtype=np.uint32)
+
+    # do we need to specify that it's a uint32 array?
+    @classmethod
+    def from_np_array(cls, np_array: np.ndarray):
+        return cls(round(np_array[0]), round(np_array[1]), bases5_as_base_string(round(np_array[2])), bases5_as_base_string(round(np_array[3])))
 
 
 class CountsAndSeqLks:
@@ -58,7 +90,7 @@ class ReadSet:
     :param info_array_1d  1D tensor of information about the variant as a whole
     :param label        an object of the Label enum artifact, non-artifact, unlabeled
     """
-    def __init__(self, ref_sequence_2d: np.ndarray, ref_reads_2d: np.ndarray, alt_reads_2d: np.ndarray, info_array_1d: np.ndarray, label: Label, index: int,
+    def __init__(self, ref_sequence_2d: np.ndarray, ref_reads_2d: np.ndarray, alt_reads_2d: np.ndarray, info_array_1d: np.ndarray, label: Label,
                  variant: Variant = None, counts_and_seq_lks: CountsAndSeqLks = None):
         # Note: if changing any of the data fields below, make sure to modify the size_in_bytes() method below accordingly!
         self.ref_sequence_2d = ref_sequence_2d
@@ -66,16 +98,15 @@ class ReadSet:
         self.alt_reads_2d = alt_reads_2d
         self.info_array_1d = info_array_1d
         self.label = label
-        self.index = index
         self.variant = variant
         self.counts_and_seq_lks = counts_and_seq_lks
 
     # gatk_info tensor comes from GATK and does not include one-hot encoding of variant type
     @classmethod
     def from_gatk(cls, ref_sequence_string: str, variant_type: Variation, ref_tensor: np.ndarray, alt_tensor: np.ndarray,
-                 gatk_info_tensor: np.ndarray, label: Label, index: int, variant: Variant = None, counts_and_seq_lks: CountsAndSeqLks = None):
+                 gatk_info_tensor: np.ndarray, label: Label, variant: Variant = None, counts_and_seq_lks: CountsAndSeqLks = None):
         info_tensor = np.hstack([gatk_info_tensor, variant_type.one_hot_tensor()])
-        return cls(make_sequence_tensor(ref_sequence_string), ref_tensor, alt_tensor, info_tensor, label, index, variant, counts_and_seq_lks)
+        return cls(make_sequence_tensor(ref_sequence_string), ref_tensor, alt_tensor, info_tensor, label, variant, counts_and_seq_lks)
 
     def size_in_bytes(self):
         return (self.ref_reads_2d.nbytes if self.ref_reads_2d is not None else 0) + self.alt_reads_2d.nbytes + self.info_array_1d.nbytes + sys.getsizeof(self.label)
@@ -87,36 +118,22 @@ class ReadSet:
         return Variation.get_type(self.variant.ref, str, self.variant.alt)
 
 
-def save_list_of_read_sets(read_sets: List[ReadSet], file, datum_index: MutableInt, indices_file=None, index_to_variant_map=None):
+def save_list_of_read_sets(read_sets: List[ReadSet], file):
     """
     note that torch.save works fine with numpy data
     :param read_sets:
     :param file:
     :return:
     """
-    start_index = datum_index.get()
-    num_data = len(read_sets)
-
     ref_sequence_tensors = [datum.ref_sequence_2d for datum in read_sets]
     ref_tensors = [datum.ref_reads_2d for datum in read_sets]
     alt_tensors = [datum.alt_reads_2d for datum in read_sets]
     info_tensors = [datum.info_array_1d for datum in read_sets]
     labels = IntTensor([datum.label.value for datum in read_sets])
-    indices = start_index + torch.arange(num_data).int()
-
     counts_and_lks = [datum.counts_and_seq_lks.to_np_array() for datum in read_sets]
+    variants = [datum.variant.to_np_array() for datum in read_sets]
 
-    # if variants are missing, such as when we memory-map the data, restore them with the index to variant map
-    variants = [index_to_variant_map[datum.index] for datum in read_sets] if index_to_variant_map is not None else \
-        [datum.variant for datum in read_sets]
-
-    torch.save([ref_sequence_tensors, ref_tensors, alt_tensors, info_tensors, labels, indices, counts_and_lks, variants], file)
-    datum_index.increment(num_data)
-
-    if indices_file is not None:
-        for index, variant in zip(indices.tolist(), variants):
-            assert variant is not None
-            indices_file.write("\t".join([str(index), variant.contig, str(variant.position), variant.ref, variant.alt]) + '\n')
+    torch.save([ref_sequence_tensors, ref_tensors, alt_tensors, info_tensors, labels, counts_and_lks, variants], file)
 
 
 def load_list_of_read_sets(file) -> List[ReadSet]:
@@ -125,9 +142,9 @@ def load_list_of_read_sets(file) -> List[ReadSet]:
     :param file:
     :return:
     """
-    ref_sequence_tensors, ref_tensors, alt_tensors, info_tensors, labels, indices, counts_and_lks, variants = torch.load(file)
-    return [ReadSet(ref_sequence_tensor, ref, alt, info, Label(label), index, variant, CountsAndSeqLks.from_np_array(cnts_lks)) for ref_sequence_tensor, ref, alt, info, label, index, cnts_lks, variant in
-            zip(ref_sequence_tensors, ref_tensors, alt_tensors, info_tensors, labels.tolist(), indices.tolist(), counts_and_lks, variants)]
+    ref_sequence_tensors, ref_tensors, alt_tensors, info_tensors, labels, counts_and_lks, variants = torch.load(file)
+    return [ReadSet(ref_sequence_tensor, ref, alt, info, Label(label), Variant.from_np_array(variant), CountsAndSeqLks.from_np_array(cnts_lks)) for ref_sequence_tensor, ref, alt, info, label, cnts_lks, variant in
+            zip(ref_sequence_tensors, ref_tensors, alt_tensors, info_tensors, labels.tolist(), counts_and_lks, variants)]
 
 
 class ReadSetBatch:
@@ -164,7 +181,6 @@ class ReadSetBatch:
         self.reads_2d = torch.from_numpy(np.vstack(list_of_ref_tensors + [item.alt_reads_2d for item in data])).float()
         self.info_2d = torch.from_numpy(np.vstack([item.info_array_1d for item in data])).float()
         self.labels = FloatTensor([1.0 if item.label == Label.ARTIFACT else 0.0 for item in data]) if self.labeled else None
-        self.indices = IntTensor([int(item.index) for item in data])
         self._size = len(data)
 
         self.counts_and_likelihoods = [datum.counts_and_seq_lks for datum in data]
@@ -216,7 +232,6 @@ class RepresentationReadSet:
         assert representation.dim() == 1
         self.representation = representation
         self.label = read_set.label
-        self.index = read_set.index
         self.variant = read_set.variant
         self.counts_and_seq_lks = read_set.counts_and_seq_lks
         self.ref_count = len(read_set.ref_reads_2d) if read_set.ref_reads_2d is not None else 0
@@ -241,7 +256,6 @@ class RepresentationReadSetBatch:
 
         self.representations_2d = torch.vstack([item.representation for item in data]).float()
         self.labels = FloatTensor([1.0 if item.label == Label.ARTIFACT else 0.0 for item in data]) if self.labeled else None
-        self.indices = IntTensor([int(item.index) for item in data])
         self.ref_counts = IntTensor([int(item.ref_count) for item in data])
         self.alt_counts = IntTensor([int(item.alt_count) for item in data])
         self._size = len(data)

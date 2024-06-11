@@ -13,7 +13,7 @@ from torch.utils.data.sampler import Sampler
 
 from mmap_ninja.ragged import RaggedMmap
 from permutect import utils
-from permutect.data.read_set import ReadSet, ReadSetBatch, load_list_of_read_sets, CountsAndSeqLks
+from permutect.data.read_set import ReadSet, ReadSetBatch, load_list_of_read_sets, CountsAndSeqLks, Variant
 from permutect.utils import Label
 
 TENSORS_PER_READ_SET = 4
@@ -71,16 +71,18 @@ class ReadSetDataset(Dataset):
             possible_ref = self._data[bottom_index]
 
             # The order here corresponds to the order of yield statements within make_flattened_tensor_generator()
-
+            # concatenated_1d's elements are: 1) info array 2) counts and likelihoods (length = 6), 3) variant (length = 4), 4) the label (one element)
             concatenated_1d = self._data[bottom_index + 3]
-            counts_and_seq = CountsAndSeqLks.from_np_array(concatenated_1d[-8:-2])
+            counts_and_seq = CountsAndSeqLks.from_np_array(concatenated_1d[-11:-5])
+            variant = Variant.from_np_array(concatenated_1d[-5:-1])
+            label = utils.Label(concatenated_1d[-1])
 
             return ReadSet(ref_sequence_2d=self._data[bottom_index + 2],
                            ref_reads_2d=possible_ref if len(possible_ref) > 0 else None,
                            alt_reads_2d=self._data[bottom_index + 1],
-                           info_array_1d=concatenated_1d[:-8],  # skip the six elements of counts and seq likelihoods, the label, and the index
-                           label=utils.Label(concatenated_1d[-2]),
-                           index=concatenated_1d[-1],
+                           info_array_1d=concatenated_1d[:-11],  # skip the six elements of counts and seq likelihoods, the 4 of variant, and the label (6 + 4 + 1 = 11)
+                           label=label,
+                           variant=variant,
                            counts_and_seq_lks=counts_and_seq)
         else:
             return self._data[index]
@@ -121,9 +123,10 @@ def make_flattened_tensor_generator(read_set_generator):
         # for efficiency, concatenate (hstack) several 1D arrays and scalars:
         # 1) the read set info array
         # 2) the read set counts and likelihoods as a 1D array (length = 6)
-        # 3) the label (one element)
-        # 4) the index (one element)
-        yield np.hstack((read_set.info_array_1d, read_set.counts_and_seq_lks.to_np_array(), np.array([read_set.label.value, read_set.index])))
+        # 3) the read set variant as a 1D array (length = 4)
+        # 4) the label (one element)
+        yield np.hstack((read_set.info_array_1d, read_set.counts_and_seq_lks.to_np_array(),
+                         read_set.variant.to_np_array(), np.array([read_set.label.value])))
 
 
 def make_read_set_generator_from_tarfile(data_tarfile):

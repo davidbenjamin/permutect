@@ -2,12 +2,11 @@ import argparse
 import os
 import tarfile
 import tempfile
-import pickle
 from typing import List
 
 import psutil
 
-from permutect.architecture.representation_model import load_representation_model
+from permutect.architecture.representation_model import load_representation_model, RepresentationModel
 from permutect.data import read_set
 from tqdm.autonotebook import tqdm
 
@@ -17,45 +16,29 @@ from torch.utils.tensorboard import SummaryWriter
 
 from permutect import constants, utils
 from permutect.architecture.artifact_model import ArtifactModel
+from permutect.data.read_set import RepresentationReadSet, RepresentationReadSetBatch
 from permutect.data.representation_dataset import RepresentationDataset
 from permutect.parameters import ArtifactModelParameters, parse_artifact_model_params, \
     add_artifact_model_params_to_parser, add_training_params_to_parser
-from permutect.data.read_set_dataset import ReadSetDataset, make_read_set_generator_from_tarfile
+from permutect.data.read_set_dataset import ReadSetDataset
 from permutect.tools.train_model import TrainingParameters, parse_training_params
-from permutect.utils import MutableInt
 
 NUM_FOLDS = 3
 
 
-def find_indices_to_prune(representation_dataset: RepresentationDataset, params: ArtifactModelParameters,
-                          training_params: TrainingParameters, tensorboard_dir) -> List[int]:
-    use_gpu = torch.cuda.is_available()
-    device = torch.device('cuda' if use_gpu else 'cpu')
-    model = ArtifactModel(params=params, num_representation_features=representation_dataset.num_representation_features, device=device).float()
-
-    pruned_indices = []
+def calculate_pruning_thresholds(pruning_loader, artifact_model: ArtifactModel, label_art_frac: float, training_params: TrainingParameters) -> List[int]:
     for fold in range(NUM_FOLDS):
-        summary_writer = SummaryWriter(tensorboard_dir + "/fold_" + str(fold))
-        print("Training model on fold " + str(fold) + " of " + str(NUM_FOLDS))
-        # note: not training from scratch.  I assume that there are enough epochs to forget any overfitting from
-        # previous folds
-        model.learn(representation_dataset, training_params, summary_writer=summary_writer, validation_fold=fold)
-
         average_artifact_confidence, average_nonartifact_confidence = utils.StreamingAverage(), utils.StreamingAverage()
-
-        # now we go over all the labeled data in the validation set -- that is, the current fold -- and perform rank pruning
-        valid_loader = representation_dataset.make_data_loader([fold], training_params.batch_size, use_gpu, training_params.num_workers)
-
         # TODO: eventually this should all be segregated by variant type and maybe also alt count
 
         # the 0th/1st element is a list of predicted probabilities that data labeled as non-artifact/artifact are actually non-artifact/artifact
         probs_of_agreeing_with_label = [[],[]]
         print("calculating average confidence and gathering predicted probabilities")
-        pbar = tqdm(enumerate(filter(lambda bat: bat.is_labeled(), valid_loader)), mininterval=60)
+        pbar = tqdm(enumerate(filter(lambda bat: bat.is_labeled(), pruning_loader)), mininterval=60)
         for n, batch in pbar:
             # TODO: should we use likelihoods as in evaluation or posteriors as in training???
             # TODO: does it even matter??
-            art_probs = torch.sigmoid(model.forward(batch).detach())
+            art_probs = torch.sigmoid(artifact_model.forward(batch).detach())
 
             art_label_mask = (batch.labels > 0.5)
             nonart_label_mask = (batch.labels < 0.5)
@@ -73,9 +56,9 @@ def find_indices_to_prune(representation_dataset: RepresentationDataset, params:
         confusion = [[0, 0], [0, 0]]
         art_conf_threshold = average_artifact_confidence.get()
         nonart_conf_threshold = average_nonartifact_confidence.get()
-        pbar = tqdm(enumerate(filter(lambda bat: bat.is_labeled(), valid_loader)), mininterval=60)
+        pbar = tqdm(enumerate(filter(lambda bat: bat.is_labeled(), pruning_loader)), mininterval=60)
         for n, batch in pbar:
-            predicted_artifact_probs = torch.sigmoid(model.forward(batch).detach())
+            predicted_artifact_probs = torch.sigmoid(artifact_model.forward(batch).detach())
 
             conf_art_mask = predicted_artifact_probs >= art_conf_threshold
             conf_nonart_mask = (1 - predicted_artifact_probs) >= nonart_conf_threshold
@@ -93,7 +76,6 @@ def find_indices_to_prune(representation_dataset: RepresentationDataset, params:
         nonart_error_rate = confusion[1][0] / (confusion[0][0] + confusion[1][0])
 
         # fraction of labeled data that are labeled as artifact
-        label_art_frac = np.sum(representation_dataset.artifact_totals) / (np.sum(representation_dataset.artifact_totals + representation_dataset.non_artifact_totals))
         label_nonart_frac = 1 - label_art_frac
 
         # these are the inverse probabilities that something labeled as artifact/non-artifact was actually a mislabeled nonartifact/artifact
@@ -116,49 +98,73 @@ def find_indices_to_prune(representation_dataset: RepresentationDataset, params:
         print("Labeled artifacts are pruned if predicted artifact probability is less than " + str(art_threshold))
         print("Labeled non-artifacts are pruned if predicted non-artifact probability is less than " + str(nonart_threshold))
 
-        print("pruning the dataset")
-        pbar = tqdm(enumerate(filter(lambda bat: bat.is_labeled(), valid_loader)), mininterval=60)
-        for n, batch in pbar:
-            art_probs = torch.sigmoid(model.forward(batch).detach())
-            art_label_mask = (batch.labels > 0.5)
-
-            for art_prob, labeled_as_art, index in zip(art_probs.tolist(), art_label_mask.tolist(), batch.indices.tolist()):
-                if (labeled_as_art and art_prob < art_threshold) or ((not labeled_as_art) and (1-art_prob) < nonart_threshold):
-                    pruned_indices.append(index)
-
-    # done with this particular fold
-    # TODO: Maybe also save a dataset of discarded values?
-    return pruned_indices
+        return art_threshold, nonart_threshold
 
 
-def make_pruned_training_dataset(pruned_indices: List[int], original_tarfile, original_read_set_dataset: ReadSetDataset,
-                           pruned_tarfile, chunk_size: int):
-    # the read sets in the data set lose their Variant information when they are memory-mapped.  We need to get it back here
-    variant_vs_index = {}
-    for datum in make_read_set_generator_from_tarfile(original_tarfile):
-        variant_vs_index[datum.index] = datum.variant
-    print("variant vs index map contains " + str(len(variant_vs_index)) + " entries.")
+# generates ReadSets from the original dataset that *pass* the pruning thresholds
+def generated_pruned_data_for_fold(art_threshold: float, nonart_threshold: float, pruning_read_set_loader,
+                                   representation_model: RepresentationModel, artifact_model: ArtifactModel) -> List[int]:
+    print("pruning the dataset")
+    pbar = tqdm(enumerate(filter(lambda bat: bat.is_labeled(), pruning_read_set_loader)), mininterval=60)
+    for n, batch in pbar:
+        # apply the representation model AND the artifact model to go from the original read set to artifact logits
+        representation = representation_model.calculate_representations(batch)
 
-    pruned_data_files = []
-    pruned_datum_index = MutableInt()
-    pruned_indices_file = open("pruned_indices.txt", 'w')
-    for read_set_list in generate_pruned_data(dataset=original_read_set_dataset, max_bytes_per_chunk=chunk_size, pruned_indices=pruned_indices):
-        with tempfile.NamedTemporaryFile(delete=False) as train_data_file:
-            read_set.save_list_of_read_sets(read_set_list, train_data_file, pruned_datum_index, pruned_indices_file, index_to_variant_map=variant_vs_index)
-            pruned_data_files.append(train_data_file.name)
+        rrs_batch = RepresentationReadSetBatch([RepresentationReadSet(rs, rep) for rs, rep in zip(batch.original_list(), representation)])
+        art_probs = torch.sigmoid(artifact_model.forward(rrs_batch).detach())
+        art_label_mask = (batch.labels > 0.5)
 
-    pruned_indices_file.close()
-    # bundle them in a tarfile
-    with tarfile.open(pruned_tarfile, "w") as train_tar:
-        for train_file in pruned_data_files:
-            train_tar.add(train_file, arcname=os.path.basename(train_file))
+        for art_prob, labeled_as_art, datum in zip(art_probs.tolist(), art_label_mask.tolist(), batch.original_list()):
+            if (labeled_as_art and art_prob < art_threshold) or ((not labeled_as_art) and (1-art_prob) < nonart_threshold):
+                 # TODO: process failing data, perhaps add option to output a pruned dataset? or flip labels?
+                pass
+            else:
+                yield datum # this is a ReadSet
 
 
-def generate_pruned_data(dataset: ReadSetDataset, max_bytes_per_chunk: int, pruned_indices):
+def generate_pruned_data_for_all_folds(read_set_dataset: ReadSetDataset, representation_model: RepresentationModel,
+                                       training_params: TrainingParameters, params: ArtifactModelParameters, tensorboard_dir):
+    # for each fold in turn, train an artifact model on all other folds and prune the chosen fold
+    use_gpu = torch.cuda.is_available()
+    device = torch.device('cuda' if use_gpu else 'cpu')
+
+    for pruning_fold in range(NUM_FOLDS):
+        summary_writer = SummaryWriter(tensorboard_dir + "/fold_" + str(pruning_fold))
+        print("Pruning data from fold " + str(pruning_fold) + " of " + str(NUM_FOLDS))
+
+        # learn an artifact model with the pruning data held out
+        training_representation_dataset = RepresentationDataset(read_set_dataset, representation_model,
+                                                                read_set_dataset.all_but_one_fold(pruning_fold))
+
+        label_art_frac = np.sum(training_representation_dataset.artifact_totals) / (
+            np.sum(
+                training_representation_dataset.artifact_totals + training_representation_dataset.non_artifact_totals))
+
+        # learn pruning thresholds on the held-out data
+        pruning_representation_dataset = RepresentationDataset(read_set_dataset, representation_model, [pruning_fold])
+        pruning_loader = pruning_representation_dataset.make_data_loader(pruning_representation_dataset.all_folds(),
+                                                                         training_params.batch_size, use_gpu,
+                                                                         training_params.num_workers)
+        model = ArtifactModel(params=params,
+                              num_representation_features=training_representation_dataset.num_representation_features,
+                              device=device).float()
+        model.learn(training_representation_dataset, training_params, summary_writer=summary_writer)
+
+        art_threshold, nonart_threshold = calculate_pruning_thresholds(pruning_loader, model, label_art_frac,
+                                                                       training_params)
+
+        pruning_read_set_loader = read_set_dataset.make_data_loader([pruning_fold], training_params.batch_size, use_gpu,
+                                                                    training_params.num_epochs)
+        for passing_read_set in generated_pruned_data_for_fold(art_threshold, nonart_threshold, pruning_read_set_loader,
+                                                               representation_model, model):
+            yield passing_read_set
+
+
+# takes a ReadSet generator and organies into buffers.
+# TODO: probably code duplication since the generator is already pruned
+def generate_pruned_data_buffers(pruned_data_generator, max_bytes_per_chunk: int):
     buffer, bytes_in_buffer = [], 0
-    for datum in dataset:
-        if datum.index in pruned_indices:   # exclude pruned data from output
-            continue
+    for datum in pruned_data_generator:
 
         buffer.append(datum)
         bytes_in_buffer += datum.size_in_bytes()
@@ -171,6 +177,19 @@ def generate_pruned_data(dataset: ReadSetDataset, max_bytes_per_chunk: int, prun
     # There will be some data left over, in general.
     if buffer:
         yield buffer
+
+
+def make_pruned_training_dataset(pruned_data_buffer_generator, pruned_tarfile):
+    pruned_data_files = []
+    for read_set_list in pruned_data_buffer_generator:
+        with tempfile.NamedTemporaryFile(delete=False) as train_data_file:
+            read_set.save_list_of_read_sets(read_set_list, train_data_file)
+            pruned_data_files.append(train_data_file.name)
+
+    # bundle them in a tarfile
+    with tarfile.open(pruned_tarfile, "w") as train_tar:
+        for train_file in pruned_data_files:
+            train_tar.add(train_file, arcname=os.path.basename(train_file))
 
 
 def parse_arguments():
@@ -205,14 +224,16 @@ def main_without_parsing(args):
     original_tarfile = getattr(args, constants.TRAIN_TAR_NAME)
 
     representation_model = load_representation_model(getattr(args, constants.PRETRAINED_MODEL_NAME))
-    read_set_dataset = ReadSetDataset(data_tarfile=original_tarfile, num_folds=10)
-    representation_dataset = RepresentationDataset(read_set_dataset, representation_model)
+    read_set_dataset = ReadSetDataset(data_tarfile=original_tarfile, num_folds=NUM_FOLDS)
 
-    # this writes the new pruned data tarfile and the new post-pruning indices files
-    pruned_indices = find_indices_to_prune(representation_dataset=representation_dataset, params=params,
-                                           training_params=training_params, tensorboard_dir=tensorboard_dir)
-    make_pruned_training_dataset(pruned_indices=pruned_indices, original_tarfile=original_tarfile,
-            original_read_set_dataset=read_set_dataset, pruned_tarfile=pruned_tarfile, chunk_size=chunk_size)
+    # generate ReadSets passing pruning
+    pruned_data_generator = generate_pruned_data_for_all_folds(read_set_dataset, representation_model, training_params, params, tensorboard_dir)
+
+    # generate List[ReadSet]s passing pruning
+    pruned_data_buffer_generator = generate_pruned_data_buffers(pruned_data_generator, chunk_size)
+
+    # save as a tarfile dataset
+    make_pruned_training_dataset(pruned_data_buffer_generator, pruned_tarfile=pruned_tarfile)
 
 
 def main():

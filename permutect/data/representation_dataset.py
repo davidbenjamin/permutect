@@ -14,7 +14,7 @@ from permutect.data.read_set_dataset import ReadSetDataset, chunk
 # given a ReadSetDataset, apply a RepresentationModel to get a dataset (in RAM, maybe implement memory map later)
 # of RepresentationReadSets
 class RepresentationDataset(Dataset):
-    def __init__(self, read_set_dataset: ReadSetDataset, representation_model: RepresentationModel):
+    def __init__(self, read_set_dataset: ReadSetDataset, representation_model: RepresentationModel, folds_to_use: List[int] = None):
 
         self.artifact_totals = read_set_dataset.artifact_totals
         self.non_artifact_totals = read_set_dataset.non_artifact_totals
@@ -26,7 +26,7 @@ class RepresentationDataset(Dataset):
 
         index = 0
 
-        loader = read_set_dataset.make_data_loader(read_set_dataset.all_folds(), batch_size=256)
+        loader = read_set_dataset.make_data_loader(read_set_dataset.all_folds() if folds_to_use is None else folds_to_use, batch_size=256)
         for read_set_batch in loader:
             representations = representation_model.calculate_representations(read_set_batch).detach()
             for representation, read_set in zip(representations, read_set_batch.original_list()):

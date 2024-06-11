@@ -48,13 +48,15 @@ def trim_alleles_on_right(ref: str, alt: str):
     return trimmed_ref, trimmed_alt
 
 
+# TODO: contigs stored as integer index must be converted back to string to compare VCF variants with dataset variants!!!
 def encode(contig: str, position: int, ref: str, alt: str):
     trimmed_ref, trimmed_alt = trim_alleles_on_right(ref, alt)
     return contig + ':' + str(position) + ':' + trimmed_alt
 
 
-def encode_datum(datum: PosteriorDatum):
-    return encode(datum.contig, datum.position, datum.ref, datum.alt)
+def encode_datum(datum: PosteriorDatum, contig_index_to_name_map):
+    contig_name = contig_index_to_name_map[datum.contig]
+    return encode(contig_name, datum.position, datum.ref, datum.alt)
 
 
 def encode_variant(v: cyvcf2.Variant, zero_based=False):
@@ -76,6 +78,7 @@ def parse_arguments():
     parser.add_argument('--' + constants.M3_MODEL_NAME, required=True, help='trained Mutect3 artifact model from train_model.py')
     parser.add_argument('--' + constants.PRETRAINED_MODEL_NAME, type=str,
                         help='Pre-trained representation model from train_representation_model.py')
+    parser.add_argument('--' + constants.CONTIGS_TABLE_NAME, required=True, help='table of contig names vs integer indices')
     parser.add_argument('--' + constants.OUTPUT_NAME, required=True, help='path to output filtered VCF')
     parser.add_argument('--' + constants.TENSORBOARD_DIR_NAME, type=str, default='tensorboard', required=False, help='path to output tensorboard')
     parser.add_argument('--' + constants.BATCH_SIZE_NAME, type=int, default=64, required=False, help='batch size')
@@ -131,6 +134,7 @@ def main_without_parsing(args):
                       initial_log_variant_prior=getattr(args, constants.INITIAL_LOG_VARIANT_PRIOR_NAME),
                       initial_log_artifact_prior=getattr(args, constants.INITIAL_LOG_ARTIFACT_PRIOR_NAME),
                       test_dataset_file=getattr(args, constants.TEST_DATASET_NAME),
+                      contigs_table=getattr(args, constants.CONTIGS_TABLE_NAME),
                       input_vcf=getattr(args, constants.INPUT_NAME),
                       output_vcf=getattr(args, constants.OUTPUT_NAME),
                       batch_size=getattr(args, constants.BATCH_SIZE_NAME),
@@ -145,14 +149,20 @@ def main_without_parsing(args):
 
 
 def make_filtered_vcf(saved_artifact_model_path, representation_model_path,  initial_log_variant_prior: float, initial_log_artifact_prior: float,
-                      test_dataset_file, input_vcf, output_vcf, batch_size: int, chunk_size: int, num_spectrum_iterations: int, tensorboard_dir,
+                      test_dataset_file, contigs_table, input_vcf, output_vcf, batch_size: int, chunk_size: int, num_spectrum_iterations: int, tensorboard_dir,
                       genomic_span: int, germline_mode: bool = False, no_germline_mode: bool = False, segmentation=defaultdict(IntervalTree),
                       normal_segmentation=defaultdict(IntervalTree)):
     print("Loading artifact model and test dataset")
     representation_model = load_representation_model(representation_model_path)
+    contig_index_to_name_map = {}
+    with open(contigs_table) as file:
+        while line := file.readline().strip():
+            contig, index = line.split()
+            contig_index_to_name_map[int(index)] = contig
+
     artifact_model, artifact_log_priors, artifact_spectra_state_dict = load_artifact_model(saved_artifact_model_path)
     posterior_model = PosteriorModel(initial_log_variant_prior, initial_log_artifact_prior, segmentation=segmentation, normal_segmentation=normal_segmentation, no_germline_mode=no_germline_mode)
-    posterior_data_loader = make_posterior_data_loader(test_dataset_file, input_vcf, representation_model, artifact_model, batch_size, chunk_size=chunk_size)
+    posterior_data_loader = make_posterior_data_loader(test_dataset_file, input_vcf, contig_index_to_name_map, representation_model, artifact_model, batch_size, chunk_size=chunk_size)
 
     print("Learning AF spectra")
     summary_writer = SummaryWriter(tensorboard_dir)
@@ -167,10 +177,10 @@ def make_filtered_vcf(saved_artifact_model_path, representation_model_path,  ini
     print("Calculating optimal logit threshold")
     error_probability_thresholds = posterior_model.calculate_probability_thresholds(posterior_data_loader, summary_writer, germline_mode=germline_mode)
     print("Optimal probability threshold: " + str(error_probability_thresholds))
-    apply_filtering_to_vcf(input_vcf, output_vcf, error_probability_thresholds, posterior_data_loader, posterior_model, summary_writer=summary_writer, germline_mode=germline_mode)
+    apply_filtering_to_vcf(input_vcf, output_vcf, contig_index_to_name_map, error_probability_thresholds, posterior_data_loader, posterior_model, summary_writer=summary_writer, germline_mode=germline_mode)
 
 
-def make_posterior_data_loader(dataset_file, input_vcf, representation_model: RepresentationModel, artifact_model: ArtifactModel, batch_size: int, chunk_size: int):
+def make_posterior_data_loader(dataset_file, input_vcf, contig_index_to_name_map, representation_model: RepresentationModel, artifact_model: ArtifactModel, batch_size: int, chunk_size: int):
     print("Reading test dataset")
 
     m2_filtering_to_keep = set()
@@ -196,11 +206,11 @@ def make_posterior_data_loader(dataset_file, input_vcf, representation_model: Re
             artifact_logits = artifact_model.forward(batch=artifact_batch).detach().tolist()
 
             labels = ([Label.ARTIFACT if x > 0.5 else Label.VARIANT for x in artifact_batch.labels]) if artifact_batch.is_labeled() else (artifact_batch.size()*[Label.UNLABELED])
-            for variant, counts_and_seq_lks, index, logit, label in zip(artifact_batch.variants, artifact_batch.counts_and_likelihoods, artifact_batch.indices, artifact_logits, labels):
-                encoding = encode(variant.contig, variant.position, variant.ref, variant.alt)
+            for variant, counts_and_seq_lks, logit, label in zip(artifact_batch.variants, artifact_batch.counts_and_likelihoods, artifact_logits, labels):
+                encoding = encode(contig_index_to_name_map[variant.contig], variant.position, variant.ref, variant.alt)
                 if encoding in allele_frequencies and encoding not in m2_filtering_to_keep:
                     allele_frequency = allele_frequencies[encoding]
-                    posterior_datum = PosteriorDatum(variant, counts_and_seq_lks, index, allele_frequency, logit, label)
+                    posterior_datum = PosteriorDatum(variant, counts_and_seq_lks, allele_frequency, logit, label)
                     posterior_data.append(posterior_datum)
 
     print("Size of filtering dataset: " + str(len(posterior_data)))
@@ -209,7 +219,7 @@ def make_posterior_data_loader(dataset_file, input_vcf, representation_model: Re
 
 
 # error probability thresholds is a dict from Variant type to error probability threshold (float)
-def apply_filtering_to_vcf(input_vcf, output_vcf, error_probability_thresholds, posterior_loader, posterior_model, summary_writer: SummaryWriter, germline_mode: bool = False):
+def apply_filtering_to_vcf(input_vcf, output_vcf, contig_index_to_name_map, error_probability_thresholds, posterior_loader, posterior_model, summary_writer: SummaryWriter, germline_mode: bool = False):
     print("Computing final error probabilities")
     passing_call_type = Call.GERMLINE if germline_mode else Call.SOMATIC
     encoding_to_posterior_results = {}
@@ -222,7 +232,7 @@ def apply_filtering_to_vcf(input_vcf, output_vcf, error_probability_thresholds, 
 
         posterior_probs = torch.nn.functional.softmax(log_posteriors, dim=1)
 
-        encodings = [encode_datum(datum) for datum in batch.original_list()]
+        encodings = [encode_datum(datum, contig_index_to_name_map) for datum in batch.original_list()]
         artifact_logits = [datum.artifact_logit for datum in batch.original_list()]
         var_types = [datum.variant_type for datum in batch.original_list()]
         labels = [datum.label for datum in batch.original_list()]
