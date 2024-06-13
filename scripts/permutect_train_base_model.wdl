@@ -1,7 +1,7 @@
 version 1.0
 
 
-workflow TrainPermutectRepresentation {
+workflow TrainPermutectBaseModel {
     input {
         File train_tar
         File? pretrained_model
@@ -78,7 +78,7 @@ workflow TrainPermutectRepresentation {
 
 
     output {
-        File representation_model = select_first([TrainPermutectRepresentationGPU.representation_model, TrainPermutectRepresentationCPU.representation_model])
+        File base_model = select_first([TrainPermutectRepresentationGPU.base_model, TrainPermutectRepresentationCPU.base_model])
         File training_tensorboard_tar = select_first([TrainPermutectRepresentationGPU.tensorboard_tar, TrainPermutectRepresentationCPU.tensorboard_tar])
     }
 }
@@ -122,7 +122,7 @@ task TrainPermutectRepresentationGPU {
     command <<<
         set -e
 
-        train_representation_model \
+        train_base_model \
             --train_tar ~{train_tar} \
             ~{"--pretrained_model " + pretrained_model} \
             --read_embedding_dimension ~{read_embedding_dimension} \
@@ -138,7 +138,7 @@ task TrainPermutectRepresentationGPU {
             --batch_size ~{batch_size} \
             ~{"--num_workers " + num_workers} \
             --num_epochs ~{num_epochs} \
-            --output representation.pt \
+            --output base_model.pt \
             --tensorboard_dir tensorboard \
             ~{extra_args}
 
@@ -158,7 +158,7 @@ task TrainPermutectRepresentationGPU {
     }
 
     output {
-        File representation_model = "representation.pt"
+        File base_model = "base_model.pt"
         File tensorboard_tar = "tensorboard.tar"
     }
 }
@@ -199,7 +199,7 @@ task TrainPermutectRepresentationCPU {
     command <<<
         set -e
 
-        train_representation_model \
+        train_base_model \
             --train_tar ~{train_tar} \
             ~{"--pretrained_model " + pretrained_model} \
             --read_embedding_dimension ~{read_embedding_dimension} \
@@ -215,7 +215,7 @@ task TrainPermutectRepresentationCPU {
             --batch_size ~{batch_size} \
             ~{"--num_workers " + num_workers} \
             --num_epochs ~{num_epochs} \
-            --output representation.pt \
+            --output base_model.pt \
             --tensorboard_dir tensorboard \
             ~{extra_args}
 
@@ -233,7 +233,7 @@ task TrainPermutectRepresentationCPU {
     }
 
     output {
-        File representation_model = "representation.pt"
+        File base_model = "base_model.pt"
         File tensorboard_tar = "tensorboard.tar"
     }
 }

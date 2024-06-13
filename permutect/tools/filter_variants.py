@@ -12,7 +12,7 @@ from tqdm.autonotebook import tqdm
 from permutect import constants
 from permutect.architecture.artifact_model import ArtifactModel, load_artifact_model
 from permutect.architecture.posterior_model import PosteriorModel
-from permutect.architecture.representation_model import RepresentationModel, load_representation_model
+from permutect.architecture.base_model import BaseModel, load_base_model
 from permutect.data import read_set_dataset, plain_text_data
 from permutect.data.posterior import PosteriorDataset, PosteriorDatum
 from permutect.data.representation_dataset import RepresentationDataset
@@ -76,8 +76,7 @@ def parse_arguments():
     parser.add_argument('--' + constants.TEST_DATASET_NAME, required=True,
                         help='plain text dataset file corresponding to variants in input VCF')
     parser.add_argument('--' + constants.M3_MODEL_NAME, required=True, help='trained Mutect3 artifact model from train_model.py')
-    parser.add_argument('--' + constants.PRETRAINED_MODEL_NAME, type=str,
-                        help='Pre-trained representation model from train_representation_model.py')
+    parser.add_argument('--' + constants.BASE_MODEL_NAME, type=str, help='Base model from train_base_model.py')
     parser.add_argument('--' + constants.CONTIGS_TABLE_NAME, required=True, help='table of contig names vs integer indices')
     parser.add_argument('--' + constants.OUTPUT_NAME, required=True, help='path to output filtered VCF')
     parser.add_argument('--' + constants.TENSORBOARD_DIR_NAME, type=str, default='tensorboard', required=False, help='path to output tensorboard')
@@ -130,7 +129,7 @@ def get_segmentation(segments_file) -> defaultdict:
 
 def main_without_parsing(args):
     make_filtered_vcf(saved_artifact_model_path=getattr(args, constants.M3_MODEL_NAME),
-                      representation_model_path=getattr(args, constants.PRETRAINED_MODEL_NAME),
+                      base_model_path=getattr(args, constants.BASE_MODEL_NAME),
                       initial_log_variant_prior=getattr(args, constants.INITIAL_LOG_VARIANT_PRIOR_NAME),
                       initial_log_artifact_prior=getattr(args, constants.INITIAL_LOG_ARTIFACT_PRIOR_NAME),
                       test_dataset_file=getattr(args, constants.TEST_DATASET_NAME),
@@ -148,12 +147,12 @@ def main_without_parsing(args):
                       normal_segmentation=get_segmentation(getattr(args, constants.NORMAL_MAF_SEGMENTS_NAME)))
 
 
-def make_filtered_vcf(saved_artifact_model_path, representation_model_path,  initial_log_variant_prior: float, initial_log_artifact_prior: float,
+def make_filtered_vcf(saved_artifact_model_path, base_model_path, initial_log_variant_prior: float, initial_log_artifact_prior: float,
                       test_dataset_file, contigs_table, input_vcf, output_vcf, batch_size: int, chunk_size: int, num_spectrum_iterations: int, tensorboard_dir,
                       genomic_span: int, germline_mode: bool = False, no_germline_mode: bool = False, segmentation=defaultdict(IntervalTree),
                       normal_segmentation=defaultdict(IntervalTree)):
     print("Loading artifact model and test dataset")
-    representation_model = load_representation_model(representation_model_path)
+    base_model = load_base_model(base_model_path)
     contig_index_to_name_map = {}
     with open(contigs_table) as file:
         while line := file.readline().strip():
@@ -162,7 +161,7 @@ def make_filtered_vcf(saved_artifact_model_path, representation_model_path,  ini
 
     artifact_model, artifact_log_priors, artifact_spectra_state_dict = load_artifact_model(saved_artifact_model_path)
     posterior_model = PosteriorModel(initial_log_variant_prior, initial_log_artifact_prior, segmentation=segmentation, normal_segmentation=normal_segmentation, no_germline_mode=no_germline_mode)
-    posterior_data_loader = make_posterior_data_loader(test_dataset_file, input_vcf, contig_index_to_name_map, representation_model, artifact_model, batch_size, chunk_size=chunk_size)
+    posterior_data_loader = make_posterior_data_loader(test_dataset_file, input_vcf, contig_index_to_name_map, base_model, artifact_model, batch_size, chunk_size=chunk_size)
 
     print("Learning AF spectra")
     summary_writer = SummaryWriter(tensorboard_dir)
@@ -180,7 +179,7 @@ def make_filtered_vcf(saved_artifact_model_path, representation_model_path,  ini
     apply_filtering_to_vcf(input_vcf, output_vcf, contig_index_to_name_map, error_probability_thresholds, posterior_data_loader, posterior_model, summary_writer=summary_writer, germline_mode=germline_mode)
 
 
-def make_posterior_data_loader(dataset_file, input_vcf, contig_index_to_name_map, representation_model: RepresentationModel, artifact_model: ArtifactModel, batch_size: int, chunk_size: int):
+def make_posterior_data_loader(dataset_file, input_vcf, contig_index_to_name_map, base_model: BaseModel, artifact_model: ArtifactModel, batch_size: int, chunk_size: int):
     print("Reading test dataset")
 
     m2_filtering_to_keep = set()
@@ -199,7 +198,7 @@ def make_posterior_data_loader(dataset_file, input_vcf, contig_index_to_name_map
     posterior_data = []
     for list_of_read_sets in plain_text_data.generate_normalized_data([dataset_file], chunk_size):
         raw_dataset = read_set_dataset.ReadSetDataset(data_in_ram=list_of_read_sets)
-        representation_dataset = RepresentationDataset(raw_dataset, representation_model)
+        representation_dataset = RepresentationDataset(raw_dataset, base_model)
         artifact_loader = representation_dataset.make_data_loader(representation_dataset.all_folds(), batch_size, pin_memory=False, num_workers=0)
 
         for artifact_batch in artifact_loader:

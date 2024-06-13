@@ -4,7 +4,7 @@ version 1.0
 workflow TrainPermutect {
     input {
         File train_tar
-        File representation_model
+        File base_model
         Int num_epochs
         Int num_calibration_epochs
         Int batch_size
@@ -26,7 +26,7 @@ workflow TrainPermutect {
         call TrainPermutectGPU {
             input:
                 train_tar = train_tar,
-                representation_model = representation_model,
+                base_model = base_model,
                 permutect_docker = permutect_docker,
                 preemptible = preemptible,
                 max_retries = max_retries,
@@ -47,7 +47,7 @@ workflow TrainPermutect {
         call TrainPermutectCPU {
             input:
                 train_tar = train_tar,
-                representation_model = representation_model,
+                base_model = base_model,
                 permutect_docker = permutect_docker,
                 preemptible = preemptible,
                 max_retries = max_retries,
@@ -76,7 +76,7 @@ workflow TrainPermutect {
 task TrainPermutectGPU {
     input {
         File train_tar
-        File representation_model
+        File base_model
 
         Int num_epochs
         Int num_calibration_epochs
@@ -109,7 +109,7 @@ task TrainPermutectGPU {
 
         train_model \
             --train_tar ~{train_tar} \
-            --pretrained_model ~{representation_model} \
+            --base_model ~{base_model} \
             --aggregation_layers ~{sep=' ' aggregation_layers} \
             --calibration_layers ~{sep=' ' calibration_layers} \
             --dropout_p ~{dropout_p} \
@@ -147,7 +147,7 @@ task TrainPermutectGPU {
 task TrainPermutectCPU {
     input {
         File train_tar
-        File representation_model
+        File base_model
 
         Int num_epochs
         Int num_calibration_epochs
@@ -179,7 +179,7 @@ task TrainPermutectCPU {
 
         train_model \
             --train_tar ~{train_tar} \
-            --pretrained_model ~{representation_model} \
+            --base_model ~{base_model} \
             --aggregation_layers ~{sep=' ' aggregation_layers} \
             --calibration_layers ~{sep=' ' calibration_layers} \
             --dropout_p ~{dropout_p} \

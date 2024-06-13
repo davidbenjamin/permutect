@@ -11,7 +11,7 @@ from permutect.architecture.mlp import MLP
 from permutect.data.read_set import ReadSetBatch
 from permutect.data.read_set_dataset import ReadSetDataset
 from permutect.metrics.evaluation_metrics import LossMetrics
-from permutect.parameters import RepresentationModelParameters, TrainingParameters
+from permutect.parameters import BaseModelParameters, TrainingParameters
 from permutect.utils import Variation
 
 
@@ -36,7 +36,7 @@ class LearningMethod(Enum):
     AFFINE_TRANSFORMATION = "affine"
 
 
-class RepresentationModel(torch.nn.Module):
+class BaseModel(torch.nn.Module):
     """
     DeepSets framework for reads and variant info.  We embed each read and concatenate the mean ref read
     embedding, mean alt read embedding, and variant info embedding, then apply an aggregation function to
@@ -57,8 +57,8 @@ class RepresentationModel(torch.nn.Module):
     because we have different output layers for each variant type.
     """
 
-    def __init__(self, params: RepresentationModelParameters, num_read_features: int, num_info_features: int, ref_sequence_length: int, device=torch.device("cpu")):
-        super(RepresentationModel, self).__init__()
+    def __init__(self, params: BaseModelParameters, num_read_features: int, num_info_features: int, ref_sequence_length: int, device=torch.device("cpu")):
+        super(BaseModel, self).__init__()
 
         self._device = device
         self._num_read_features = num_read_features
@@ -288,15 +288,15 @@ class RepresentationModel(torch.nn.Module):
         }, path)
 
 
-def load_representation_model(path) -> RepresentationModel:
+def load_base_model(path) -> BaseModel:
     saved = torch.load(path)
     hyperparams = saved[constants.HYPERPARAMS_NAME]
     num_read_features = saved[constants.NUM_READ_FEATURES_NAME]
     num_info_features = saved[constants.NUM_INFO_FEATURES_NAME]
     ref_sequence_length = saved[constants.REF_SEQUENCE_LENGTH_NAME]
 
-    model = RepresentationModel(hyperparams, num_read_features=num_read_features, num_info_features=num_info_features,
-                                ref_sequence_length=ref_sequence_length)
+    model = BaseModel(hyperparams, num_read_features=num_read_features, num_info_features=num_info_features,
+                      ref_sequence_length=ref_sequence_length)
     model.load_state_dict(saved[constants.STATE_DICT_NAME])
 
     return model

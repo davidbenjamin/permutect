@@ -4,21 +4,21 @@ import torch
 from torch.utils.tensorboard import SummaryWriter
 
 from permutect import constants
-from permutect.architecture.representation_model import RepresentationModel, LearningMethod, load_representation_model
-from permutect.parameters import RepresentationModelParameters, TrainingParameters, parse_training_params, \
-    parse_representation_model_params, add_representation_model_params_to_parser, add_training_params_to_parser
+from permutect.architecture.base_model import BaseModel, LearningMethod, load_base_model
+from permutect.parameters import BaseModelParameters, TrainingParameters, parse_training_params, \
+    parse_base_model_params, add_base_model_params_to_parser, add_training_params_to_parser
 from permutect.data.read_set_dataset import ReadSetDataset
 
 
-def train_representation_model(params: RepresentationModelParameters, training_params: TrainingParameters, summary_writer: SummaryWriter,
-                               dataset: ReadSetDataset, pretrained_model: RepresentationModel = None) -> RepresentationModel:
+def train_base_model(params: BaseModelParameters, training_params: TrainingParameters, summary_writer: SummaryWriter,
+                     dataset: ReadSetDataset, pretrained_model: BaseModel = None) -> BaseModel:
     use_gpu = torch.cuda.is_available()
     device = torch.device('cuda' if use_gpu else 'cpu')
 
     use_pretrained = (pretrained_model is not None)
     model = pretrained_model if use_pretrained else \
-        RepresentationModel(params=params, num_read_features=dataset.num_read_features, num_info_features=dataset.num_info_features,
-                            ref_sequence_length=dataset.ref_sequence_length, device=device).float()
+        BaseModel(params=params, num_read_features=dataset.num_read_features, num_info_features=dataset.num_info_features,
+                  ref_sequence_length=dataset.ref_sequence_length, device=device).float()
 
     print("Training. . .")
     model.learn(dataset, LearningMethod.SEMISUPERVISED, training_params, summary_writer=summary_writer)
@@ -27,17 +27,17 @@ def train_representation_model(params: RepresentationModelParameters, training_p
 
 
 def main_without_parsing(args):
-    hyperparams = parse_representation_model_params(args)
+    hyperparams = parse_base_model_params(args)
     training_params = parse_training_params(args)
 
     tarfile_data = getattr(args, constants.TRAIN_TAR_NAME)
     pretrained_model_path = getattr(args, constants.PRETRAINED_MODEL_NAME)
-    pretrained_model = None if pretrained_model_path is None else load_representation_model(pretrained_model_path)
+    pretrained_model = None if pretrained_model_path is None else load_base_model(pretrained_model_path)
     tensorboard_dir = getattr(args, constants.TENSORBOARD_DIR_NAME)
     summary_writer = SummaryWriter(tensorboard_dir)
     dataset = ReadSetDataset(data_tarfile=tarfile_data, num_folds=10)
-    model = train_representation_model(params=hyperparams, dataset=dataset, training_params=training_params,
-                                       summary_writer=summary_writer, pretrained_model=pretrained_model)
+    model = train_base_model(params=hyperparams, dataset=dataset, training_params=training_params,
+                             summary_writer=summary_writer, pretrained_model=pretrained_model)
 
     summary_writer.close()
     model.save(getattr(args, constants.OUTPUT_NAME))
@@ -54,7 +54,7 @@ if __name__ == '__main__':
 
 def parse_arguments():
     parser = argparse.ArgumentParser(description='train the Permutect read set representation model')
-    add_representation_model_params_to_parser(parser)
+    add_base_model_params_to_parser(parser)
     add_training_params_to_parser(parser)
 
     parser.add_argument('--' + constants.TRAIN_TAR_NAME, type=str, required=True,

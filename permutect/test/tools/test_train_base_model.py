@@ -4,11 +4,11 @@ from argparse import Namespace
 from tensorboard.backend.event_processing.event_accumulator import EventAccumulator
 
 from permutect import constants
-from permutect.tools import train_representation_model
-from permutect.architecture.representation_model import load_representation_model
+from permutect.tools import train_base_model
+from permutect.architecture.base_model import load_base_model
 
 
-def test_train_representation_model():
+def test_train_base_model():
     training_data_tarfile = "/Users/davidben/mutect3/permutect/integration-tests/singular-10-Mb/preprocessed-dataset.tar"
     saved_embedding_model = tempfile.NamedTemporaryFile()
     training_tensorboard_dir = tempfile.TemporaryDirectory()
@@ -47,9 +47,9 @@ def test_train_representation_model():
     setattr(train_model_args, constants.OUTPUT_NAME, saved_embedding_model.name)
     setattr(train_model_args, constants.TENSORBOARD_DIR_NAME, training_tensorboard_dir.name)
 
-    train_representation_model.main_without_parsing(train_model_args)
+    train_base_model.main_without_parsing(train_model_args)
 
     events = EventAccumulator(training_tensorboard_dir.name)
     events.Reload()
 
-    loaded_representation_model = load_representation_model(saved_embedding_model)
+    loaded_base_model = load_base_model(saved_embedding_model)

@@ -6,7 +6,7 @@ from typing import List
 
 import psutil
 
-from permutect.architecture.representation_model import load_representation_model, RepresentationModel
+from permutect.architecture.base_model import load_base_model, BaseModel
 from permutect.data import read_set
 from tqdm.autonotebook import tqdm
 
@@ -103,12 +103,12 @@ def calculate_pruning_thresholds(pruning_loader, artifact_model: ArtifactModel, 
 
 # generates ReadSets from the original dataset that *pass* the pruning thresholds
 def generated_pruned_data_for_fold(art_threshold: float, nonart_threshold: float, pruning_read_set_loader,
-                                   representation_model: RepresentationModel, artifact_model: ArtifactModel) -> List[int]:
+                                   base_model: BaseModel, artifact_model: ArtifactModel) -> List[int]:
     print("pruning the dataset")
     pbar = tqdm(enumerate(filter(lambda bat: bat.is_labeled(), pruning_read_set_loader)), mininterval=60)
     for n, batch in pbar:
         # apply the representation model AND the artifact model to go from the original read set to artifact logits
-        representation = representation_model.calculate_representations(batch)
+        representation = base_model.calculate_representations(batch)
 
         rrs_batch = RepresentationReadSetBatch([RepresentationReadSet(rs, rep) for rs, rep in zip(batch.original_list(), representation)])
         art_probs = torch.sigmoid(artifact_model.forward(rrs_batch).detach())
@@ -122,7 +122,7 @@ def generated_pruned_data_for_fold(art_threshold: float, nonart_threshold: float
                 yield datum # this is a ReadSet
 
 
-def generate_pruned_data_for_all_folds(read_set_dataset: ReadSetDataset, representation_model: RepresentationModel,
+def generate_pruned_data_for_all_folds(read_set_dataset: ReadSetDataset, base_model: BaseModel,
                                        training_params: TrainingParameters, params: ArtifactModelParameters, tensorboard_dir):
     # for each fold in turn, train an artifact model on all other folds and prune the chosen fold
     use_gpu = torch.cuda.is_available()
@@ -133,7 +133,7 @@ def generate_pruned_data_for_all_folds(read_set_dataset: ReadSetDataset, represe
         print("Pruning data from fold " + str(pruning_fold) + " of " + str(NUM_FOLDS))
 
         # learn an artifact model with the pruning data held out
-        training_representation_dataset = RepresentationDataset(read_set_dataset, representation_model,
+        training_representation_dataset = RepresentationDataset(read_set_dataset, base_model,
                                                                 read_set_dataset.all_but_one_fold(pruning_fold))
 
         label_art_frac = np.sum(training_representation_dataset.artifact_totals) / (
@@ -141,7 +141,7 @@ def generate_pruned_data_for_all_folds(read_set_dataset: ReadSetDataset, represe
                 training_representation_dataset.artifact_totals + training_representation_dataset.non_artifact_totals))
 
         # learn pruning thresholds on the held-out data
-        pruning_representation_dataset = RepresentationDataset(read_set_dataset, representation_model, [pruning_fold])
+        pruning_representation_dataset = RepresentationDataset(read_set_dataset, base_model, [pruning_fold])
         pruning_loader = pruning_representation_dataset.make_data_loader(pruning_representation_dataset.all_folds(),
                                                                          training_params.batch_size, use_gpu,
                                                                          training_params.num_workers)
@@ -156,7 +156,7 @@ def generate_pruned_data_for_all_folds(read_set_dataset: ReadSetDataset, represe
         pruning_read_set_loader = read_set_dataset.make_data_loader([pruning_fold], training_params.batch_size, use_gpu,
                                                                     training_params.num_epochs)
         for passing_read_set in generated_pruned_data_for_fold(art_threshold, nonart_threshold, pruning_read_set_loader,
-                                                               representation_model, model):
+                                                               base_model, model):
             yield passing_read_set
 
 
@@ -204,10 +204,8 @@ def parse_arguments():
     # input / output
     parser.add_argument('--' + constants.TRAIN_TAR_NAME, type=str, required=True,
                         help='tarfile of training/validation datasets produced by preprocess_dataset.py')
-    parser.add_argument('--' + constants.PRETRAINED_MODEL_NAME, type=str,
-                        help='Pre-trained representation model from train_representation_model.py')
-    parser.add_argument('--' + constants.OUTPUT_NAME, type=str, required=True,
-                        help='path to pruned dataset file')
+    parser.add_argument('--' + constants.BASE_MODEL_NAME, type=str, help='Base model from train_base_model.py')
+    parser.add_argument('--' + constants.OUTPUT_NAME, type=str, required=True, help='path to pruned dataset file')
     parser.add_argument('--' + constants.TENSORBOARD_DIR_NAME, type=str, default='tensorboard', required=False,
                         help='path to output tensorboard directory')
 
@@ -223,11 +221,11 @@ def main_without_parsing(args):
     chunk_size = getattr(args, constants.CHUNK_SIZE_NAME)
     original_tarfile = getattr(args, constants.TRAIN_TAR_NAME)
 
-    representation_model = load_representation_model(getattr(args, constants.PRETRAINED_MODEL_NAME))
+    base_model = load_base_model(getattr(args, constants.BASE_MODEL_NAME))
     read_set_dataset = ReadSetDataset(data_tarfile=original_tarfile, num_folds=NUM_FOLDS)
 
     # generate ReadSets passing pruning
-    pruned_data_generator = generate_pruned_data_for_all_folds(read_set_dataset, representation_model, training_params, params, tensorboard_dir)
+    pruned_data_generator = generate_pruned_data_for_all_folds(read_set_dataset, base_model, training_params, params, tensorboard_dir)
 
     # generate List[ReadSet]s passing pruning
     pruned_data_buffer_generator = generate_pruned_data_buffers(pruned_data_generator, chunk_size)

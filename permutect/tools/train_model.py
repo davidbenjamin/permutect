@@ -7,7 +7,7 @@ from torch.utils.tensorboard import SummaryWriter
 from permutect import constants, utils
 from permutect.architecture.artifact_model import ArtifactModel
 from permutect.architecture.posterior_model import initialize_artifact_spectra, plot_artifact_spectra
-from permutect.architecture.representation_model import load_representation_model
+from permutect.architecture.base_model import load_base_model
 from permutect.data.read_set_dataset import ReadSetDataset
 from permutect.data.representation_dataset import RepresentationDataset
 from permutect.parameters import TrainingParameters, add_training_params_to_parser, parse_training_params, \
@@ -80,10 +80,8 @@ def parse_arguments():
     # inputs and outputs
     parser.add_argument('--' + constants.TRAIN_TAR_NAME, type=str, required=True,
                         help='tarfile of training/validation datasets produced by preprocess_dataset.py')
-    parser.add_argument('--' + constants.PRETRAINED_MODEL_NAME, type=str,
-                        help='Pre-trained representation model from train_representation_model.py')
-    parser.add_argument('--' + constants.OUTPUT_NAME, type=str, required=True,
-                        help='path to output saved model file')
+    parser.add_argument('--' + constants.BASE_MODEL_NAME, type=str, help='Base model from train_base_model.py')
+    parser.add_argument('--' + constants.OUTPUT_NAME, type=str, required=True, help='path to output saved model file')
     parser.add_argument('--' + constants.TENSORBOARD_DIR_NAME, type=str, default='tensorboard', required=False,
                         help='path to output tensorboard directory')
 
@@ -99,9 +97,9 @@ def main_without_parsing(args):
     tensorboard_dir = getattr(args, constants.TENSORBOARD_DIR_NAME)
     summary_writer = SummaryWriter(tensorboard_dir)
 
-    representation_model = load_representation_model(getattr(args, constants.PRETRAINED_MODEL_NAME))
+    base_model = load_base_model(getattr(args, constants.BASE_MODEL_NAME))
     read_set_dataset = ReadSetDataset(data_tarfile=getattr(args, constants.TRAIN_TAR_NAME), num_folds=10)
-    representation_dataset = RepresentationDataset(read_set_dataset, representation_model)
+    representation_dataset = RepresentationDataset(read_set_dataset, base_model)
 
     model = train_artifact_model(hyperparams=params, training_params=training_params,
                                  summary_writer=summary_writer, dataset=representation_dataset)

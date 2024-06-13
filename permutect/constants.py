@@ -52,5 +52,6 @@ NORMAL_MAF_SEGMENTS_NAME = 'normal_maf_segments'
 GERMLINE_MODE_NAME = 'germline_mode'
 NO_GERMLINE_MODE_NAME = 'no_germline_mode'
 
+BASE_MODEL_NAME = 'base_model'
 M3_MODEL_NAME = 'permutect_model'
 PRETRAINED_MODEL_NAME = 'pretrained_model'
