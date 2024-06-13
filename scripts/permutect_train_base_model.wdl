@@ -27,7 +27,7 @@ workflow TrainPermutectBaseModel {
     }
 
     if (use_gpu) {
-        call TrainPermutectRepresentationGPU {
+        call TrainPermutectBaseGPU {
             input:
                 train_tar = train_tar,
                 pretrained_model = pretrained_model,
@@ -52,7 +52,7 @@ workflow TrainPermutectBaseModel {
     }
 
         if (!use_gpu) {
-        call TrainPermutectRepresentationCPU {
+        call TrainPermutectBaseCPU {
             input:
                 train_tar = train_tar,
                 pretrained_model = pretrained_model,
@@ -78,14 +78,14 @@ workflow TrainPermutectBaseModel {
 
 
     output {
-        File base_model = select_first([TrainPermutectRepresentationGPU.base_model, TrainPermutectRepresentationCPU.base_model])
-        File training_tensorboard_tar = select_first([TrainPermutectRepresentationGPU.tensorboard_tar, TrainPermutectRepresentationCPU.tensorboard_tar])
+        File base_model = select_first([TrainPermutectBaseGPU.base_model, TrainPermutectBaseCPU.base_model])
+        File training_tensorboard_tar = select_first([TrainPermutectBaseGPU.tensorboard_tar, TrainPermutectBaseCPU.tensorboard_tar])
     }
 }
 
 ## HORRIBLE HACK: because there is no way in Terra to set gpuCount to 0, in order to optionally use GPU we have to write
 ## two nearly-identical tasks, one for CPU and one for GPU.  See https://github.com/broadinstitute/cromwell/issues/6679
-task TrainPermutectRepresentationGPU {
+task TrainPermutectBaseGPU {
     input {
         File train_tar
         File? pretrained_model
@@ -163,7 +163,7 @@ task TrainPermutectRepresentationGPU {
     }
 }
 
-task TrainPermutectRepresentationCPU {
+task TrainPermutectBaseCPU {
     input {
         File train_tar
         File? pretrained_model
