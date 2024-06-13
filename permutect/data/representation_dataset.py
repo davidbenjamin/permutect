@@ -7,25 +7,25 @@ from torch.utils.data import Dataset, DataLoader, Sampler
 
 from permutect.architecture.base_model import BaseModel
 from permutect.data.read_set import RepresentationReadSet, RepresentationReadSetBatch
-from permutect.data.read_set_dataset import ReadSetDataset, chunk
+from permutect.data.base_dataset import BaseDataset, chunk
 
 
 # given a ReadSetDataset, apply a BaseModel to get a dataset (in RAM, maybe implement memory map later)
 # of RepresentationReadSets
 class RepresentationDataset(Dataset):
-    def __init__(self, read_set_dataset: ReadSetDataset, base_model: BaseModel, folds_to_use: List[int] = None):
+    def __init__(self, base_dataset: BaseDataset, base_model: BaseModel, folds_to_use: List[int] = None):
 
-        self.artifact_totals = read_set_dataset.artifact_totals
-        self.non_artifact_totals = read_set_dataset.non_artifact_totals
+        self.artifact_totals = base_dataset.artifact_totals
+        self.non_artifact_totals = base_dataset.non_artifact_totals
         self.representation_read_sets = []
-        self.num_folds = read_set_dataset.num_folds
+        self.num_folds = base_dataset.num_folds
         self.labeled_indices = [[] for _ in range(self.num_folds)]  # one list for each fold
         self.unlabeled_indices = [[] for _ in range(self.num_folds)]    # ditto
         self.num_representation_features = base_model.output_dimension()
 
         index = 0
 
-        loader = read_set_dataset.make_data_loader(read_set_dataset.all_folds() if folds_to_use is None else folds_to_use, batch_size=256)
+        loader = base_dataset.make_data_loader(base_dataset.all_folds() if folds_to_use is None else folds_to_use, batch_size=256)
         for read_set_batch in loader:
             representations = base_model.calculate_representations(read_set_batch).detach()
             for representation, read_set in zip(representations, read_set_batch.original_list()):

@@ -13,7 +13,7 @@ from permutect import constants
 from permutect.architecture.artifact_model import ArtifactModel, load_artifact_model
 from permutect.architecture.posterior_model import PosteriorModel
 from permutect.architecture.base_model import BaseModel, load_base_model
-from permutect.data import read_set_dataset, plain_text_data
+from permutect.data import base_dataset, plain_text_data
 from permutect.data.posterior import PosteriorDataset, PosteriorDatum
 from permutect.data.representation_dataset import RepresentationDataset
 from permutect.metrics.evaluation_metrics import EvaluationMetrics, PosteriorResult
@@ -197,7 +197,7 @@ def make_posterior_data_loader(dataset_file, input_vcf, contig_index_to_name_map
     print("reading dataset and calculating artifact logits")
     posterior_data = []
     for list_of_read_sets in plain_text_data.generate_normalized_data([dataset_file], chunk_size):
-        raw_dataset = read_set_dataset.ReadSetDataset(data_in_ram=list_of_read_sets)
+        raw_dataset = base_dataset.BaseDataset(data_in_ram=list_of_read_sets)
         representation_dataset = RepresentationDataset(raw_dataset, base_model)
         artifact_loader = representation_dataset.make_data_loader(representation_dataset.all_folds(), batch_size, pin_memory=False, num_workers=0)
 

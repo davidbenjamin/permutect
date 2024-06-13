@@ -19,9 +19,9 @@ from permutect.utils import Label
 TENSORS_PER_READ_SET = 4
 
 
-class ReadSetDataset(Dataset):
+class BaseDataset(Dataset):
     def __init__(self, data_in_ram: Iterable[ReadSet] = None, data_tarfile=None, num_folds: int = 1):
-        super(ReadSetDataset, self).__init__()
+        super(BaseDataset, self).__init__()
         assert data_in_ram is not None or data_tarfile is not None, "No data given"
         assert data_in_ram is None or data_tarfile is None, "Data given from both RAM and tarfile"
         self._memory_map_mode = data_tarfile is not None
@@ -153,7 +153,7 @@ def chunk(lis, chunk_size):
 # the artifact model handles weighting the losses to compensate for class imbalance between supervised and unsupervised
 # thus the sampler is not responsible for balancing the data
 class SemiSupervisedBatchSampler(Sampler):
-    def __init__(self, dataset: ReadSetDataset, batch_size, folds_to_use: List[int]):
+    def __init__(self, dataset: BaseDataset, batch_size, folds_to_use: List[int]):
         # combine the index maps of all relevant folds
         self.labeled_indices_by_count = defaultdict(list)
         self.unlabeled_indices_by_count = defaultdict(list)

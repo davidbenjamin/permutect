@@ -7,11 +7,11 @@ from permutect import constants
 from permutect.architecture.base_model import BaseModel, LearningMethod, load_base_model
 from permutect.parameters import BaseModelParameters, TrainingParameters, parse_training_params, \
     parse_base_model_params, add_base_model_params_to_parser, add_training_params_to_parser
-from permutect.data.read_set_dataset import ReadSetDataset
+from permutect.data.base_dataset import BaseDataset
 
 
 def train_base_model(params: BaseModelParameters, training_params: TrainingParameters, summary_writer: SummaryWriter,
-                     dataset: ReadSetDataset, pretrained_model: BaseModel = None) -> BaseModel:
+                     dataset: BaseDataset, pretrained_model: BaseModel = None) -> BaseModel:
     use_gpu = torch.cuda.is_available()
     device = torch.device('cuda' if use_gpu else 'cpu')
 
@@ -35,7 +35,7 @@ def main_without_parsing(args):
     pretrained_model = None if pretrained_model_path is None else load_base_model(pretrained_model_path)
     tensorboard_dir = getattr(args, constants.TENSORBOARD_DIR_NAME)
     summary_writer = SummaryWriter(tensorboard_dir)
-    dataset = ReadSetDataset(data_tarfile=tarfile_data, num_folds=10)
+    dataset = BaseDataset(data_tarfile=tarfile_data, num_folds=10)
     model = train_base_model(params=hyperparams, dataset=dataset, training_params=training_params,
                              summary_writer=summary_writer, pretrained_model=pretrained_model)
 

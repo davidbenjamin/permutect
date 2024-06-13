@@ -9,7 +9,7 @@ from permutect import utils, constants
 from permutect.architecture.dna_sequence_convolution import DNASequenceConvolution
 from permutect.architecture.mlp import MLP
 from permutect.data.read_set import ReadSetBatch
-from permutect.data.read_set_dataset import ReadSetDataset
+from permutect.data.base_dataset import BaseDataset
 from permutect.metrics.evaluation_metrics import LossMetrics
 from permutect.parameters import BaseModelParameters, TrainingParameters
 from permutect.utils import Variation
@@ -203,7 +203,7 @@ class BaseModel(torch.nn.Module):
     # TODO: actually, this can be the framework of a LOT of different ways to train.  There's a ton of overlap.  There's always going to
     # TODO: be running the model over epochs, loading the dataset, backpropagating the loss.
     # TODO: the differences will mainly be in auxiliary tasks attached to the embedding and different loss functions
-    def learn(self, dataset: ReadSetDataset, learning_method: LearningMethod, training_params: TrainingParameters,
+    def learn(self, dataset: BaseDataset, learning_method: LearningMethod, training_params: TrainingParameters,
               summary_writer: SummaryWriter, validation_fold: int = None):
         bce = torch.nn.BCEWithLogitsLoss(reduction='none')  # no reduction because we may want to first multiply by weights for unbalanced data
 

@@ -8,7 +8,7 @@ from permutect import constants, utils
 from permutect.architecture.artifact_model import ArtifactModel
 from permutect.architecture.posterior_model import initialize_artifact_spectra, plot_artifact_spectra
 from permutect.architecture.base_model import load_base_model
-from permutect.data.read_set_dataset import ReadSetDataset
+from permutect.data.base_dataset import BaseDataset
 from permutect.data.representation_dataset import RepresentationDataset
 from permutect.parameters import TrainingParameters, add_training_params_to_parser, parse_training_params, \
     ArtifactModelParameters, parse_artifact_model_params, add_artifact_model_params_to_parser
@@ -98,8 +98,8 @@ def main_without_parsing(args):
     summary_writer = SummaryWriter(tensorboard_dir)
 
     base_model = load_base_model(getattr(args, constants.BASE_MODEL_NAME))
-    read_set_dataset = ReadSetDataset(data_tarfile=getattr(args, constants.TRAIN_TAR_NAME), num_folds=10)
-    representation_dataset = RepresentationDataset(read_set_dataset, base_model)
+    base_dataset = BaseDataset(data_tarfile=getattr(args, constants.TRAIN_TAR_NAME), num_folds=10)
+    representation_dataset = RepresentationDataset(base_dataset, base_model)
 
     model = train_artifact_model(hyperparams=params, training_params=training_params,
                                  summary_writer=summary_writer, dataset=representation_dataset)
