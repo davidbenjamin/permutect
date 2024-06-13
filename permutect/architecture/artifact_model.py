@@ -14,7 +14,7 @@ from matplotlib import pyplot as plt
 
 from permutect.architecture.mlp import MLP
 from permutect.architecture.monotonic import MonoDense
-from permutect.data.base_datum import RepresentationReadSetBatch
+from permutect.data.base_datum import ArtifactBatch
 from permutect.data.artifact_dataset import ArtifactDataset
 from permutect import utils, constants
 from permutect.metrics.evaluation_metrics import LossMetrics, EvaluationMetrics, NUM_COUNT_BINS, \
@@ -140,7 +140,7 @@ class ArtifactModel(nn.Module):
             self.freeze_all()
 
     # returns 1D tensor of length batch_size of log odds ratio (logits) between artifact and non-artifact
-    def forward(self, batch: RepresentationReadSetBatch):
+    def forward(self, batch: ArtifactBatch):
         logits = self.rho.forward(batch.get_representations_2d().to(self._device)).reshape(batch.size())
 
         calibrated = torch.zeros_like(logits)

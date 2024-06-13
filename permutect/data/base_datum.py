@@ -224,7 +224,7 @@ class BaseBatch:
         return [int(x) for x in sum([n*one_hot[:, n] for n in range(len(Variation))])]
 
 
-class RepresentationReadSet:
+class ArtifactDatum:
     """
     """
     def __init__(self, base_datum: BaseDatum, representation: Tensor):
@@ -250,8 +250,8 @@ class RepresentationReadSet:
         return self.label != Label.UNLABELED
 
 
-class RepresentationReadSetBatch:
-    def __init__(self, data: List[RepresentationReadSet]):
+class ArtifactBatch:
+    def __init__(self, data: List[ArtifactDatum]):
         self.labeled = data[0].label != Label.UNLABELED
 
         self.representations_2d = torch.vstack([item.representation for item in data]).float()

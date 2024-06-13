@@ -5,7 +5,7 @@ import torch
 from matplotlib import pyplot as plt
 from torch.utils.tensorboard import SummaryWriter
 
-from permutect.data.base_datum import BaseBatch, RepresentationReadSetBatch
+from permutect.data.base_datum import BaseBatch, ArtifactBatch
 from permutect.metrics import plotting
 from permutect.utils import Variation, Call, Epoch, StreamingAverage
 
@@ -107,7 +107,7 @@ class LossMetrics:
             if isinstance(batch, BaseBatch):
                 if batch.alt_count <= MAX_COUNT:
                     self.labeled_loss_by_count[multiple_of_three_bin_index(batch.alt_count)].record_sum(torch.sum(losses), batch.size())
-            elif isinstance(batch, RepresentationReadSetBatch):
+            elif isinstance(batch, ArtifactBatch):
                 for loss, alt_count in zip(losses.tolist(), batch.alt_counts.tolist()):
                     if alt_count <= MAX_COUNT:
                         self.labeled_loss_by_count[multiple_of_three_bin_index(alt_count)].record(loss)
