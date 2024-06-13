@@ -4,7 +4,7 @@ import tarfile
 import tempfile
 
 from permutect import constants
-from permutect.data import read_set
+from permutect.data import base_datum
 from permutect.data.plain_text_data import generate_normalized_data
 from permutect.utils import ConsistentValue
 
@@ -36,7 +36,7 @@ def do_work(training_datasets, training_output_file, chunk_size):
         ref_sequence_length.check(read_set_list[0].ref_sequence_2d.shape[-1])
 
         with tempfile.NamedTemporaryFile(delete=False) as train_data_file:
-            read_set.save_list_of_read_sets(read_set_list, train_data_file)
+            read_set.save_list_base_data(read_set_list, train_data_file)
             data_files.append(train_data_file.name)
 
     # . . . and bundle them in a tarfile

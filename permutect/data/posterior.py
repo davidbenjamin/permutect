@@ -4,7 +4,7 @@ from typing import List, Iterable
 
 from torch import Tensor, IntTensor, BoolTensor, vstack, from_numpy
 from torch.utils.data import Dataset, DataLoader
-from permutect.data.read_set import Variant, CountsAndSeqLks
+from permutect.data.base_datum import Variant, CountsAndSeqLks
 
 from permutect import utils
 from permutect.utils import Label

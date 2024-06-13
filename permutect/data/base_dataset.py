@@ -13,14 +13,14 @@ from torch.utils.data.sampler import Sampler
 
 from mmap_ninja.ragged import RaggedMmap
 from permutect import utils
-from permutect.data.read_set import ReadSet, ReadSetBatch, load_list_of_read_sets, CountsAndSeqLks, Variant
+from permutect.data.base_datum import BaseDatum, BaseBatch, load_list_of_base_data, CountsAndSeqLks, Variant
 from permutect.utils import Label
 
 TENSORS_PER_READ_SET = 4
 
 
 class BaseDataset(Dataset):
-    def __init__(self, data_in_ram: Iterable[ReadSet] = None, data_tarfile=None, num_folds: int = 1):
+    def __init__(self, data_in_ram: Iterable[BaseDatum] = None, data_tarfile=None, num_folds: int = 1):
         super(BaseDataset, self).__init__()
         assert data_in_ram is not None or data_tarfile is not None, "No data given"
         assert data_in_ram is None or data_tarfile is None, "Data given from both RAM and tarfile"
@@ -77,13 +77,13 @@ class BaseDataset(Dataset):
             variant = Variant.from_np_array(concatenated_1d[-5:-1])
             label = utils.Label(concatenated_1d[-1])
 
-            return ReadSet(ref_sequence_2d=self._data[bottom_index + 2],
-                           ref_reads_2d=possible_ref if len(possible_ref) > 0 else None,
-                           alt_reads_2d=self._data[bottom_index + 1],
-                           info_array_1d=concatenated_1d[:-11],  # skip the six elements of counts and seq likelihoods, the 4 of variant, and the label (6 + 4 + 1 = 11)
-                           label=label,
-                           variant=variant,
-                           counts_and_seq_lks=counts_and_seq)
+            return BaseDatum(ref_sequence_2d=self._data[bottom_index + 2],
+                             ref_reads_2d=possible_ref if len(possible_ref) > 0 else None,
+                             alt_reads_2d=self._data[bottom_index + 1],
+                             info_array_1d=concatenated_1d[:-11],  # skip the six elements of counts and seq likelihoods, the 4 of variant, and the label (6 + 4 + 1 = 11)
+                             label=label,
+                             variant=variant,
+                             counts_and_seq_lks=counts_and_seq)
         else:
             return self._data[index]
 
@@ -109,7 +109,7 @@ class BaseDataset(Dataset):
 
     def make_data_loader(self, folds_to_use: List[int], batch_size: int, pin_memory=False, num_workers: int = 0):
         sampler = SemiSupervisedBatchSampler(self, batch_size, folds_to_use)
-        return DataLoader(dataset=self, batch_sampler=sampler, collate_fn=ReadSetBatch, pin_memory=pin_memory, num_workers=num_workers)
+        return DataLoader(dataset=self, batch_sampler=sampler, collate_fn=BaseBatch, pin_memory=pin_memory, num_workers=num_workers)
 
 
 # from a generator that yields read sets, create a generator that yields
@@ -140,7 +140,7 @@ def make_read_set_generator_from_tarfile(data_tarfile):
     # recall each data file saves a list of ReadSets via ReadSet.save_list_of_read_sets
     # we reverse it with ReadSet.load_list_of_read_sets
     for file in data_files:
-        for datum in load_list_of_read_sets(file):
+        for datum in load_list_of_base_data(file):
             yield datum
 
 

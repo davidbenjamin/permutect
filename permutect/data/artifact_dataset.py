@@ -6,7 +6,7 @@ import numpy as np
 from torch.utils.data import Dataset, DataLoader, Sampler
 
 from permutect.architecture.base_model import BaseModel
-from permutect.data.read_set import RepresentationReadSet, RepresentationReadSetBatch
+from permutect.data.base_datum import RepresentationReadSet, RepresentationReadSetBatch
 from permutect.data.base_dataset import BaseDataset, chunk
 
 
@@ -26,10 +26,10 @@ class ArtifactDataset(Dataset):
         index = 0
 
         loader = base_dataset.make_data_loader(base_dataset.all_folds() if folds_to_use is None else folds_to_use, batch_size=256)
-        for read_set_batch in loader:
-            representations = base_model.calculate_representations(read_set_batch).detach()
-            for representation, read_set in zip(representations, read_set_batch.original_list()):
-                representation_read_set = RepresentationReadSet(read_set, representation)
+        for base_batch in loader:
+            representations = base_model.calculate_representations(base_batch).detach()
+            for representation, base_datum in zip(representations, base_batch.original_list()):
+                representation_read_set = RepresentationReadSet(base_datum, representation)
                 self.representation_read_sets.append(representation_read_set)
                 fold = index % self.num_folds
                 if representation_read_set.is_labeled():

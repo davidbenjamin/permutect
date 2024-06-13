@@ -35,7 +35,7 @@ import psutil
 from sklearn.preprocessing import QuantileTransformer
 
 from permutect import utils
-from permutect.data.read_set import ReadSet, Variant, CountsAndSeqLks
+from permutect.data.base_datum import BaseDatum, Variant, CountsAndSeqLks
 
 from permutect.utils import Label, Variation, MutableInt
 
@@ -118,8 +118,8 @@ def read_data(dataset_file, round_down: bool = True, only_artifacts: bool = Fals
             if alt_tensor_size > 0 and passes_label_filter:
                 variant = Variant(contig, position, ref_allele, alt_allele)
                 counts_and_seq_lks = CountsAndSeqLks(depth, alt_count, normal_depth, normal_alt_count, seq_error_log_lk, normal_seq_error_log_lk)
-                yield ReadSet.from_gatk(ref_sequence_string, Variation.get_type(ref_allele, alt_allele), ref_tensor,
-                        alt_tensor, gatk_info_tensor, label, variant, counts_and_seq_lks)
+                yield BaseDatum.from_gatk(ref_sequence_string, Variation.get_type(ref_allele, alt_allele), ref_tensor,
+                                          alt_tensor, gatk_info_tensor, label, variant, counts_and_seq_lks)
 
 
 def generate_normalized_data(dataset_files, max_bytes_per_chunk: int):
@@ -137,9 +137,9 @@ def generate_normalized_data(dataset_files, max_bytes_per_chunk: int):
         info_quantile_transform = QuantileTransformer(n_quantiles=100, output_distribution='normal')
 
         num_buffers_filled = 0
-        for read_set in read_data(dataset_file):
-            buffer.append(read_set)
-            bytes_in_buffer += read_set.size_in_bytes()
+        for base_datum in read_data(dataset_file):
+            buffer.append(base_datum)
+            bytes_in_buffer += base_datum.size_in_bytes()
             if bytes_in_buffer > max_bytes_per_chunk:
                 print("memory usage percent: " + str(psutil.virtual_memory().percent))
                 print("bytes in chunk: " + str(bytes_in_buffer))
