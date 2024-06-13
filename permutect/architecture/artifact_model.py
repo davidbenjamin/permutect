@@ -15,7 +15,7 @@ from matplotlib import pyplot as plt
 from permutect.architecture.mlp import MLP
 from permutect.architecture.monotonic import MonoDense
 from permutect.data.read_set import RepresentationReadSetBatch
-from permutect.data.representation_dataset import RepresentationDataset
+from permutect.data.artifact_dataset import ArtifactDataset
 from permutect import utils, constants
 from permutect.metrics.evaluation_metrics import LossMetrics, EvaluationMetrics, NUM_COUNT_BINS, \
     multiple_of_three_bin_index_to_count, MAX_COUNT, round_up_to_nearest_three
@@ -150,7 +150,7 @@ class ArtifactModel(nn.Module):
             calibrated += mask * self.calibration[n].forward(logits, batch.ref_counts, batch.alt_counts)
         return calibrated
 
-    def learn(self, dataset: RepresentationDataset, training_params: TrainingParameters, summary_writer: SummaryWriter, validation_fold: int = None):
+    def learn(self, dataset: ArtifactDataset, training_params: TrainingParameters, summary_writer: SummaryWriter, validation_fold: int = None):
         bce = nn.BCEWithLogitsLoss(reduction='none')  # no reduction because we may want to first multiply by weights for unbalanced data
         train_optimizer = torch.optim.AdamW(self.training_parameters(), lr=training_params.learning_rate, weight_decay=training_params.weight_decay)
         calibration_optimizer = torch.optim.AdamW(self.calibration_parameters(), lr=training_params.learning_rate, weight_decay=training_params.weight_decay)
@@ -219,7 +219,7 @@ class ArtifactModel(nn.Module):
         # done with training
 
     # generators by name is eg {"train": train_generator, "valid": valid_generator}
-    def evaluate_model_after_training(self, dataset: RepresentationDataset, batch_size, num_workers, summary_writer: SummaryWriter):
+    def evaluate_model_after_training(self, dataset: ArtifactDataset, batch_size, num_workers, summary_writer: SummaryWriter):
         train_loader = dataset.make_data_loader(dataset.all_but_the_last_fold(), batch_size, self._device.type == 'cuda', num_workers)
         valid_loader = dataset.make_data_loader(dataset.last_fold_only(), batch_size, self._device.type == 'cuda', num_workers)
         epoch_types = [Epoch.TRAIN, Epoch.VALID]

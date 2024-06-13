@@ -12,7 +12,7 @@ from permutect.data.base_dataset import BaseDataset, chunk
 
 # given a ReadSetDataset, apply a BaseModel to get a dataset (in RAM, maybe implement memory map later)
 # of RepresentationReadSets
-class RepresentationDataset(Dataset):
+class ArtifactDataset(Dataset):
     def __init__(self, base_dataset: BaseDataset, base_model: BaseModel, folds_to_use: List[int] = None):
 
         self.artifact_totals = base_dataset.artifact_totals
@@ -71,7 +71,7 @@ class RepresentationDataset(Dataset):
 
 # make RepresentationReadSetBatches that are all supervised or all unsupervised -- ref and alt counts may be disparate
 class SemiSupervisedRepresentationBatchSampler(Sampler):
-    def __init__(self, dataset: RepresentationDataset, batch_size, folds_to_use: List[int]):
+    def __init__(self, dataset: ArtifactDataset, batch_size, folds_to_use: List[int]):
         # combine the index lists of all relevant folds
         self.labeled_indices = []
         self.unlabeled_indices = []

@@ -17,7 +17,7 @@ from torch.utils.tensorboard import SummaryWriter
 from permutect import constants, utils
 from permutect.architecture.artifact_model import ArtifactModel
 from permutect.data.read_set import RepresentationReadSet, RepresentationReadSetBatch
-from permutect.data.representation_dataset import RepresentationDataset
+from permutect.data.artifact_dataset import ArtifactDataset
 from permutect.parameters import ArtifactModelParameters, parse_artifact_model_params, \
     add_artifact_model_params_to_parser, add_training_params_to_parser
 from permutect.data.base_dataset import BaseDataset
@@ -133,22 +133,19 @@ def generate_pruned_data_for_all_folds(base_dataset: BaseDataset, base_model: Ba
         print("Pruning data from fold " + str(pruning_fold) + " of " + str(NUM_FOLDS))
 
         # learn an artifact model with the pruning data held out
-        training_representation_dataset = RepresentationDataset(base_dataset, base_model,
-                                                                base_dataset.all_but_one_fold(pruning_fold))
+        artifact_dataset = ArtifactDataset(base_dataset, base_model, base_dataset.all_but_one_fold(pruning_fold))
 
-        label_art_frac = np.sum(training_representation_dataset.artifact_totals) / (
-            np.sum(
-                training_representation_dataset.artifact_totals + training_representation_dataset.non_artifact_totals))
+        label_art_frac = np.sum(artifact_dataset.artifact_totals) / np.sum(artifact_dataset.artifact_totals + artifact_dataset.non_artifact_totals)
 
         # learn pruning thresholds on the held-out data
-        pruning_representation_dataset = RepresentationDataset(base_dataset, base_model, [pruning_fold])
-        pruning_loader = pruning_representation_dataset.make_data_loader(pruning_representation_dataset.all_folds(),
+        pruning_artifact_dataset = ArtifactDataset(base_dataset, base_model, [pruning_fold])
+        pruning_loader = pruning_artifact_dataset.make_data_loader(pruning_artifact_dataset.all_folds(),
                                                                          training_params.batch_size, use_gpu,
                                                                          training_params.num_workers)
         model = ArtifactModel(params=params,
-                              num_representation_features=training_representation_dataset.num_representation_features,
+                              num_representation_features=artifact_dataset.num_representation_features,
                               device=device).float()
-        model.learn(training_representation_dataset, training_params, summary_writer=summary_writer)
+        model.learn(artifact_dataset, training_params, summary_writer=summary_writer)
 
         art_threshold, nonart_threshold = calculate_pruning_thresholds(pruning_loader, model, label_art_frac,
                                                                        training_params)

@@ -9,13 +9,13 @@ from permutect.architecture.artifact_model import ArtifactModel
 from permutect.architecture.posterior_model import initialize_artifact_spectra, plot_artifact_spectra
 from permutect.architecture.base_model import load_base_model
 from permutect.data.base_dataset import BaseDataset
-from permutect.data.representation_dataset import RepresentationDataset
+from permutect.data.artifact_dataset import ArtifactDataset
 from permutect.parameters import TrainingParameters, add_training_params_to_parser, parse_training_params, \
     ArtifactModelParameters, parse_artifact_model_params, add_artifact_model_params_to_parser
 from permutect.utils import Variation, Label
 
 
-def train_artifact_model(hyperparams: ArtifactModelParameters, training_params: TrainingParameters, summary_writer: SummaryWriter, dataset: RepresentationDataset):
+def train_artifact_model(hyperparams: ArtifactModelParameters, training_params: TrainingParameters, summary_writer: SummaryWriter, dataset: ArtifactDataset):
     use_gpu = torch.cuda.is_available()
     device = torch.device('cuda' if use_gpu else 'cpu')
 
@@ -34,7 +34,7 @@ def train_artifact_model(hyperparams: ArtifactModelParameters, training_params: 
     return model
 
 
-def learn_artifact_priors_and_spectra(dataset: RepresentationDataset, genomic_span_of_data: int):
+def learn_artifact_priors_and_spectra(dataset: ArtifactDataset, genomic_span_of_data: int):
     artifact_counts = torch.zeros(len(utils.Variation))
     types_list, depths_list, alt_counts_list = [], [], []
 
@@ -99,12 +99,11 @@ def main_without_parsing(args):
 
     base_model = load_base_model(getattr(args, constants.BASE_MODEL_NAME))
     base_dataset = BaseDataset(data_tarfile=getattr(args, constants.TRAIN_TAR_NAME), num_folds=10)
-    representation_dataset = RepresentationDataset(base_dataset, base_model)
+    artifact_dataset = ArtifactDataset(base_dataset, base_model)
 
-    model = train_artifact_model(hyperparams=params, training_params=training_params,
-                                 summary_writer=summary_writer, dataset=representation_dataset)
+    model = train_artifact_model(hyperparams=params, training_params=training_params, summary_writer=summary_writer, dataset=artifact_dataset)
 
-    artifact_log_priors, artifact_spectra = learn_artifact_priors_and_spectra(representation_dataset, genomic_span) if learn_artifact_spectra else (None, None)
+    artifact_log_priors, artifact_spectra = learn_artifact_priors_and_spectra(artifact_dataset, genomic_span) if learn_artifact_spectra else (None, None)
     if artifact_spectra is not None:
         art_spectra_fig, art_spectra_axs = plot_artifact_spectra(artifact_spectra)
         summary_writer.add_figure("Artifact AF Spectra", art_spectra_fig)
