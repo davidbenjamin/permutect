@@ -19,7 +19,7 @@ def train_artifact_model(hyperparams: ArtifactModelParameters, training_params: 
     use_gpu = torch.cuda.is_available()
     device = torch.device('cuda' if use_gpu else 'cpu')
 
-    model = ArtifactModel(params=hyperparams, num_representation_features=dataset.num_representation_features, device=device).float()
+    model = ArtifactModel(params=hyperparams, num_base_features=dataset.num_base_features, device=device).float()
 
     print("Training. . .")
     model.learn(dataset, training_params, summary_writer=summary_writer)

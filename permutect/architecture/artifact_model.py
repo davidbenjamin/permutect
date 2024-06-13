@@ -103,15 +103,15 @@ class ArtifactModel(nn.Module):
     because we have different output layers for each variant type.
     """
 
-    def __init__(self, params: ArtifactModelParameters, num_representation_features: int, device=torch.device("cpu")):
+    def __init__(self, params: ArtifactModelParameters, num_base_features: int, device=torch.device("cpu")):
         super(ArtifactModel, self).__init__()
 
         self._device = device
-        self.num_representation_features = num_representation_features
+        self.num_base_features = num_base_features
         self.params = params
 
         # The [1] is for the output logit
-        self.rho = MLP([num_representation_features] + params.aggregation_layers + [1], batch_normalize=params.batch_normalize,
+        self.rho = MLP([num_base_features] + params.aggregation_layers + [1], batch_normalize=params.batch_normalize,
                        dropout_p=params.dropout_p)
         self.rho.to(self._device)
 
@@ -306,7 +306,7 @@ class ArtifactModel(nn.Module):
     def save(self, path, artifact_log_priors, artifact_spectra):
         torch.save({
             constants.STATE_DICT_NAME: self.state_dict(),
-            constants.NUM_REPRESENTATION_FEATURES_NAME: self.num_representation_features,
+            constants.NUM_BASE_FEATURES_NAME: self.num_base_features,
             constants.HYPERPARAMS_NAME: self.params,
             constants.ARTIFACT_LOG_PRIORS_NAME: artifact_log_priors,
             constants.ARTIFACT_SPECTRA_STATE_DICT_NAME: artifact_spectra.state_dict()
@@ -317,8 +317,8 @@ class ArtifactModel(nn.Module):
 def load_artifact_model(path) -> ArtifactModel:
     saved = torch.load(path)
     model_params = saved[constants.HYPERPARAMS_NAME]
-    num_representation_features = saved[constants.NUM_REPRESENTATION_FEATURES_NAME]
-    model = ArtifactModel(model_params, num_representation_features)
+    num_base_features = saved[constants.NUM_BASE_FEATURES_NAME]
+    model = ArtifactModel(model_params, num_base_features)
     model.load_state_dict(saved[constants.STATE_DICT_NAME])
 
     artifact_log_priors = saved[constants.ARTIFACT_LOG_PRIORS_NAME]     # possibly None
