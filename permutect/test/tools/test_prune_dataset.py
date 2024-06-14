@@ -10,7 +10,7 @@ from permutect.tools import prune_dataset
 def test_prune_dataset():
     # Inputs
     training_data_tarfile = '/Users/davidben/mutect3/permutect/integration-tests/singular-10-Mb/preprocessed-dataset.tar'
-    base_model = '/Users/davidben/mutect3/permutect/integration-tests/singular-10-Mb/representation-model.pt'
+    base_model = '/Users/davidben/mutect3/permutect/integration-tests/singular-10-Mb/base-model.pt'
 
     # Outputs
     pruned_dataset = tempfile.NamedTemporaryFile()

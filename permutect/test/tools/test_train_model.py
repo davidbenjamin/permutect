@@ -11,7 +11,7 @@ from permutect.architecture.artifact_model import load_artifact_model
 def test_train_model():
     # Inputs
     training_data_tarfile = '/Users/davidben/mutect3/permutect/integration-tests/singular-10-Mb/preprocessed-dataset.tar'
-    base_model = '/Users/davidben/mutect3/permutect/integration-tests/singular-10-Mb/representation-model.pt'
+    base_model = '/Users/davidben/mutect3/permutect/integration-tests/singular-10-Mb/base-model.pt'
 
     # Outputs
     saved_artifact_model = tempfile.NamedTemporaryFile()
