@@ -30,13 +30,13 @@ def do_work(training_datasets, training_output_file, chunk_size):
     num_read_features, num_info_features, ref_sequence_length = ConsistentValue(), ConsistentValue(), ConsistentValue()
 
     # save all the lists of read sets to tempfiles. . .
-    for read_set_list in generate_normalized_data(training_datasets, max_bytes_per_chunk=chunk_size):
-        num_read_features.check(read_set_list[0].alt_reads_2d.shape[1])
-        num_info_features.check(read_set_list[0].info_array_1d.shape[0])
-        ref_sequence_length.check(read_set_list[0].ref_sequence_2d.shape[-1])
+    for base_data_list in generate_normalized_data(training_datasets, max_bytes_per_chunk=chunk_size):
+        num_read_features.check(base_data_list[0].alt_reads_2d.shape[1])
+        num_info_features.check(base_data_list[0].info_array_1d.shape[0])
+        ref_sequence_length.check(base_data_list[0].ref_sequence_2d.shape[-1])
 
         with tempfile.NamedTemporaryFile(delete=False) as train_data_file:
-            read_set.save_list_base_data(read_set_list, train_data_file)
+            base_datum.save_list_base_data(base_data_list, train_data_file)
             data_files.append(train_data_file.name)
 
     # . . . and bundle them in a tarfile

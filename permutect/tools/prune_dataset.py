@@ -101,20 +101,20 @@ def calculate_pruning_thresholds(pruning_loader, artifact_model: ArtifactModel, 
         return art_threshold, nonart_threshold
 
 
-# generates ReadSets from the original dataset that *pass* the pruning thresholds
-def generated_pruned_data_for_fold(art_threshold: float, nonart_threshold: float, pruning_read_set_loader,
+# generates BaseDatum(s) from the original dataset that *pass* the pruning thresholds
+def generated_pruned_data_for_fold(art_threshold: float, nonart_threshold: float, pruning_base_data_loader,
                                    base_model: BaseModel, artifact_model: ArtifactModel) -> List[int]:
     print("pruning the dataset")
-    pbar = tqdm(enumerate(filter(lambda bat: bat.is_labeled(), pruning_read_set_loader)), mininterval=60)
-    for n, batch in pbar:
+    pbar = tqdm(enumerate(filter(lambda bat: bat.is_labeled(), pruning_base_data_loader)), mininterval=60)
+    for n, base_batch in pbar:
         # apply the representation model AND the artifact model to go from the original read set to artifact logits
-        representation = base_model.calculate_representations(batch)
+        representation = base_model.calculate_representations(base_batch)
 
-        rrs_batch = ArtifactBatch([ArtifactDatum(rs, rep) for rs, rep in zip(batch.original_list(), representation)])
+        rrs_batch = ArtifactBatch([ArtifactDatum(rs, rep) for rs, rep in zip(base_batch.original_list(), representation)])
         art_probs = torch.sigmoid(artifact_model.forward(rrs_batch).detach())
-        art_label_mask = (batch.labels > 0.5)
+        art_label_mask = (base_batch.labels > 0.5)
 
-        for art_prob, labeled_as_art, datum in zip(art_probs.tolist(), art_label_mask.tolist(), batch.original_list()):
+        for art_prob, labeled_as_art, datum in zip(art_probs.tolist(), art_label_mask.tolist(), base_batch.original_list()):
             if (labeled_as_art and art_prob < art_threshold) or ((not labeled_as_art) and (1-art_prob) < nonart_threshold):
                  # TODO: process failing data, perhaps add option to output a pruned dataset? or flip labels?
                 pass
@@ -146,9 +146,9 @@ def generate_pruned_data_for_all_folds(base_dataset: BaseDataset, base_model: Ba
 
         art_threshold, nonart_threshold = calculate_pruning_thresholds(pruning_loader, model, label_art_frac, training_params)
 
-        pruning_read_set_loader = base_dataset.make_data_loader([pruning_fold], training_params.batch_size, use_gpu, training_params.num_epochs)
-        for passing_read_set in generated_pruned_data_for_fold(art_threshold, nonart_threshold, pruning_read_set_loader, base_model, model):
-            yield passing_read_set
+        pruning_base_data_loader = base_dataset.make_data_loader([pruning_fold], training_params.batch_size, use_gpu, training_params.num_epochs)
+        for passing_base_datum in generated_pruned_data_for_fold(art_threshold, nonart_threshold, pruning_base_data_loader, base_model, model):
+            yield passing_base_datum
 
 
 # takes a ReadSet generator and organies into buffers.
@@ -172,9 +172,9 @@ def generate_pruned_data_buffers(pruned_data_generator, max_bytes_per_chunk: int
 
 def make_pruned_training_dataset(pruned_data_buffer_generator, pruned_tarfile):
     pruned_data_files = []
-    for read_set_list in pruned_data_buffer_generator:
+    for base_data_list in pruned_data_buffer_generator:
         with tempfile.NamedTemporaryFile(delete=False) as train_data_file:
-            read_set.save_list_base_data(read_set_list, train_data_file)
+            base_datum.save_list_base_data(base_data_list, train_data_file)
             pruned_data_files.append(train_data_file.name)
 
     # bundle them in a tarfile

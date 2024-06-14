@@ -28,7 +28,7 @@ def test_base_batch():
 
     data = [BaseDatum.from_gatk(ref_sequence_strings[n], variant_types[n], ref_tensors[n], alt_tensors[n], gatk_info_tensors[n], labels[n]) for n in range(size)]
 
-    batch = permutect.data.read_set.BaseBatch(data)
+    batch = permutect.data.base_datum.BaseBatch(data)
 
     assert torch.equal(batch.get_ref_sequences_2d(),
                        torch.Tensor([

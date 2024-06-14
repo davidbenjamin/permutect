@@ -34,18 +34,18 @@ def train_artifact_model(hyperparams: ArtifactModelParameters, training_params: 
     return model
 
 
-def learn_artifact_priors_and_spectra(dataset: ArtifactDataset, genomic_span_of_data: int):
+def learn_artifact_priors_and_spectra(artifact_dataset: ArtifactDataset, genomic_span_of_data: int):
     artifact_counts = torch.zeros(len(utils.Variation))
     types_list, depths_list, alt_counts_list = [], [], []
 
-    for read_set in dataset:
-        if read_set.label != Label.ARTIFACT:
+    for artifact_datum in artifact_dataset:
+        if artifact_datum.label != Label.ARTIFACT:
             continue
-        variant_type = read_set.get_variant_type()
+        variant_type = artifact_datum.get_variant_type()
         artifact_counts[variant_type] += 1
         types_list.append(variant_type)
-        depths_list.append(read_set.counts_and_seq_lks.depth)
-        alt_counts_list.append(read_set.counts_and_seq_lks.alt_count)
+        depths_list.append(artifact_datum.counts_and_seq_lks.depth)
+        alt_counts_list.append(artifact_datum.counts_and_seq_lks.alt_count)
 
     # turn the lists into tensors
     types_one_hot_tensor = torch.from_numpy(np.vstack([var_type.one_hot_tensor() for var_type in types_list])).float()

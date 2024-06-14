@@ -16,7 +16,7 @@ from permutect import utils
 from permutect.data.base_datum import BaseDatum, BaseBatch, load_list_of_base_data, CountsAndSeqLks, Variant
 from permutect.utils import Label
 
-TENSORS_PER_READ_SET = 4
+TENSORS_PER_BASE_DATUM = 4
 
 
 class BaseDataset(Dataset):
@@ -31,11 +31,8 @@ class BaseDataset(Dataset):
             self._memory_map_dir = tempfile.TemporaryDirectory()
 
             RaggedMmap.from_generator(out_dir=self._memory_map_dir.name,
-                                      sample_generator=make_flattened_tensor_generator(
-                                          make_read_set_generator_from_tarfile(data_tarfile)),
-                                      batch_size=10000,
-                                      verbose=False)
-
+                sample_generator=make_flattened_tensor_generator(make_base_data_generator_from_tarfile(data_tarfile)),
+                batch_size=10000, verbose=False)
             self._data = RaggedMmap(self._memory_map_dir.name)
         else:
             self._data = data_in_ram
@@ -62,11 +59,11 @@ class BaseDataset(Dataset):
         self.ref_sequence_length = self[0].ref_sequence_2d.shape[-1]
 
     def __len__(self):
-        return len(self._data) // TENSORS_PER_READ_SET if self._memory_map_mode else len(self.data)
+        return len(self._data) // TENSORS_PER_BASE_DATUM if self._memory_map_mode else len(self.data)
 
     def __getitem__(self, index):
         if self._memory_map_mode:
-            bottom_index = index * TENSORS_PER_READ_SET
+            bottom_index = index * TENSORS_PER_BASE_DATUM
 
             possible_ref = self._data[bottom_index]
 
@@ -112,24 +109,24 @@ class BaseDataset(Dataset):
         return DataLoader(dataset=self, batch_sampler=sampler, collate_fn=BaseBatch, pin_memory=pin_memory, num_workers=num_workers)
 
 
-# from a generator that yields read sets, create a generator that yields
+# from a generator that yields BaseDatum(s), create a generator that yields
 # ref tensor, alt tensor, ref sequence tensor, info tensor, label tensor, ref tensor alt tensor. . .
-def make_flattened_tensor_generator(read_set_generator):
-    for read_set in read_set_generator:
-        yield read_set.ref_reads_2d if read_set.ref_reads_2d is not None else np.empty((0, 0))
-        yield read_set.alt_reads_2d
-        yield read_set.ref_sequence_2d
+def make_flattened_tensor_generator(base_data_generator):
+    for base_datum in base_data_generator:
+        yield base_datum.ref_reads_2d if base_datum.ref_reads_2d is not None else np.empty((0, 0))
+        yield base_datum.alt_reads_2d
+        yield base_datum.ref_sequence_2d
 
         # for efficiency, concatenate (hstack) several 1D arrays and scalars:
         # 1) the read set info array
         # 2) the read set counts and likelihoods as a 1D array (length = 6)
         # 3) the read set variant as a 1D array (length = 4)
         # 4) the label (one element)
-        yield np.hstack((read_set.info_array_1d, read_set.counts_and_seq_lks.to_np_array(),
-                         read_set.variant.to_np_array(), np.array([read_set.label.value])))
+        yield np.hstack((base_datum.info_array_1d, base_datum.counts_and_seq_lks.to_np_array(),
+                         base_datum.variant.to_np_array(), np.array([base_datum.label.value])))
 
 
-def make_read_set_generator_from_tarfile(data_tarfile):
+def make_base_data_generator_from_tarfile(data_tarfile):
     # extract the tarfile to a temporary directory that will be cleaned up when the program ends
     temp_dir = tempfile.TemporaryDirectory()
     tar = tarfile.open(data_tarfile)
@@ -137,8 +134,6 @@ def make_read_set_generator_from_tarfile(data_tarfile):
     tar.close()
     data_files = [os.path.abspath(os.path.join(temp_dir.name, p)) for p in os.listdir(temp_dir.name)]
 
-    # recall each data file saves a list of ReadSets via ReadSet.save_list_of_read_sets
-    # we reverse it with ReadSet.load_list_of_read_sets
     for file in data_files:
         for datum in load_list_of_base_data(file):
             yield datum

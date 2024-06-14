@@ -196,8 +196,8 @@ def make_posterior_data_loader(dataset_file, input_vcf, contig_index_to_name_map
     # to get artifact logits, which we record in a dict keyed by variant strings.  These will later be added to PosteriorDatum objects.
     print("reading dataset and calculating artifact logits")
     posterior_data = []
-    for list_of_read_sets in plain_text_data.generate_normalized_data([dataset_file], chunk_size):
-        raw_dataset = base_dataset.BaseDataset(data_in_ram=list_of_read_sets)
+    for list_of_base_data in plain_text_data.generate_normalized_data([dataset_file], chunk_size):
+        raw_dataset = base_dataset.BaseDataset(data_in_ram=list_of_base_data)
         artifact_dataset = ArtifactDataset(raw_dataset, base_model)
         artifact_loader = artifact_dataset.make_data_loader(artifact_dataset.all_folds(), batch_size, pin_memory=False, num_workers=0)
 
