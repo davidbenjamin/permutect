@@ -7,19 +7,19 @@ from torch.utils.tensorboard import SummaryWriter
 from permutect import constants, utils
 from permutect.architecture.artifact_model import ArtifactModel
 from permutect.architecture.posterior_model import initialize_artifact_spectra, plot_artifact_spectra
-from permutect.architecture.representation_model import load_representation_model
-from permutect.data.read_set_dataset import ReadSetDataset
-from permutect.data.representation_dataset import RepresentationDataset
+from permutect.architecture.base_model import load_base_model
+from permutect.data.base_dataset import BaseDataset
+from permutect.data.artifact_dataset import ArtifactDataset
 from permutect.parameters import TrainingParameters, add_training_params_to_parser, parse_training_params, \
     ArtifactModelParameters, parse_artifact_model_params, add_artifact_model_params_to_parser
 from permutect.utils import Variation, Label
 
 
-def train_artifact_model(hyperparams: ArtifactModelParameters, training_params: TrainingParameters, summary_writer: SummaryWriter, dataset: RepresentationDataset):
+def train_artifact_model(hyperparams: ArtifactModelParameters, training_params: TrainingParameters, summary_writer: SummaryWriter, dataset: ArtifactDataset):
     use_gpu = torch.cuda.is_available()
     device = torch.device('cuda' if use_gpu else 'cpu')
 
-    model = ArtifactModel(params=hyperparams, num_representation_features=dataset.num_representation_features, device=device).float()
+    model = ArtifactModel(params=hyperparams, num_base_features=dataset.num_base_features, device=device).float()
 
     print("Training. . .")
     model.learn(dataset, training_params, summary_writer=summary_writer)
@@ -34,18 +34,18 @@ def train_artifact_model(hyperparams: ArtifactModelParameters, training_params: 
     return model
 
 
-def learn_artifact_priors_and_spectra(dataset: RepresentationDataset, genomic_span_of_data: int):
+def learn_artifact_priors_and_spectra(artifact_dataset: ArtifactDataset, genomic_span_of_data: int):
     artifact_counts = torch.zeros(len(utils.Variation))
     types_list, depths_list, alt_counts_list = [], [], []
 
-    for read_set in dataset:
-        if read_set.label != Label.ARTIFACT:
+    for artifact_datum in artifact_dataset:
+        if artifact_datum.label != Label.ARTIFACT:
             continue
-        variant_type = read_set.get_variant_type()
+        variant_type = artifact_datum.get_variant_type()
         artifact_counts[variant_type] += 1
         types_list.append(variant_type)
-        depths_list.append(read_set.counts_and_seq_lks.depth)
-        alt_counts_list.append(read_set.counts_and_seq_lks.alt_count)
+        depths_list.append(artifact_datum.counts_and_seq_lks.depth)
+        alt_counts_list.append(artifact_datum.counts_and_seq_lks.alt_count)
 
     # turn the lists into tensors
     types_one_hot_tensor = torch.from_numpy(np.vstack([var_type.one_hot_tensor() for var_type in types_list])).float()
@@ -80,10 +80,8 @@ def parse_arguments():
     # inputs and outputs
     parser.add_argument('--' + constants.TRAIN_TAR_NAME, type=str, required=True,
                         help='tarfile of training/validation datasets produced by preprocess_dataset.py')
-    parser.add_argument('--' + constants.PRETRAINED_MODEL_NAME, type=str,
-                        help='Pre-trained representation model from train_representation_model.py')
-    parser.add_argument('--' + constants.OUTPUT_NAME, type=str, required=True,
-                        help='path to output saved model file')
+    parser.add_argument('--' + constants.BASE_MODEL_NAME, type=str, help='Base model from train_base_model.py')
+    parser.add_argument('--' + constants.OUTPUT_NAME, type=str, required=True, help='path to output saved model file')
     parser.add_argument('--' + constants.TENSORBOARD_DIR_NAME, type=str, default='tensorboard', required=False,
                         help='path to output tensorboard directory')
 
@@ -99,14 +97,13 @@ def main_without_parsing(args):
     tensorboard_dir = getattr(args, constants.TENSORBOARD_DIR_NAME)
     summary_writer = SummaryWriter(tensorboard_dir)
 
-    representation_model = load_representation_model(getattr(args, constants.PRETRAINED_MODEL_NAME))
-    read_set_dataset = ReadSetDataset(data_tarfile=getattr(args, constants.TRAIN_TAR_NAME), num_folds=10)
-    representation_dataset = RepresentationDataset(read_set_dataset, representation_model)
+    base_model = load_base_model(getattr(args, constants.BASE_MODEL_NAME))
+    base_dataset = BaseDataset(data_tarfile=getattr(args, constants.TRAIN_TAR_NAME), num_folds=10)
+    artifact_dataset = ArtifactDataset(base_dataset, base_model)
 
-    model = train_artifact_model(hyperparams=params, training_params=training_params,
-                                 summary_writer=summary_writer, dataset=representation_dataset)
+    model = train_artifact_model(hyperparams=params, training_params=training_params, summary_writer=summary_writer, dataset=artifact_dataset)
 
-    artifact_log_priors, artifact_spectra = learn_artifact_priors_and_spectra(representation_dataset, genomic_span) if learn_artifact_spectra else (None, None)
+    artifact_log_priors, artifact_spectra = learn_artifact_priors_and_spectra(artifact_dataset, genomic_span) if learn_artifact_spectra else (None, None)
     if artifact_spectra is not None:
         art_spectra_fig, art_spectra_axs = plot_artifact_spectra(artifact_spectra)
         summary_writer.add_figure("Artifact AF Spectra", art_spectra_fig)

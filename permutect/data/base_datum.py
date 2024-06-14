@@ -5,7 +5,7 @@ from torch import Tensor, IntTensor, FloatTensor
 from typing import List
 import sys
 
-from permutect.utils import Variation, Label, MutableInt
+from permutect.utils import Variation, Label
 
 
 def make_sequence_tensor(sequence_string: str) -> np.ndarray:
@@ -81,7 +81,7 @@ class CountsAndSeqLks:
         return cls(round(np_array[0]), round(np_array[1]), round(np_array[2]), round(np_array[3]), np_array[4], np_array[5])
 
 
-class ReadSet:
+class BaseDatum:
     """
     :param ref_sequence_2d  2D tensor with 4 rows, one for each "channel" A,C, G, T, with each column a position, centered
                                 at the alignment start of the variant
@@ -118,36 +118,36 @@ class ReadSet:
         return Variation.get_type(self.variant.ref, str, self.variant.alt)
 
 
-def save_list_of_read_sets(read_sets: List[ReadSet], file):
+def save_list_base_data(base_data: List[BaseDatum], file):
     """
     note that torch.save works fine with numpy data
-    :param read_sets:
+    :param base_data:
     :param file:
     :return:
     """
-    ref_sequence_tensors = [datum.ref_sequence_2d for datum in read_sets]
-    ref_tensors = [datum.ref_reads_2d for datum in read_sets]
-    alt_tensors = [datum.alt_reads_2d for datum in read_sets]
-    info_tensors = [datum.info_array_1d for datum in read_sets]
-    labels = IntTensor([datum.label.value for datum in read_sets])
-    counts_and_lks = [datum.counts_and_seq_lks.to_np_array() for datum in read_sets]
-    variants = [datum.variant.to_np_array() for datum in read_sets]
+    ref_sequence_tensors = [datum.ref_sequence_2d for datum in base_data]
+    ref_tensors = [datum.ref_reads_2d for datum in base_data]
+    alt_tensors = [datum.alt_reads_2d for datum in base_data]
+    info_tensors = [datum.info_array_1d for datum in base_data]
+    labels = IntTensor([datum.label.value for datum in base_data])
+    counts_and_lks = [datum.counts_and_seq_lks.to_np_array() for datum in base_data]
+    variants = [datum.variant.to_np_array() for datum in base_data]
 
     torch.save([ref_sequence_tensors, ref_tensors, alt_tensors, info_tensors, labels, counts_and_lks, variants], file)
 
 
-def load_list_of_read_sets(file) -> List[ReadSet]:
+def load_list_of_base_data(file) -> List[BaseDatum]:
     """
     file is torch, output is converted back to numpy
     :param file:
     :return:
     """
     ref_sequence_tensors, ref_tensors, alt_tensors, info_tensors, labels, counts_and_lks, variants = torch.load(file)
-    return [ReadSet(ref_sequence_tensor, ref, alt, info, Label(label), Variant.from_np_array(variant), CountsAndSeqLks.from_np_array(cnts_lks)) for ref_sequence_tensor, ref, alt, info, label, cnts_lks, variant in
+    return [BaseDatum(ref_sequence_tensor, ref, alt, info, Label(label), Variant.from_np_array(variant), CountsAndSeqLks.from_np_array(cnts_lks)) for ref_sequence_tensor, ref, alt, info, label, cnts_lks, variant in
             zip(ref_sequence_tensors, ref_tensors, alt_tensors, info_tensors, labels.tolist(), counts_and_lks, variants)]
 
 
-class ReadSetBatch:
+class BaseBatch:
     """
     Read sets have different sizes so we can't form a batch by naively stacking tensors.  We need a custom way
     to collate a list of Datum into a Batch
@@ -165,7 +165,7 @@ class ReadSetBatch:
     inside the model, the counts will be used to separate the reads into sets
     """
 
-    def __init__(self, data: List[ReadSet]):
+    def __init__(self, data: List[BaseDatum]):
         self._original_list = data
         self.labeled = data[0].label != Label.UNLABELED
         self.ref_count = len(data[0].ref_reads_2d) if data[0].ref_reads_2d is not None else 0
@@ -224,19 +224,19 @@ class ReadSetBatch:
         return [int(x) for x in sum([n*one_hot[:, n] for n in range(len(Variation))])]
 
 
-class RepresentationReadSet:
+class ArtifactDatum:
     """
     """
-    def __init__(self, read_set: ReadSet, representation: Tensor):
+    def __init__(self, base_datum: BaseDatum, representation: Tensor):
         # Note: if changing any of the data fields below, make sure to modify the size_in_bytes() method below accordingly!
         assert representation.dim() == 1
         self.representation = representation
-        self.label = read_set.label
-        self.variant = read_set.variant
-        self.counts_and_seq_lks = read_set.counts_and_seq_lks
-        self.ref_count = len(read_set.ref_reads_2d) if read_set.ref_reads_2d is not None else 0
-        self.alt_count = len(read_set.alt_reads_2d)
-        self.variant_type_one_hot = read_set.variant_type_one_hot()
+        self.label = base_datum.label
+        self.variant = base_datum.variant
+        self.counts_and_seq_lks = base_datum.counts_and_seq_lks
+        self.ref_count = len(base_datum.ref_reads_2d) if base_datum.ref_reads_2d is not None else 0
+        self.alt_count = len(base_datum.alt_reads_2d)
+        self.variant_type_one_hot = base_datum.variant_type_one_hot()
 
     def size_in_bytes(self):
         pass
@@ -250,8 +250,8 @@ class RepresentationReadSet:
         return self.label != Label.UNLABELED
 
 
-class RepresentationReadSetBatch:
-    def __init__(self, data: List[RepresentationReadSet]):
+class ArtifactBatch:
+    def __init__(self, data: List[ArtifactDatum]):
         self.labeled = data[0].label != Label.UNLABELED
 
         self.representations_2d = torch.vstack([item.representation for item in data]).float()

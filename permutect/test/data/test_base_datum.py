@@ -1,10 +1,10 @@
 import torch
 
-from permutect.data import read_set
+from permutect.data import base_datum
 from permutect.utils import Variation, Label
 
 
-def test_read_set():
+def test_base_datum():
     num_ref_reads = 6
     num_alt_reads = 8
     num_read_features = 11
@@ -15,7 +15,7 @@ def test_read_set():
     gatk_info_tensor = torch.rand(num_info_features)
     label = Label.ARTIFACT
 
-    snv_datum = read_set.ReadSet.from_gatk("AC", Variation.SNV, ref_tensor, alt_tensor, gatk_info_tensor, label)
+    snv_datum = base_datum.BaseDatum.from_gatk("AC", Variation.SNV, ref_tensor, alt_tensor, gatk_info_tensor, label)
 
     assert torch.equal(snv_datum.ref_sequence_2d, torch.Tensor([[1, 0], [0, 1], [0, 0], [0, 0]]))
     assert torch.equal(snv_datum.ref_reads_2d, ref_tensor)
@@ -23,8 +23,8 @@ def test_read_set():
     assert torch.equal(snv_datum.info_array_1d[:-len(Variation)], gatk_info_tensor)
     assert snv_datum.label == label
 
-    insertion_datum = read_set.ReadSet.from_gatk("GT", Variation.INSERTION, ref_tensor, alt_tensor, gatk_info_tensor, label)
-    deletion_datum = read_set.ReadSet.from_gatk("TT", Variation.DELETION, ref_tensor, alt_tensor, gatk_info_tensor, label)
+    insertion_datum = base_datum.BaseDatum.from_gatk("GT", Variation.INSERTION, ref_tensor, alt_tensor, gatk_info_tensor, label)
+    deletion_datum = base_datum.BaseDatum.from_gatk("TT", Variation.DELETION, ref_tensor, alt_tensor, gatk_info_tensor, label)
 
     assert insertion_datum.info_array_1d[-len(Variation) + Variation.INSERTION.value] == 1
     assert insertion_datum.info_array_1d[-len(Variation) + Variation.DELETION.value] == 0

@@ -3,7 +3,7 @@ from typing import List
 from permutect import constants
 
 
-class RepresentationModelParameters:
+class BaseModelParameters:
     """
     note that read layers and info layers exclude the input dimension
     read_embedding_dimension: read tensors are linear-transformed to this dimension before
@@ -31,7 +31,7 @@ class RepresentationModelParameters:
         self.alt_downsample = alt_downsample
 
 
-def parse_representation_model_params(args) -> RepresentationModelParameters:
+def parse_base_model_params(args) -> BaseModelParameters:
     read_embedding_dimension = getattr(args, constants.READ_EMBEDDING_DIMENSION_NAME)
     num_transformer_heads = getattr(args, constants.NUM_TRANSFORMER_HEADS_NAME)
     transformer_hidden_dimension = getattr(args, constants.TRANSFORMER_HIDDEN_DIMENSION_NAME)
@@ -44,13 +44,13 @@ def parse_representation_model_params(args) -> RepresentationModelParameters:
     reweighting_range = getattr(args, constants.REWEIGHTING_RANGE_NAME)
     batch_normalize = getattr(args, constants.BATCH_NORMALIZE_NAME)
     alt_downsample = getattr(args, constants.ALT_DOWNSAMPLE_NAME)
-    return RepresentationModelParameters(read_embedding_dimension, num_transformer_heads, transformer_hidden_dimension,
-                                         num_transformer_layers, info_layers, aggregation_layers, ref_seq_layer_strings, dropout_p,
-                                         reweighting_range, batch_normalize, alt_downsample)
+    return BaseModelParameters(read_embedding_dimension, num_transformer_heads, transformer_hidden_dimension,
+                               num_transformer_layers, info_layers, aggregation_layers, ref_seq_layer_strings, dropout_p,
+                               reweighting_range, batch_normalize, alt_downsample)
 
 
-def add_representation_model_params_to_parser(parser):
-    parser.add_argument('--' + constants.PRETRAINED_MODEL_NAME, required=False, type=str, help='optional pretrained Permutect embedding model')
+def add_base_model_params_to_parser(parser):
+    parser.add_argument('--' + constants.PRETRAINED_MODEL_NAME, required=False, type=str, help='optional pretrained base model to initialize training')
     parser.add_argument('--' + constants.READ_EMBEDDING_DIMENSION_NAME, type=int, required=True,
                         help='dimension of read embedding output by the transformer')
     parser.add_argument('--' + constants.NUM_TRANSFORMER_HEADS_NAME, type=int, required=True,

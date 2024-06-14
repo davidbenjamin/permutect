@@ -3,14 +3,14 @@ from argparse import Namespace
 
 from tensorboard.backend.event_processing.event_accumulator import EventAccumulator
 from permutect import constants
-from permutect.data.read_set_dataset import ReadSetDataset
+from permutect.data.base_dataset import BaseDataset
 from permutect.tools import prune_dataset
 
 
 def test_prune_dataset():
     # Inputs
     training_data_tarfile = '/Users/davidben/mutect3/permutect/integration-tests/singular-10-Mb/preprocessed-dataset.tar'
-    representation_model = '/Users/davidben/mutect3/permutect/integration-tests/singular-10-Mb/representation-model.pt'
+    base_model = '/Users/davidben/mutect3/permutect/integration-tests/singular-10-Mb/base-model.pt'
 
     # Outputs
     pruned_dataset = tempfile.NamedTemporaryFile()
@@ -27,7 +27,7 @@ def test_prune_dataset():
 
     # Training data inputs
     setattr(prune_dataset_args, constants.TRAIN_TAR_NAME, training_data_tarfile)
-    setattr(prune_dataset_args, constants.PRETRAINED_MODEL_NAME, representation_model)
+    setattr(prune_dataset_args, constants.BASE_MODEL_NAME, base_model)
 
     setattr(prune_dataset_args, constants.CHUNK_SIZE_NAME, 2e9)
 
@@ -48,6 +48,6 @@ def test_prune_dataset():
     events = EventAccumulator(training_tensorboard_dir.name)
     events.Reload()
 
-    pruned_read_set_dataset = ReadSetDataset(data_tarfile=pruned_dataset, num_folds=10)
+    pruned_base_dataset = BaseDataset(data_tarfile=pruned_dataset, num_folds=10)
     h = 99
 

@@ -1,6 +1,6 @@
 from permutect.test.test_utils import artificial_data
-from permutect.data.read_set_dataset import ReadSetDataset, make_test_data_loader
-from permutect.data.read_set import ReadSet
+from permutect.data.base_dataset import BaseDataset, make_test_data_loader
+from permutect.data.base_datum import BaseDatum
 from typing import Iterable
 from permutect.architecture.artifact_model import ArtifactModel
 from permutect.parameters import ArtifactModelParameters
@@ -34,8 +34,8 @@ SMALL_MODEL_PARAMS = ArtifactModelParameters(read_embedding_dimension=12,
 
 # Note that the test methods in this class also cover batching, samplers, datasets, and data loaders
 def train_model_and_write_summary(hyperparams: ArtifactModelParameters, training_params: TrainingParameters,
-                                  data: Iterable[ReadSet], summary_writer: SummaryWriter = None):
-    dataset = ReadSetDataset(data=data)
+                                  data: Iterable[BaseDatum], summary_writer: SummaryWriter = None):
+    dataset = BaseDataset(data=data)
     big_dataset = BigReadSetDataset(batch_size=training_params.batch_size, dataset=dataset, num_workers=2)
     model = ArtifactModel(params=hyperparams, num_read_features=dataset.num_read_features(), num_info_features=dataset.num_info_features(), ref_sequence_length=dataset.ref_sequence_length()).float()
 
@@ -117,7 +117,7 @@ def test_strand_bias_data():
         model = train_model_and_write_summary(hyperparams=params, training_params=training_params, data=data, summary_writer=summary_writer)
 
         test_data = artificial_data.make_random_strand_bias_data(1000, is_training_data=False, vaf=0.25, unlabeled_fraction=0.0)
-        test_dataset = ReadSetDataset(data=test_data)
+        test_dataset = BaseDataset(data=test_data)
         test_loader = make_test_data_loader(test_dataset, BATCH_SIZE)
         model.learn_spectra(test_loader, NUM_SPECTRUM_ITERATIONS, summary_writer=summary_writer)
 

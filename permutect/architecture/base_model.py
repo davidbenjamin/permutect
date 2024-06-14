@@ -8,10 +8,10 @@ from tqdm.autonotebook import trange, tqdm
 from permutect import utils, constants
 from permutect.architecture.dna_sequence_convolution import DNASequenceConvolution
 from permutect.architecture.mlp import MLP
-from permutect.data.read_set import ReadSetBatch
-from permutect.data.read_set_dataset import ReadSetDataset
+from permutect.data.base_datum import BaseBatch
+from permutect.data.base_dataset import BaseDataset
 from permutect.metrics.evaluation_metrics import LossMetrics
-from permutect.parameters import RepresentationModelParameters, TrainingParameters
+from permutect.parameters import BaseModelParameters, TrainingParameters
 from permutect.utils import Variation
 
 
@@ -36,7 +36,7 @@ class LearningMethod(Enum):
     AFFINE_TRANSFORMATION = "affine"
 
 
-class RepresentationModel(torch.nn.Module):
+class BaseModel(torch.nn.Module):
     """
     DeepSets framework for reads and variant info.  We embed each read and concatenate the mean ref read
     embedding, mean alt read embedding, and variant info embedding, then apply an aggregation function to
@@ -57,8 +57,8 @@ class RepresentationModel(torch.nn.Module):
     because we have different output layers for each variant type.
     """
 
-    def __init__(self, params: RepresentationModelParameters, num_read_features: int, num_info_features: int, ref_sequence_length: int, device=torch.device("cpu")):
-        super(RepresentationModel, self).__init__()
+    def __init__(self, params: BaseModelParameters, num_read_features: int, num_info_features: int, ref_sequence_length: int, device=torch.device("cpu")):
+        super(BaseModel, self).__init__()
 
         self._device = device
         self._num_read_features = num_read_features
@@ -130,15 +130,15 @@ class RepresentationModel(torch.nn.Module):
             utils.freeze(self.parameters())
 
     # return 2D tensor of shape (batch size x output dimension)
-    def calculate_representations(self, batch: ReadSetBatch, weight_range: float = 0) -> torch.Tensor:
+    def calculate_representations(self, batch: BaseBatch, weight_range: float = 0) -> torch.Tensor:
         transformed_reads = self.apply_transformer_to_reads(batch)
         return self.representations_from_transformed_reads(transformed_reads, batch, weight_range)
 
     # I really don't like the forward method of torch.nn.Module with its implicit calling that PyCharm doesn't recognize
-    def forward(self, batch: ReadSetBatch):
+    def forward(self, batch: BaseBatch):
         pass
 
-    def apply_transformer_to_reads(self, batch: ReadSetBatch) -> torch.Tensor:
+    def apply_transformer_to_reads(self, batch: BaseBatch) -> torch.Tensor:
         initial_embedded_reads = self.initial_read_embedding(batch.get_reads_2d().to(self._device))
 
         # rearrange the 2D tensor where each row is a read  into two 3D tensors of shape
@@ -165,7 +165,7 @@ class RepresentationModel(torch.nn.Module):
 
     # input: reads that have passed through the alt/ref transformers
     # output: reads that have been refined through the rho subnetwork that sees the transformed alts along with ref, alt, and info
-    def representations_from_transformed_reads(self, transformed_reads: torch.Tensor, batch: ReadSetBatch, weight_range: float = 0):
+    def representations_from_transformed_reads(self, transformed_reads: torch.Tensor, batch: BaseBatch, weight_range: float = 0):
         weights = torch.ones(len(transformed_reads), 1, device=self._device) if weight_range == 0 else (1 + weight_range * (1 - 2 * torch.rand(len(transformed_reads), 1, device=self._device)))
 
         ref_count, alt_count = batch.ref_count, min(batch.alt_count, self.alt_downsample)
@@ -203,7 +203,7 @@ class RepresentationModel(torch.nn.Module):
     # TODO: actually, this can be the framework of a LOT of different ways to train.  There's a ton of overlap.  There's always going to
     # TODO: be running the model over epochs, loading the dataset, backpropagating the loss.
     # TODO: the differences will mainly be in auxiliary tasks attached to the embedding and different loss functions
-    def learn(self, dataset: ReadSetDataset, learning_method: LearningMethod, training_params: TrainingParameters,
+    def learn(self, dataset: BaseDataset, learning_method: LearningMethod, training_params: TrainingParameters,
               summary_writer: SummaryWriter, validation_fold: int = None):
         bce = torch.nn.BCEWithLogitsLoss(reduction='none')  # no reduction because we may want to first multiply by weights for unbalanced data
 
@@ -288,15 +288,15 @@ class RepresentationModel(torch.nn.Module):
         }, path)
 
 
-def load_representation_model(path) -> RepresentationModel:
+def load_base_model(path) -> BaseModel:
     saved = torch.load(path)
     hyperparams = saved[constants.HYPERPARAMS_NAME]
     num_read_features = saved[constants.NUM_READ_FEATURES_NAME]
     num_info_features = saved[constants.NUM_INFO_FEATURES_NAME]
     ref_sequence_length = saved[constants.REF_SEQUENCE_LENGTH_NAME]
 
-    model = RepresentationModel(hyperparams, num_read_features=num_read_features, num_info_features=num_info_features,
-                                ref_sequence_length=ref_sequence_length)
+    model = BaseModel(hyperparams, num_read_features=num_read_features, num_info_features=num_info_features,
+                      ref_sequence_length=ref_sequence_length)
     model.load_state_dict(saved[constants.STATE_DICT_NAME])
 
     return model

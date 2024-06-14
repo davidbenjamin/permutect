@@ -1,5 +1,5 @@
 import tempfile
-import permutect.data.read_set_dataset as ds
+import permutect.data.base_dataset as ds
 import torch
 
 from permutect import utils
