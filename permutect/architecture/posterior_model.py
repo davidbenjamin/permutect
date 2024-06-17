@@ -11,7 +11,7 @@ from tqdm.autonotebook import trange, tqdm
 from permutect import utils
 from permutect.architecture.overdispersed_binomial_mixture import OverdispersedBinomialMixture, FeaturelessBetaBinomialMixture
 from permutect.architecture.normal_seq_error_spectrum import NormalSeqErrorSpectrum
-from permutect.data.base_datum import DEFAULT_GPU_FLOAT
+from permutect.data.base_datum import DEFAULT_GPU_FLOAT, DEFAULT_CPU_FLOAT
 from permutect.data.posterior import PosteriorBatch
 from permutect.metrics import plotting
 from permutect.utils import Variation, Call
@@ -72,11 +72,11 @@ class PosteriorModel(torch.nn.Module):
 
     """
     def __init__(self, variant_log_prior: float, artifact_log_prior: float, segmentation=defaultdict(IntervalTree),
-                 normal_segmentation=defaultdict(IntervalTree), no_germline_mode: bool = False, device=torch.device("cpu"), float_type=DEFAULT_GPU_FLOAT):
+                 normal_segmentation=defaultdict(IntervalTree), no_germline_mode: bool = False, device=utils.gpu_if_available()):
         super(PosteriorModel, self).__init__()
 
         self._device = device
-        self._dtype = float_type
+        self._dtype = DEFAULT_GPU_FLOAT if device != torch.device("cpu") else DEFAULT_CPU_FLOAT
         self.no_germline_mode = no_germline_mode
 
         # TODO: might as well give the normal segmentation as well
