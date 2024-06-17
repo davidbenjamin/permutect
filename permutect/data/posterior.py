@@ -4,7 +4,7 @@ from typing import List, Iterable
 
 from torch import Tensor, IntTensor, BoolTensor, vstack, from_numpy
 from torch.utils.data import Dataset, DataLoader
-from permutect.data.base_datum import Variant, CountsAndSeqLks
+from permutect.data.base_datum import Variant, CountsAndSeqLks, DEFAULT_TORCH_FLOAT
 
 from permutect import utils
 from permutect.utils import Label
@@ -45,13 +45,13 @@ class PosteriorBatch:
         self.normal_depths = IntTensor([item.normal_depth for item in data])
         self.normal_alt_counts = IntTensor([item.normal_alt_count for item in data])
 
-        self._variant_type_one_hot = vstack([from_numpy(item.variant_type.one_hot_tensor()) for item in self._original_list]).float()
+        self._variant_type_one_hot = vstack([from_numpy(item.variant_type.one_hot_tensor()) for item in self._original_list]).type(DEFAULT_TORCH_FLOAT)
 
-        self.seq_error_log_likelihoods = Tensor([item.seq_error_log_likelihood for item in self._original_list])
-        self.tlods_from_m2 = Tensor([item.tlod_from_m2 for item in self._original_list])
-        self.normal_seq_error_log_likelihoods = Tensor([item.normal_seq_error_log_likelihood for item in self._original_list])
-        self.allele_frequencies = Tensor([item.allele_frequency for item in self._original_list])
-        self.artifact_logits = Tensor([item.artifact_logit for item in self._original_list])
+        self.seq_error_log_likelihoods = Tensor([item.seq_error_log_likelihood for item in self._original_list]).type(DEFAULT_TORCH_FLOAT)
+        self.tlods_from_m2 = Tensor([item.tlod_from_m2 for item in self._original_list]).type(DEFAULT_TORCH_FLOAT)
+        self.normal_seq_error_log_likelihoods = Tensor([item.normal_seq_error_log_likelihood for item in self._original_list]).type(DEFAULT_TORCH_FLOAT)
+        self.allele_frequencies = Tensor([item.allele_frequency for item in self._original_list]).type(DEFAULT_TORCH_FLOAT)
+        self.artifact_logits = Tensor([item.artifact_logit for item in self._original_list]).type(DEFAULT_TORCH_FLOAT)
 
     def original_list(self) -> List[PosteriorDatum]:
         return self._original_list

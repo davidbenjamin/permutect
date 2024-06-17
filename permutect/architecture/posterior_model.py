@@ -11,6 +11,7 @@ from tqdm.autonotebook import trange, tqdm
 from permutect import utils
 from permutect.architecture.overdispersed_binomial_mixture import OverdispersedBinomialMixture, FeaturelessBetaBinomialMixture
 from permutect.architecture.normal_seq_error_spectrum import NormalSeqErrorSpectrum
+from permutect.data.base_datum import DEFAULT_TORCH_FLOAT
 from permutect.data.posterior import PosteriorBatch
 from permutect.metrics import plotting
 from permutect.utils import Variation, Call
@@ -82,15 +83,15 @@ class PosteriorModel(torch.nn.Module):
 
         # TODO introduce parameters class so that num_components is not hard-coded
         # featureless because true variant types share a common AF spectrum
-        self.somatic_spectrum = FeaturelessBetaBinomialMixture(num_components=5)
+        self.somatic_spectrum = FeaturelessBetaBinomialMixture(num_components=5).type(DEFAULT_TORCH_FLOAT)
 
         # artifact spectra for each variant type.  Variant type encoded as one-hot input vector.
-        self.artifact_spectra = initialize_artifact_spectra()
+        self.artifact_spectra = initialize_artifact_spectra().type(DEFAULT_TORCH_FLOAT)
 
         # normal sequencing error spectra for each variant type.
-        self.normal_seq_error_spectra = torch.nn.ModuleList([NormalSeqErrorSpectrum(num_samples=50, max_mean=0.001) for _ in Variation])
+        self.normal_seq_error_spectra = torch.nn.ModuleList([NormalSeqErrorSpectrum(num_samples=50, max_mean=0.001) for _ in Variation]).type(DEFAULT_TORCH_FLOAT)
 
-        self.normal_artifact_spectra = initialize_normal_artifact_spectra()
+        self.normal_artifact_spectra = initialize_normal_artifact_spectra().type(DEFAULT_TORCH_FLOAT)
 
         # TODO: num_samples is hard-coded magic constant!!!
         # self.normal_artifact_spectra = torch.nn.ModuleList([NormalArtifactSpectrum(num_samples=20) for variant_type in Variation])
@@ -99,7 +100,7 @@ class PosteriorModel(torch.nn.Module):
         # linear layer with no bias to select the appropriate priors given one-hot variant encoding
         # in torch linear layers the weight is indexed by out-features, then in-features, so indices are
         # self.unnormalized_priors.weight[call type, variant type]
-        self._unnormalized_priors = torch.nn.Linear(in_features=len(Variation), out_features=len(Call), bias=False)
+        self._unnormalized_priors = torch.nn.Linear(in_features=len(Variation), out_features=len(Call), bias=False).type(DEFAULT_TORCH_FLOAT)
         with torch.no_grad():
             initial = torch.zeros_like(self._unnormalized_priors.weight)
             # the following assignments are broadcast over rows; that is, each variant type gets the same prior
