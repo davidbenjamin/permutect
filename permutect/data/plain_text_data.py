@@ -35,7 +35,7 @@ import psutil
 from sklearn.preprocessing import QuantileTransformer
 
 from permutect import utils
-from permutect.data.base_datum import BaseDatum, Variant, CountsAndSeqLks, DEFAULT_FLOAT
+from permutect.data.base_datum import BaseDatum, Variant, CountsAndSeqLks, DEFAULT_NUMPY_FLOAT
 
 from permutect.utils import Label, Variation
 
@@ -204,7 +204,7 @@ def normalize_buffer(buffer, read_quantile_transform, info_quantile_transform, r
 def line_to_tensor(line: str) -> np.ndarray:
     tokens = line.strip().split()
     floats = [float(token) for token in tokens]
-    return np.clip(np.array(floats, dtype=DEFAULT_FLOAT), -MAX_VALUE, MAX_VALUE)
+    return np.clip(np.array(floats, dtype=DEFAULT_NUMPY_FLOAT), -MAX_VALUE, MAX_VALUE)
 
 
 def read_2d_tensor(file, num_lines: int) -> np.ndarray:
