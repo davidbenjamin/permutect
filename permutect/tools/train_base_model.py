@@ -1,9 +1,8 @@
 import argparse
 
-import torch
 from torch.utils.tensorboard import SummaryWriter
 
-from permutect import constants
+from permutect import constants, utils
 from permutect.architecture.base_model import BaseModel, LearningMethod, load_base_model
 from permutect.parameters import BaseModelParameters, TrainingParameters, parse_training_params, \
     parse_base_model_params, add_base_model_params_to_parser, add_training_params_to_parser
@@ -12,17 +11,10 @@ from permutect.data.base_dataset import BaseDataset
 
 def train_base_model(params: BaseModelParameters, training_params: TrainingParameters, summary_writer: SummaryWriter,
                      dataset: BaseDataset, pretrained_model: BaseModel = None) -> BaseModel:
-    use_gpu = torch.cuda.is_available()
-    device = torch.device('cuda' if use_gpu else 'cpu')
-
-    use_pretrained = (pretrained_model is not None)
-    model = pretrained_model if use_pretrained else \
+    model = pretrained_model if (pretrained_model is not None) else \
         BaseModel(params=params, num_read_features=dataset.num_read_features, num_info_features=dataset.num_info_features,
-                  ref_sequence_length=dataset.ref_sequence_length, device=device).float()
-
-    print("Training. . .")
+                  ref_sequence_length=dataset.ref_sequence_length, device=utils.gpu_if_available())
     model.learn(dataset, LearningMethod.SEMISUPERVISED, training_params, summary_writer=summary_writer)
-
     return model
 
 

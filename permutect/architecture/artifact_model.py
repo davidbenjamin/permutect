@@ -14,7 +14,7 @@ from matplotlib import pyplot as plt
 
 from permutect.architecture.mlp import MLP
 from permutect.architecture.monotonic import MonoDense
-from permutect.data.base_datum import ArtifactBatch
+from permutect.data.base_datum import ArtifactBatch, DEFAULT_GPU_FLOAT, DEFAULT_CPU_FLOAT
 from permutect.data.artifact_dataset import ArtifactDataset
 from permutect import utils, constants
 from permutect.metrics.evaluation_metrics import LossMetrics, EvaluationMetrics, NUM_COUNT_BINS, \
@@ -103,27 +103,27 @@ class ArtifactModel(nn.Module):
     because we have different output layers for each variant type.
     """
 
-    def __init__(self, params: ArtifactModelParameters, num_base_features: int, device=torch.device("cpu")):
+    def __init__(self, params: ArtifactModelParameters, num_base_features: int, device=utils.gpu_if_available()):
         super(ArtifactModel, self).__init__()
 
         self._device = device
+        self._dtype = DEFAULT_GPU_FLOAT if device != torch.device("cpu") else DEFAULT_CPU_FLOAT
         self.num_base_features = num_base_features
         self.params = params
 
         # The [1] is for the output logit
-        self.rho = MLP([num_base_features] + params.aggregation_layers + [1], batch_normalize=params.batch_normalize,
-                       dropout_p=params.dropout_p)
-        self.rho.to(self._device)
+        self.aggregation = MLP([num_base_features] + params.aggregation_layers + [1], batch_normalize=params.batch_normalize, dropout_p=params.dropout_p)
 
         # one Calibration module for each variant type; that is, calibration depends on both count and type
         self.calibration = nn.ModuleList([Calibration(params.calibration_layers) for variant_type in Variation])
-        self.calibration.to(self._device)
+
+        self.to(device=self._device, dtype=self._dtype)
 
     def training_parameters(self):
-        return chain(self.rho.parameters(), self.calibration.parameters())
+        return chain(self.aggregation.parameters(), self.calibration.parameters())
 
     def training_parameters_if_using_pretrained_model(self):
-        return chain(self.rho.parameters(), self.final_logit.parameters(), self.calibration.parameters())
+        return chain(self.aggregation.parameters(), self.final_logit.parameters(), self.calibration.parameters())
 
     def calibration_parameters(self):
         return self.calibration.parameters()
@@ -141,10 +141,10 @@ class ArtifactModel(nn.Module):
 
     # returns 1D tensor of length batch_size of log odds ratio (logits) between artifact and non-artifact
     def forward(self, batch: ArtifactBatch):
-        logits = self.rho.forward(batch.get_representations_2d().to(self._device)).reshape(batch.size())
+        logits = self.aggregation.forward(batch.get_representations_2d().to(device=self._device, dtype=self._dtype)).reshape(batch.size())
 
         calibrated = torch.zeros_like(logits)
-        one_hot_types_2d = batch.variant_type_one_hot()
+        one_hot_types_2d = batch.variant_type_one_hot().to(device=self._device, dtype=self._dtype)
         for n, _ in enumerate(Variation):
             mask = one_hot_types_2d[:, n]
             calibrated += mask * self.calibration[n].forward(logits, batch.ref_counts, batch.alt_counts)

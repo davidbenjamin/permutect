@@ -11,6 +11,7 @@ from tqdm.autonotebook import trange, tqdm
 from permutect import utils
 from permutect.architecture.overdispersed_binomial_mixture import OverdispersedBinomialMixture, FeaturelessBetaBinomialMixture
 from permutect.architecture.normal_seq_error_spectrum import NormalSeqErrorSpectrum
+from permutect.data.base_datum import DEFAULT_GPU_FLOAT, DEFAULT_CPU_FLOAT
 from permutect.data.posterior import PosteriorBatch
 from permutect.metrics import plotting
 from permutect.utils import Variation, Call
@@ -71,9 +72,11 @@ class PosteriorModel(torch.nn.Module):
 
     """
     def __init__(self, variant_log_prior: float, artifact_log_prior: float, segmentation=defaultdict(IntervalTree),
-                 normal_segmentation=defaultdict(IntervalTree), no_germline_mode: bool = False):
+                 normal_segmentation=defaultdict(IntervalTree), no_germline_mode: bool = False, device=utils.gpu_if_available()):
         super(PosteriorModel, self).__init__()
 
+        self._device = device
+        self._dtype = DEFAULT_GPU_FLOAT if device != torch.device("cpu") else DEFAULT_CPU_FLOAT
         self.no_germline_mode = no_germline_mode
 
         # TODO: might as well give the normal segmentation as well
@@ -110,8 +113,10 @@ class PosteriorModel(torch.nn.Module):
             initial[Call.NORMAL_ARTIFACT] = artifact_log_prior
             self._unnormalized_priors.weight.copy_(initial)
 
+        self.to(device=self._device, dtype=self._dtype)
+
     def make_unnormalized_priors(self, variant_types_one_hot_2d: torch.Tensor, allele_frequencies_1d: torch.Tensor) -> torch.Tensor:
-        result = self._unnormalized_priors(variant_types_one_hot_2d)
+        result = self._unnormalized_priors(variant_types_one_hot_2d.to(device=self._device, dtype=self._dtype))
         result[:, Call.SEQ_ERROR] = 0
         result[:, Call.GERMLINE] = -9999 if self.no_germline_mode else torch.log(1 - torch.square(1 - allele_frequencies_1d))     # 1 minus hom ref probability
         return result   # batch size x len(CallType)
@@ -142,7 +147,7 @@ class PosteriorModel(torch.nn.Module):
         of length batch_size.
         :return:
         """
-        types = batch.variant_type_one_hot()
+        types = batch.variant_type_one_hot().to(device=self._device, dtype=self._dtype)
 
         # All log likelihood/relative posterior tensors below have shape batch.size() x len(CallType)
         # spectra tensors contain the likelihood that these *particular* reads (that is, not just the read count) are alt
@@ -155,7 +160,7 @@ class PosteriorModel(torch.nn.Module):
         somatic_spectrum_log_likelihoods = self.somatic_spectrum.forward(batch.depths, batch.alt_counts)
         tumor_artifact_spectrum_log_likelihood = self.artifact_spectra.forward(types, batch.depths, batch.alt_counts)
 
-        spectra_log_likelihoods = torch.zeros_like(log_priors)
+        spectra_log_likelihoods = torch.zeros_like(log_priors).to(device=self._device, dtype=self._dtype)
 
         # essentially, this corrects the TLOD from M2, computed with a flat prior, to account for the precises somatic spectrum
         spectra_log_likelihoods[:, Call.SOMATIC] = somatic_spectrum_log_likelihoods - flat_prior_spectra_log_likelihoods
@@ -245,7 +250,7 @@ class PosteriorModel(torch.nn.Module):
                 # a missing non-INSERTION etc
                 # we use a germline allele frequency of 0.001 for the missing sites but it doesn't really matter
                 for variant_type in Variation:
-                    log_priors = torch.nn.functional.log_softmax(self.make_unnormalized_priors(torch.from_numpy(variant_type.one_hot_tensor()).float().unsqueeze(dim=0), torch.Tensor([0.001])), dim=1)
+                    log_priors = torch.nn.functional.log_softmax(self.make_unnormalized_priors(torch.from_numpy(variant_type.one_hot_tensor()).to(device=self._device, dtype=self._dtype).unsqueeze(dim=0), torch.Tensor([0.001])), dim=1)
                     log_seq_error_prior = log_priors.squeeze()[Call.SEQ_ERROR]
                     missing_loss = -ignored_to_non_ignored_ratio * log_seq_error_prior  
                     loss += missing_loss
@@ -279,7 +284,7 @@ class PosteriorModel(torch.nn.Module):
                 # bar plot of log priors -- data is indexed by call type name, and x ticks are variant types
                 log_prior_bar_plot_data = defaultdict(list)
                 for variant_type in Variation:
-                    log_priors = torch.nn.functional.log_softmax(self.make_unnormalized_priors(torch.from_numpy(variant_type.one_hot_tensor()).float().unsqueeze(dim=0), torch.Tensor([0.001])), dim=1)
+                    log_priors = torch.nn.functional.log_softmax(self.make_unnormalized_priors(torch.from_numpy(variant_type.one_hot_tensor()).to(device=self._device, dtype=self._dtype).unsqueeze(dim=0), torch.Tensor([0.001])), dim=1)
                     for call_type in (Call.SOMATIC, Call.ARTIFACT, Call.NORMAL_ARTIFACT):
                         log_prior_bar_plot_data[call_type.name].append(log_priors.squeeze().detach()[call_type])
 

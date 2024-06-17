@@ -7,6 +7,21 @@ import sys
 
 from permutect.utils import Variation, Label
 
+DEFAULT_NUMPY_FLOAT = np.float16
+DEFAULT_GPU_FLOAT = torch.float16
+DEFAULT_CPU_FLOAT = torch.float32
+
+
+def make_1d_sequence_tensor(sequence_string: str) -> np.ndarray:
+    """
+    convert string of form ACCGTA into tensor [ 0, 1, 1, 2, 3, 0]
+    """
+    result = np.zeros(len(sequence_string), dtype=np.uint8)
+    for n, char in enumerate(sequence_string):
+        integer = 0 if char == 'A' else (1 if char == 'C' else (2 if char == 'G' else 3))
+        result[n] = integer
+    return result
+
 
 def make_sequence_tensor(sequence_string: str) -> np.ndarray:
     """
@@ -83,17 +98,16 @@ class CountsAndSeqLks:
 
 class BaseDatum:
     """
-    :param ref_sequence_2d  2D tensor with 4 rows, one for each "channel" A,C, G, T, with each column a position, centered
-                                at the alignment start of the variant
+    :param ref_sequence_1d  1D uint8 tensor of bases centered at the alignment start of the variant in form eg ACTG -> [0,1,3,2]
     :param ref_reads_2d   2D tensor, each row corresponding to one read supporting the reference allele
     :param alt_reads_2d   2D tensor, each row corresponding to one read supporting the alternate allele
     :param info_array_1d  1D tensor of information about the variant as a whole
     :param label        an object of the Label enum artifact, non-artifact, unlabeled
     """
-    def __init__(self, ref_sequence_2d: np.ndarray, ref_reads_2d: np.ndarray, alt_reads_2d: np.ndarray, info_array_1d: np.ndarray, label: Label,
+    def __init__(self, ref_sequence_1d: np.ndarray, ref_reads_2d: np.ndarray, alt_reads_2d: np.ndarray, info_array_1d: np.ndarray, label: Label,
                  variant: Variant = None, counts_and_seq_lks: CountsAndSeqLks = None):
         # Note: if changing any of the data fields below, make sure to modify the size_in_bytes() method below accordingly!
-        self.ref_sequence_2d = ref_sequence_2d
+        self.ref_sequence_1d = ref_sequence_1d
         self.ref_reads_2d = ref_reads_2d
         self.alt_reads_2d = alt_reads_2d
         self.info_array_1d = info_array_1d
@@ -105,8 +119,8 @@ class BaseDatum:
     @classmethod
     def from_gatk(cls, ref_sequence_string: str, variant_type: Variation, ref_tensor: np.ndarray, alt_tensor: np.ndarray,
                  gatk_info_tensor: np.ndarray, label: Label, variant: Variant = None, counts_and_seq_lks: CountsAndSeqLks = None):
-        info_tensor = np.hstack([gatk_info_tensor, variant_type.one_hot_tensor()])
-        return cls(make_sequence_tensor(ref_sequence_string), ref_tensor, alt_tensor, info_tensor, label, variant, counts_and_seq_lks)
+        info_tensor = np.hstack([gatk_info_tensor, variant_type.one_hot_tensor().astype(DEFAULT_NUMPY_FLOAT)])
+        return cls(make_1d_sequence_tensor(ref_sequence_string), ref_tensor, alt_tensor, info_tensor, label, variant, counts_and_seq_lks)
 
     def size_in_bytes(self):
         return (self.ref_reads_2d.nbytes if self.ref_reads_2d is not None else 0) + self.alt_reads_2d.nbytes + self.info_array_1d.nbytes + sys.getsizeof(self.label)
@@ -125,7 +139,7 @@ def save_list_base_data(base_data: List[BaseDatum], file):
     :param file:
     :return:
     """
-    ref_sequence_tensors = [datum.ref_sequence_2d for datum in base_data]
+    ref_sequence_tensors = [datum.ref_sequence_1d for datum in base_data]
     ref_tensors = [datum.ref_reads_2d for datum in base_data]
     alt_tensors = [datum.alt_reads_2d for datum in base_data]
     info_tensors = [datum.info_array_1d for datum in base_data]
@@ -176,10 +190,10 @@ class BaseBatch:
         #    assert len(datum.ref_tensor) == self.ref_count, "batch may not mix different ref counts"
         #    assert len(datum.alt_tensor) == self.alt_count, "batch may not mix different alt counts"
 
-        self.ref_sequences_2d = torch.from_numpy(np.stack([item.ref_sequence_2d for item in data])).float()
+        self.ref_sequences_2d = torch.permute(torch.nn.functional.one_hot(torch.from_numpy(np.stack([item.ref_sequence_1d for item in data])).long(), num_classes=4), (0, 2, 1))
         list_of_ref_tensors = [item.ref_reads_2d for item in data] if self.ref_count > 0 else []
-        self.reads_2d = torch.from_numpy(np.vstack(list_of_ref_tensors + [item.alt_reads_2d for item in data])).float()
-        self.info_2d = torch.from_numpy(np.vstack([item.info_array_1d for item in data])).float()
+        self.reads_2d = torch.from_numpy(np.vstack(list_of_ref_tensors + [item.alt_reads_2d for item in data]))
+        self.info_2d = torch.from_numpy(np.vstack([item.info_array_1d for item in data]))
         self.labels = FloatTensor([1.0 if item.label == Label.ARTIFACT else 0.0 for item in data]) if self.labeled else None
         self._size = len(data)
 
@@ -254,7 +268,7 @@ class ArtifactBatch:
     def __init__(self, data: List[ArtifactDatum]):
         self.labeled = data[0].label != Label.UNLABELED
 
-        self.representations_2d = torch.vstack([item.representation for item in data]).float()
+        self.representations_2d = torch.vstack([item.representation for item in data])
         self.labels = FloatTensor([1.0 if item.label == Label.ARTIFACT else 0.0 for item in data]) if self.labeled else None
         self.ref_counts = IntTensor([int(item.ref_count) for item in data])
         self.alt_counts = IntTensor([int(item.alt_count) for item in data])

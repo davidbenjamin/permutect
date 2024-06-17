@@ -16,21 +16,14 @@ from permutect.utils import Variation, Label
 
 
 def train_artifact_model(hyperparams: ArtifactModelParameters, training_params: TrainingParameters, summary_writer: SummaryWriter, dataset: ArtifactDataset):
-    use_gpu = torch.cuda.is_available()
-    device = torch.device('cuda' if use_gpu else 'cpu')
-
-    model = ArtifactModel(params=hyperparams, num_base_features=dataset.num_base_features, device=device).float()
-
-    print("Training. . .")
+    model = ArtifactModel(params=hyperparams, num_base_features=dataset.num_base_features, device=utils.gpu_if_available())
     model.learn(dataset, training_params, summary_writer=summary_writer)
 
     for n, var_type in enumerate(Variation):
         cal_fig, cal_axes = model.calibration[n].plot_calibration()
         summary_writer.add_figure("calibration for " + var_type.name, cal_fig)
 
-    print("Evaluating trained model. . .")
     model.evaluate_model_after_training(dataset, training_params.batch_size, training_params.num_workers, summary_writer)
-
     return model
 
 

@@ -45,7 +45,7 @@ class PosteriorBatch:
         self.normal_depths = IntTensor([item.normal_depth for item in data])
         self.normal_alt_counts = IntTensor([item.normal_alt_count for item in data])
 
-        self._variant_type_one_hot = vstack([from_numpy(item.variant_type.one_hot_tensor()) for item in self._original_list]).float()
+        self._variant_type_one_hot = vstack([from_numpy(item.variant_type.one_hot_tensor()) for item in self._original_list])
 
         self.seq_error_log_likelihoods = Tensor([item.seq_error_log_likelihood for item in self._original_list])
         self.tlods_from_m2 = Tensor([item.tlod_from_m2 for item in self._original_list])
