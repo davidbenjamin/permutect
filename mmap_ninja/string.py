@@ -4,8 +4,8 @@ from typing import Sequence, Union
 
 import numpy as np
 
-from mmap_ninja import numpy, base
-from mmap_ninja.base import bytes_to_str, str_to_bytes, sequence_of_strings_to_bytes
+from mmap_ninja import base, numpy
+from mmap_ninja.base import _bytes_to_str, _str_to_bytes, _sequence_of_strings_to_bytes
 
 
 class StringsMmap:
@@ -25,11 +25,14 @@ class StringsMmap:
         self.starts_key = starts_key
         self.ends_key = ends_key
 
-        self.starts = numpy.open_existing(self.out_dir / self.starts_key, mode="r")
-        self.ends = numpy.open_existing(self.out_dir / self.ends_key, mode="r")
-        self.range = np.arange(len(self.starts), dtype=np.int64)
-        self.file = open(data_file, mode=mode)
-        self.buffer = mmap.mmap(self.file.fileno(), 0)
+        self.starts = None
+        self.ends = None
+        self.range = None
+        self.file = None
+        self.buffer = None
+
+        if (self.out_dir / self.starts_key / "dtype.ninja").exists():
+            self._reload_fields()
 
     def get_multiple(self, item):
         indices = self.range[item]
@@ -38,9 +41,11 @@ class StringsMmap:
     def get_single(self, item):
         start = self.starts[item]
         end = self.ends[item]
-        return bytes_to_str(self.buffer[start:end])
+        return _bytes_to_str(self.buffer[start:end])
 
     def __getitem__(self, item):
+        if self.starts is None:
+            raise IndexError(f"StringsMmap is empty!")
         if np.isscalar(item):
             return self.get_single(item)
         return self.get_multiple(item)
@@ -51,6 +56,8 @@ class StringsMmap:
         return self.set_multiple(key, value)
 
     def __len__(self):
+        if self.starts is None:
+            return 0
         return len(self.starts)
 
     def set_multiple(self, key, value):
@@ -61,14 +68,18 @@ class StringsMmap:
     def set_single(self, idx, new_value):
         start = self.starts[idx]
         end = self.ends[idx]
-        self.buffer[start:end] = str_to_bytes(new_value)
+        self.buffer[start:end] = _str_to_bytes(new_value)
 
     def close(self):
         self.buffer.close()
         self.file.close()
 
     def extend(self, list_of_strings: Sequence[str], verbose=False):
-        bytes_slices = sequence_of_strings_to_bytes(list_of_strings, verbose=verbose)
+        if self.starts is None:
+            StringsMmap.from_strings(self.out_dir, list_of_strings, verbose=verbose)
+            self._reload_fields()
+            return
+        bytes_slices = _sequence_of_strings_to_bytes(list_of_strings, verbose=verbose)
         end = self.ends[-1]
         start_offsets = end + bytes_slices.starts
         end_offsets = end + bytes_slices.ends
@@ -79,15 +90,22 @@ class StringsMmap:
         with open(out_dir / "data.ninja", "ab") as data_file:
             data_file.write(bytes_slices.buffer)
             data_file.flush()
+        self._reload_fields()
 
+    def _reload_fields(self):
         self.starts = numpy.open_existing(self.out_dir / self.starts_key, mode="r")
         self.ends = numpy.open_existing(self.out_dir / self.ends_key, mode="r")
         self.range = np.arange(len(self.starts), dtype=np.int64)
         self.file = open(self.data_file, mode=self.mode)
-        self.buffer = mmap.mmap(self.file.fileno(), 0)
+        access = mmap.ACCESS_READ if self.mode == 'rb' else mmap.ACCESS_DEFAULT
+        self.buffer = mmap.mmap(self.file.fileno(), 0, access=access)
 
     def append(self, string: str):
         self.extend([string])
+
+    def __repr__(self):
+        base_repr = super().__repr__()
+        return f"{base_repr} of length: {len(self)}"
 
     @classmethod
     def from_strings(
@@ -101,9 +119,10 @@ class StringsMmap:
     ):
         out_dir = Path(out_dir)
         out_dir.mkdir(exist_ok=True)
-        bytes_slices = sequence_of_strings_to_bytes(strings, verbose=verbose)
+        bytes_slices = _sequence_of_strings_to_bytes(strings, verbose=verbose)
         with open(out_dir / "data.ninja", "wb") as f:
             f.write(bytes_slices.buffer)
+        base._str_to_file("string", out_dir / "type.ninja")
         numpy.from_ndarray(out_dir / starts_key, np.array(bytes_slices.starts, dtype=np.int64))
         numpy.from_ndarray(out_dir / ends_key, np.array(bytes_slices.ends, dtype=np.int64))
         return cls(out_dir, mode=mode, starts_key=starts_key, ends_key=ends_key)
@@ -116,5 +135,5 @@ class StringsMmap:
             batch_size=batch_size,
             verbose=verbose,
             batch_ctor=cls.from_strings,
-            **kwargs
+            **kwargs,
         )
