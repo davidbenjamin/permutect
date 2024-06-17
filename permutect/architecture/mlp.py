@@ -27,6 +27,7 @@ class MLP(nn.Module):
         super(MLP, self).__init__()
 
         layers = [nn.LeakyReLU()] if prepend_relu else []
+        self._input_dim = layer_sizes[0]
         input_dim = layer_sizes[0]
         for k, output_dim in enumerate(layer_sizes[1:]):
             # negative output dimension -d will denote a d-layer residual skip connection
@@ -51,6 +52,9 @@ class MLP(nn.Module):
 
         self._output_dim = input_dim
         self._model = nn.Sequential(*layers)
+
+    def input_dimension(self) -> int:
+        return self._input_dim
 
     def output_dimension(self) -> int:
         return self._output_dim

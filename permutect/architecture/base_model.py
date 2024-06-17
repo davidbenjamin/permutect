@@ -69,8 +69,6 @@ class BaseModel(torch.nn.Module):
         super(BaseModel, self).__init__()
 
         self._device = device
-        self._num_read_features = num_read_features
-        self._num_info_features = num_info_features
         self._ref_sequence_length = ref_sequence_length
         self._params = params
         self.alt_downsample = params.alt_downsample
@@ -85,28 +83,22 @@ class BaseModel(torch.nn.Module):
         self.ref_transformer_encoder = make_transformer_encoder(params, self._device)
 
         # omega is the embedding of info field variant-level data
-        info_layers = [self._num_info_features] + params.info_layers
-        self.omega = MLP(info_layers, batch_normalize=params.batch_normalize, dropout_p=params.dropout_p)\
+        info_layers = [num_info_features] + params.info_layers
+        self.info_embedding = MLP(info_layers, batch_normalize=params.batch_normalize, dropout_p=params.dropout_p)\
             .type(DEFAULT_TORCH_FLOAT).to(self._device)
 
         self.ref_seq_cnn = DNASequenceConvolution(params.ref_seq_layer_strings, ref_sequence_length)\
             .type(DEFAULT_TORCH_FLOAT).to(self._device)
 
         # rho is the aggregation function that combines read, info, and sequence tensors and maps to the output representation
-        ref_alt_info_ref_seq_embedding_dimension = 2 * params.read_embedding_dimension + self.omega.output_dimension() + self.ref_seq_cnn.output_dimension()
+        ref_alt_info_ref_seq_embedding_dimension = 2 * params.read_embedding_dimension + self.info_embedding.output_dimension() + self.ref_seq_cnn.output_dimension()
 
         # Each variant type has its own aggregation. Earlier layers, in particular the read transformers, are shared
-        self.rho = torch.nn.ModuleList([MLP([ref_alt_info_ref_seq_embedding_dimension] + params.aggregation_layers, batch_normalize=params.batch_normalize,
-                       dropout_p=params.dropout_p) for variant_type in Variation]).type(DEFAULT_TORCH_FLOAT).to(self._device)
-
-    def num_read_features(self) -> int:
-        return self._num_read_features
-
-    def num_info_features(self) -> int:
-        return self._num_info_features
+        self.aggregation = torch.nn.ModuleList([MLP([ref_alt_info_ref_seq_embedding_dimension] + params.aggregation_layers, batch_normalize=params.batch_normalize,
+                                                    dropout_p=params.dropout_p) for variant_type in Variation]).type(DEFAULT_TORCH_FLOAT).to(self._device)
 
     def output_dimension(self) -> int:
-        return self.rho[0].output_dimension()
+        return self.aggregation[0].output_dimension()
 
     def ref_sequence_length(self) -> int:
         return self._ref_sequence_length
@@ -163,12 +155,12 @@ class BaseModel(torch.nn.Module):
 
         # mean embedding of every read, alt and ref, at each datum
         all_read_means = ((0 if ref_count == 0 else sums_over_chunks(transformed_reads[:total_ref], ref_count)) + sums_over_chunks(transformed_reads[total_ref:], alt_count)) / (alt_count + ref_count)
-        omega_info = self.omega(batch.get_info_2d().to(self._device))
+        info_embedding = self.info_embedding.forward(batch.get_info_2d().to(self._device))
         ref_seq_embedding = self.ref_seq_cnn(batch.get_ref_sequences_2d())
 
         # take the all-read-average / info embedding / ref seq embedding of each read set in the batch and
         # concatenate a copy next to each transformed alt in the set
-        extra_tensor_2d = torch.hstack([all_read_means, omega_info, ref_seq_embedding])     # shape is (batch size, ___)
+        extra_tensor_2d = torch.hstack([all_read_means, info_embedding, ref_seq_embedding])     # shape is (batch size, ___)
         extra_tensor_2d = torch.repeat_interleave(extra_tensor_2d, repeats=alt_count, dim=0)    # shape is (batch size * alt count, ___)
 
         # the alt reads have not been averaged yet to we need to copy each row of the extra tensor batch.alt_count times
@@ -182,7 +174,7 @@ class BaseModel(torch.nn.Module):
             # one-hot mask.  Yes, this is wasteful because we apply every aggregation to every datum.
             # TODO: make this more efficient.
             mask = torch.repeat_interleave(one_hot_types_2d[:, n], repeats=alt_count).reshape(total_alt, 1)  # 2D column tensor
-            refined_alt += mask * self.rho[n].forward(padded_transformed_alt_reads)
+            refined_alt += mask * self.aggregation[n].forward(padded_transformed_alt_reads)
 
         # weighted mean is sum of reads in a chunk divided by sum of weights in same chunk
         alt_wts = weights[total_ref:]
@@ -272,8 +264,8 @@ class BaseModel(torch.nn.Module):
         torch.save({
             constants.STATE_DICT_NAME: self.state_dict(),
             constants.HYPERPARAMS_NAME: self._params,
-            constants.NUM_READ_FEATURES_NAME: self.num_read_features(),
-            constants.NUM_INFO_FEATURES_NAME: self.num_info_features(),
+            constants.NUM_READ_FEATURES_NAME: self.initial_read_embedding.in_features,
+            constants.NUM_INFO_FEATURES_NAME: self.info_embedding.input_dimension(),
             constants.REF_SEQUENCE_LENGTH_NAME: self.ref_sequence_length()
         }, path)
 
