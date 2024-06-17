@@ -14,7 +14,7 @@ from matplotlib import pyplot as plt
 
 from permutect.architecture.mlp import MLP
 from permutect.architecture.monotonic import MonoDense
-from permutect.data.base_datum import ArtifactBatch
+from permutect.data.base_datum import ArtifactBatch, DEFAULT_TORCH_FLOAT
 from permutect.data.artifact_dataset import ArtifactDataset
 from permutect import utils, constants
 from permutect.metrics.evaluation_metrics import LossMetrics, EvaluationMetrics, NUM_COUNT_BINS, \
@@ -112,12 +112,11 @@ class ArtifactModel(nn.Module):
 
         # The [1] is for the output logit
         self.rho = MLP([num_base_features] + params.aggregation_layers + [1], batch_normalize=params.batch_normalize,
-                       dropout_p=params.dropout_p)
-        self.rho.to(self._device)
+                       dropout_p=params.dropout_p).type(DEFAULT_TORCH_FLOAT).to(self._device)
 
         # one Calibration module for each variant type; that is, calibration depends on both count and type
-        self.calibration = nn.ModuleList([Calibration(params.calibration_layers) for variant_type in Variation])
-        self.calibration.to(self._device)
+        self.calibration = nn.ModuleList([Calibration(params.calibration_layers) for variant_type in Variation])\
+            .type(DEFAULT_TORCH_FLOAT).to(self._device)
 
     def training_parameters(self):
         return chain(self.rho.parameters(), self.calibration.parameters())

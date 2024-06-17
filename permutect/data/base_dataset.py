@@ -74,7 +74,7 @@ class BaseDataset(Dataset):
             variant = Variant.from_np_array(concatenated_1d[-5:-1])
             label = utils.Label(concatenated_1d[-1])
 
-            return BaseDatum(ref_sequence_2d=self._data[bottom_index + 2],
+            return BaseDatum(ref_sequence_1d=self._data[bottom_index + 2],
                              ref_reads_2d=possible_ref if len(possible_ref) > 0 else None,
                              alt_reads_2d=self._data[bottom_index + 1],
                              info_array_1d=concatenated_1d[:-11],  # skip the six elements of counts and seq likelihoods, the 4 of variant, and the label (6 + 4 + 1 = 11)
@@ -115,7 +115,7 @@ def make_flattened_tensor_generator(base_data_generator):
     for base_datum in base_data_generator:
         yield base_datum.ref_reads_2d if base_datum.ref_reads_2d is not None else np.empty((0, 0))
         yield base_datum.alt_reads_2d
-        yield base_datum.ref_sequence_2d
+        yield base_datum.ref_sequence_1d
 
         # for efficiency, concatenate (hstack) several 1D arrays and scalars:
         # 1) the read set info array

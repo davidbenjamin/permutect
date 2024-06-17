@@ -8,7 +8,7 @@ from tqdm.autonotebook import trange, tqdm
 from permutect import utils, constants
 from permutect.architecture.dna_sequence_convolution import DNASequenceConvolution
 from permutect.architecture.mlp import MLP
-from permutect.data.base_datum import BaseBatch
+from permutect.data.base_datum import BaseBatch, DEFAULT_TORCH_FLOAT
 from permutect.data.base_dataset import BaseDataset
 from permutect.metrics.evaluation_metrics import LossMetrics
 from permutect.parameters import BaseModelParameters, TrainingParameters
@@ -34,6 +34,14 @@ class LearningMethod(Enum):
 
     # modify data via a finite set of affine transformations and train the embedding to recognize which was applied
     AFFINE_TRANSFORMATION = "affine"
+
+
+def make_transformer_encoder(params: BaseModelParameters, device: torch.device):
+    encoder_layer = torch.nn.TransformerEncoderLayer(d_model=params.read_embedding_dimension, nhead=params.num_transformer_heads,
+        batch_first=True, dim_feedforward=params.transformer_hidden_dimension, dropout=params.dropout_p)
+    encoder_norm = torch.nn.LayerNorm(params.read_embedding_dimension)
+    return torch.nn.TransformerEncoder(encoder_layer, num_layers=params.num_transformer_layers, norm=encoder_norm)\
+        .type(DEFAULT_TORCH_FLOAT).to(device)
 
 
 class BaseModel(torch.nn.Module):
@@ -70,44 +78,26 @@ class BaseModel(torch.nn.Module):
         # linear transformation to convert read tensors from their initial dimensionality
         # to the embedding dimension eg data of shape [num_batches -- optional] x num_reads x read dimension
         # maps to data of shape [num_batches] x num_reads x embedding dimension)
-        self.initial_read_embedding = torch.nn.Linear(in_features=num_read_features, out_features=params.read_embedding_dimension)
-        self.initial_read_embedding.to(self._device)
+        self.initial_read_embedding = torch.nn.Linear(in_features=num_read_features, out_features=params.read_embedding_dimension)\
+            .type(DEFAULT_TORCH_FLOAT).to(self._device)
 
-        self.read_embedding_dimension = params.read_embedding_dimension
-        self.num_transformer_heads = params.num_transformer_heads
-        self.transformer_hidden_dimension = params.transformer_hidden_dimension
-        self.num_transformer_layers = params.num_transformer_layers
-
-        alt_transformer_encoder_layer = torch.nn.TransformerEncoderLayer(d_model=params.read_embedding_dimension,
-            nhead=params.num_transformer_heads, batch_first=True, dim_feedforward=params.transformer_hidden_dimension, dropout=params.dropout_p)
-        alt_encoder_norm = torch.nn.LayerNorm(params.read_embedding_dimension)
-        self.alt_transformer_encoder = torch.nn.TransformerEncoder(alt_transformer_encoder_layer, num_layers=params.num_transformer_layers, norm=alt_encoder_norm)
-        self.alt_transformer_encoder.to(self._device)
-
-        ref_transformer_encoder_layer = torch.nn.TransformerEncoderLayer(d_model=params.read_embedding_dimension,
-             nhead=params.num_transformer_heads, batch_first=True, dim_feedforward=params.transformer_hidden_dimension, dropout=params.dropout_p)
-        ref_encoder_norm = torch.nn.LayerNorm(params.read_embedding_dimension)
-        self.ref_transformer_encoder = torch.nn.TransformerEncoder(ref_transformer_encoder_layer, num_layers=params.num_transformer_layers, norm=ref_encoder_norm)
-        self.ref_transformer_encoder.to(self._device)
+        self.alt_transformer_encoder = make_transformer_encoder(params, self._device)
+        self.ref_transformer_encoder = make_transformer_encoder(params, self._device)
 
         # omega is the embedding of info field variant-level data
         info_layers = [self._num_info_features] + params.info_layers
-        self.omega = MLP(info_layers, batch_normalize=params.batch_normalize, dropout_p=params.dropout_p)
-        self.omega.to(self._device)
+        self.omega = MLP(info_layers, batch_normalize=params.batch_normalize, dropout_p=params.dropout_p)\
+            .type(DEFAULT_TORCH_FLOAT).to(self._device)
 
-        self.ref_seq_cnn = DNASequenceConvolution(params.ref_seq_layer_strings, ref_sequence_length)
-        self.ref_seq_cnn.to(self._device)
+        self.ref_seq_cnn = DNASequenceConvolution(params.ref_seq_layer_strings, ref_sequence_length)\
+            .type(DEFAULT_TORCH_FLOAT).to(self._device)
 
         # rho is the aggregation function that combines read, info, and sequence tensors and maps to the output representation
-        ref_alt_info_ref_seq_embedding_dimension = 2 * self.read_embedding_dimension + self.omega.output_dimension() + self.ref_seq_cnn.output_dimension()
+        ref_alt_info_ref_seq_embedding_dimension = 2 * params.read_embedding_dimension + self.omega.output_dimension() + self.ref_seq_cnn.output_dimension()
 
-        # we have a different aggregation subnetwork for each variant type.  Everything below, in particular the read
-        # transformers, is shared
-        # The [1] is for the output of binary classification, represented as a single artifact/non-artifact logit
-        self._output_dimension = params.aggregation_layers[-1]
+        # Each variant type has its own aggregation. Earlier layers, in particular the read transformers, are shared
         self.rho = torch.nn.ModuleList([MLP([ref_alt_info_ref_seq_embedding_dimension] + params.aggregation_layers, batch_normalize=params.batch_normalize,
-                       dropout_p=params.dropout_p) for variant_type in Variation])
-        self.rho.to(self._device)
+                       dropout_p=params.dropout_p) for variant_type in Variation]).type(DEFAULT_TORCH_FLOAT).to(self._device)
 
     def num_read_features(self) -> int:
         return self._num_read_features
@@ -116,7 +106,7 @@ class BaseModel(torch.nn.Module):
         return self._num_info_features
 
     def output_dimension(self) -> int:
-        return self._output_dimension
+        return self.rho[0].output_dimension()
 
     def ref_sequence_length(self) -> int:
         return self._ref_sequence_length
@@ -146,8 +136,8 @@ class BaseModel(torch.nn.Module):
         # between read sets or mix ref and alt.
         ref_count, alt_count = batch.ref_count, batch.alt_count
         total_ref, total_alt = ref_count * batch.size(), alt_count * batch.size()
-        ref_reads_3d = None if total_ref == 0 else initial_embedded_reads[:total_ref].reshape(batch.size(), ref_count, self.read_embedding_dimension)
-        alt_reads_3d = initial_embedded_reads[total_ref:].reshape(batch.size(), alt_count, self.read_embedding_dimension)
+        ref_reads_3d = None if total_ref == 0 else initial_embedded_reads[:total_ref].reshape(batch.size(), ref_count, -1)
+        alt_reads_3d = initial_embedded_reads[total_ref:].reshape(batch.size(), alt_count, -1)
 
         if self.alt_downsample < alt_count:
             alt_read_indices = torch.randperm(alt_count)[:self.alt_downsample]
@@ -155,8 +145,8 @@ class BaseModel(torch.nn.Module):
             total_alt = batch.size() * self.alt_downsample
 
         # undo some of the above rearrangement
-        transformed_alt_reads_2d = self.alt_transformer_encoder(alt_reads_3d).reshape(total_alt, self.read_embedding_dimension)
-        transformed_ref_reads_2d = None if total_ref == 0 else self.ref_transformer_encoder(ref_reads_3d).reshape(total_ref, self.read_embedding_dimension)
+        transformed_alt_reads_2d = self.alt_transformer_encoder(alt_reads_3d).reshape(total_alt, -1)
+        transformed_ref_reads_2d = None if total_ref == 0 else self.ref_transformer_encoder(ref_reads_3d).reshape(total_ref, -1)
 
         transformed_reads_2d = transformed_alt_reads_2d if total_ref == 0 else \
             torch.vstack([transformed_ref_reads_2d, transformed_alt_reads_2d])
@@ -185,7 +175,7 @@ class BaseModel(torch.nn.Module):
         padded_transformed_alt_reads = torch.hstack([transformed_reads[total_ref:], extra_tensor_2d])
 
         # now we refine the alt reads -- no need to separate between read sets yet as this broadcasts over every read
-        refined_alt = torch.zeros(total_alt, self._output_dimension)
+        refined_alt = torch.zeros(total_alt, self.output_dimension())
         one_hot_types_2d = batch.variant_type_one_hot()
         for n, _ in enumerate(Variation):
             # multiply the result of this variant type's aggregation layers by its
@@ -209,7 +199,7 @@ class BaseModel(torch.nn.Module):
 
         # TODO: use Python's match syntax, but this requires updating Python version in the docker
         if learning_method == LearningMethod.SUPERVISED or learning_method == LearningMethod.SEMISUPERVISED:
-            top_layer = torch.nn.Linear(in_features=self._output_dimension, out_features=1)
+            top_layer = torch.nn.Linear(in_features=self.output_dimension(), out_features=1)
         else:
             raise Exception("not implemented yet")
 
