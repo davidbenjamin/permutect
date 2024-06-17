@@ -103,7 +103,7 @@ class ArtifactModel(nn.Module):
     because we have different output layers for each variant type.
     """
 
-    def __init__(self, params: ArtifactModelParameters, num_base_features: int, device=utils.gpu_if_available(), float_type=DEFAULT_GPU_FLOAT):
+    def __init__(self, params: ArtifactModelParameters, num_base_features: int, device=utils.gpu_if_available()):
         super(ArtifactModel, self).__init__()
 
         self._device = device
