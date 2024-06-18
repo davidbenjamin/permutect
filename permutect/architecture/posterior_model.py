@@ -71,17 +71,12 @@ class PosteriorModel(torch.nn.Module):
     """
 
     """
-    def __init__(self, variant_log_prior: float, artifact_log_prior: float, segmentation=defaultdict(IntervalTree),
-                 normal_segmentation=defaultdict(IntervalTree), no_germline_mode: bool = False, device=utils.gpu_if_available()):
+    def __init__(self, variant_log_prior: float, artifact_log_prior: float, no_germline_mode: bool = False, device=utils.gpu_if_available()):
         super(PosteriorModel, self).__init__()
 
         self._device = device
         self._dtype = DEFAULT_GPU_FLOAT if device != torch.device("cpu") else DEFAULT_CPU_FLOAT
         self.no_germline_mode = no_germline_mode
-
-        # TODO: might as well give the normal segmentation as well
-        self.segmentation = segmentation
-        self.normal_segmentation = normal_segmentation
 
         # TODO introduce parameters class so that num_components is not hard-coded
         # featureless because true variant types share a common AF spectrum
@@ -185,18 +180,12 @@ class PosteriorModel(torch.nn.Module):
         normal_log_likelihoods[:, Call.NORMAL_ARTIFACT] = -9999 * no_alt_in_normal_mask + \
             torch.logical_not(no_alt_in_normal_mask) * self.normal_artifact_spectra.forward(types, batch.normal_depths, batch.normal_alt_counts)
 
-        # since this is a default dict, if there's no segmentation for the contig we will get no overlaps but not an error
-        # In our case there is either one or zero overlaps, and overlaps have the form
-        segmentation_overlaps = [self.segmentation[item.contig][item.position] for item in batch.original_list()]
-        normal_segmentation_overlaps = [self.normal_segmentation[item.contig][item.position] for item in batch.original_list()]
-        mafs = torch.Tensor([list(overlaps)[0].data if overlaps else 0.5 for overlaps in segmentation_overlaps])
-        normal_mafs = torch.Tensor([list(overlaps)[0].data if overlaps else 0.5 for overlaps in normal_segmentation_overlaps])
         afs = batch.allele_frequencies
-        spectra_log_likelihoods[:, Call.GERMLINE] = germline_log_likelihood(afs, mafs, batch.alt_counts, batch.ref_counts()) - flat_prior_spectra_log_likelihoods
+        spectra_log_likelihoods[:, Call.GERMLINE] = germline_log_likelihood(afs, batch.mafs, batch.alt_counts, batch.ref_counts()) - flat_prior_spectra_log_likelihoods
 
         # it is correct not to subtract the flat prior likelihood from the normal term because this is an absolute likelihood, not
         # relative to seq error as the M2 TLOD is defined
-        normal_log_likelihoods[:, Call.GERMLINE] = germline_log_likelihood(afs, normal_mafs, batch.normal_alt_counts, batch.normal_ref_counts())
+        normal_log_likelihoods[:, Call.GERMLINE] = germline_log_likelihood(afs, batch.normal_mafs, batch.normal_alt_counts, batch.normal_ref_counts())
 
         log_posteriors = log_priors + spectra_log_likelihoods + normal_log_likelihoods
         log_posteriors[:, Call.ARTIFACT] += batch.artifact_logits
