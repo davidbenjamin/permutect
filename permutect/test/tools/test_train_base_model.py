@@ -14,7 +14,7 @@ def test_train_base_model():
     training_tensorboard_dir = tempfile.TemporaryDirectory()
 
     train_model_args = Namespace()
-    setattr(train_model_args, constants.READ_LAYERS_NAME, [10,10,10])
+    setattr(train_model_args, constants.READ_LAYERS_NAME, [10, 10, 10])
     setattr(train_model_args, constants.NUM_TRANSFORMER_HEADS_NAME, 3)
     setattr(train_model_args, constants.TRANSFORMER_HIDDEN_DIMENSION_NAME, 20)
     setattr(train_model_args, constants.NUM_TRANSFORMER_LAYERS_NAME, 2)
