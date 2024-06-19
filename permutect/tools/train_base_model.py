@@ -19,7 +19,7 @@ def train_base_model(params: BaseModelParameters, training_params: TrainingParam
 
 
 def main_without_parsing(args):
-    hyperparams = parse_base_model_params(args)
+    params = parse_base_model_params(args)
     training_params = parse_training_params(args)
 
     tarfile_data = getattr(args, constants.TRAIN_TAR_NAME)
@@ -28,7 +28,7 @@ def main_without_parsing(args):
     tensorboard_dir = getattr(args, constants.TENSORBOARD_DIR_NAME)
     summary_writer = SummaryWriter(tensorboard_dir)
     dataset = BaseDataset(data_tarfile=tarfile_data, num_folds=10)
-    model = train_base_model(params=hyperparams, dataset=dataset, training_params=training_params,
+    model = train_base_model(params=params, dataset=dataset, training_params=training_params,
                              summary_writer=summary_writer, pretrained_model=pretrained_model)
 
     summary_writer.close()

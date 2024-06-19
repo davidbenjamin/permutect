@@ -12,7 +12,7 @@ INPUT_NAME = 'input'
 OUTPUT_NAME = 'output'
 OUTPUT_DIR_NAME = 'output_dir'
 
-READ_EMBEDDING_DIMENSION_NAME = 'read_embedding_dimension'
+READ_LAYERS_NAME = 'read_layers'
 NUM_TRANSFORMER_HEADS_NAME = 'num_transformer_heads'
 TRANSFORMER_HIDDEN_DIMENSION_NAME = 'transformer_hidden_dimension'
 NUM_TRANSFORMER_LAYERS_NAME = 'num_transformer_layers'

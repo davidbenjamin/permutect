@@ -11,7 +11,7 @@ workflow TrainPermutectBaseModel {
         Float dropout_p
         Int? alt_downsample
         Float reweighting_range
-        Int read_embedding_dimension
+        Array[Int] read_layers
         Int num_transformer_heads
         Int transformer_hidden_dimension
         Int num_transformer_layers
@@ -40,7 +40,7 @@ workflow TrainPermutectBaseModel {
                 dropout_p = dropout_p,
                 alt_downsample = alt_downsample,
                 reweighting_range = reweighting_range,
-                read_embedding_dimension = read_embedding_dimension,
+                read_layers = read_layers,
                 num_transformer_heads = num_transformer_heads,
                 transformer_hidden_dimension = transformer_hidden_dimension,
                 num_transformer_layers = num_transformer_layers,
@@ -65,7 +65,7 @@ workflow TrainPermutectBaseModel {
                 dropout_p = dropout_p,
                 alt_downsample = alt_downsample,
                 reweighting_range = reweighting_range,
-                read_embedding_dimension = read_embedding_dimension,
+                read_layers = read_layers,
                 num_transformer_heads = num_transformer_heads,
                 transformer_hidden_dimension = transformer_hidden_dimension,
                 num_transformer_layers = num_transformer_layers,
@@ -96,7 +96,7 @@ task TrainPermutectBaseGPU {
         Float dropout_p
         Int? alt_downsample
         Float reweighting_range
-        Int read_embedding_dimension
+        Array[Int] read_layers
         Int num_transformer_heads
         Int transformer_hidden_dimension
         Int num_transformer_layers
@@ -125,7 +125,7 @@ task TrainPermutectBaseGPU {
         train_base_model \
             --train_tar ~{train_tar} \
             ~{"--pretrained_model " + pretrained_model} \
-            --read_embedding_dimension ~{read_embedding_dimension} \
+            --read_layers ~{sep=' ' read_layers} \
             --num_transformer_heads ~{num_transformer_heads} \
             --transformer_hidden_dimension ~{transformer_hidden_dimension} \
             --num_transformer_layers ~{num_transformer_layers} \
@@ -174,7 +174,7 @@ task TrainPermutectBaseCPU {
         Float dropout_p
         Int? alt_downsample
         Float reweighting_range
-        Int read_embedding_dimension
+        Array[Int] read_layers
         Int num_transformer_heads
         Int transformer_hidden_dimension
         Int num_transformer_layers
@@ -202,7 +202,7 @@ task TrainPermutectBaseCPU {
         train_base_model \
             --train_tar ~{train_tar} \
             ~{"--pretrained_model " + pretrained_model} \
-            --read_embedding_dimension ~{read_embedding_dimension} \
+            --read_layers ~{sep=' ' read_layers} \
             --num_transformer_heads ~{num_transformer_heads} \
             --transformer_hidden_dimension ~{transformer_hidden_dimension} \
             --num_transformer_layers ~{num_transformer_layers} \
