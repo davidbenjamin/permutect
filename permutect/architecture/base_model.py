@@ -143,7 +143,7 @@ class BaseModel(torch.nn.Module):
         normalized_alt_weights_vr1 = (alt_weights_vr / alt_wt_sums).reshape(batch.size(), alt_count, 1)
         alt_means_ve = torch.sum(transformed_alt_vre * normalized_alt_weights_vr1, dim=1)
 
-        concat_ve = torch.hstack(alt_means_ve, all_read_means_ve)
+        concat_ve = torch.hstack((alt_means_ve, all_read_means_ve))
         result_ve = self.aggregation.forward(concat_ve)
 
         return result_ve
