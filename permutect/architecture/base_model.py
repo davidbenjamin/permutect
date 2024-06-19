@@ -232,7 +232,7 @@ class BaseModel(torch.nn.Module):
         torch.save({
             constants.STATE_DICT_NAME: self.state_dict(),
             constants.HYPERPARAMS_NAME: self._params,
-            constants.NUM_READ_FEATURES_NAME: self.read_embedding.in_features,
+            constants.NUM_READ_FEATURES_NAME: self.read_embedding.input_dimension(),
             constants.NUM_INFO_FEATURES_NAME: self.info_embedding.input_dimension(),
             constants.REF_SEQUENCE_LENGTH_NAME: self.ref_sequence_length()
         }, path)
