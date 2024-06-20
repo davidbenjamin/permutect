@@ -14,11 +14,11 @@ def test_train_base_model():
     training_tensorboard_dir = tempfile.TemporaryDirectory()
 
     train_model_args = Namespace()
-    setattr(train_model_args, constants.READ_EMBEDDING_DIMENSION_NAME, 18)
+    setattr(train_model_args, constants.READ_LAYERS_NAME, [10, 10, 10])
     setattr(train_model_args, constants.NUM_TRANSFORMER_HEADS_NAME, 3)
     setattr(train_model_args, constants.TRANSFORMER_HIDDEN_DIMENSION_NAME, 20)
     setattr(train_model_args, constants.NUM_TRANSFORMER_LAYERS_NAME, 2)
-    setattr(train_model_args, constants.INFO_LAYERS_NAME, [20, 20])
+    setattr(train_model_args, constants.INFO_LAYERS_NAME, [10, 10])
     setattr(train_model_args, constants.AGGREGATION_LAYERS_NAME, [20, 20, 20])
     cnn_layer_strings = ['convolution/kernel_size=3/out_channels=64',
                      'pool/kernel_size=2',

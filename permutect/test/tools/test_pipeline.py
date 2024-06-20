@@ -29,7 +29,7 @@ def test_on_dream1():
 
     # STEP 2: train a model
     train_model_args = Namespace()
-    setattr(train_model_args, constants.READ_EMBEDDING_DIMENSION_NAME, 18)
+    setattr(train_model_args, constants.READ_LAYERS_NAME, [10, 10, 10])
     setattr(train_model_args, constants.NUM_TRANSFORMER_HEADS_NAME, 3)
     setattr(train_model_args, constants.TRANSFORMER_HIDDEN_DIMENSION_NAME, 20)
     setattr(train_model_args, constants.NUM_TRANSFORMER_LAYERS_NAME, 3)

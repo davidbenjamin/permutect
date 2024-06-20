@@ -36,10 +36,10 @@ class LearningMethod(Enum):
     AFFINE_TRANSFORMATION = "affine"
 
 
-def make_transformer_encoder(params: BaseModelParameters):
-    encoder_layer = torch.nn.TransformerEncoderLayer(d_model=params.read_embedding_dimension, nhead=params.num_transformer_heads,
-        batch_first=True, dim_feedforward=params.transformer_hidden_dimension, dropout=params.dropout_p)
-    encoder_norm = torch.nn.LayerNorm(params.read_embedding_dimension)
+def make_transformer_encoder(input_dimension: int, params: BaseModelParameters):
+    encoder_layer = torch.nn.TransformerEncoderLayer(d_model=input_dimension, nhead=params.num_transformer_heads,
+                                                     batch_first=True, dim_feedforward=params.transformer_hidden_dimension, dropout=params.dropout_p)
+    encoder_norm = torch.nn.LayerNorm(input_dimension)
     return torch.nn.TransformerEncoder(encoder_layer, num_layers=params.num_transformer_layers, norm=encoder_norm)
 
 
@@ -73,31 +73,25 @@ class BaseModel(torch.nn.Module):
         self._params = params
         self.alt_downsample = params.alt_downsample
 
-        # linear transformation to convert read tensors from their initial dimensionality
-        # to the embedding dimension eg data of shape [num_batches -- optional] x num_reads x read dimension
-        # maps to data of shape [num_batches] x num_reads x embedding dimension)
-        self.initial_read_embedding = torch.nn.Linear(in_features=num_read_features, out_features=params.read_embedding_dimension)
-
-        self.alt_transformer_encoder = make_transformer_encoder(params)
-        self.ref_transformer_encoder = make_transformer_encoder(params)
-
-        # omega is the embedding of info field variant-level data
-        info_layers = [num_info_features] + params.info_layers
-        self.info_embedding = MLP(info_layers, batch_normalize=params.batch_normalize, dropout_p=params.dropout_p)
-
+        # embeddings of reads, info, and reference sequence prior to the transformer layers
+        self.read_embedding = MLP([num_read_features] + params.read_layers, batch_normalize=params.batch_normalize, dropout_p=params.dropout_p)
+        self.info_embedding = MLP([num_info_features] + params.info_layers, batch_normalize=params.batch_normalize, dropout_p=params.dropout_p)
         self.ref_seq_cnn = DNASequenceConvolution(params.ref_seq_layer_strings, ref_sequence_length)
 
-        # rho is the aggregation function that combines read, info, and sequence tensors and maps to the output representation
-        ref_alt_info_ref_seq_embedding_dimension = 2 * params.read_embedding_dimension + self.info_embedding.output_dimension() + self.ref_seq_cnn.output_dimension()
+        embedding_dim = self.read_embedding.output_dimension() + self.info_embedding.output_dimension() + self.ref_seq_cnn.output_dimension()
+        assert embedding_dim % params.num_transformer_heads == 0
 
-        # Each variant type has its own aggregation. Earlier layers, in particular the read transformers, are shared
-        self.aggregation = torch.nn.ModuleList([MLP([ref_alt_info_ref_seq_embedding_dimension] + params.aggregation_layers, batch_normalize=params.batch_normalize,
-                                                    dropout_p=params.dropout_p) for variant_type in Variation])
+        self.alt_transformer_encoder = make_transformer_encoder(embedding_dim, params)
+        self.ref_transformer_encoder = make_transformer_encoder(embedding_dim, params)
+
+        # after passing alt and ref reads (along with info and ref seq embeddings) through transformers, concatenate and
+        # pass through another MLP
+        self.aggregation = MLP([2 * embedding_dim] + params.aggregation_layers, batch_normalize=params.batch_normalize, dropout_p=params.dropout_p)
 
         self.to(device=self._device, dtype=self._dtype)
 
     def output_dimension(self) -> int:
-        return self.aggregation[0].output_dimension()
+        return self.aggregation.output_dimension()
 
     def ref_sequence_length(self) -> int:
         return self._ref_sequence_length
@@ -110,75 +104,50 @@ class BaseModel(torch.nn.Module):
             self.train(False)
             utils.freeze(self.parameters())
 
-    # return 2D tensor of shape (batch size x output dimension)
-    def calculate_representations(self, batch: BaseBatch, weight_range: float = 0) -> torch.Tensor:
-        transformed_reads = self.apply_transformer_to_reads(batch)
-        return self.representations_from_transformed_reads(transformed_reads, batch, weight_range)
-
     # I really don't like the forward method of torch.nn.Module with its implicit calling that PyCharm doesn't recognize
     def forward(self, batch: BaseBatch):
         pass
 
-    def apply_transformer_to_reads(self, batch: BaseBatch) -> torch.Tensor:
-        initial_embedded_reads = self.initial_read_embedding(batch.get_reads_2d().to(device=self._device, dtype=self._dtype))
-
-        # rearrange the 2D tensor where each row is a read  into two 3D tensors of shape
-        # (batch_size x batch alt/ref count x read embedding dimension), so that teh transformer doesn't mix
-        # between read sets or mix ref and alt.
+    # here 'v' means "variant index within a batch", 'r' means "read index within a variant or the batch", 'e' means "index within an embedding"
+    # so, for example, "re" means a 2D tensor with all reads in the batch stacked and "vre" means a 3D tensor indexed
+    # first by variant within the batch, then the read
+    def calculate_representations(self, batch: BaseBatch, weight_range: float = 0) -> torch.Tensor:
         ref_count, alt_count = batch.ref_count, batch.alt_count
         total_ref, total_alt = ref_count * batch.size(), alt_count * batch.size()
-        ref_reads_3d = None if total_ref == 0 else initial_embedded_reads[:total_ref].reshape(batch.size(), ref_count, -1)
-        alt_reads_3d = initial_embedded_reads[total_ref:].reshape(batch.size(), alt_count, -1)
+
+        read_embeddings_re = self.read_embedding.forward(batch.get_reads_2d().to(device=self._device, dtype=self._dtype))
+        info_embeddings_ve = self.info_embedding.forward(batch.get_info_2d().to(device=self._device, dtype=self._dtype))
+        ref_seq_embeddings_ve = self.ref_seq_cnn(batch.get_ref_sequences_2d().to(device=self._device, dtype=self._dtype))
+        info_and_seq_ve = torch.hstack((info_embeddings_ve, ref_seq_embeddings_ve))
+        info_and_seq_re = torch.vstack((torch.repeat_interleave(info_and_seq_ve, ref_count, dim=0),
+                                       torch.repeat_interleave(info_and_seq_ve, alt_count, dim=0)))
+        reads_info_seq_re = torch.hstack((read_embeddings_re, info_and_seq_re))
+        ref_reads_info_seq_vre = None if total_ref == 0 else reads_info_seq_re[:total_ref].reshape(batch.size(), ref_count, -1)
+        alt_reads_info_seq_vre = reads_info_seq_re[total_ref:].reshape(batch.size(), alt_count, -1)
 
         if self.alt_downsample < alt_count:
             alt_read_indices = torch.randperm(alt_count)[:self.alt_downsample]
-            alt_reads_3d = alt_reads_3d[:, alt_read_indices, :]   # downsample only along the middle (read) dimension
+            alt_reads_info_seq_vre = alt_reads_info_seq_vre[:, alt_read_indices, :]   # downsample only along the middle (read) dimension
+            alt_count = self.alt_downsample
             total_alt = batch.size() * self.alt_downsample
 
         # undo some of the above rearrangement
-        transformed_alt_reads_2d = self.alt_transformer_encoder(alt_reads_3d).reshape(total_alt, -1)
-        transformed_ref_reads_2d = None if total_ref == 0 else self.ref_transformer_encoder(ref_reads_3d).reshape(total_ref, -1)
+        transformed_alt_vre = self.alt_transformer_encoder(alt_reads_info_seq_vre)
+        transformed_ref_vre = None if total_ref == 0 else self.ref_transformer_encoder(ref_reads_info_seq_vre)
 
-        transformed_reads_2d = transformed_alt_reads_2d if total_ref == 0 else \
-            torch.vstack([transformed_ref_reads_2d, transformed_alt_reads_2d])
+        all_read_means_ve = ((0 if ref_count == 0 else torch.sum(transformed_ref_vre, dim=1)) + torch.sum(transformed_alt_vre, dim=1)) / (alt_count + ref_count)
 
-        return transformed_reads_2d
+        alt_weights_vr = 1 + weight_range * (1 - 2 * torch.rand(batch.size(), alt_count, device=self._device, dtype=self._dtype))
+        alt_wt_sums = torch.sum(alt_weights_vr, dim=1, keepdim=True)
+        # normalized so read weights within each variant sum to 1 and add dummy e dimension for broadcasting the multiply below
+        normalized_alt_weights_vr1 = (alt_weights_vr / alt_wt_sums).reshape(batch.size(), alt_count, 1)
+        alt_means_ve = torch.sum(transformed_alt_vre * normalized_alt_weights_vr1, dim=1)
 
-    # input: reads that have passed through the alt/ref transformers
-    # output: reads that have been refined through the rho subnetwork that sees the transformed alts along with ref, alt, and info
-    def representations_from_transformed_reads(self, transformed_reads: torch.Tensor, batch: BaseBatch, weight_range: float = 0):
-        weights = torch.ones(len(transformed_reads), 1, device=self._device, dtype=self._dtype) if weight_range == 0 else (1 + weight_range * (1 - 2 * torch.rand(len(transformed_reads), 1, device=self._device)))
+        concat_ve = torch.hstack((alt_means_ve, all_read_means_ve))
+        result_ve = self.aggregation.forward(concat_ve)
 
-        ref_count, alt_count = batch.ref_count, min(batch.alt_count, self.alt_downsample)
-        total_ref, total_alt = ref_count * batch.size(), alt_count * batch.size()
+        return result_ve
 
-        # mean embedding of every read, alt and ref, at each datum
-        all_read_means = ((0 if ref_count == 0 else sums_over_chunks(transformed_reads[:total_ref], ref_count)) + sums_over_chunks(transformed_reads[total_ref:], alt_count)) / (alt_count + ref_count)
-        info_embedding = self.info_embedding.forward(batch.get_info_2d().to(device=self._device, dtype=self._dtype))
-        ref_seq_embedding = self.ref_seq_cnn(batch.get_ref_sequences_2d().to(device=self._device, dtype=self._dtype))
-
-        # take the all-read-average / info embedding / ref seq embedding of each read set in the batch and
-        # concatenate a copy next to each transformed alt in the set
-        extra_tensor_2d = torch.hstack([all_read_means, info_embedding, ref_seq_embedding])     # shape is (batch size, ___)
-        extra_tensor_2d = torch.repeat_interleave(extra_tensor_2d, repeats=alt_count, dim=0)    # shape is (batch size * alt count, ___)
-
-        # the alt reads have not been averaged yet to we need to copy each row of the extra tensor batch.alt_count times
-        padded_transformed_alt_reads = torch.hstack([transformed_reads[total_ref:], extra_tensor_2d])
-
-        # now we refine the alt reads -- no need to separate between read sets yet as this broadcasts over every read
-        refined_alt = torch.zeros(total_alt, self.output_dimension(), device=self._device, dtype=self._dtype)
-        one_hot_types_2d = batch.variant_type_one_hot().to(device=self._device, dtype=self._dtype)
-        for n, _ in enumerate(Variation):
-            # multiply the result of this variant type's aggregation layers by its
-            # one-hot mask.  Yes, this is wasteful because we apply every aggregation to every datum.
-            # TODO: make this more efficient.
-            mask = torch.repeat_interleave(one_hot_types_2d[:, n], repeats=alt_count).reshape(total_alt, 1)  # 2D column tensor
-            refined_alt += mask * self.aggregation[n].forward(padded_transformed_alt_reads)
-
-        # weighted mean is sum of reads in a chunk divided by sum of weights in same chunk
-        alt_wts = weights[total_ref:]
-        alt_wt_sums = sums_over_chunks(alt_wts, alt_count)
-        return sums_over_chunks(alt_wts * refined_alt, alt_count) / alt_wt_sums     # shape is (batch size, output dimension)
 
     # TODO: we need to attach an MLP on top of the embedding model to output logits, then train this combination
     # TODO: actually, this can be the framework of a LOT of different ways to train.  There's a ton of overlap.  There's always going to
@@ -263,7 +232,7 @@ class BaseModel(torch.nn.Module):
         torch.save({
             constants.STATE_DICT_NAME: self.state_dict(),
             constants.HYPERPARAMS_NAME: self._params,
-            constants.NUM_READ_FEATURES_NAME: self.initial_read_embedding.in_features,
+            constants.NUM_READ_FEATURES_NAME: self.read_embedding.input_dimension(),
             constants.NUM_INFO_FEATURES_NAME: self.info_embedding.input_dimension(),
             constants.REF_SEQUENCE_LENGTH_NAME: self.ref_sequence_length()
         }, path)

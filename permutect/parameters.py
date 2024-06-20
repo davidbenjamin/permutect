@@ -12,19 +12,17 @@ class BaseModelParameters:
         of the read_embedding_dimension
     num_transformer_layers: number of layers of read transformer
     """
-    def __init__(self, read_embedding_dimension: int, num_transformer_heads: int, transformer_hidden_dimension: int,
+    def __init__(self, read_layers: List[int], num_transformer_heads: int, transformer_hidden_dimension: int,
                  num_transformer_layers: int, info_layers: List[int], aggregation_layers: List[int],
                  ref_seq_layers_strings: List[str], dropout_p: float, reweighting_range: float, batch_normalize: bool = False, alt_downsample: int = 100):
 
-        assert read_embedding_dimension % num_transformer_heads == 0
-
-        self.read_embedding_dimension = read_embedding_dimension
+        self.read_layers = read_layers
+        self.info_layers = info_layers
+        self.ref_seq_layer_strings = ref_seq_layers_strings
         self.num_transformer_heads = num_transformer_heads
         self.transformer_hidden_dimension = transformer_hidden_dimension
         self.num_transformer_layers = num_transformer_layers
-        self.info_layers = info_layers
         self.aggregation_layers = aggregation_layers
-        self.ref_seq_layer_strings = ref_seq_layers_strings
         self.dropout_p = dropout_p
         self.reweighting_range = reweighting_range
         self.batch_normalize = batch_normalize
@@ -32,27 +30,27 @@ class BaseModelParameters:
 
 
 def parse_base_model_params(args) -> BaseModelParameters:
-    read_embedding_dimension = getattr(args, constants.READ_EMBEDDING_DIMENSION_NAME)
+    read_layers = getattr(args, constants.READ_LAYERS_NAME)
+    info_layers = getattr(args, constants.INFO_LAYERS_NAME)
+    ref_seq_layer_strings = getattr(args, constants.REF_SEQ_LAYER_STRINGS_NAME)
     num_transformer_heads = getattr(args, constants.NUM_TRANSFORMER_HEADS_NAME)
     transformer_hidden_dimension = getattr(args, constants.TRANSFORMER_HIDDEN_DIMENSION_NAME)
     num_transformer_layers = getattr(args, constants.NUM_TRANSFORMER_LAYERS_NAME)
-
-    info_layers = getattr(args, constants.INFO_LAYERS_NAME)
     aggregation_layers = getattr(args, constants.AGGREGATION_LAYERS_NAME)
-    ref_seq_layer_strings = getattr(args, constants.REF_SEQ_LAYER_STRINGS_NAME)
     dropout_p = getattr(args, constants.DROPOUT_P_NAME)
     reweighting_range = getattr(args, constants.REWEIGHTING_RANGE_NAME)
     batch_normalize = getattr(args, constants.BATCH_NORMALIZE_NAME)
     alt_downsample = getattr(args, constants.ALT_DOWNSAMPLE_NAME)
-    return BaseModelParameters(read_embedding_dimension, num_transformer_heads, transformer_hidden_dimension,
+    return BaseModelParameters(read_layers, num_transformer_heads, transformer_hidden_dimension,
                                num_transformer_layers, info_layers, aggregation_layers, ref_seq_layer_strings, dropout_p,
                                reweighting_range, batch_normalize, alt_downsample)
 
 
 def add_base_model_params_to_parser(parser):
     parser.add_argument('--' + constants.PRETRAINED_MODEL_NAME, required=False, type=str, help='optional pretrained base model to initialize training')
-    parser.add_argument('--' + constants.READ_EMBEDDING_DIMENSION_NAME, type=int, required=True,
-                        help='dimension of read embedding output by the transformer')
+    parser.add_argument('--' + constants.READ_LAYERS_NAME, nargs='+', type=int, required=True,
+                        help='dimensions of hidden layers in the read embedding subnetwork, including the dimension of the embedding itself.  '
+                             'Negative values indicate residual skip connections')
     parser.add_argument('--' + constants.NUM_TRANSFORMER_HEADS_NAME, type=int, required=True,
                         help='number of transformer self-attention heads')
     parser.add_argument('--' + constants.TRANSFORMER_HIDDEN_DIMENSION_NAME, type=int, required=True,
