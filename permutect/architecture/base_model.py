@@ -1,5 +1,7 @@
+from abc import ABC, abstractmethod
 from enum import Enum
 from itertools import chain
+from typing import List
 
 import torch
 from torch.utils.tensorboard import SummaryWriter
@@ -12,7 +14,6 @@ from permutect.data.base_datum import BaseBatch, DEFAULT_GPU_FLOAT, DEFAULT_CPU_
 from permutect.data.base_dataset import BaseDataset
 from permutect.metrics.evaluation_metrics import LossMetrics
 from permutect.parameters import BaseModelParameters, TrainingParameters
-from permutect.utils import Variation
 
 
 # group rows into consecutive chunks to yield a 3D tensor, average over dim=1 to get
@@ -34,6 +35,49 @@ class LearningMethod(Enum):
 
     # modify data via a finite set of affine transformations and train the embedding to recognize which was applied
     AFFINE_TRANSFORMATION = "affine"
+
+
+# outputs a 1D tensor of losses over the batch
+class BaseModelLearningStrategy(ABC):
+    @abstractmethod
+    def loss_function(self, base_model: BaseModel, base_batch: BaseBatch):
+        pass
+
+
+class BaseModelSemiSupervisedLoss(torch.nn.Module, BaseModelLearningStrategy):
+    def __init__(self, input_dim: int, hidden_top_layers: List[int], params: BaseModelParameters,
+                 artifact_to_non_artifact_log_prior_ratios, labeled_to_unlabeled_ratio):
+        super(BaseModelSemiSupervisedLoss, self).__init__()
+        self.weight_range = params.reweighting_range
+        self.artifact_to_non_artifact_log_prior_ratios = artifact_to_non_artifact_log_prior_ratios
+        self.labeled_to_unlabeled_ratio = labeled_to_unlabeled_ratio
+
+        self.bce = torch.nn.BCEWithLogitsLoss(reduction='none')  # no reduction because we may want to first multiply by weights for unbalanced data
+
+        # go from base model output representation to artifact logit for supervised loss
+        self.logit_predictor = MLP([input_dim] + hidden_top_layers + [1], batch_normalize=params.batch_normalize, dropout_p=params.dropout_p)
+
+    def loss_function(self, base_model: BaseModel, base_batch: BaseBatch):
+        representations = base_model.calculate_representations(base_batch, self.weight_range)
+        logits = self.logit_predictor.foward(representations)
+
+        types_one_hot = base_batch.variant_type_one_hot()
+        log_prior_ratios = torch.sum(self.artifact_to_non_artifact_log_prior_ratios * types_one_hot, dim=1)
+        posterior_logits = logits + log_prior_ratios
+
+        if base_batch.is_labeled():
+            return self.bce(posterior_logits, base_batch.labels)
+        else:
+            # unlabeled loss: entropy regularization
+            posterior_probabilities = torch.sigmoid(posterior_logits)
+            entropies = self.bce(posterior_logits, posterior_probabilities, reduction='none')
+
+            # TODO: we need a parameter to control the relative weight of unlabeled loss to labeled loss
+            return entropies * self.labeled_to_unlabeled_ratio
+
+    # I don't like implicit forward!!
+    def forward(self):
+        pass
 
 
 def make_transformer_encoder(input_dimension: int, params: BaseModelParameters):
@@ -157,28 +201,34 @@ class BaseModel(torch.nn.Module):
               summary_writer: SummaryWriter, validation_fold: int = None):
         bce = torch.nn.BCEWithLogitsLoss(reduction='none')  # no reduction because we may want to first multiply by weights for unbalanced data
 
-        # TODO: use Python's match syntax, but this requires updating Python version in the docker
-        if learning_method == LearningMethod.SUPERVISED or learning_method == LearningMethod.SEMISUPERVISED:
-            top_layer = torch.nn.Linear(in_features=self.output_dimension(), out_features=1)
-        else:
-            raise Exception("not implemented yet")
-
-        train_optimizer = torch.optim.AdamW(chain(self.parameters(), top_layer.parameters()),
-                                            lr=training_params.learning_rate, weight_decay=training_params.weight_decay)
-
-        artifact_to_non_artifact_ratios = torch.from_numpy(dataset.artifact_to_non_artifact_ratios()).to(device=self._device, dtype=self._dtype)
-        artifact_to_non_artifact_log_prior_ratios = torch.log(artifact_to_non_artifact_ratios)
-
         # balance training by weighting the loss function
         # if total unlabeled is less than total labeled, we do not compensate, since labeled data are more informative
         total_labeled, total_unlabeled = dataset.total_labeled_and_unlabeled()
         labeled_to_unlabeled_ratio = 1 if total_unlabeled < total_labeled else total_labeled / total_unlabeled
 
-        print("Training data contains {} labeled examples and {} unlabeled examples".format(total_labeled, total_unlabeled))
+        print("Training data contains {} labeled examples and {} unlabeled examples".format(total_labeled,
+                                                                                            total_unlabeled))
         for variation_type in utils.Variation:
             idx = variation_type.value
             print("For variation type {}, there are {} labeled artifact examples and {} labeled non-artifact examples"
-                  .format(variation_type.name, dataset.artifact_totals[idx].item(), dataset.non_artifact_totals[idx].item()))
+                  .format(variation_type.name, dataset.artifact_totals[idx].item(),
+                          dataset.non_artifact_totals[idx].item()))
+
+        # TODO: use Python's match syntax, but this requires updating Python version in the docker
+        # TODO: hidden_top_layers are hard-coded!
+        if learning_method == LearningMethod.SUPERVISED or learning_method == LearningMethod.SEMISUPERVISED:
+            artifact_to_non_artifact_ratios = torch.from_numpy(dataset.artifact_to_non_artifact_ratios()).to(
+                device=self._device, dtype=self._dtype)
+            artifact_to_non_artifact_log_prior_ratios = torch.log(artifact_to_non_artifact_ratios)
+
+            learning_strategy = BaseModelSemiSupervisedLoss(input_dim=self.output_dimension(), hidden_top_layers=[10,10,10],
+                params=self._params, artifact_to_non_artifact_log_prior_ratios=artifact_to_non_artifact_log_prior_ratios,
+                labeled_to_unlabeled_ratio=labeled_to_unlabeled_ratio)
+        else:
+            raise Exception("not implemented yet")
+
+        train_optimizer = torch.optim.AdamW(chain(self.parameters(), learning_strategy.parameters()),
+                                            lr=training_params.learning_rate, weight_decay=training_params.weight_decay)
 
         validation_fold_to_use = (dataset.num_folds - 1) if validation_fold is None else validation_fold
         train_loader = dataset.make_data_loader(dataset.all_but_one_fold(validation_fold_to_use), training_params.batch_size, self._device.type == 'cuda', training_params.num_workers)
@@ -193,29 +243,12 @@ class BaseModel(torch.nn.Module):
                 loader = train_loader if epoch_type == utils.Epoch.TRAIN else valid_loader
                 pbar = tqdm(enumerate(loader), mininterval=60)
                 for n, batch in pbar:
-                    embeddings = self.calculate_representations(batch, self._params.reweighting_range)
-
-                    # TODO: this is only handling the supervised/semi-supervised cases
-                    logits = torch.squeeze(top_layer(embeddings), dim=1)
-
-                    types_one_hot = batch.variant_type_one_hot()
-                    log_prior_ratios = torch.sum(artifact_to_non_artifact_log_prior_ratios * types_one_hot, dim=1)
-                    posterior_logits = logits + log_prior_ratios
+                    separate_losses = learning_strategy.loss_function(self, batch)
+                    loss = torch.sum(separate_losses)
+                    loss_metrics.record_total_batch_loss(loss.detach(), batch)
 
                     if batch.is_labeled():
-                        separate_losses = bce(posterior_logits, batch.labels)
-                        loss = torch.sum(separate_losses)
-
-                        loss_metrics.record_total_batch_loss(loss.detach(), batch)
                         loss_metrics.record_losses_by_type_and_count(separate_losses, batch)
-                    else:
-                        # unlabeled loss: entropy regularization
-                        posterior_probabilities = torch.sigmoid(posterior_logits)
-                        entropies = torch.nn.functional.binary_cross_entropy_with_logits(posterior_logits, posterior_probabilities, reduction='none')
-
-                        # TODO: we need a parameter to control the relative weight of unlabeled loss to labeled loss
-                        loss = torch.sum(entropies) * labeled_to_unlabeled_ratio
-                        loss_metrics.record_total_batch_loss(loss.detach(), batch)
 
                     if epoch_type == utils.Epoch.TRAIN:
                         utils.backpropagate(train_optimizer, loss)
