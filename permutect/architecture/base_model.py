@@ -176,6 +176,7 @@ def load_base_model(path, device: torch.device = utils.gpu_if_available()) -> Ba
 
     return model
 
+
 # outputs a 1D tensor of losses over the batch
 class BaseModelLearningStrategy(ABC):
     @abstractmethod
@@ -213,6 +214,57 @@ class BaseModelSemiSupervisedLoss(torch.nn.Module, BaseModelLearningStrategy):
 
             # TODO: we need a parameter to control the relative weight of unlabeled loss to labeled loss
             return entropies * self.labeled_to_unlabeled_ratio
+
+    # I don't like implicit forward!!
+    def forward(self):
+        pass
+
+
+def permute_columns_independently(mat: torch.Tensor):
+    indices = torch.rand_like(mat).argsort(dim=0)
+    return torch.zeros_like(mat).scatter_(0, indices, mat)
+
+
+# randomly choose read features to "mask" -- where a masked feature is permuted randomly over all the reads in the batch.
+# this essentially means drawing masked features from the empirical marginal distribution
+# the pretext self-supervision task is, for each datum, to predict which features were masked
+# note that this basically means destroy correlations for a random selection of features
+class BaseModelMaskPredictionLoss(torch.nn.Module, BaseModelLearningStrategy):
+    def __init__(self, num_read_features: int, base_model_output_dim: int, hidden_top_layers: List[int], params: BaseModelParameters):
+        super(BaseModelMaskPredictionLoss, self).__init__()
+
+        self.num_read_features = self.num_read_features
+
+        self.bce = torch.nn.BCEWithLogitsLoss(reduction='none')  # no reduction because we may want to first multiply by weights for unbalanced data
+
+        # go from base model output representation to artifact logit for supervised loss
+        self.mask_predictor = MLP([base_model_output_dim] + hidden_top_layers + [num_read_features], batch_normalize=params.batch_normalize, dropout_p=params.dropout_p)
+
+    def loss_function(self, base_model: BaseModel, base_batch: BaseBatch):
+        ref_count, alt_count = base_batch.ref_count, base_batch.alt_count
+        total_ref, total_alt = ref_count * base_batch.size(), alt_count * base_batch.size()
+
+        alt_reads_2d = base_batch.get_reads_2d()[total_ref:]
+        permuted_alt_reads = permute_columns_independently(alt_reads_2d)
+
+        datum_mask = torch.bernoulli(0.5 * torch.ones(base_batch.size(), self.num_read_features))
+
+        # each read within a datum gets the same mask
+        reads_mask = torch.repeat_interleave(datum_mask, repeats=alt_count, dim=0)
+
+        modified_alt_reads = alt_reads_2d * (1 - reads_mask) + permuted_alt_reads * reads_mask
+
+        # TODO: insert the modified alt reads into the base batch
+
+        # TODO: fix the base batch afterwards?
+
+
+        representations = base_model.calculate_representations(masked_batch, self.weight_range)
+        # shape is batch size x num read features, each entry being a logit for "was this feature masked in this datum?"
+        mask_prediction_logits = self.mask_predictor.forward(representations)
+
+        # TODO: return sum of cross entropies for mask predicitions
+        # return self.bce(mask_predicition_logits, base_batch.labels)
 
     # I don't like implicit forward!!
     def forward(self):
