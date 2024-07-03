@@ -30,6 +30,8 @@ def test_train_base_model():
     setattr(train_model_args, constants.ALT_DOWNSAMPLE_NAME, 20)
     setattr(train_model_args, constants.BATCH_NORMALIZE_NAME, False)
 
+    setattr(train_model_args, constants.LEARNING_METHOD_NAME, 'semisupervised')
+
     # Training data inputs
     setattr(train_model_args, constants.TRAIN_TAR_NAME, training_data_tarfile)
     setattr(train_model_args, constants.PRETRAINED_MODEL_NAME, None)

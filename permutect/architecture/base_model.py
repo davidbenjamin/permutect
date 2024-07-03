@@ -36,6 +36,9 @@ class LearningMethod(Enum):
     # modify data via a finite set of affine transformations and train the embedding to recognize which was applied
     AFFINE_TRANSFORMATION = "affine"
 
+    # modify data via a finite set of affine transformations and train the embedding to recognize which was applied
+    MASK_PREDICTION = "mask_prediction"
+
 
 def make_transformer_encoder(input_dimension: int, params: BaseModelParameters):
     encoder_layer = torch.nn.TransformerEncoderLayer(d_model=input_dimension, nhead=params.num_transformer_heads,
@@ -252,19 +255,19 @@ class BaseModelMaskPredictionLoss(torch.nn.Module, BaseModelLearningStrategy):
         # each read within a datum gets the same mask
         reads_mask = torch.repeat_interleave(datum_mask, repeats=alt_count, dim=0)
 
+        original_reads_2d = base_batch.reads_2d
         modified_alt_reads = alt_reads_2d * (1 - reads_mask) + permuted_alt_reads * reads_mask
+        base_batch.reads_2d = torch.vstack((original_reads_2d[:total_ref], modified_alt_reads))
+        representations = base_model.calculate_representations(base_batch)
 
-        # TODO: insert the modified alt reads into the base batch
+        # TODO: is there any reason to fix the batch with base_batch.reads_2d = original_reads_2d?
 
-        # TODO: fix the base batch afterwards?
-
-
-        representations = base_model.calculate_representations(masked_batch, self.weight_range)
         # shape is batch size x num read features, each entry being a logit for "was this feature masked in this datum?"
         mask_prediction_logits = self.mask_predictor.forward(representations)
 
-        # TODO: return sum of cross entropies for mask predicitions
-        # return self.bce(mask_predicition_logits, base_batch.labels)
+        # by batch index and feature
+        losses_bf = self.bce(mask_prediction_logits, datum_mask)
+        return torch.mean(losses_bf, dim=1)   # average over read features
 
     # I don't like implicit forward!!
     def forward(self):
@@ -273,8 +276,6 @@ class BaseModelMaskPredictionLoss(torch.nn.Module, BaseModelLearningStrategy):
 
 def learn_base_model(base_model: BaseModel, dataset: BaseDataset, learning_method: LearningMethod, training_params: TrainingParameters,
             summary_writer: SummaryWriter, validation_fold: int = None):
-    bce = torch.nn.BCEWithLogitsLoss(reduction='none')  # no reduction because we may want to first multiply by weights for unbalanced data
-
     # balance training by weighting the loss function
     # if total unlabeled is less than total labeled, we do not compensate, since labeled data are more informative
     total_labeled, total_unlabeled = dataset.total_labeled_and_unlabeled()
@@ -298,6 +299,9 @@ def learn_base_model(base_model: BaseModel, dataset: BaseDataset, learning_metho
         learning_strategy = BaseModelSemiSupervisedLoss(input_dim=base_model.output_dimension(), hidden_top_layers=[10,10,10],
                                                             params=base_model._params, artifact_to_non_artifact_log_prior_ratios=artifact_to_non_artifact_log_prior_ratios,
                                                             labeled_to_unlabeled_ratio=labeled_to_unlabeled_ratio)
+    elif learning_method == LearningMethod.MASK_PREDICTION:
+        learning_strategy = BaseModelMaskPredictionLoss(num_read_features=dataset.num_read_features,
+                                                        base_model_output_dim=base_model.output_dimension(), hidden_top_layers=[10,10,10], params=base_model._params)
     else:
         raise Exception("not implemented yet")
 
