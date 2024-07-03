@@ -52,7 +52,7 @@ def parse_arguments():
     add_base_model_params_to_parser(parser)
     add_training_params_to_parser(parser)
 
-    parser.add_argument('--' + constants.LEARNING_METHOD_NAME, type=str, required=False, default='semisupervised')
+    parser.add_argument('--' + constants.LEARNING_METHOD_NAME, type=str, required=False, default='SEMISUPERVISED')
     parser.add_argument('--' + constants.TRAIN_TAR_NAME, type=str, required=True,
                         help='tarfile of training/validation datasets produced by preprocess_dataset.py')
     parser.add_argument('--' + constants.OUTPUT_NAME, type=str, required=True, help='output saved model file')
