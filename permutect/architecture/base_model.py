@@ -25,19 +25,21 @@ def sums_over_chunks(tensor2d: torch.Tensor, chunk_size: int):
 
 class LearningMethod(Enum):
     # train the embedding by minimizing cross-entropy loss of binary predictor on labeled data
-    SUPERVISED = "supervised"
+    SUPERVISED = "SUPERVISED"
 
     # same but use entropy regularization loss on unlabeled data
-    SEMISUPERVISED = "semisupervised"
+    SEMISUPERVISED = "SEMISUPERVISED"
 
+    # TODO: IMPLEMENT THIS
     # optimize a clustering model with center triplet loss
-    SUPERVISED_CLUSTERING = "supervised_clustering"
+    SUPERVISED_CLUSTERING = "SUPERVISED_CLUSTERING"
+
+    # TODO: IMPLEMENT THIS
+    # modify data via a finite set of affine transformations and train the embedding to recognize which was applied
+    AFFINE_TRANSFORMATION = "AFFINE"
 
     # modify data via a finite set of affine transformations and train the embedding to recognize which was applied
-    AFFINE_TRANSFORMATION = "affine"
-
-    # modify data via a finite set of affine transformations and train the embedding to recognize which was applied
-    MASK_PREDICTION = "mask_prediction"
+    MASK_PREDICTION = "MASK_PREDICTION"
 
 
 def make_transformer_encoder(input_dimension: int, params: BaseModelParameters):
@@ -236,7 +238,7 @@ class BaseModelMaskPredictionLoss(torch.nn.Module, BaseModelLearningStrategy):
     def __init__(self, num_read_features: int, base_model_output_dim: int, hidden_top_layers: List[int], params: BaseModelParameters):
         super(BaseModelMaskPredictionLoss, self).__init__()
 
-        self.num_read_features = self.num_read_features
+        self.num_read_features = num_read_features
 
         self.bce = torch.nn.BCEWithLogitsLoss(reduction='none')  # no reduction because we may want to first multiply by weights for unbalanced data
 

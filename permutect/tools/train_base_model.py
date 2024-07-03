@@ -22,7 +22,7 @@ def main_without_parsing(args):
     params = parse_base_model_params(args)
     training_params = parse_training_params(args)
 
-    learning_method = getattr(args, constants.LEARNING_METHOD_NAME)
+    learning_method = LearningMethod[getattr(args, constants.LEARNING_METHOD_NAME)]
 
     tarfile_data = getattr(args, constants.TRAIN_TAR_NAME)
     pretrained_model_path = getattr(args, constants.PRETRAINED_MODEL_NAME)
