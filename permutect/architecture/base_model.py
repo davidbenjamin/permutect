@@ -226,8 +226,15 @@ class BaseModelSemiSupervisedLoss(torch.nn.Module, BaseModelLearningStrategy):
 
 
 def permute_columns_independently(mat: torch.Tensor):
-    indices = torch.rand_like(mat).argsort(dim=0)
-    return torch.zeros_like(mat).scatter_(0, indices, mat)
+    assert mat.dim() == 2
+    num_rows, num_cols = mat.size()
+    weights = torch.ones(num_rows)
+
+    result = torch.clone(mat)
+    for col in range(num_cols):
+        idx = torch.multinomial(weights, num_rows, replacement=True)
+        result[:, col] = result[:, col][idx]
+    return result
 
 
 # randomly choose read features to "mask" -- where a masked feature is permuted randomly over all the reads in the batch.
@@ -250,9 +257,10 @@ class BaseModelMaskPredictionLoss(torch.nn.Module, BaseModelLearningStrategy):
         total_ref, total_alt = ref_count * base_batch.size(), alt_count * base_batch.size()
 
         alt_reads_2d = base_batch.get_reads_2d()[total_ref:]
-        permuted_alt_reads = permute_columns_independently(alt_reads_2d)
+        permuted_reads = permute_columns_independently(base_batch.get_reads_2d())
+        permuted_alt_reads = permuted_reads[:total_alt]
 
-        datum_mask = torch.bernoulli(0.5 * torch.ones(base_batch.size(), self.num_read_features))
+        datum_mask = torch.bernoulli(0.1 * torch.ones(base_batch.size(), self.num_read_features))
 
         # each read within a datum gets the same mask
         reads_mask = torch.repeat_interleave(datum_mask, repeats=alt_count, dim=0)
