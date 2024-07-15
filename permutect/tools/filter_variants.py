@@ -16,7 +16,8 @@ from permutect.architecture.base_model import BaseModel, load_base_model
 from permutect.data import base_dataset, plain_text_data
 from permutect.data.posterior import PosteriorDataset, PosteriorDatum
 from permutect.data.artifact_dataset import ArtifactDataset
-from permutect.metrics.evaluation_metrics import EvaluationMetrics, PosteriorResult
+from permutect.metrics.evaluation_metrics import EvaluationMetrics, PosteriorResult, EmbeddingMetrics, \
+    round_up_to_nearest_three, MAX_COUNT
 from permutect.utils import Call, find_variant_type, Label, Variation, Epoch
 
 TRUSTED_M2_FILTERS = {'contamination'}
@@ -166,6 +167,7 @@ def make_filtered_vcf(saved_artifact_model_path, base_model_path, initial_log_va
 
     print("Learning AF spectra")
     summary_writer = SummaryWriter(tensorboard_dir)
+    report_quality_of_base_model(posterior_data_loader, summary_writer)
 
     num_ignored_sites = genomic_span - len(posterior_data_loader.dataset)
     # here is where pretrained artifact priors and spectra are used if given
@@ -178,6 +180,21 @@ def make_filtered_vcf(saved_artifact_model_path, base_model_path, initial_log_va
     error_probability_thresholds = posterior_model.calculate_probability_thresholds(posterior_data_loader, summary_writer, germline_mode=germline_mode)
     print("Optimal probability threshold: " + str(error_probability_thresholds))
     apply_filtering_to_vcf(input_vcf, output_vcf, contig_index_to_name_map, error_probability_thresholds, posterior_data_loader, posterior_model, summary_writer=summary_writer, germline_mode=germline_mode)
+
+
+def report_quality_of_base_model(posterior_loader, summary_writer: SummaryWriter):
+    embedding_metrics = EmbeddingMetrics()
+    pbar = tqdm(enumerate(filter(lambda bat: bat.is_labeled(), posterior_loader)), mininterval=60)
+
+    for n, posterior_batch in pbar:
+        embedding_metrics.label_metadata.extend(
+            ["artifact" if x > 0.0 else "non-artifact" for x in posterior_batch.artifact_logits.tolist()])
+        embedding_metrics.correct_metadata.extend(["?"]*posterior_batch.size())
+        embedding_metrics.type_metadata.extend([Variation(idx).name for idx in posterior_batch.variant_types()])
+        embedding_metrics.truncated_count_metadata.extend(
+            [str(round_up_to_nearest_three(min(MAX_COUNT, alt_count))) for alt_count in posterior_batch.alt_counts])
+        embedding_metrics.representations.append(posterior_batch.embeddings)
+    embedding_metrics.output_to_summary_writer(summary_writer)
 
 
 def make_posterior_data_loader(dataset_file, input_vcf, contig_index_to_name_map, base_model: BaseModel, artifact_model: ArtifactModel,
