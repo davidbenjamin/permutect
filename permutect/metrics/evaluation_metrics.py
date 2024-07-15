@@ -1,6 +1,8 @@
 import math
 from collections import defaultdict
+from typing import List
 
+import numpy as np
 import torch
 from matplotlib import pyplot as plt
 from torch.utils.tensorboard import SummaryWriter
@@ -11,6 +13,7 @@ from permutect.utils import Variation, Call, Epoch, StreamingAverage
 
 MAX_COUNT = 18  # counts above this will be truncated
 MAX_LOGIT = 6
+NUM_DATA_FOR_TENSORBOARD_PROJECTION = 10000
 
 
 def round_up_to_nearest_three(x: int):
@@ -279,5 +282,57 @@ class EvaluationMetrics:
         summary_writer.add_figure(" accuracy by logit output", cal_fig)
         summary_writer.add_figure(" variant accuracy vs artifact accuracy curve", roc_fig)
         summary_writer.add_figure(" variant accuracy vs artifact accuracy curves by alt count", roc_by_cnt_fig)
+
+
+def sample_indices_for_tensorboard(indices: List[int]):
+    indices_np = np.array(indices)
+
+    if len(indices_np) <= NUM_DATA_FOR_TENSORBOARD_PROJECTION:
+        return indices_np
+
+    idx = np.random.choice(len(indices_np), size=NUM_DATA_FOR_TENSORBOARD_PROJECTION, replace=False)
+    return indices_np[idx]
+
+
+class EmbeddingMetrics:
+    def __init__(self):
+        # things we will collect for the projections
+        self.label_metadata = []  # list (extended by each batch) 1 if artifact, 0 if not
+        self.correct_metadata = []  # list (extended by each batch), 1 if correct prediction, 0 if not
+        self.type_metadata = []  # list of lists, strings of variant type
+        self.truncated_count_metadata = []  # list of lists
+        self.representations = []  # list of 2D tensors (to be stacked into a single 2D tensor), representations over batches
+
+    def output_to_summary_writer(self, summary_writer: SummaryWriter):
+        # downsample to a reasonable amount of UMAP data
+        all_metadata=list(zip(self.label_metadata, self.correct_metadata, self.type_metadata, self.truncated_count_metadata))
+        idx = np.random.choice(len(all_metadata), size=min(NUM_DATA_FOR_TENSORBOARD_PROJECTION, len(all_metadata)), replace=False)
+
+        summary_writer.add_embedding(torch.vstack(self.representations)[idx],
+                                     metadata=[all_metadata[n] for n in idx],
+                                     metadata_header=["Labels", "Correctness", "Types", "Counts"],
+                                     tag="mean read embedding")
+
+        # read average embeddings stratified by variant type
+        for variant_type in Variation:
+            variant_name = variant_type.name
+            indices = [n for n, type_name in enumerate(self.type_metadata) if type_name == variant_name]
+            indices = sample_indices_for_tensorboard(indices)
+            summary_writer.add_embedding(torch.vstack(self.representations)[indices],
+                                         metadata=[all_metadata[n] for n in indices],
+                                         metadata_header=["Labels", "Correctness", "Types", "Counts"],
+                                         tag="mean read embedding for variant type " + variant_name)
+
+        # read average embeddings stratified by alt count
+        for row_idx in range(NUM_COUNT_BINS):
+            count = multiple_of_three_bin_index_to_count(row_idx)
+            indices = [n for n, alt_count in enumerate(self.truncated_count_metadata) if alt_count == str(count)]
+            indices = sample_indices_for_tensorboard(indices)
+            if len(indices) > 0:
+                summary_writer.add_embedding(torch.vstack(self.representations)[indices],
+                                        metadata=[all_metadata[n] for n in indices],
+                                        metadata_header=["Labels", "Correctness", "Types", "Counts"],
+                                        tag="mean read embedding for alt count " + str(count))
+
 
 

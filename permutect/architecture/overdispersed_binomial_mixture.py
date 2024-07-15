@@ -55,22 +55,24 @@ class OverdispersedBinomialMixture(nn.Module):
         self.mean_pre_sigmoid = MLP(layer_sizes=[input_size] + hidden_layers + [num_components])
         self.concentration_pre_exp = MLP(layer_sizes=[input_size] + hidden_layers + [num_components])
 
+        # TODO: replace this now that we use MLP instead of linear?
         # the kth column of weights corresponds to the kth index of input = 1 and other inputs = 0
         # we are going to manually initialize to equal weights -- all zeroes
         # the alphas and betas will be equally spaced Beta distributions, for example, each column of alpha would be
         # 1, 11, 21, 31, 41, 51 and each column of beta would be 51, 41, 31, 21, 11, 1
-        with torch.no_grad():
-            self.weights_pre_softmax.weight.copy_(torch.zeros_like(self.weights_pre_softmax.weight))
-            self.concentration_pre_exp.weight.copy_(
-                torch.log(10 * num_components * torch.ones_like(self.concentration_pre_exp.weight)))
-            self.set_means((0.5 + torch.arange(num_components)) / num_components)
+        #with torch.no_grad():
+        #    self.weights_pre_softmax.weight.copy_(torch.zeros_like(self.weights_pre_softmax.weight))
+        #    self.concentration_pre_exp.weight.copy_(
+        #        torch.log(10 * num_components * torch.ones_like(self.concentration_pre_exp.weight)))
+        #    self.set_means((0.5 + torch.arange(num_components)) / num_components)
 
-    def set_means(self, means):
-        assert len(means) == self.num_components
-        each_mean_col_pre_sigmoid = torch.log(means / (1 - means))
-        repeated_mean_cols = torch.hstack(self.input_size * [each_mean_col_pre_sigmoid.unsqueeze(dim=1)])
-        with torch.no_grad():
-            self.mean_pre_sigmoid.weight.copy_(repeated_mean_cols)
+    # TODO: replace this now that we use MLP instead of linear?
+    #def set_means(self, means):
+    #    assert len(means) == self.num_components
+    #    each_mean_col_pre_sigmoid = torch.log(means / (1 - means))
+    #    repeated_mean_cols = torch.hstack(self.input_size * [each_mean_col_pre_sigmoid.unsqueeze(dim=1)])
+    #    with torch.no_grad():
+    #        self.mean_pre_sigmoid.weight.copy_(repeated_mean_cols)
 
     def set_weights(self, weights):
         assert len(weights) == self.num_components
