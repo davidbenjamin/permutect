@@ -121,7 +121,7 @@ class ArtifactModel(nn.Module):
         self.to(device=self._device, dtype=self._dtype)
 
     def training_parameters(self):
-        return chain(self.aggregation.parameters(), self.calibration.parameters(), self.artifact_af_predictor.parameters())
+        return chain(self.aggregation.parameters(), self.calibration.parameters())
 
     def calibration_parameters(self):
         return self.calibration.parameters()
