@@ -25,16 +25,21 @@ def sums_over_chunks(tensor2d: torch.Tensor, chunk_size: int):
 
 class LearningMethod(Enum):
     # train the embedding by minimizing cross-entropy loss of binary predictor on labeled data
-    SUPERVISED = "supervised"
+    SUPERVISED = "SUPERVISED"
 
     # same but use entropy regularization loss on unlabeled data
-    SEMISUPERVISED = "semisupervised"
+    SEMISUPERVISED = "SEMISUPERVISED"
 
+    # TODO: IMPLEMENT THIS
     # optimize a clustering model with center triplet loss
-    SUPERVISED_CLUSTERING = "supervised_clustering"
+    SUPERVISED_CLUSTERING = "SUPERVISED_CLUSTERING"
+
+    # TODO: IMPLEMENT THIS
+    # modify data via a finite set of affine transformations and train the embedding to recognize which was applied
+    AFFINE_TRANSFORMATION = "AFFINE"
 
     # modify data via a finite set of affine transformations and train the embedding to recognize which was applied
-    AFFINE_TRANSFORMATION = "affine"
+    MASK_PREDICTION = "MASK_PREDICTION"
 
 
 def make_transformer_encoder(input_dimension: int, params: BaseModelParameters):
@@ -176,6 +181,7 @@ def load_base_model(path, device: torch.device = utils.gpu_if_available()) -> Ba
 
     return model
 
+
 # outputs a 1D tensor of losses over the batch
 class BaseModelLearningStrategy(ABC):
     @abstractmethod
@@ -219,10 +225,67 @@ class BaseModelSemiSupervisedLoss(torch.nn.Module, BaseModelLearningStrategy):
         pass
 
 
+def permute_columns_independently(mat: torch.Tensor):
+    assert mat.dim() == 2
+    num_rows, num_cols = mat.size()
+    weights = torch.ones(num_rows)
+
+    result = torch.clone(mat)
+    for col in range(num_cols):
+        idx = torch.multinomial(weights, num_rows, replacement=True)
+        result[:, col] = result[:, col][idx]
+    return result
+
+
+# randomly choose read features to "mask" -- where a masked feature is permuted randomly over all the reads in the batch.
+# this essentially means drawing masked features from the empirical marginal distribution
+# the pretext self-supervision task is, for each datum, to predict which features were masked
+# note that this basically means destroy correlations for a random selection of features
+class BaseModelMaskPredictionLoss(torch.nn.Module, BaseModelLearningStrategy):
+    def __init__(self, num_read_features: int, base_model_output_dim: int, hidden_top_layers: List[int], params: BaseModelParameters):
+        super(BaseModelMaskPredictionLoss, self).__init__()
+
+        self.num_read_features = num_read_features
+
+        self.bce = torch.nn.BCEWithLogitsLoss(reduction='none')  # no reduction because we may want to first multiply by weights for unbalanced data
+
+        # go from base model output representation to artifact logit for supervised loss
+        self.mask_predictor = MLP([base_model_output_dim] + hidden_top_layers + [num_read_features], batch_normalize=params.batch_normalize, dropout_p=params.dropout_p)
+
+    def loss_function(self, base_model: BaseModel, base_batch: BaseBatch):
+        ref_count, alt_count = base_batch.ref_count, base_batch.alt_count
+        total_ref, total_alt = ref_count * base_batch.size(), alt_count * base_batch.size()
+
+        alt_reads_2d = base_batch.get_reads_2d()[total_ref:]
+        permuted_reads = permute_columns_independently(base_batch.get_reads_2d())
+        permuted_alt_reads = permuted_reads[:total_alt]
+
+        datum_mask = torch.bernoulli(0.1 * torch.ones(base_batch.size(), self.num_read_features))
+
+        # each read within a datum gets the same mask
+        reads_mask = torch.repeat_interleave(datum_mask, repeats=alt_count, dim=0)
+
+        original_reads_2d = base_batch.reads_2d
+        modified_alt_reads = alt_reads_2d * (1 - reads_mask) + permuted_alt_reads * reads_mask
+        base_batch.reads_2d = torch.vstack((original_reads_2d[:total_ref], modified_alt_reads))
+        representations = base_model.calculate_representations(base_batch)
+
+        # TODO: is there any reason to fix the batch with base_batch.reads_2d = original_reads_2d?
+
+        # shape is batch size x num read features, each entry being a logit for "was this feature masked in this datum?"
+        mask_prediction_logits = self.mask_predictor.forward(representations)
+
+        # by batch index and feature
+        losses_bf = self.bce(mask_prediction_logits, datum_mask)
+        return torch.mean(losses_bf, dim=1)   # average over read features
+
+    # I don't like implicit forward!!
+    def forward(self):
+        pass
+
+
 def learn_base_model(base_model: BaseModel, dataset: BaseDataset, learning_method: LearningMethod, training_params: TrainingParameters,
             summary_writer: SummaryWriter, validation_fold: int = None):
-    bce = torch.nn.BCEWithLogitsLoss(reduction='none')  # no reduction because we may want to first multiply by weights for unbalanced data
-
     # balance training by weighting the loss function
     # if total unlabeled is less than total labeled, we do not compensate, since labeled data are more informative
     total_labeled, total_unlabeled = dataset.total_labeled_and_unlabeled()
@@ -246,6 +309,9 @@ def learn_base_model(base_model: BaseModel, dataset: BaseDataset, learning_metho
         learning_strategy = BaseModelSemiSupervisedLoss(input_dim=base_model.output_dimension(), hidden_top_layers=[10,10,10],
                                                             params=base_model._params, artifact_to_non_artifact_log_prior_ratios=artifact_to_non_artifact_log_prior_ratios,
                                                             labeled_to_unlabeled_ratio=labeled_to_unlabeled_ratio)
+    elif learning_method == LearningMethod.MASK_PREDICTION:
+        learning_strategy = BaseModelMaskPredictionLoss(num_read_features=dataset.num_read_features,
+                                                        base_model_output_dim=base_model.output_dimension(), hidden_top_layers=[10,10,10], params=base_model._params)
     else:
         raise Exception("not implemented yet")
 
