@@ -1,10 +1,12 @@
 import math
+from typing import List
 
 import torch
 from permutect import utils
 from torch import nn, exp, unsqueeze, logsumexp
 from torch.nn.functional import softmax, log_softmax
 
+from permutect.architecture.mlp import MLP
 from permutect.metrics.plotting import simple_plot
 from permutect.utils import beta_binomial, gamma_binomial, binomial
 
@@ -42,16 +44,16 @@ class OverdispersedBinomialMixture(nn.Module):
     That is, each component is a plain binomial, though of course by virtue of being a mixture the distribution as a whole is overdispersed.
     """
 
-    def __init__(self, input_size: int, num_components: int, max_mean: float = 1, mode: str = 'beta'):
+    def __init__(self, input_size: int, num_components: int, max_mean: float = 1, mode: str = 'beta', hidden_layers: List[int] = []):
         super(OverdispersedBinomialMixture, self).__init__()
         self.mode = mode
         self.num_components = num_components
         self.input_size = input_size
         self.max_mean = max_mean
 
-        self.weights_pre_softmax = nn.Linear(in_features=input_size, out_features=num_components, bias=False)
-        self.mean_pre_sigmoid = nn.Linear(in_features=input_size, out_features=num_components, bias=False)
-        self.concentration_pre_exp = nn.Linear(in_features=input_size, out_features=num_components, bias=False)
+        self.weights_pre_softmax = MLP(layer_sizes=[input_size] + hidden_layers + [num_components])
+        self.mean_pre_sigmoid = MLP(layer_sizes=[input_size] + hidden_layers + [num_components])
+        self.concentration_pre_exp = MLP(layer_sizes=[input_size] + hidden_layers + [num_components])
 
         # the kth column of weights corresponds to the kth index of input = 1 and other inputs = 0
         # we are going to manually initialize to equal weights -- all zeroes
