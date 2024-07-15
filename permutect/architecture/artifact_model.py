@@ -194,12 +194,6 @@ class ArtifactModel(nn.Module):
 
                         loss_metrics.record_total_batch_loss(loss.detach(), batch)
                         loss_metrics.record_losses_by_type_and_count(separate_losses, batch)
-
-                        spectra_log_likelihoods = self.artifact_spectra_log_likelihoods(batch)
-                        artifact_mask = batch.labels
-                        spectra_loss = torch.sum(spectra_log_likelihoods * artifact_mask)
-
-                        loss += spectra_loss
                     else:
                         # unlabeled loss: entropy regularization
                         posterior_probabilities = torch.sigmoid(posterior_logits)
