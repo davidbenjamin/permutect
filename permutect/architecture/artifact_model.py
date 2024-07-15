@@ -14,6 +14,7 @@ from matplotlib import pyplot as plt
 
 from permutect.architecture.mlp import MLP
 from permutect.architecture.monotonic import MonoDense
+from permutect.architecture.overdispersed_binomial_mixture import OverdispersedBinomialMixture
 from permutect.data.base_datum import ArtifactBatch, DEFAULT_GPU_FLOAT, DEFAULT_CPU_FLOAT
 from permutect.data.artifact_dataset import ArtifactDataset
 from permutect import utils, constants
@@ -120,10 +121,7 @@ class ArtifactModel(nn.Module):
         self.to(device=self._device, dtype=self._dtype)
 
     def training_parameters(self):
-        return chain(self.aggregation.parameters(), self.calibration.parameters())
-
-    def training_parameters_if_using_pretrained_model(self):
-        return chain(self.aggregation.parameters(), self.final_logit.parameters(), self.calibration.parameters())
+        return chain(self.aggregation.parameters(), self.calibration.parameters(), self.artifact_af_predictor.parameters())
 
     def calibration_parameters(self):
         return self.calibration.parameters()
@@ -196,6 +194,12 @@ class ArtifactModel(nn.Module):
 
                         loss_metrics.record_total_batch_loss(loss.detach(), batch)
                         loss_metrics.record_losses_by_type_and_count(separate_losses, batch)
+
+                        spectra_log_likelihoods = self.artifact_spectra_log_likelihoods(batch)
+                        artifact_mask = batch.labels
+                        spectra_loss = torch.sum(spectra_log_likelihoods * artifact_mask)
+
+                        loss += spectra_loss
                     else:
                         # unlabeled loss: entropy regularization
                         posterior_probabilities = torch.sigmoid(posterior_logits)

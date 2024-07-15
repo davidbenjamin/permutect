@@ -160,7 +160,7 @@ def make_filtered_vcf(saved_artifact_model_path, base_model_path, initial_log_va
             contig_index_to_name_map[int(index)] = contig
 
     artifact_model, artifact_log_priors, artifact_spectra_state_dict = load_artifact_model(saved_artifact_model_path)
-    posterior_model = PosteriorModel(initial_log_variant_prior, initial_log_artifact_prior, no_germline_mode=no_germline_mode)
+    posterior_model = PosteriorModel(initial_log_variant_prior, initial_log_artifact_prior, no_germline_mode=no_germline_mode, num_base_features=artifact_model.num_base_features)
     posterior_data_loader = make_posterior_data_loader(test_dataset_file, input_vcf, contig_index_to_name_map,
         base_model, artifact_model, batch_size, chunk_size=chunk_size, segmentation=segmentation, normal_segmentation=normal_segmentation)
 
@@ -207,7 +207,7 @@ def make_posterior_data_loader(dataset_file, input_vcf, contig_index_to_name_map
             artifact_logits = artifact_model.forward(batch=artifact_batch).detach().tolist()
 
             labels = ([Label.ARTIFACT if x > 0.5 else Label.VARIANT for x in artifact_batch.labels]) if artifact_batch.is_labeled() else (artifact_batch.size()*[Label.UNLABELED])
-            for variant, counts_and_seq_lks, logit, label in zip(artifact_batch.variants, artifact_batch.counts_and_likelihoods, artifact_logits, labels):
+            for variant, counts_and_seq_lks, logit, label, embedding in zip(artifact_batch.variants, artifact_batch.counts_and_likelihoods, artifact_logits, labels, artifact_batch.get_representations_2d()):
                 contig_name = contig_index_to_name_map[variant.contig]
                 encoding = encode(contig_name, variant.position, variant.ref, variant.alt)
                 if encoding in allele_frequencies and encoding not in m2_filtering_to_keep:
@@ -220,7 +220,7 @@ def make_posterior_data_loader(dataset_file, input_vcf, contig_index_to_name_map
                     maf = list(segmentation_overlaps)[0].data if segmentation_overlaps else 0.5
                     normal_maf = list(normal_segmentation_overlaps)[0].data if normal_segmentation_overlaps else 0.5
 
-                    posterior_datum = PosteriorDatum(variant, counts_and_seq_lks, allele_frequency, logit, label, maf, normal_maf)
+                    posterior_datum = PosteriorDatum(variant, counts_and_seq_lks, allele_frequency, logit, embedding, label, maf, normal_maf)
                     posterior_data.append(posterior_datum)
 
     print("Size of filtering dataset: " + str(len(posterior_data)))

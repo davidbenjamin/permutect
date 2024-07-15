@@ -71,16 +71,27 @@ class PosteriorModel(torch.nn.Module):
     """
 
     """
-    def __init__(self, variant_log_prior: float, artifact_log_prior: float, no_germline_mode: bool = False, device=utils.gpu_if_available()):
+    def __init__(self, variant_log_prior: float, artifact_log_prior: float, num_base_features: int, no_germline_mode: bool = False, device=utils.gpu_if_available()):
         super(PosteriorModel, self).__init__()
 
         self._device = device
         self._dtype = DEFAULT_GPU_FLOAT if device != torch.device("cpu") else DEFAULT_CPU_FLOAT
         self.no_germline_mode = no_germline_mode
+        self.num_base_features = num_base_features
 
         # TODO introduce parameters class so that num_components is not hard-coded
         # featureless because true variant types share a common AF spectrum
         self.somatic_spectrum = FeaturelessBetaBinomialMixture(num_components=5)
+
+        # It's very important to understand the subtleties here.  Basing the prediction of artifact/non-artifact on the
+        # allele fraction is antithetical to Permutect.  However, it is perfectly legitimate to try to predict the
+        # artifact allele fraction *given* that Permutect has already called an artifact.  The following sub-module is
+        # independent of the artifact prediction and lives on top of the pre-trained base model.  Its purpose is to
+        # learn artifact spectra as a function of the base model embedding so that the posterior model may then have
+        # artifact spectra that are tailored to the particular artifact types.
+        # TODO: num_components and hidden_layers are magic constants!!!
+        self.artifact_af_predictor = OverdispersedBinomialMixture(input_size=num_base_features, num_components=2,
+                                                                  mode='gamma', hidden_layers=[10, 10])
 
         # artifact spectra for each variant type.  Variant type encoded as one-hot input vector.
         self.artifact_spectra = initialize_artifact_spectra()
@@ -153,8 +164,7 @@ class PosteriorModel(torch.nn.Module):
         # defined as log [ int_0^1 Binom(alt count | depth, f) df ], including the combinatorial N choose N_alt factor
         flat_prior_spectra_log_likelihoods = -torch.log(batch.depths + 1)
         somatic_spectrum_log_likelihoods = self.somatic_spectrum.forward(batch.depths, batch.alt_counts)
-        tumor_artifact_spectrum_log_likelihood = self.artifact_spectra.forward(types, batch.depths, batch.alt_counts)
-
+        tumor_artifact_spectrum_log_likelihood = self.artifact_af_predictor.forward(batch.embeddings, batch.depths, batch.alt_counts)
         spectra_log_likelihoods = torch.zeros_like(log_priors).to(device=self._device, dtype=self._dtype)
 
         # essentially, this corrects the TLOD from M2, computed with a flat prior, to account for the precises somatic spectrum
@@ -217,10 +227,7 @@ class PosteriorModel(torch.nn.Module):
         of artifacts for each variation type, from train_model.py.  If given, freeze these parameters.
         :return:
         """
-        if artifact_spectra_state_dict is not None:
-            self.artifact_spectra.load_state_dict(artifact_spectra_state_dict)
-
-        spectra_and_prior_params = chain(self.somatic_spectrum.parameters(), self.artifact_spectra.parameters(),
+        spectra_and_prior_params = chain(self.somatic_spectrum.parameters(), self.artifact_af_predictor.parameters(),
                                          self._unnormalized_priors.parameters(), self.normal_seq_error_spectra.parameters(),
                                          self.normal_artifact_spectra.parameters())
         optimizer = torch.optim.Adam(spectra_and_prior_params)
@@ -255,8 +262,9 @@ class PosteriorModel(torch.nn.Module):
                     mean = self.normal_seq_error_spectra[variant_index].get_mean()
                     summary_writer.add_scalar("normal seq error mean fraction for " + variant_type.name, mean, epoch)
 
-                art_spectra_fig, art_spectra_axs = plot_artifact_spectra(self.artifact_spectra)
-                summary_writer.add_figure("Artifact AF Spectra", art_spectra_fig, epoch)
+                # TODO: replace this with something new
+                # art_spectra_fig, art_spectra_axs = plot_artifact_spectra(self.artifact_spectra)
+                # summary_writer.add_figure("Artifact AF Spectra", art_spectra_fig, epoch)
 
                 #normal_seq_error_spectra_fig, normal_seq_error_spectra_axs = plot_artifact_spectra(self.normal_seq_error_spectra)
                 #summary_writer.add_figure("Normal Seq Error AF Spectra", normal_seq_error_spectra_fig, epoch)

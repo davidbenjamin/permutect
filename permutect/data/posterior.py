@@ -2,6 +2,7 @@ import random
 import math
 from typing import List, Iterable
 
+import torch
 from torch import Tensor, IntTensor, BoolTensor, vstack, from_numpy
 from torch.utils.data import Dataset, DataLoader
 from permutect.data.base_datum import Variant, CountsAndSeqLks
@@ -12,7 +13,7 @@ from permutect.utils import Label
 
 class PosteriorDatum:
     def __init__(self, variant: Variant, counts_and_seq_lks: CountsAndSeqLks, allele_frequency: float,
-                 artifact_logit: float, label: Label, maf: float, normal_maf: float):
+                 artifact_logit: float, embedding: torch.Tensor, label: Label, maf: float, normal_maf: float):
 
         self.contig = variant.contig
         self.position = variant.position
@@ -32,6 +33,7 @@ class PosteriorDatum:
 
         self.allele_frequency = allele_frequency
         self.artifact_logit = artifact_logit
+        self.embedding = embedding
         self.maf = maf
         self.normal_maf = normal_maf
 
@@ -54,6 +56,7 @@ class PosteriorBatch:
         self.normal_seq_error_log_likelihoods = Tensor([item.normal_seq_error_log_likelihood for item in self._original_list])
         self.allele_frequencies = Tensor([item.allele_frequency for item in self._original_list])
         self.artifact_logits = Tensor([item.artifact_logit for item in self._original_list])
+        self.embeddings = torch.vstack([item.embedding for item in data])
 
         self.mafs = Tensor([item.maf for item in self._original_list])
         self.normal_mafs = Tensor([item.normal_maf for item in self._original_list])
