@@ -184,7 +184,7 @@ def make_filtered_vcf(saved_artifact_model_path, base_model_path, initial_log_va
 
 def report_quality_of_base_model(posterior_loader, summary_writer: SummaryWriter):
     embedding_metrics = EmbeddingMetrics()
-    pbar = tqdm(enumerate(filter(lambda bat: bat.is_labeled(), posterior_loader)), mininterval=60)
+    pbar = tqdm(enumerate(posterior_loader), mininterval=60)
 
     for n, posterior_batch in pbar:
         embedding_metrics.label_metadata.extend(
