@@ -8,7 +8,7 @@ from torch.utils.data import Dataset, DataLoader
 from permutect.data.base_datum import Variant, CountsAndSeqLks
 
 from permutect import utils
-from permutect.utils import Label
+from permutect.utils import Label, Variation
 
 
 class PosteriorDatum:
