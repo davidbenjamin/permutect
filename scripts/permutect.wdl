@@ -163,10 +163,13 @@ task PermutectFiltering {
             --base_model ~{base_model} \
             --contigs_table ~{contigs_table} \
             --output permutect-filtered.vcf \
+            --tensorboard_dir tensorboard \
             --batch_size ~{batch_size} --chunk_size ~{chunk_size} \
             ~{" --num_spectrum_iterations " + num_spectrum_iterations} \
             ~{" --maf_segments " + maf_segments} ~{" --normal_maf_segments " + normal_maf_segments} \
             --genomic_span $genomic_span ~{m3_filtering_extra_args}
+
+        tar cvf tensorboard.tar tensorboard/
     >>>
 
     runtime {
@@ -181,7 +184,7 @@ task PermutectFiltering {
 
     output {
         File output_vcf = "permutect-filtered.vcf"
-        File tensorboard_report = glob("tensorboard/*tfevents*")[0]
+        File tensorboard_report = "tensorboard.tar"
     }
 }
 
