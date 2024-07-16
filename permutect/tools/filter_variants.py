@@ -266,8 +266,8 @@ def apply_filtering_to_vcf(input_vcf, output_vcf, contig_index_to_name_map, erro
         alt_counts = batch.alt_counts.tolist()
         depths = batch.depths.tolist()
 
-        for encoding, post_probs, logit, log_prior, log_spec, log_normal, label, alt_count, depth, var_type in zip(encodings, posterior_probs, artifact_logits, log_priors, spectra_lls, normal_lls, labels, alt_counts, depths, var_types):
-            encoding_to_posterior_results[encoding] = PosteriorResult(logit, post_probs.tolist(), log_prior, log_spec, log_normal, label, alt_count, depth, var_type)
+        for encoding, post_probs, logit, log_prior, log_spec, log_normal, label, alt_count, depth, var_type, embedding in zip(encodings, posterior_probs, artifact_logits, log_priors, spectra_lls, normal_lls, labels, alt_counts, depths, var_types, batch.embeddings):
+            encoding_to_posterior_results[encoding] = PosteriorResult(logit, post_probs.tolist(), log_prior, log_spec, log_normal, label, alt_count, depth, var_type, embedding)
 
     print("Applying threshold")
     unfiltered_vcf = cyvcf2.VCF(input_vcf)
@@ -293,6 +293,8 @@ def apply_filtering_to_vcf(input_vcf, output_vcf, contig_index_to_name_map, erro
     evaluation_metrics = EvaluationMetrics()
     pbar = tqdm(enumerate(unfiltered_vcf), mininterval=60)
     labeled_truth = False
+    embedding_metrics = EmbeddingMetrics() # only if there is labeled truth for evaluation
+
     for n, v in pbar:
         filters = filters_to_keep_from_m2(v)
 
@@ -333,6 +335,12 @@ def apply_filtering_to_vcf(input_vcf, output_vcf, contig_index_to_name_map, erro
                     bad_call = error_call if called_as_error else Call.SOMATIC
                     evaluation_metrics.record_mistake(posterior_result, bad_call)
 
+                embedding_metrics.label_metadata.append(label.name)
+                embedding_metrics.correct_metadata.append("correct" if is_correct else "in correct")
+                embedding_metrics.type_metadata.append(variant_type.name)
+                embedding_metrics.truncated_count_metadata.append(str(round_up_to_nearest_three(min(MAX_COUNT, posterior_result.alt_count))))
+                embedding_metrics.representations.append(posterior_result.embedding)
+
         v.FILTER = ';'.join(filters) if filters else 'PASS'
         writer.write_record(v)
     print("closing resources")
@@ -343,6 +351,7 @@ def apply_filtering_to_vcf(input_vcf, output_vcf, contig_index_to_name_map, erro
         given_thresholds = {var_type: prob_to_logit(error_probability_thresholds[var_type]) for var_type in Variation}
         evaluation_metrics.make_plots(summary_writer, given_thresholds, sens_prec=True)
         evaluation_metrics.make_mistake_histograms(summary_writer)
+        embedding_metrics.output_to_summary_writer(summary_writer, prefix="labeled truth")
 
 
 def main():

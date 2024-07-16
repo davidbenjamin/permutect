@@ -43,7 +43,7 @@ NUM_COUNT_BINS = round_up_to_nearest_three(MAX_COUNT) // 3    # zero is not a bi
 # simple container class for holding results of the posterior model and other things that get output to the VCF and
 # tensorboard analysis
 class PosteriorResult:
-    def __init__(self, artifact_logit: float, posterior_probabilities, log_priors, spectra_lls, normal_lls, label, alt_count, depth, var_type):
+    def __init__(self, artifact_logit: float, posterior_probabilities, log_priors, spectra_lls, normal_lls, label, alt_count, depth, var_type, embedding):
         self.artifact_logit = artifact_logit
         self.posterior_probabilities = posterior_probabilities
         self.log_priors = log_priors
@@ -53,6 +53,7 @@ class PosteriorResult:
         self.alt_count = alt_count
         self.depth = depth
         self.variant_type = var_type
+        self.embedding = embedding
 
 
 # keep track of losses during training of artifact model
@@ -303,7 +304,7 @@ class EmbeddingMetrics:
         self.truncated_count_metadata = []  # list of lists
         self.representations = []  # list of 2D tensors (to be stacked into a single 2D tensor), representations over batches
 
-    def output_to_summary_writer(self, summary_writer: SummaryWriter):
+    def output_to_summary_writer(self, summary_writer: SummaryWriter, prefix: str = ""):
         # downsample to a reasonable amount of UMAP data
         all_metadata=list(zip(self.label_metadata, self.correct_metadata, self.type_metadata, self.truncated_count_metadata))
         idx = np.random.choice(len(all_metadata), size=min(NUM_DATA_FOR_TENSORBOARD_PROJECTION, len(all_metadata)), replace=False)
@@ -311,7 +312,7 @@ class EmbeddingMetrics:
         summary_writer.add_embedding(torch.vstack(self.representations)[idx],
                                      metadata=[all_metadata[n] for n in idx],
                                      metadata_header=["Labels", "Correctness", "Types", "Counts"],
-                                     tag="mean read embedding")
+                                     tag=prefix+"embedding")
 
         # read average embeddings stratified by variant type
         for variant_type in Variation:
@@ -321,7 +322,7 @@ class EmbeddingMetrics:
             summary_writer.add_embedding(torch.vstack(self.representations)[indices],
                                          metadata=[all_metadata[n] for n in indices],
                                          metadata_header=["Labels", "Correctness", "Types", "Counts"],
-                                         tag="mean read embedding for variant type " + variant_name)
+                                         tag=prefix+"embedding for variant type " + variant_name)
 
         # read average embeddings stratified by alt count
         for row_idx in range(NUM_COUNT_BINS):
@@ -332,7 +333,7 @@ class EmbeddingMetrics:
                 summary_writer.add_embedding(torch.vstack(self.representations)[indices],
                                         metadata=[all_metadata[n] for n in indices],
                                         metadata_header=["Labels", "Correctness", "Types", "Counts"],
-                                        tag="mean read embedding for alt count " + str(count))
+                                        tag=prefix+"embedding for alt count " + str(count))
 
 
 
