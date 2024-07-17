@@ -53,7 +53,8 @@ class OverdispersedBinomialMixture(nn.Module):
 
         self.weights_pre_softmax = MLP(layer_sizes=[input_size] + hidden_layers + [num_components])
         self.mean_pre_sigmoid = MLP(layer_sizes=[input_size] + hidden_layers + [num_components])
-        self.concentration_pre_exp = MLP(layer_sizes=[input_size] + hidden_layers + [num_components])
+        self.max_concentration = torch.nn.Parameter(torch.tensor(50.0))
+        self.concentration_pre_sigmoid = MLP(layer_sizes=[input_size] + hidden_layers + [num_components])
 
         # TODO: replace this now that we use MLP instead of linear?
         # the kth column of weights corresponds to the kth index of input = 1 and other inputs = 0
@@ -100,7 +101,7 @@ class OverdispersedBinomialMixture(nn.Module):
 
         # 2D tensors -- 1st dim batch, 2nd dim mixture component
         means = self.max_mean * torch.sigmoid(self.mean_pre_sigmoid(x))
-        concentrations = torch.exp(self.concentration_pre_exp(x))
+        concentrations = self.get_concentration(x)
 
         if self.mode == 'beta':
             alphas = means * concentrations
@@ -131,13 +132,16 @@ class OverdispersedBinomialMixture(nn.Module):
         # yields one number per batch, squeezed into 1D output tensor
         return logsumexp(log_weighted_component_likelihoods, dim=1, keepdim=False)
 
+    def get_concentration(self, input_2d):
+        return self.max_concentration * torch.sigmoid(self.concentration_pre_sigmoid(input_2d))
+
     # given 1D input tensor, return 1D tensors of component alphas and betas
     def component_shapes(self, input_1d):
         assert input_1d.dim() == 1
 
         input_2d = input_1d.unsqueeze(dim=0)
         means = self.max_mean * torch.sigmoid(self.mean_pre_sigmoid(input_2d)).squeeze()
-        concentrations = torch.exp(self.concentration_pre_exp(input_2d)).squeeze()
+        concentrations = self.get_concentration(input_2d).squeeze()
         alphas = means * concentrations
         betas = (1 - means) * concentrations if self.mode == 'beta' else concentrations
         return alphas, betas
@@ -186,7 +190,7 @@ class OverdispersedBinomialMixture(nn.Module):
         # get 1D tensors of one selected alpha and beta shape parameter per datum / row, then sample a fraction from each
         # It may be very wasteful computing everything and only using one component, but this is just for unit testing
         means = self.max_mean * torch.sigmoid(self.mean_pre_sigmoid(x).detach()).gather(dim=1, index=component_indices).squeeze()
-        concentrations = torch.exp(self.concentration_pre_exp(x).detach()).gather(dim=1, index=component_indices).squeeze()
+        concentrations = self.get_concentration(x).detach().gather(dim=1, index=component_indices).squeeze()
         alphas = means * concentrations
         betas = (1 - means) * concentrations if self.mode == 'beta' else concentrations
         dist = torch.distributions.beta.Beta(alphas, betas) if self.mode == 'beta' else torch.distributions.gamma.Gamma(alphas, betas)
@@ -232,7 +236,7 @@ class OverdispersedBinomialMixture(nn.Module):
                                             keepdim=False))  # 1D tensor
             return fractions, densities
         else:
-            concentrations = torch.exp(self.concentration_pre_exp(unsqueezed).detach())
+            concentrations = self.get_concentration(unsqueezed).detach()
             alphas = means * concentrations
             betas = (1 - means) * concentrations if self.mode == 'beta' else concentrations
 
