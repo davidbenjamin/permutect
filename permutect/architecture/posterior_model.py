@@ -241,7 +241,7 @@ class PosteriorModel(torch.nn.Module):
                 if n % 1000 == 0:
                     print("iteration " + str(n))
                     for spectrum in self.normal_seq_error_spectra:
-                        print("normal seq error mean: " + str(spectrum.get_mean().item()))
+                        print("normal seq error mean pre-sigmoid: " + str(spectrum.mean_pre_sigmoid.item()))
                 relative_posteriors = self.log_relative_posteriors(batch)
                 log_evidence = torch.logsumexp(relative_posteriors, dim=1)
                 loss = -torch.mean(log_evidence)
