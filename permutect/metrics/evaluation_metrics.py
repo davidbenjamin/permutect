@@ -306,7 +306,7 @@ class EmbeddingMetrics:
 
     def output_to_summary_writer(self, summary_writer: SummaryWriter, prefix: str = ""):
         # downsample to a reasonable amount of UMAP data
-        all_metadata=list(zip(self.label_metadata, self.correct_metadata, self.type_metadata, self.truncated_count_metadata))
+        all_metadata = list(zip(self.label_metadata, self.correct_metadata, self.type_metadata, self.truncated_count_metadata))
         idx = np.random.choice(len(all_metadata), size=min(NUM_DATA_FOR_TENSORBOARD_PROJECTION, len(all_metadata)), replace=False)
 
         summary_writer.add_embedding(torch.vstack(self.representations)[idx],
