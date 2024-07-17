@@ -335,7 +335,7 @@ def apply_filtering_to_vcf(input_vcf, output_vcf, contig_index_to_name_map, erro
     writer.close()
     unfiltered_vcf.close()
 
-    embedding_metrics.output_to_summary_writer(summary_writer, prefix="labeled truth")
+    embedding_metrics.output_to_summary_writer(summary_writer)
 
     if labeled_truth:
         given_thresholds = {var_type: prob_to_logit(error_probability_thresholds[var_type]) for var_type in Variation}
