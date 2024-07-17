@@ -182,6 +182,7 @@ def make_filtered_vcf(saved_artifact_model_path, base_model_path, initial_log_va
     apply_filtering_to_vcf(input_vcf, output_vcf, contig_index_to_name_map, error_probability_thresholds, posterior_data_loader, posterior_model, summary_writer=summary_writer, germline_mode=germline_mode)
 
 
+# TODO: I think this is totally redundant
 def report_quality_of_base_model(posterior_loader, summary_writer: SummaryWriter):
     embedding_metrics = EmbeddingMetrics()
     pbar = tqdm(enumerate(posterior_loader), mininterval=60)
@@ -323,6 +324,13 @@ def apply_filtering_to_vcf(input_vcf, output_vcf, contig_index_to_name_map, erro
                 error_call = list(Call)[highest_prob_index]
                 filters.add(FILTER_NAMES[highest_prob_index])
 
+            # note that this excludes the correctness part of embedding metrics, which is below
+            embedding_metrics.label_metadata.append(label.name)
+            embedding_metrics.type_metadata.append(variant_type.name)
+            embedding_metrics.truncated_count_metadata.append(
+                str(round_up_to_nearest_three(min(MAX_COUNT, posterior_result.alt_count))))
+            embedding_metrics.representations.append(posterior_result.embedding)
+
             if label != Label.UNLABELED:
                 labeled_truth = True
                 clipped_error_prob = 0.5 + 0.9999999 * (error_prob - 0.5)
@@ -334,12 +342,9 @@ def apply_filtering_to_vcf(input_vcf, output_vcf, contig_index_to_name_map, erro
                 if not is_correct:
                     bad_call = error_call if called_as_error else Call.SOMATIC
                     evaluation_metrics.record_mistake(posterior_result, bad_call)
-
-                embedding_metrics.label_metadata.append(label.name)
-                embedding_metrics.correct_metadata.append("correct" if is_correct else "in correct")
-                embedding_metrics.type_metadata.append(variant_type.name)
-                embedding_metrics.truncated_count_metadata.append(str(round_up_to_nearest_three(min(MAX_COUNT, posterior_result.alt_count))))
-                embedding_metrics.representations.append(posterior_result.embedding)
+                embedding_metrics.correct_metadata.append("correct" if is_correct else "incorrect")
+            else:
+                embedding_metrics.correct_metadata.append("unknown")
 
         v.FILTER = ';'.join(filters) if filters else 'PASS'
         writer.write_record(v)
@@ -347,11 +352,13 @@ def apply_filtering_to_vcf(input_vcf, output_vcf, contig_index_to_name_map, erro
     writer.close()
     unfiltered_vcf.close()
 
+    embedding_metrics.output_to_summary_writer(summary_writer, prefix="labeled truth")
+
     if labeled_truth:
         given_thresholds = {var_type: prob_to_logit(error_probability_thresholds[var_type]) for var_type in Variation}
         evaluation_metrics.make_plots(summary_writer, given_thresholds, sens_prec=True)
         evaluation_metrics.make_mistake_histograms(summary_writer)
-        embedding_metrics.output_to_summary_writer(summary_writer, prefix="labeled truth")
+
 
 
 def main():
