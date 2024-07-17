@@ -237,11 +237,6 @@ class PosteriorModel(torch.nn.Module):
 
             pbar = tqdm(enumerate(posterior_loader), mininterval=10)
             for n, batch in pbar:
-                # TODO: DELETE THIS DEBUG STUFF
-                if n % 1000 == 0:
-                    print("iteration " + str(n))
-                    for spectrum in self.normal_seq_error_spectra:
-                        print("normal seq error mean pre-sigmoid: " + str(spectrum.mean_pre_sigmoid.item()))
                 relative_posteriors = self.log_relative_posteriors(batch)
                 log_evidence = torch.logsumexp(relative_posteriors, dim=1)
                 loss = -torch.mean(log_evidence)
