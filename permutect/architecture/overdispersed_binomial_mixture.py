@@ -118,6 +118,16 @@ class OverdispersedBinomialMixture(nn.Module):
 
         log_weighted_component_likelihoods = log_weights + log_component_likelihoods
 
+        if log_weighted_component_likelihoods.isnan().any():
+            print("nan in overdispersed binomial mixture forward")
+            print("alt counts: " + str(k_2d.detach().numpy()))
+            print("depths: " + str(n_2d.detach().numpy()))
+            print("alphas: " + str(alphas.detach().numpy()))
+            print("betas: " + str(betas.detach().numpy()))
+            print("log weights: " + str(log_weights.detach().numpy()))
+
+            assert 5 < 4, "NAN CRASH!!!"
+
         # yields one number per batch, squeezed into 1D output tensor
         return logsumexp(log_weighted_component_likelihoods, dim=1, keepdim=False)
 
