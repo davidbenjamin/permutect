@@ -4,6 +4,7 @@ COPY requirements.txt /
 COPY setup.py /
 RUN pip install --no-cache-dir -r /requirements.txt
 RUN pip install numpy --upgrade --ignore-installed
+RUN pip install chamferdist
 
 ADD permutect/ /permutect
 
