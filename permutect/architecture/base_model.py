@@ -7,6 +7,8 @@ import torch
 from torch.utils.tensorboard import SummaryWriter
 from tqdm.autonotebook import trange, tqdm
 
+from chamferdist import ChamferDistance
+
 from permutect import utils, constants
 from permutect.architecture.dna_sequence_convolution import DNASequenceConvolution
 from permutect.architecture.mlp import MLP
@@ -40,6 +42,8 @@ class LearningMethod(Enum):
 
     # modify data via a finite set of affine transformations and train the embedding to recognize which was applied
     MASK_PREDICTION = "MASK_PREDICTION"
+
+    AUTOENCODER = "AUTOENCODER"
 
 
 def make_transformer_encoder(input_dimension: int, params: BaseModelParameters):
@@ -204,6 +208,8 @@ class BaseModelSemiSupervisedLoss(torch.nn.Module, BaseModelLearningStrategy):
 
     def loss_function(self, base_model: BaseModel, base_batch: BaseBatch):
         representations = base_model.calculate_representations(base_batch, self.weight_range)
+
+
         logits = self.logit_predictor.forward(representations).reshape((base_batch.size()))
 
         types_one_hot = base_batch.variant_type_one_hot()
@@ -284,6 +290,61 @@ class BaseModelMaskPredictionLoss(torch.nn.Module, BaseModelLearningStrategy):
         pass
 
 
+# self-supervision approach where we use the base model embedding to regenerate the set and use Chamfer distance as the
+# reconstruction error.  We regenerate the set via the Transformer Set Prediction Network approach of Kosiorek et al -- seed a set
+# of N reads by concatenated the embedding with N random vectors, then map it so the final reconstructed set with transformers.
+class BaseModelAutoencoderLoss(torch.nn.Module, BaseModelLearningStrategy):
+    def __init__(self, read_dim: int, hidden_top_layers: List[int], params: BaseModelParameters):
+        super(BaseModelAutoencoderLoss, self).__init__()
+        self.base_model_output_dimension = params.output_dimension()
+
+        # TODO: explore making random seed dimension different from the base model embedding dimension
+        self.random_seed_dimension = self.base_model_output_dimension
+        self.transformer_dimension = self.base_model_output_dimension + self.random_seed_dimension
+
+        # TODO: should these decoder params be the same as the base model encoder params?  It seems reasonable.
+        self.alt_transformer_decoder = make_transformer_encoder(self.transformer_dimension, params)
+        self.ref_transformer_decoder = make_transformer_encoder(self.transformer_dimension, params)
+
+        self.mapping_back_to_reads = MLP([self.transformer_dimension] + hidden_top_layers + [read_dim])
+
+        self.chamfer_distance = ChamferDistance()
+
+    def loss_function(self, base_model: BaseModel, base_batch: BaseBatch):
+        var_count, alt_count, ref_count = base_batch.size(), base_batch.alt_count, base_batch.ref_count
+
+        total_ref, total_alt = ref_count * var_count, alt_count * var_count
+
+        representations_ve = base_model.calculate_representations(base_batch, self.weight_range)
+        random_alt_seeds_vre = torch.randn(var_count, alt_count, self.random_seed_dimension)
+        random_ref_seeds_vre = torch.randn(var_count, ref_count, self.random_seed_dimension) if ref_count > 0 else None
+        representations_vre = representations_ve.expand_as(random_alt_seeds_vre) # repeat over the dummy read index
+
+        alt_vre = torch.cat((representations_vre, random_alt_seeds_vre), dim=-1)
+        ref_vre = torch.cat((representations_vre, random_ref_seeds_vre), dim=-1) if ref_count > 0 else None
+
+        decoded_alt_vre = self.alt_transformer_decoder(alt_vre)
+        decoded_ref_vre = self.ref_transformer_decoder(ref_vre) if ref_count > 0 else None
+
+        decoded_alt_re = torch.reshape(decoded_alt_vre, (var_count*alt_count, -1))
+        decoded_ref_re = torch.reshape(decoded_alt_vre, (var_count * alt_count, -1)) if ref_count > 0 else None
+
+        reconstructed_alt_vre = torch.reshape(self.mapping_back_to_reads(decoded_alt_re),(var_count, alt_count, -1))
+        reconstructed_ref_vre = torch.reshape(self.mapping_back_to_reads(decoded_ref_re), (var_count, ref_count, -1)) if ref_count > 0 else None
+
+        original_alt_vre = base_batch.get_reads_2d()[total_ref:].reshape(var_count, alt_count, -1)
+        original_ref_vre = base_batch.get_reads_2d()[:total_ref].reshape(var_count, ref_count, -1) if ref_count > - else None
+
+
+        alt_chamfer_dist = self.chamfer_distance(original_alt_vre, reconstructed_alt_vre, bidirectional=True, batch_reduction = None)
+        ref_chamfer_dist = self.chamfer_distance(original_ref_vre, reconstructed_alt_vre, bidirectional=True, batch_reduction=None) if ref_count > 0 else 0
+        return alt_chamfer_dist + ref_chamfer_dist
+
+    # I don't like implicit forward!!
+    def forward(self):
+        pass
+
+
 def learn_base_model(base_model: BaseModel, dataset: BaseDataset, learning_method: LearningMethod, training_params: TrainingParameters,
             summary_writer: SummaryWriter, validation_fold: int = None):
     # balance training by weighting the loss function
@@ -312,6 +373,8 @@ def learn_base_model(base_model: BaseModel, dataset: BaseDataset, learning_metho
     elif learning_method == LearningMethod.MASK_PREDICTION:
         learning_strategy = BaseModelMaskPredictionLoss(num_read_features=dataset.num_read_features,
                                                         base_model_output_dim=base_model.output_dimension(), hidden_top_layers=[10,10,10], params=base_model._params)
+    elif learning_method == LearningMethod.AUTOENCODER:
+        learning_strategy = BaseModelAutoencoderLoss(read_dim=dataset.num_read_features, hidden_top_layers=[20,20,20], params=base_model._params)
     else:
         raise Exception("not implemented yet")
 
@@ -348,3 +411,5 @@ def learn_base_model(base_model: BaseModel, dataset: BaseDataset, learning_metho
         # done with training and validation for this epoch
         # note that we have not learned the AF spectrum yet
     # done with training
+
+
