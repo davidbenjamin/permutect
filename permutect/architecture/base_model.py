@@ -345,9 +345,9 @@ class BaseModelAutoencoderLoss(torch.nn.Module, BaseModelLearningStrategy):
         decoded_alt_re = torch.reshape(decoded_alt_vre, (var_count * alt_count, -1))
         decoded_ref_re = torch.reshape(decoded_ref_vre, (var_count * ref_count, -1)) if ref_count > 0 else None
 
-        # the raw read tensors are quantile normalized, hence fall from 0 to 1,hence the sigmoid
-        reconstructed_alt_vre = torch.sigmoid(torch.reshape(self.mapping_back_to_reads(decoded_alt_re),(var_count, alt_count, -1)))
-        reconstructed_ref_vre = torch.sigmoid(torch.reshape(self.mapping_back_to_reads(decoded_ref_re), (var_count, ref_count, -1))) if ref_count > 0 else None
+        # the raw read tensors are quantile normalized with Gaussian output
+        reconstructed_alt_vre = torch.reshape(self.mapping_back_to_reads(decoded_alt_re),(var_count, alt_count, -1))
+        reconstructed_ref_vre = torch.reshape(self.mapping_back_to_reads(decoded_ref_re), (var_count, ref_count, -1)) if ref_count > 0 else None
 
         original_alt_vre = base_batch.get_reads_2d()[total_ref:].reshape(var_count, alt_count, -1)
         original_ref_vre = base_batch.get_reads_2d()[:total_ref].reshape(var_count, ref_count, -1) if ref_count > 0 else None
