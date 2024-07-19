@@ -292,11 +292,11 @@ class BaseModelMaskPredictionLoss(torch.nn.Module, BaseModelLearningStrategy):
 # returns a 1D tensor of length B
 def chamfer_distance(set1_bne, set2_bne):
     diffs_bnne = torch.unsqueeze(set1_bne, dim=2) - torch.unsqueeze(set2_bne, dim=1)
-    l1_dists_bnn = torch.sum(torch.abs(diffs_bnne), dim=-1)
+    l1_dists_bnn = torch.mean(torch.abs(diffs_bnne), dim=-1)
 
     chamfer_dists12_bn = torch.min(l1_dists_bnn, dim=-2).values
     chamfer_dists21_bn = torch.min(l1_dists_bnn, dim=-1).values
-    symmetric_chamfer_b = torch.sum(chamfer_dists12_bn, dim=-1) + torch.sum(chamfer_dists21_bn, dim=-1)
+    symmetric_chamfer_b = torch.mean(chamfer_dists12_bn, dim=-1) + torch.mean(chamfer_dists21_bn, dim=-1)
     return symmetric_chamfer_b
 
 
@@ -345,8 +345,9 @@ class BaseModelAutoencoderLoss(torch.nn.Module, BaseModelLearningStrategy):
         decoded_alt_re = torch.reshape(decoded_alt_vre, (var_count * alt_count, -1))
         decoded_ref_re = torch.reshape(decoded_ref_vre, (var_count * ref_count, -1)) if ref_count > 0 else None
 
-        reconstructed_alt_vre = torch.reshape(self.mapping_back_to_reads(decoded_alt_re),(var_count, alt_count, -1))
-        reconstructed_ref_vre = torch.reshape(self.mapping_back_to_reads(decoded_ref_re), (var_count, ref_count, -1)) if ref_count > 0 else None
+        # the raw read tensors are quantile normalized, hence fall from 0 to 1,hence the sigmoid
+        reconstructed_alt_vre = torch.sigmoid(torch.reshape(self.mapping_back_to_reads(decoded_alt_re),(var_count, alt_count, -1)))
+        reconstructed_ref_vre = torch.sigmoid(torch.reshape(self.mapping_back_to_reads(decoded_ref_re), (var_count, ref_count, -1))) if ref_count > 0 else None
 
         original_alt_vre = base_batch.get_reads_2d()[total_ref:].reshape(var_count, alt_count, -1)
         original_ref_vre = base_batch.get_reads_2d()[:total_ref].reshape(var_count, ref_count, -1) if ref_count > 0 else None
