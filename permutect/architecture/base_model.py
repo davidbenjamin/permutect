@@ -207,7 +207,6 @@ class BaseModelSemiSupervisedLoss(torch.nn.Module, BaseModelLearningStrategy):
     def loss_function(self, base_model: BaseModel, base_batch: BaseBatch):
         representations = base_model.calculate_representations(base_batch, self.weight_range)
 
-
         logits = self.logit_predictor.forward(representations).reshape((base_batch.size()))
 
         types_one_hot = base_batch.variant_type_one_hot()
@@ -287,6 +286,7 @@ class BaseModelMaskPredictionLoss(torch.nn.Module, BaseModelLearningStrategy):
     def forward(self):
         pass
 
+
 # chamfer distance between two 3D tensors B x N1 x E and B x N2 x E, where B is the batch size, N1/2 are the number
 # of items in the two sets, and E is the dimensionality of each item
 # returns a 1D tensor of length B
@@ -307,10 +307,16 @@ class BaseModelAutoencoderLoss(torch.nn.Module, BaseModelLearningStrategy):
     def __init__(self, read_dim: int, hidden_top_layers: List[int], params: BaseModelParameters):
         super(BaseModelAutoencoderLoss, self).__init__()
         self.base_model_output_dimension = params.output_dimension()
+        self.weight_range = params.reweighting_range
+
+        # the transformer embedding dimension has to be divisible by its number of heads
+        excess = (2*self.base_model_output_dimension) % params.num_transformer_heads
 
         # TODO: explore making random seed dimension different from the base model embedding dimension
-        self.random_seed_dimension = self.base_model_output_dimension
+        self.random_seed_dimension = self.base_model_output_dimension - excess
         self.transformer_dimension = self.base_model_output_dimension + self.random_seed_dimension
+
+        # TODO: maybe also a parameter to scale the random vectors?
 
         # TODO: should these decoder params be the same as the base model encoder params?  It seems reasonable.
         self.alt_transformer_decoder = make_transformer_encoder(self.transformer_dimension, params)
@@ -327,23 +333,23 @@ class BaseModelAutoencoderLoss(torch.nn.Module, BaseModelLearningStrategy):
         representations_ve = base_model.calculate_representations(base_batch, self.weight_range)
         random_alt_seeds_vre = torch.randn(var_count, alt_count, self.random_seed_dimension)
         random_ref_seeds_vre = torch.randn(var_count, ref_count, self.random_seed_dimension) if ref_count > 0 else None
-        representations_vre = representations_ve.expand_as(random_alt_seeds_vre) # repeat over the dummy read index
+        alt_representations_vre = torch.unsqueeze(representations_ve, dim=1).expand(-1, alt_count, -1) # repeat over the dummy read index
+        ref_representations_vre = torch.unsqueeze(representations_ve, dim=1).expand(-1, ref_count, -1)
 
-        alt_vre = torch.cat((representations_vre, random_alt_seeds_vre), dim=-1)
-        ref_vre = torch.cat((representations_vre, random_ref_seeds_vre), dim=-1) if ref_count > 0 else None
+        alt_vre = torch.cat((alt_representations_vre, random_alt_seeds_vre), dim=-1)
+        ref_vre = torch.cat((ref_representations_vre, random_ref_seeds_vre), dim=-1) if ref_count > 0 else None
 
         decoded_alt_vre = self.alt_transformer_decoder(alt_vre)
         decoded_ref_vre = self.ref_transformer_decoder(ref_vre) if ref_count > 0 else None
 
-        decoded_alt_re = torch.reshape(decoded_alt_vre, (var_count*alt_count, -1))
-        decoded_ref_re = torch.reshape(decoded_ref_vre, (var_count * alt_count, -1)) if ref_count > 0 else None
+        decoded_alt_re = torch.reshape(decoded_alt_vre, (var_count * alt_count, -1))
+        decoded_ref_re = torch.reshape(decoded_ref_vre, (var_count * ref_count, -1)) if ref_count > 0 else None
 
         reconstructed_alt_vre = torch.reshape(self.mapping_back_to_reads(decoded_alt_re),(var_count, alt_count, -1))
         reconstructed_ref_vre = torch.reshape(self.mapping_back_to_reads(decoded_ref_re), (var_count, ref_count, -1)) if ref_count > 0 else None
 
         original_alt_vre = base_batch.get_reads_2d()[total_ref:].reshape(var_count, alt_count, -1)
-        original_ref_vre = base_batch.get_reads_2d()[:total_ref].reshape(var_count, ref_count, -1) if ref_count > - else None
-
+        original_ref_vre = base_batch.get_reads_2d()[:total_ref].reshape(var_count, ref_count, -1) if ref_count > 0 else None
 
         alt_chamfer_dist = chamfer_distance(original_alt_vre, reconstructed_alt_vre)
         ref_chamfer_dist = chamfer_distance(original_ref_vre, reconstructed_ref_vre) if ref_count > 0 else 0
