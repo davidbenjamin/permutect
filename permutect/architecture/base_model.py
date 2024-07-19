@@ -7,8 +7,6 @@ import torch
 from torch.utils.tensorboard import SummaryWriter
 from tqdm.autonotebook import trange, tqdm
 
-from chamferdist import ChamferDistance
-
 from permutect import utils, constants
 from permutect.architecture.dna_sequence_convolution import DNASequenceConvolution
 from permutect.architecture.mlp import MLP
@@ -289,6 +287,18 @@ class BaseModelMaskPredictionLoss(torch.nn.Module, BaseModelLearningStrategy):
     def forward(self):
         pass
 
+# chamfer distance between two 3D tensors B x N1 x E and B x N2 x E, where B is the batch size, N1/2 are the number
+# of items in the two sets, and E is the dimensionality of each item
+# returns a 1D tensor of length B
+def chamfer_distance(set1_bne, set2_bne):
+    diffs_bnne = torch.unsqueeze(set1_bne, dim=2) - torch.unsqueeze(set2_bne, dim=1)
+    l1_dists_bnn = torch.sum(torch.abs(diffs_bnne), dim=-1)
+
+    chamfer_dists12_bn = torch.min(l1_dists_bnn, dim=-2).values
+    chamfer_dists21_bn = torch.min(l1_dists_bnn, dim=-1).values
+    symmetric_chamfer_b = torch.sum(chamfer_dists12_bn, dim=-1) + torch.sum(chamfer_dists21_bn, dim=-1)
+    return symmetric_chamfer_b
+
 
 # self-supervision approach where we use the base model embedding to regenerate the set and use Chamfer distance as the
 # reconstruction error.  We regenerate the set via the Transformer Set Prediction Network approach of Kosiorek et al -- seed a set
@@ -308,7 +318,6 @@ class BaseModelAutoencoderLoss(torch.nn.Module, BaseModelLearningStrategy):
 
         self.mapping_back_to_reads = MLP([self.transformer_dimension] + hidden_top_layers + [read_dim])
 
-        self.chamfer_distance = ChamferDistance()
 
     def loss_function(self, base_model: BaseModel, base_batch: BaseBatch):
         var_count, alt_count, ref_count = base_batch.size(), base_batch.alt_count, base_batch.ref_count
@@ -327,7 +336,7 @@ class BaseModelAutoencoderLoss(torch.nn.Module, BaseModelLearningStrategy):
         decoded_ref_vre = self.ref_transformer_decoder(ref_vre) if ref_count > 0 else None
 
         decoded_alt_re = torch.reshape(decoded_alt_vre, (var_count*alt_count, -1))
-        decoded_ref_re = torch.reshape(decoded_alt_vre, (var_count * alt_count, -1)) if ref_count > 0 else None
+        decoded_ref_re = torch.reshape(decoded_ref_vre, (var_count * alt_count, -1)) if ref_count > 0 else None
 
         reconstructed_alt_vre = torch.reshape(self.mapping_back_to_reads(decoded_alt_re),(var_count, alt_count, -1))
         reconstructed_ref_vre = torch.reshape(self.mapping_back_to_reads(decoded_ref_re), (var_count, ref_count, -1)) if ref_count > 0 else None
@@ -336,8 +345,8 @@ class BaseModelAutoencoderLoss(torch.nn.Module, BaseModelLearningStrategy):
         original_ref_vre = base_batch.get_reads_2d()[:total_ref].reshape(var_count, ref_count, -1) if ref_count > - else None
 
 
-        alt_chamfer_dist = self.chamfer_distance(original_alt_vre, reconstructed_alt_vre, bidirectional=True, batch_reduction = None)
-        ref_chamfer_dist = self.chamfer_distance(original_ref_vre, reconstructed_alt_vre, bidirectional=True, batch_reduction=None) if ref_count > 0 else 0
+        alt_chamfer_dist = chamfer_distance(original_alt_vre, reconstructed_alt_vre)
+        ref_chamfer_dist = chamfer_distance(original_ref_vre, reconstructed_ref_vre) if ref_count > 0 else 0
         return alt_chamfer_dist + ref_chamfer_dist
 
     # I don't like implicit forward!!
