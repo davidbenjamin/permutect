@@ -16,7 +16,8 @@ from permutect.architecture.base_model import BaseModel, load_base_model
 from permutect.data import base_dataset, plain_text_data
 from permutect.data.posterior import PosteriorDataset, PosteriorDatum
 from permutect.data.artifact_dataset import ArtifactDataset
-from permutect.metrics.evaluation_metrics import EvaluationMetrics, PosteriorResult
+from permutect.metrics.evaluation_metrics import EvaluationMetrics, PosteriorResult, EmbeddingMetrics, \
+    round_up_to_nearest_three, MAX_COUNT
 from permutect.utils import Call, find_variant_type, Label, Variation, Epoch
 
 TRUSTED_M2_FILTERS = {'contamination'}
@@ -160,7 +161,7 @@ def make_filtered_vcf(saved_artifact_model_path, base_model_path, initial_log_va
             contig_index_to_name_map[int(index)] = contig
 
     artifact_model, artifact_log_priors, artifact_spectra_state_dict = load_artifact_model(saved_artifact_model_path)
-    posterior_model = PosteriorModel(initial_log_variant_prior, initial_log_artifact_prior, no_germline_mode=no_germline_mode)
+    posterior_model = PosteriorModel(initial_log_variant_prior, initial_log_artifact_prior, no_germline_mode=no_germline_mode, num_base_features=artifact_model.num_base_features)
     posterior_data_loader = make_posterior_data_loader(test_dataset_file, input_vcf, contig_index_to_name_map,
         base_model, artifact_model, batch_size, chunk_size=chunk_size, segmentation=segmentation, normal_segmentation=normal_segmentation)
 
@@ -207,7 +208,7 @@ def make_posterior_data_loader(dataset_file, input_vcf, contig_index_to_name_map
             artifact_logits = artifact_model.forward(batch=artifact_batch).detach().tolist()
 
             labels = ([Label.ARTIFACT if x > 0.5 else Label.VARIANT for x in artifact_batch.labels]) if artifact_batch.is_labeled() else (artifact_batch.size()*[Label.UNLABELED])
-            for variant, counts_and_seq_lks, logit, label in zip(artifact_batch.variants, artifact_batch.counts_and_likelihoods, artifact_logits, labels):
+            for variant, counts_and_seq_lks, logit, label, embedding in zip(artifact_batch.variants, artifact_batch.counts_and_likelihoods, artifact_logits, labels, artifact_batch.get_representations_2d()):
                 contig_name = contig_index_to_name_map[variant.contig]
                 encoding = encode(contig_name, variant.position, variant.ref, variant.alt)
                 if encoding in allele_frequencies and encoding not in m2_filtering_to_keep:
@@ -220,7 +221,7 @@ def make_posterior_data_loader(dataset_file, input_vcf, contig_index_to_name_map
                     maf = list(segmentation_overlaps)[0].data if segmentation_overlaps else 0.5
                     normal_maf = list(normal_segmentation_overlaps)[0].data if normal_segmentation_overlaps else 0.5
 
-                    posterior_datum = PosteriorDatum(variant, counts_and_seq_lks, allele_frequency, logit, label, maf, normal_maf)
+                    posterior_datum = PosteriorDatum(variant, counts_and_seq_lks, allele_frequency, logit, embedding, label, maf, normal_maf)
                     posterior_data.append(posterior_datum)
 
     print("Size of filtering dataset: " + str(len(posterior_data)))
@@ -249,8 +250,8 @@ def apply_filtering_to_vcf(input_vcf, output_vcf, contig_index_to_name_map, erro
         alt_counts = batch.alt_counts.tolist()
         depths = batch.depths.tolist()
 
-        for encoding, post_probs, logit, log_prior, log_spec, log_normal, label, alt_count, depth, var_type in zip(encodings, posterior_probs, artifact_logits, log_priors, spectra_lls, normal_lls, labels, alt_counts, depths, var_types):
-            encoding_to_posterior_results[encoding] = PosteriorResult(logit, post_probs.tolist(), log_prior, log_spec, log_normal, label, alt_count, depth, var_type)
+        for encoding, post_probs, logit, log_prior, log_spec, log_normal, label, alt_count, depth, var_type, embedding in zip(encodings, posterior_probs, artifact_logits, log_priors, spectra_lls, normal_lls, labels, alt_counts, depths, var_types, batch.embeddings):
+            encoding_to_posterior_results[encoding] = PosteriorResult(logit, post_probs.tolist(), log_prior, log_spec, log_normal, label, alt_count, depth, var_type, embedding)
 
     print("Applying threshold")
     unfiltered_vcf = cyvcf2.VCF(input_vcf)
@@ -276,6 +277,8 @@ def apply_filtering_to_vcf(input_vcf, output_vcf, contig_index_to_name_map, erro
     evaluation_metrics = EvaluationMetrics()
     pbar = tqdm(enumerate(unfiltered_vcf), mininterval=60)
     labeled_truth = False
+    embedding_metrics = EmbeddingMetrics() # only if there is labeled truth for evaluation
+
     for n, v in pbar:
         filters = filters_to_keep_from_m2(v)
 
@@ -304,6 +307,13 @@ def apply_filtering_to_vcf(input_vcf, output_vcf, contig_index_to_name_map, erro
                 error_call = list(Call)[highest_prob_index]
                 filters.add(FILTER_NAMES[highest_prob_index])
 
+            # note that this excludes the correctness part of embedding metrics, which is below
+            embedding_metrics.label_metadata.append(label.name)
+            embedding_metrics.type_metadata.append(variant_type.name)
+            embedding_metrics.truncated_count_metadata.append(
+                str(round_up_to_nearest_three(min(MAX_COUNT, posterior_result.alt_count))))
+            embedding_metrics.representations.append(posterior_result.embedding)
+
             if label != Label.UNLABELED:
                 labeled_truth = True
                 clipped_error_prob = 0.5 + 0.9999999 * (error_prob - 0.5)
@@ -315,6 +325,9 @@ def apply_filtering_to_vcf(input_vcf, output_vcf, contig_index_to_name_map, erro
                 if not is_correct:
                     bad_call = error_call if called_as_error else Call.SOMATIC
                     evaluation_metrics.record_mistake(posterior_result, bad_call)
+                embedding_metrics.correct_metadata.append("correct" if is_correct else "incorrect")
+            else:
+                embedding_metrics.correct_metadata.append("unknown")
 
         v.FILTER = ';'.join(filters) if filters else 'PASS'
         writer.write_record(v)
@@ -322,10 +335,13 @@ def apply_filtering_to_vcf(input_vcf, output_vcf, contig_index_to_name_map, erro
     writer.close()
     unfiltered_vcf.close()
 
+    embedding_metrics.output_to_summary_writer(summary_writer)
+
     if labeled_truth:
         given_thresholds = {var_type: prob_to_logit(error_probability_thresholds[var_type]) for var_type in Variation}
         evaluation_metrics.make_plots(summary_writer, given_thresholds, sens_prec=True)
         evaluation_metrics.make_mistake_histograms(summary_writer)
+
 
 
 def main():

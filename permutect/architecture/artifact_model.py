@@ -14,18 +14,17 @@ from matplotlib import pyplot as plt
 
 from permutect.architecture.mlp import MLP
 from permutect.architecture.monotonic import MonoDense
+from permutect.architecture.overdispersed_binomial_mixture import OverdispersedBinomialMixture
 from permutect.data.base_datum import ArtifactBatch, DEFAULT_GPU_FLOAT, DEFAULT_CPU_FLOAT
 from permutect.data.artifact_dataset import ArtifactDataset
 from permutect import utils, constants
 from permutect.metrics.evaluation_metrics import LossMetrics, EvaluationMetrics, NUM_COUNT_BINS, \
-    multiple_of_three_bin_index_to_count, MAX_COUNT, round_up_to_nearest_three
+    multiple_of_three_bin_index_to_count, MAX_COUNT, round_up_to_nearest_three, EmbeddingMetrics
 from permutect.parameters import TrainingParameters, ArtifactModelParameters
 from permutect.utils import Variation, Epoch
 from permutect.metrics import plotting
 
 warnings.filterwarnings("ignore", message="Setting attributes on ParameterList is not supported.")
-
-NUM_DATA_FOR_TENSORBOARD_PROJECTION = 10000
 
 
 def effective_count(weights: Tensor):
@@ -122,9 +121,6 @@ class ArtifactModel(nn.Module):
     def training_parameters(self):
         return chain(self.aggregation.parameters(), self.calibration.parameters())
 
-    def training_parameters_if_using_pretrained_model(self):
-        return chain(self.aggregation.parameters(), self.final_logit.parameters(), self.calibration.parameters())
-
     def calibration_parameters(self):
         return self.calibration.parameters()
 
@@ -218,7 +214,6 @@ class ArtifactModel(nn.Module):
             # note that we have not learned the AF spectrum yet
         # done with training
 
-    # generators by name is eg {"train": train_generator, "valid": valid_generator}
     def evaluate_model_after_training(self, dataset: ArtifactDataset, batch_size, num_workers, summary_writer: SummaryWriter):
         train_loader = dataset.make_data_loader(dataset.all_but_the_last_fold(), batch_size, self._device.type == 'cuda', num_workers)
         valid_loader = dataset.make_data_loader(dataset.last_fold_only(), batch_size, self._device.type == 'cuda', num_workers)
@@ -246,15 +241,10 @@ class ArtifactModel(nn.Module):
 
         evaluation_metrics.make_plots(summary_writer)
 
+        embedding_metrics = EmbeddingMetrics()
+
         # now go over just the validation data and generate feature vectors / metadata for tensorboard projectors (UMAP)
         pbar = tqdm(enumerate(filter(lambda bat: bat.is_labeled(), valid_loader)), mininterval=60)
-
-        # things we will collect for the projections
-        label_metadata = []     # list (extended by each batch) 1 if artifact, 0 if not
-        correct_metadata = []   # list (extended by each batch), 1 if correct prediction, 0 if not
-        type_metadata = []      # list of lists, strings of variant type
-        truncated_count_metadata = []   # list of lists
-        representations = []    # list of 2D tensors (to be stacked into a single 2D tensor), representations over batches
 
         for n, batch in pbar:
             types_one_hot = batch.variant_type_one_hot()
@@ -264,44 +254,14 @@ class ArtifactModel(nn.Module):
             posterior_pred = pred + log_prior_odds
             correct = ((posterior_pred > 0) == (batch.labels > 0.5)).tolist()
 
-            label_metadata.extend(["artifact" if x > 0.5 else "non-artifact" for x in batch.labels.tolist()])
-            correct_metadata.extend([str(val) for val in correct])
-            type_metadata.extend([Variation(idx).name for idx in batch.variant_types()])
-            truncated_count_metadata.extend([str(round_up_to_nearest_three(min(MAX_COUNT, alt_count))) for alt_count in batch.alt_counts])
-
-            representations.append(batch.get_representations_2d())
+            embedding_metrics.label_metadata.extend(["artifact" if x > 0.5 else "non-artifact" for x in batch.labels.tolist()])
+            embedding_metrics.correct_metadata.extend([str(val) for val in correct])
+            embedding_metrics.type_metadata.extend([Variation(idx).name for idx in batch.variant_types()])
+            embedding_metrics.truncated_count_metadata.extend([str(round_up_to_nearest_three(min(MAX_COUNT, alt_count))) for alt_count in batch.alt_counts])
+            embedding_metrics.representations.append(batch.get_representations_2d())
+        embedding_metrics.output_to_summary_writer(summary_writer)
 
         # done collecting data
-
-        # downsample to a reasonable amount of UMAP data
-        all_metadata=list(zip(label_metadata, correct_metadata, type_metadata, truncated_count_metadata))
-        idx = np.random.choice(len(all_metadata), size=min(NUM_DATA_FOR_TENSORBOARD_PROJECTION, len(all_metadata)), replace=False)
-
-        summary_writer.add_embedding(torch.vstack(representations)[idx],
-                                     metadata=[all_metadata[n] for n in idx],
-                                     metadata_header=["Labels", "Correctness", "Types", "Counts"],
-                                     tag="mean read embedding")
-
-        # read average embeddings stratified by variant type
-        for variant_type in Variation:
-            variant_name = variant_type.name
-            indices = [n for n, type_name in enumerate(type_metadata) if type_name == variant_name]
-            indices = sample_indices_for_tensorboard(indices)
-            summary_writer.add_embedding(torch.vstack(representations)[indices],
-                                         metadata=[all_metadata[n] for n in indices],
-                                         metadata_header=["Labels", "Correctness", "Types", "Counts"],
-                                         tag="mean read embedding for variant type " + variant_name)
-
-        # read average embeddings stratified by alt count
-        for row_idx in range(NUM_COUNT_BINS):
-            count = multiple_of_three_bin_index_to_count(row_idx)
-            indices = [n for n, alt_count in enumerate(truncated_count_metadata) if alt_count == str(count)]
-            indices = sample_indices_for_tensorboard(indices)
-            if len(indices) > 0:
-                summary_writer.add_embedding(torch.vstack(representations)[indices],
-                                        metadata=[all_metadata[n] for n in indices],
-                                        metadata_header=["Labels", "Correctness", "Types", "Counts"],
-                                        tag="mean read embedding for alt count " + str(count))
 
     def save(self, path, artifact_log_priors, artifact_spectra):
         torch.save({
@@ -325,12 +285,3 @@ def load_artifact_model(path) -> ArtifactModel:
     artifact_spectra_state_dict = saved[constants.ARTIFACT_SPECTRA_STATE_DICT_NAME]     #possibly None
     return model, artifact_log_priors, artifact_spectra_state_dict
 
-
-def sample_indices_for_tensorboard(indices: List[int]):
-    indices_np = np.array(indices)
-
-    if len(indices_np) <= NUM_DATA_FOR_TENSORBOARD_PROJECTION:
-        return indices_np
-
-    idx = np.random.choice(len(indices_np), size=NUM_DATA_FOR_TENSORBOARD_PROJECTION, replace=False)
-    return indices_np[idx]

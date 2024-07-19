@@ -1,10 +1,12 @@
 import math
+from typing import List
 
 import torch
 from permutect import utils
 from torch import nn, exp, unsqueeze, logsumexp
 from torch.nn.functional import softmax, log_softmax
 
+from permutect.architecture.mlp import MLP
 from permutect.metrics.plotting import simple_plot
 from permutect.utils import beta_binomial, gamma_binomial, binomial
 
@@ -42,33 +44,36 @@ class OverdispersedBinomialMixture(nn.Module):
     That is, each component is a plain binomial, though of course by virtue of being a mixture the distribution as a whole is overdispersed.
     """
 
-    def __init__(self, input_size: int, num_components: int, max_mean: float = 1, mode: str = 'beta'):
+    def __init__(self, input_size: int, num_components: int, max_mean: float = 1, mode: str = 'beta', hidden_layers: List[int] = []):
         super(OverdispersedBinomialMixture, self).__init__()
         self.mode = mode
         self.num_components = num_components
         self.input_size = input_size
         self.max_mean = max_mean
 
-        self.weights_pre_softmax = nn.Linear(in_features=input_size, out_features=num_components, bias=False)
-        self.mean_pre_sigmoid = nn.Linear(in_features=input_size, out_features=num_components, bias=False)
-        self.concentration_pre_exp = nn.Linear(in_features=input_size, out_features=num_components, bias=False)
+        self.weights_pre_softmax = MLP(layer_sizes=[input_size] + hidden_layers + [num_components])
+        self.mean_pre_sigmoid = MLP(layer_sizes=[input_size] + hidden_layers + [num_components])
+        self.max_concentration = torch.nn.Parameter(torch.tensor(50.0))
+        self.concentration_pre_sigmoid = MLP(layer_sizes=[input_size] + hidden_layers + [num_components])
 
+        # TODO: replace this now that we use MLP instead of linear?
         # the kth column of weights corresponds to the kth index of input = 1 and other inputs = 0
         # we are going to manually initialize to equal weights -- all zeroes
         # the alphas and betas will be equally spaced Beta distributions, for example, each column of alpha would be
         # 1, 11, 21, 31, 41, 51 and each column of beta would be 51, 41, 31, 21, 11, 1
-        with torch.no_grad():
-            self.weights_pre_softmax.weight.copy_(torch.zeros_like(self.weights_pre_softmax.weight))
-            self.concentration_pre_exp.weight.copy_(
-                torch.log(10 * num_components * torch.ones_like(self.concentration_pre_exp.weight)))
-            self.set_means((0.5 + torch.arange(num_components)) / num_components)
+        #with torch.no_grad():
+        #    self.weights_pre_softmax.weight.copy_(torch.zeros_like(self.weights_pre_softmax.weight))
+        #    self.concentration_pre_exp.weight.copy_(
+        #        torch.log(10 * num_components * torch.ones_like(self.concentration_pre_exp.weight)))
+        #    self.set_means((0.5 + torch.arange(num_components)) / num_components)
 
-    def set_means(self, means):
-        assert len(means) == self.num_components
-        each_mean_col_pre_sigmoid = torch.log(means / (1 - means))
-        repeated_mean_cols = torch.hstack(self.input_size * [each_mean_col_pre_sigmoid.unsqueeze(dim=1)])
-        with torch.no_grad():
-            self.mean_pre_sigmoid.weight.copy_(repeated_mean_cols)
+    # TODO: replace this now that we use MLP instead of linear?
+    #def set_means(self, means):
+    #    assert len(means) == self.num_components
+    #    each_mean_col_pre_sigmoid = torch.log(means / (1 - means))
+    #    repeated_mean_cols = torch.hstack(self.input_size * [each_mean_col_pre_sigmoid.unsqueeze(dim=1)])
+    #    with torch.no_grad():
+    #        self.mean_pre_sigmoid.weight.copy_(repeated_mean_cols)
 
     def set_weights(self, weights):
         assert len(weights) == self.num_components
@@ -96,7 +101,7 @@ class OverdispersedBinomialMixture(nn.Module):
 
         # 2D tensors -- 1st dim batch, 2nd dim mixture component
         means = self.max_mean * torch.sigmoid(self.mean_pre_sigmoid(x))
-        concentrations = torch.exp(self.concentration_pre_exp(x))
+        concentrations = self.get_concentration(x)
 
         if self.mode == 'beta':
             alphas = means * concentrations
@@ -114,8 +119,21 @@ class OverdispersedBinomialMixture(nn.Module):
 
         log_weighted_component_likelihoods = log_weights + log_component_likelihoods
 
+        if log_weighted_component_likelihoods.isnan().any():
+            print("nan in overdispersed binomial mixture forward")
+            print("alt counts: " + str(k_2d.detach().numpy()))
+            print("depths: " + str(n_2d.detach().numpy()))
+            print("alphas: " + str(alphas.detach().numpy()))
+            print("betas: " + str(betas.detach().numpy()))
+            print("log weights: " + str(log_weights.detach().numpy()))
+
+            assert 5 < 4, "NAN CRASH!!!"
+
         # yields one number per batch, squeezed into 1D output tensor
         return logsumexp(log_weighted_component_likelihoods, dim=1, keepdim=False)
+
+    def get_concentration(self, input_2d):
+        return self.max_concentration * torch.sigmoid(self.concentration_pre_sigmoid(input_2d))
 
     # given 1D input tensor, return 1D tensors of component alphas and betas
     def component_shapes(self, input_1d):
@@ -123,7 +141,7 @@ class OverdispersedBinomialMixture(nn.Module):
 
         input_2d = input_1d.unsqueeze(dim=0)
         means = self.max_mean * torch.sigmoid(self.mean_pre_sigmoid(input_2d)).squeeze()
-        concentrations = torch.exp(self.concentration_pre_exp(input_2d)).squeeze()
+        concentrations = self.get_concentration(input_2d).squeeze()
         alphas = means * concentrations
         betas = (1 - means) * concentrations if self.mode == 'beta' else concentrations
         return alphas, betas
@@ -172,7 +190,7 @@ class OverdispersedBinomialMixture(nn.Module):
         # get 1D tensors of one selected alpha and beta shape parameter per datum / row, then sample a fraction from each
         # It may be very wasteful computing everything and only using one component, but this is just for unit testing
         means = self.max_mean * torch.sigmoid(self.mean_pre_sigmoid(x).detach()).gather(dim=1, index=component_indices).squeeze()
-        concentrations = torch.exp(self.concentration_pre_exp(x).detach()).gather(dim=1, index=component_indices).squeeze()
+        concentrations = self.get_concentration(x).detach().gather(dim=1, index=component_indices).squeeze()
         alphas = means * concentrations
         betas = (1 - means) * concentrations if self.mode == 'beta' else concentrations
         dist = torch.distributions.beta.Beta(alphas, betas) if self.mode == 'beta' else torch.distributions.gamma.Gamma(alphas, betas)
@@ -218,7 +236,7 @@ class OverdispersedBinomialMixture(nn.Module):
                                             keepdim=False))  # 1D tensor
             return fractions, densities
         else:
-            concentrations = torch.exp(self.concentration_pre_exp(unsqueezed).detach())
+            concentrations = self.get_concentration(unsqueezed).detach()
             alphas = means * concentrations
             betas = (1 - means) * concentrations if self.mode == 'beta' else concentrations
 
