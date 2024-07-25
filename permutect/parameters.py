@@ -28,6 +28,9 @@ class BaseModelParameters:
         self.batch_normalize = batch_normalize
         self.alt_downsample = alt_downsample
 
+    def output_dimension(self):
+        return self.aggregation_layers[-1]
+
 
 def parse_base_model_params(args) -> BaseModelParameters:
     read_layers = getattr(args, constants.READ_LAYERS_NAME)
