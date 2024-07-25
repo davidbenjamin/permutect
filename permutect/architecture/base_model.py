@@ -423,18 +423,17 @@ def learn_base_model(base_model: BaseModel, dataset: BaseDataset, learning_metho
                     loss_metrics.record_losses_by_type_and_count(separate_losses, batch)
 
                     classification_logits = classifier_on_top.forward(representations.detach()).reshape(batch.size())
-                    # TODO: separate losses
-                    classification_loss = torch.sum(classifier_bce(classification_logits, batch.labels))
+                    separate_classification_losses = torch.sum(classifier_bce(classification_logits, batch.labels))
+                    classification_loss = torch.sum(separate_classification_losses)
                     classifier_metrics.record_total_batch_loss(classification_loss.detach(), batch)
+                    classifier_metrics.record_losses_by_type_and_count(separate_classification_losses, batch)
                 if epoch_type == utils.Epoch.TRAIN:
                     utils.backpropagate(train_optimizer, loss)
                     utils.backpropagate(classifier_optimizer, classification_loss)
 
-
             # done with one epoch type -- training or validation -- for this epoch
             loss_metrics.write_to_summary_writer(epoch_type, epoch, summary_writer)
-            # TODO: need prefix to distinguish from representation learning loss
-            classifier_metrics.write_to_summary_writer(epoch_type, epoch, summary_writer)
+            classifier_metrics.write_to_summary_writer(epoch_type, epoch, summary_writer, prefix="auxiliary-classifier-")
 
             print("Labeled loss for epoch " + str(epoch) + " of " + epoch_type.name + ": " + str(loss_metrics.get_labeled_loss()))
         # done with training and validation for this epoch
