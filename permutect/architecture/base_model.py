@@ -184,10 +184,12 @@ def load_base_model(path, device: torch.device = utils.gpu_if_available()) -> Ba
     return model
 
 
-# outputs a 1D tensor of losses over the batch
+# outputs a 1D tensor of losses over the batch.  We assume it needs the representations of the batch data from the base
+# model.  We nonetheless also use the model as an input because there are some learning strategies that involve
+# computing representations of a modified batch.
 class BaseModelLearningStrategy(ABC):
     @abstractmethod
-    def loss_function(self, base_model: BaseModel, base_batch: BaseBatch):
+    def loss_function(self, base_model: BaseModel, base_batch: BaseBatch, base_model_representations: torch.Tensor):
         pass
 
 
@@ -195,7 +197,6 @@ class BaseModelSemiSupervisedLoss(torch.nn.Module, BaseModelLearningStrategy):
     def __init__(self, input_dim: int, hidden_top_layers: List[int], params: BaseModelParameters,
                  artifact_to_non_artifact_log_prior_ratios, labeled_to_unlabeled_ratio):
         super(BaseModelSemiSupervisedLoss, self).__init__()
-        self.weight_range = params.reweighting_range
         self.artifact_to_non_artifact_log_prior_ratios = artifact_to_non_artifact_log_prior_ratios
         self.labeled_to_unlabeled_ratio = labeled_to_unlabeled_ratio
 
@@ -204,10 +205,8 @@ class BaseModelSemiSupervisedLoss(torch.nn.Module, BaseModelLearningStrategy):
         # go from base model output representation to artifact logit for supervised loss
         self.logit_predictor = MLP([input_dim] + hidden_top_layers + [1], batch_normalize=params.batch_normalize, dropout_p=params.dropout_p)
 
-    def loss_function(self, base_model: BaseModel, base_batch: BaseBatch):
-        representations = base_model.calculate_representations(base_batch, self.weight_range)
-
-        logits = self.logit_predictor.forward(representations).reshape((base_batch.size()))
+    def loss_function(self, base_model: BaseModel, base_batch: BaseBatch, base_model_representations: torch.Tensor):
+        logits = self.logit_predictor.forward(base_model_representations).reshape((base_batch.size()))
 
         types_one_hot = base_batch.variant_type_one_hot()
         log_prior_ratios = torch.sum(self.artifact_to_non_artifact_log_prior_ratios * types_one_hot, dim=1)
@@ -255,7 +254,7 @@ class BaseModelMaskPredictionLoss(torch.nn.Module, BaseModelLearningStrategy):
         # go from base model output representation to artifact logit for supervised loss
         self.mask_predictor = MLP([base_model_output_dim] + hidden_top_layers + [num_read_features], batch_normalize=params.batch_normalize, dropout_p=params.dropout_p)
 
-    def loss_function(self, base_model: BaseModel, base_batch: BaseBatch):
+    def loss_function(self, base_model: BaseModel, base_batch: BaseBatch, base_model_representations):
         ref_count, alt_count = base_batch.ref_count, base_batch.alt_count
         total_ref, total_alt = ref_count * base_batch.size(), alt_count * base_batch.size()
 
@@ -271,12 +270,11 @@ class BaseModelMaskPredictionLoss(torch.nn.Module, BaseModelLearningStrategy):
         original_reads_2d = base_batch.reads_2d
         modified_alt_reads = alt_reads_2d * (1 - reads_mask) + permuted_alt_reads * reads_mask
         base_batch.reads_2d = torch.vstack((original_reads_2d[:total_ref], modified_alt_reads))
-        representations = base_model.calculate_representations(base_batch)
 
         # TODO: is there any reason to fix the batch with base_batch.reads_2d = original_reads_2d?
 
         # shape is batch size x num read features, each entry being a logit for "was this feature masked in this datum?"
-        mask_prediction_logits = self.mask_predictor.forward(representations)
+        mask_prediction_logits = self.mask_predictor.forward(base_model_representations)
 
         # by batch index and feature
         losses_bf = self.bce(mask_prediction_logits, datum_mask)
@@ -307,7 +305,6 @@ class BaseModelAutoencoderLoss(torch.nn.Module, BaseModelLearningStrategy):
     def __init__(self, read_dim: int, hidden_top_layers: List[int], params: BaseModelParameters):
         super(BaseModelAutoencoderLoss, self).__init__()
         self.base_model_output_dimension = params.output_dimension()
-        self.weight_range = params.reweighting_range
 
         # the transformer embedding dimension has to be divisible by its number of heads
         excess = (2*self.base_model_output_dimension) % params.num_transformer_heads
@@ -324,13 +321,12 @@ class BaseModelAutoencoderLoss(torch.nn.Module, BaseModelLearningStrategy):
 
         self.mapping_back_to_reads = MLP([self.transformer_dimension] + hidden_top_layers + [read_dim])
 
-
-    def loss_function(self, base_model: BaseModel, base_batch: BaseBatch):
+    def loss_function(self, base_model: BaseModel, base_batch: BaseBatch, base_model_representations):
         var_count, alt_count, ref_count = base_batch.size(), base_batch.alt_count, base_batch.ref_count
 
         total_ref, total_alt = ref_count * var_count, alt_count * var_count
 
-        representations_ve = base_model.calculate_representations(base_batch, self.weight_range)
+        representations_ve = base_model_representations
         random_alt_seeds_vre = torch.randn(var_count, alt_count, self.random_seed_dimension)
         random_ref_seeds_vre = torch.randn(var_count, ref_count, self.random_seed_dimension) if ref_count > 0 else None
         alt_representations_vre = torch.unsqueeze(representations_ve, dim=1).expand(-1, alt_count, -1) # repeat over the dummy read index
@@ -410,7 +406,8 @@ def learn_base_model(base_model: BaseModel, dataset: BaseDataset, learning_metho
             loader = train_loader if epoch_type == utils.Epoch.TRAIN else valid_loader
             pbar = tqdm(enumerate(loader), mininterval=60)
             for n, batch in pbar:
-                separate_losses = learning_strategy.loss_function(base_model, batch)
+                representations = base_model.calculate_representations(batch, weight_range=base_model._params.reweighting_range)
+                separate_losses = learning_strategy.loss_function(base_model, batch, representations)
                 loss = torch.sum(separate_losses)
                 loss_metrics.record_total_batch_loss(loss.detach(), batch)
 
