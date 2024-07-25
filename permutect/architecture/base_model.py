@@ -8,12 +8,13 @@ from torch.utils.tensorboard import SummaryWriter
 from tqdm.autonotebook import trange, tqdm
 
 from permutect import utils, constants
+from permutect.architecture.artifact_model import ArtifactModel
 from permutect.architecture.dna_sequence_convolution import DNASequenceConvolution
 from permutect.architecture.mlp import MLP
 from permutect.data.base_datum import BaseBatch, DEFAULT_GPU_FLOAT, DEFAULT_CPU_FLOAT
 from permutect.data.base_dataset import BaseDataset
 from permutect.metrics.evaluation_metrics import LossMetrics
-from permutect.parameters import BaseModelParameters, TrainingParameters
+from permutect.parameters import BaseModelParameters, TrainingParameters, ArtifactModelParameters
 
 
 # group rows into consecutive chunks to yield a 3D tensor, average over dim=1 to get
@@ -357,8 +358,10 @@ class BaseModelAutoencoderLoss(torch.nn.Module, BaseModelLearningStrategy):
         pass
 
 
+# artifact model parameters are for simultaneously training an artifact model on top of the base model
+# to measure quality, especially in unsupervised training when the loss metric isn't directly related to accuracy or cross-entropy
 def learn_base_model(base_model: BaseModel, dataset: BaseDataset, learning_method: LearningMethod, training_params: TrainingParameters,
-            summary_writer: SummaryWriter, validation_fold: int = None):
+                     summary_writer: SummaryWriter, validation_fold: int = None):
     # balance training by weighting the loss function
     # if total unlabeled is less than total labeled, we do not compensate, since labeled data are more informative
     total_labeled, total_unlabeled = dataset.total_labeled_and_unlabeled()
@@ -393,6 +396,11 @@ def learn_base_model(base_model: BaseModel, dataset: BaseDataset, learning_metho
     train_optimizer = torch.optim.AdamW(chain(base_model.parameters(), learning_strategy.parameters()),
                                         lr=training_params.learning_rate, weight_decay=training_params.weight_decay)
 
+    classifier_on_top = MLP([base_model.output_dimension()] + [base_model.output_dimension(), base_model.output_dimension()] + [1])
+    classifier_bce = torch.nn.BCEWithLogitsLoss(reduction='none')
+    classifier_optimizer = torch.optim.AdamW(classifier_on_top.parameters(), lr=training_params.learning_rate, weight_decay=training_params.weight_decay)
+    classifier_metrics = LossMetrics()
+
     validation_fold_to_use = (dataset.num_folds - 1) if validation_fold is None else validation_fold
     train_loader = dataset.make_data_loader(dataset.all_but_one_fold(validation_fold_to_use), training_params.batch_size, base_model._device.type == 'cuda', training_params.num_workers)
     valid_loader = dataset.make_data_loader([validation_fold_to_use], training_params.batch_size, base_model._device.type == 'cuda', training_params.num_workers)
@@ -414,11 +422,19 @@ def learn_base_model(base_model: BaseModel, dataset: BaseDataset, learning_metho
                 if batch.is_labeled():
                     loss_metrics.record_losses_by_type_and_count(separate_losses, batch)
 
+                    classification_logits = classifier_on_top.forward(representations.detach()).reshape(batch.size())
+                    # TODO: separate losses
+                    classification_loss = torch.sum(classifier_bce(classification_logits, batch.labels))
+                    classifier_metrics.record_total_batch_loss(classification_loss.detach(), batch)
                 if epoch_type == utils.Epoch.TRAIN:
                     utils.backpropagate(train_optimizer, loss)
+                    utils.backpropagate(classifier_optimizer, classification_loss)
+
 
             # done with one epoch type -- training or validation -- for this epoch
             loss_metrics.write_to_summary_writer(epoch_type, epoch, summary_writer)
+            # TODO: need prefix to distinguish from representation learning loss
+            classifier_metrics.write_to_summary_writer(epoch_type, epoch, summary_writer)
 
             print("Labeled loss for epoch " + str(epoch) + " of " + epoch_type.name + ": " + str(loss_metrics.get_labeled_loss()))
         # done with training and validation for this epoch
