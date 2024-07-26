@@ -73,16 +73,16 @@ class LossMetrics:
     def get_unlabeled_loss(self):
         return self.unlabeled_loss.get()
 
-    def write_to_summary_writer(self, epoch_type: Epoch, epoch: int, summary_writer: SummaryWriter):
-        summary_writer.add_scalar(epoch_type.name + "/Labeled Loss", self.labeled_loss.get(), epoch)
-        summary_writer.add_scalar(epoch_type.name + "/Unlabeled Loss", self.unlabeled_loss.get(), epoch)
+    def write_to_summary_writer(self, epoch_type: Epoch, epoch: int, summary_writer: SummaryWriter, prefix: str = ""):
+        summary_writer.add_scalar(prefix + epoch_type.name + "/Labeled Loss", self.labeled_loss.get(), epoch)
+        summary_writer.add_scalar(prefix + epoch_type.name + "/Unlabeled Loss", self.unlabeled_loss.get(), epoch)
 
         for bin_idx, loss in self.labeled_loss_by_count.items():
             summary_writer.add_scalar(
-                epoch_type.name + "/Labeled Loss/By Count/" + str(multiple_of_three_bin_index_to_count(bin_idx)), loss.get(), epoch)
+                prefix + epoch_type.name + "/Labeled Loss/By Count/" + str(multiple_of_three_bin_index_to_count(bin_idx)), loss.get(), epoch)
 
         for var_type, loss in self.labeled_loss_by_type.items():
-            summary_writer.add_scalar(epoch_type.name + "/Labeled Loss/By Type/" + var_type.name, loss.get(), epoch)
+            summary_writer.add_scalar(prefix + epoch_type.name + "/Labeled Loss/By Type/" + var_type.name, loss.get(), epoch)
 
 
     # TODO: put type hint batch: ReadSetBatch | RepresentationReadSetBatch once docker update
