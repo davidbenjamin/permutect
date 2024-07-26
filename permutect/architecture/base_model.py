@@ -8,13 +8,12 @@ from torch.utils.tensorboard import SummaryWriter
 from tqdm.autonotebook import trange, tqdm
 
 from permutect import utils, constants
-from permutect.architecture.artifact_model import ArtifactModel
 from permutect.architecture.dna_sequence_convolution import DNASequenceConvolution
 from permutect.architecture.mlp import MLP
 from permutect.data.base_datum import BaseBatch, DEFAULT_GPU_FLOAT, DEFAULT_CPU_FLOAT
 from permutect.data.base_dataset import BaseDataset
 from permutect.metrics.evaluation_metrics import LossMetrics
-from permutect.parameters import BaseModelParameters, TrainingParameters, ArtifactModelParameters
+from permutect.parameters import BaseModelParameters, TrainingParameters
 
 
 # group rows into consecutive chunks to yield a 3D tensor, average over dim=1 to get
@@ -399,7 +398,7 @@ def learn_base_model(base_model: BaseModel, dataset: BaseDataset, learning_metho
     classifier_on_top = MLP([base_model.output_dimension()] + [base_model.output_dimension(), base_model.output_dimension()] + [1])
     classifier_bce = torch.nn.BCEWithLogitsLoss(reduction='none')
     classifier_optimizer = torch.optim.AdamW(classifier_on_top.parameters(), lr=training_params.learning_rate, weight_decay=training_params.weight_decay)
-    classifier_metrics = LossMetrics()
+    classifier_metrics = LossMetrics(base_model._device)
 
     validation_fold_to_use = (dataset.num_folds - 1) if validation_fold is None else validation_fold
     train_loader = dataset.make_data_loader(dataset.all_but_one_fold(validation_fold_to_use), training_params.batch_size, base_model._device.type == 'cuda', training_params.num_workers)
@@ -423,13 +422,16 @@ def learn_base_model(base_model: BaseModel, dataset: BaseDataset, learning_metho
                     loss_metrics.record_losses_by_type_and_count(separate_losses, batch)
 
                     classification_logits = classifier_on_top.forward(representations.detach()).reshape(batch.size())
-                    separate_classification_losses = torch.sum(classifier_bce(classification_logits, batch.labels))
+                    separate_classification_losses = classifier_bce(classification_logits, batch.labels)
                     classification_loss = torch.sum(separate_classification_losses)
                     classifier_metrics.record_total_batch_loss(classification_loss.detach(), batch)
                     classifier_metrics.record_losses_by_type_and_count(separate_classification_losses, batch)
+
+                    if epoch_type == utils.Epoch.TRAIN:
+                        utils.backpropagate(classifier_optimizer, classification_loss)
+
                 if epoch_type == utils.Epoch.TRAIN:
                     utils.backpropagate(train_optimizer, loss)
-                    utils.backpropagate(classifier_optimizer, classification_loss)
 
             # done with one epoch type -- training or validation -- for this epoch
             loss_metrics.write_to_summary_writer(epoch_type, epoch, summary_writer)
