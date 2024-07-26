@@ -43,6 +43,8 @@ class LearningMethod(Enum):
 
     AUTOENCODER = "AUTOENCODER"
 
+    SVDD = "SVDD"
+
 
 def make_transformer_encoder(input_dimension: int, params: BaseModelParameters):
     encoder_layer = torch.nn.TransformerEncoderLayer(d_model=input_dimension, nhead=params.num_transformer_heads,
@@ -357,6 +359,30 @@ class BaseModelAutoencoderLoss(torch.nn.Module, BaseModelLearningStrategy):
         pass
 
 
+class BaseModelSVDDLoss(torch.nn.Module, BaseModelLearningStrategy):
+    def __init__(self, embedding_dim: int):
+        super(BaseModelSVDDLoss, self).__init__()
+        self.embedding_dim = embedding_dim
+
+    # normal embeddings should cluster near the origin and artifact embeddings should be far
+    def loss_function(self, base_model: BaseModel, base_batch: BaseBatch, base_model_representations):
+
+        if base_batch.is_labeled():
+            # labels are 1 for artifact, 0 otherwise.  We convert to +1 if normal, -1 if artifact
+            signs = 1 - 2 * base_batch.labels
+            norms = torch.norm(base_model_representations, dim=1)
+
+            # penalize normal for being far from origin, artifacts for being close
+            return signs * norms
+        else:
+            # TODO: implement an unlabeled loss fo SVDD, maybe some kind of entropy regularization
+            return None
+
+    # I don't like implicit forward!!
+    def forward(self):
+        pass
+
+
 # artifact model parameters are for simultaneously training an artifact model on top of the base model
 # to measure quality, especially in unsupervised training when the loss metric isn't directly related to accuracy or cross-entropy
 def learn_base_model(base_model: BaseModel, dataset: BaseDataset, learning_method: LearningMethod, training_params: TrainingParameters,
@@ -389,6 +415,8 @@ def learn_base_model(base_model: BaseModel, dataset: BaseDataset, learning_metho
                                                         base_model_output_dim=base_model.output_dimension(), hidden_top_layers=[10,10,10], params=base_model._params)
     elif learning_method == LearningMethod.AUTOENCODER:
         learning_strategy = BaseModelAutoencoderLoss(read_dim=dataset.num_read_features, hidden_top_layers=[20,20,20], params=base_model._params)
+    elif learning_method == LearningMethod.SVDD:
+        learning_strategy = BaseModelSVDDLoss(embedding_dim=base_model.output_dimension())
     else:
         raise Exception("not implemented yet")
 
@@ -415,6 +443,10 @@ def learn_base_model(base_model: BaseModel, dataset: BaseDataset, learning_metho
             for n, batch in pbar:
                 representations = base_model.calculate_representations(batch, weight_range=base_model._params.reweighting_range)
                 separate_losses = learning_strategy.loss_function(base_model, batch, representations)
+
+                if separate_losses is None:
+                    continue
+
                 loss = torch.sum(separate_losses)
                 loss_metrics.record_total_batch_loss(loss.detach(), batch)
 
