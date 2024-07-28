@@ -5,6 +5,7 @@ from typing import List
 
 import torch
 from torch.utils.tensorboard import SummaryWriter
+from torch.nn.parameter import Parameter
 from tqdm.autonotebook import trange, tqdm
 
 from permutect import utils, constants
@@ -43,7 +44,7 @@ class LearningMethod(Enum):
 
     AUTOENCODER = "AUTOENCODER"
 
-    SVDD = "SVDD"
+    DEEPSAD = "DEEPSAD"
 
 
 def make_transformer_encoder(input_dimension: int, params: BaseModelParameters):
@@ -359,24 +360,23 @@ class BaseModelAutoencoderLoss(torch.nn.Module, BaseModelLearningStrategy):
         pass
 
 
-class BaseModelSVDDLoss(torch.nn.Module, BaseModelLearningStrategy):
+class BaseModelDeepSADLoss(torch.nn.Module, BaseModelLearningStrategy):
     def __init__(self, embedding_dim: int):
-        super(BaseModelSVDDLoss, self).__init__()
+        super(BaseModelDeepSADLoss, self).__init__()
         self.embedding_dim = embedding_dim
+        self.normal_centroid = Parameter(torch.zeros(embedding_dim))
 
     # normal embeddings should cluster near the origin and artifact embeddings should be far
     def loss_function(self, base_model: BaseModel, base_batch: BaseBatch, base_model_representations):
+        dist_squared = torch.square(torch.norm(base_model_representations - self.normal_centroid, dim=1))
 
-        if base_batch.is_labeled():
-            # labels are 1 for artifact, 0 otherwise.  We convert to +1 if normal, -1 if artifact
-            signs = 1 - 2 * base_batch.labels
-            norms = torch.norm(base_model_representations, dim=1)
+        # labels are 1 for artifact, 0 otherwise.  We convert to +1 if normal, -1 if artifact
+        # DeepSAD assumes most unlabeled data are normal and so the unlabeled loss is identical to the normal loss, that is,
+        # squared Euclidean distance from the centroid
+        signs = (1 - 2 * base_batch.labels) if base_batch.is_labeled() else torch.ones(base_batch.size())
 
-            # penalize normal for being far from origin, artifacts for being close
-            return signs * norms
-        else:
-            # TODO: implement an unlabeled loss fo SVDD, maybe some kind of entropy regularization
-            return None
+        # distance squared for normal and unlabeled, inverse distance squared for artifact
+        return dist_squared ** signs
 
     # I don't like implicit forward!!
     def forward(self):
@@ -415,8 +415,8 @@ def learn_base_model(base_model: BaseModel, dataset: BaseDataset, learning_metho
                                                         base_model_output_dim=base_model.output_dimension(), hidden_top_layers=[10,10,10], params=base_model._params)
     elif learning_method == LearningMethod.AUTOENCODER:
         learning_strategy = BaseModelAutoencoderLoss(read_dim=dataset.num_read_features, hidden_top_layers=[20,20,20], params=base_model._params)
-    elif learning_method == LearningMethod.SVDD:
-        learning_strategy = BaseModelSVDDLoss(embedding_dim=base_model.output_dimension())
+    elif learning_method == LearningMethod.DEEPSAD:
+        learning_strategy = BaseModelDeepSADLoss(embedding_dim=base_model.output_dimension())
     else:
         raise Exception("not implemented yet")
 
