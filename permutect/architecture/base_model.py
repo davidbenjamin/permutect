@@ -528,7 +528,7 @@ def learn_base_model(base_model: BaseModel, dataset: BaseDataset, learning_metho
 
 # after training for visualizing clustering etc of base model embeddings
 def record_embeddings(base_model: BaseModel, loader, summary_writer: SummaryWriter):
-    base_model.freeze_all()
+    # base_model.freeze_all() whoops -- it doesn't have freeze_all
     embedding_metrics = EmbeddingMetrics()
 
     pbar = tqdm(enumerate(filter(lambda bat: bat.is_labeled(), loader)), mininterval=60)
