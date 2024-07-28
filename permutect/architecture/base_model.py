@@ -13,12 +13,15 @@ from permutect.architecture.dna_sequence_convolution import DNASequenceConvoluti
 from permutect.architecture.mlp import MLP
 from permutect.data.base_datum import BaseBatch, DEFAULT_GPU_FLOAT, DEFAULT_CPU_FLOAT
 from permutect.data.base_dataset import BaseDataset
-from permutect.metrics.evaluation_metrics import LossMetrics
+from permutect.metrics.evaluation_metrics import LossMetrics, EmbeddingMetrics, round_up_to_nearest_three, MAX_COUNT
 from permutect.parameters import BaseModelParameters, TrainingParameters
 
 
 # group rows into consecutive chunks to yield a 3D tensor, average over dim=1 to get
 # 2D tensor of sums within each chunk
+from permutect.utils import Variation
+
+
 def sums_over_chunks(tensor2d: torch.Tensor, chunk_size: int):
     assert len(tensor2d) % chunk_size == 0
     return torch.sum(tensor2d.reshape([len(tensor2d) // chunk_size, chunk_size, -1]), dim=1)
@@ -418,13 +421,13 @@ class BaseModelMARSLoss(torch.nn.Module, BaseModelLearningStrategy):
         centroid_dist_squared_cc = torch.square(torch.norm(centroid_seps_cce, dim=-1))
         centroid_centroid_loss = torch.mean(centroid_dist_squared_cc)
 
+        # TODO: need to control arbitrarily negative loss achieved by making an unused centroid go far away from the others
         # note that broadcasting the subtraction means the centroid-centroid loss is repeated once for each datum in the batch
         return embedding_centroid_losses_b - self.tau * centroid_centroid_loss
 
     # I don't like implicit forward!!
     def forward(self):
         pass
-
 
 
 # artifact model parameters are for simultaneously training an artifact model on top of the base model
@@ -520,4 +523,24 @@ def learn_base_model(base_model: BaseModel, dataset: BaseDataset, learning_metho
         # note that we have not learned the AF spectrum yet
     # done with training
 
+    record_embeddings(base_model, train_loader, summary_writer)
+
+
+# after training for visualizing clustering etc of base model embeddings
+def record_embeddings(base_model: BaseModel, loader, summary_writer: SummaryWriter):
+    base_model.freeze_all()
+    embedding_metrics = EmbeddingMetrics()
+
+    pbar = tqdm(enumerate(filter(lambda bat: bat.is_labeled(), loader)), mininterval=60)
+    for n, batch in pbar:
+        representations = base_model.calculate_representations(batch, weight_range=base_model._params.reweighting_range)
+
+        labels = ["artifact" if x > 0.5 else "non-artifact" for x in batch.labels.tolist()]   if batch.is_labeled() else \
+            (["unlabeled"] * batch.size())
+        embedding_metrics.label_metadata.extend(labels)
+        embedding_metrics.correct_metadata.extend(["unknown"] * batch.size())
+        embedding_metrics.type_metadata.extend([Variation(idx).name for idx in batch.variant_types()])
+        embedding_metrics.truncated_count_metadata.extend([str(round_up_to_nearest_three(min(MAX_COUNT, batch.alt_count)))] * batch.size())
+        embedding_metrics.representations.append(representations)
+        embedding_metrics.output_to_summary_writer(summary_writer)
 
