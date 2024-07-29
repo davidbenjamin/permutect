@@ -518,7 +518,9 @@ def learn_base_model(base_model: BaseModel, dataset: BaseDataset, learning_metho
             loss_metrics.write_to_summary_writer(epoch_type, epoch, summary_writer)
             classifier_metrics.write_to_summary_writer(epoch_type, epoch, summary_writer, prefix="auxiliary-classifier-")
 
-            print("Labeled loss for epoch " + str(epoch) + " of " + epoch_type.name + ": " + str(loss_metrics.get_labeled_loss()))
+            print("Labeled base model loss for epoch " + str(epoch) + " of " + epoch_type.name + ": " + str(loss_metrics.get_labeled_loss()))
+            print("Labeled auxiliary classifier loss for epoch " + str(epoch) + " of " + epoch_type.name + ": " + str(
+                classifier_metrics.get_labeled_loss()))
         # done with training and validation for this epoch
         # note that we have not learned the AF spectrum yet
     # done with training
@@ -535,7 +537,7 @@ def record_embeddings(base_model: BaseModel, loader, summary_writer: SummaryWrit
     for n, batch in pbar:
         representations = base_model.calculate_representations(batch, weight_range=base_model._params.reweighting_range)
 
-        labels = ["artifact" if x > 0.5 else "non-artifact" for x in batch.labels.tolist()]   if batch.is_labeled() else \
+        labels = ["artifact" if x > 0.5 else "non-artifact" for x in batch.labels.tolist()] if batch.is_labeled() else \
             (["unlabeled"] * batch.size())
         embedding_metrics.label_metadata.extend(labels)
         embedding_metrics.correct_metadata.extend(["unknown"] * batch.size())
