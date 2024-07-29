@@ -542,5 +542,5 @@ def record_embeddings(base_model: BaseModel, loader, summary_writer: SummaryWrit
         embedding_metrics.type_metadata.extend([Variation(idx).name for idx in batch.variant_types()])
         embedding_metrics.truncated_count_metadata.extend([str(round_up_to_nearest_three(min(MAX_COUNT, batch.alt_count)))] * batch.size())
         embedding_metrics.representations.append(representations)
-        embedding_metrics.output_to_summary_writer(summary_writer)
+    embedding_metrics.output_to_summary_writer(summary_writer)
 
