@@ -133,8 +133,8 @@ def generate_normalized_data(dataset_files, max_bytes_per_chunk: int):
     """
     for dataset_file in dataset_files:
         buffer, bytes_in_buffer = [], 0
-        read_quantile_transform = QuantileTransformer(n_quantiles=100, output_distribution='normal')
-        info_quantile_transform = QuantileTransformer(n_quantiles=100, output_distribution='normal')
+        read_quantile_transform = QuantileTransformer(n_quantiles=100, output_distribution='uniform')
+        info_quantile_transform = QuantileTransformer(n_quantiles=100, output_distribution='uniform')
 
         num_buffers_filled = 0
         for base_datum in read_data(dataset_file):
