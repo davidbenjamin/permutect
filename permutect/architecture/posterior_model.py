@@ -230,7 +230,7 @@ class PosteriorModel(torch.nn.Module):
         spectra_and_prior_params = chain(self.somatic_spectrum.parameters(), self.artifact_af_predictor.parameters(),
                                          self._unnormalized_priors.parameters(), self.normal_seq_error_spectra.parameters(),
                                          self.normal_artifact_spectra.parameters())
-        optimizer = torch.optim.Adam(spectra_and_prior_params)
+        optimizer = torch.optim.Adam(spectra_and_prior_params, lr=1e-2)
 
         for epoch in trange(1, num_iterations + 1, desc="AF spectra epoch"):
             epoch_loss = utils.StreamingAverage()
