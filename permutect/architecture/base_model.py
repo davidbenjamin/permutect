@@ -5,6 +5,7 @@ from typing import List
 
 import torch
 from torch.utils.tensorboard import SummaryWriter
+from torch.nn.parameter import Parameter
 from tqdm.autonotebook import trange, tqdm
 
 from permutect import utils, constants
@@ -12,12 +13,15 @@ from permutect.architecture.dna_sequence_convolution import DNASequenceConvoluti
 from permutect.architecture.mlp import MLP
 from permutect.data.base_datum import BaseBatch, DEFAULT_GPU_FLOAT, DEFAULT_CPU_FLOAT
 from permutect.data.base_dataset import BaseDataset
-from permutect.metrics.evaluation_metrics import LossMetrics
+from permutect.metrics.evaluation_metrics import LossMetrics, EmbeddingMetrics, round_up_to_nearest_three, MAX_COUNT
 from permutect.parameters import BaseModelParameters, TrainingParameters
 
 
 # group rows into consecutive chunks to yield a 3D tensor, average over dim=1 to get
 # 2D tensor of sums within each chunk
+from permutect.utils import Variation
+
+
 def sums_over_chunks(tensor2d: torch.Tensor, chunk_size: int):
     assert len(tensor2d) % chunk_size == 0
     return torch.sum(tensor2d.reshape([len(tensor2d) // chunk_size, chunk_size, -1]), dim=1)
@@ -42,6 +46,10 @@ class LearningMethod(Enum):
     MASK_PREDICTION = "MASK_PREDICTION"
 
     AUTOENCODER = "AUTOENCODER"
+
+    DEEPSAD = "DEEPSAD"
+
+    MARS = "MARS"
 
 
 def make_transformer_encoder(input_dimension: int, params: BaseModelParameters):
@@ -357,6 +365,71 @@ class BaseModelAutoencoderLoss(torch.nn.Module, BaseModelLearningStrategy):
         pass
 
 
+class BaseModelDeepSADLoss(torch.nn.Module, BaseModelLearningStrategy):
+    def __init__(self, embedding_dim: int):
+        super(BaseModelDeepSADLoss, self).__init__()
+        self.embedding_dim = embedding_dim
+        self.normal_centroid = Parameter(torch.zeros(embedding_dim))
+
+    # normal embeddings should cluster near the origin and artifact embeddings should be far
+    def loss_function(self, base_model: BaseModel, base_batch: BaseBatch, base_model_representations):
+        dist_squared = torch.square(torch.norm(base_model_representations - self.normal_centroid, dim=1))
+
+        # labels are 1 for artifact, 0 otherwise.  We convert to +1 if normal, -1 if artifact
+        # DeepSAD assumes most unlabeled data are normal and so the unlabeled loss is identical to the normal loss, that is,
+        # squared Euclidean distance from the centroid
+        signs = (1 - 2 * base_batch.labels) if base_batch.is_labeled() else torch.ones(base_batch.size())
+
+        # distance squared for normal and unlabeled, inverse distance squared for artifact
+        return dist_squared ** signs
+
+    # I don't like implicit forward!!
+    def forward(self):
+        pass
+
+
+class BaseModelMARSLoss(torch.nn.Module, BaseModelLearningStrategy):
+    def __init__(self, embedding_dim: int):
+        super(BaseModelMARSLoss, self).__init__()
+        self.embedding_dim = embedding_dim
+        # TODO: magic constants!!!!!
+        self.num_normal_clusters = 3
+        self.num_artifact_clusters = 5
+
+        # weight of centroid-centroid loss vs embedding-centroid loss
+        self.tau = 0.2
+
+        # ce denotes indexing by cluster, then embedding dimension
+        self.centroids_ce = Parameter(torch.zeros((self.num_normal_clusters + self.num_artifact_clusters, embedding_dim)))
+
+    # normal embeddings should cluster near the origin and artifact embeddings should be far
+    def loss_function(self, base_model: BaseModel, base_batch: BaseBatch, base_model_representations):
+        embeddings_be = base_model_representations
+        seps_bce = torch.unsqueeze(embeddings_be, dim=1) - torch.unsqueeze(self.centroids_ce, dim=0)
+        dist_squared_bc = torch.square(torch.norm(seps_bce, dim=-1))
+
+        normal_dist_squared_b = torch.min(dist_squared_bc[:, :self.num_normal_clusters], dim=-1).values
+        artifact_dist_squared_b = torch.min(dist_squared_bc[:, self.num_normal_clusters:], dim=-1).values
+        min_dist_squared_b = torch.min(dist_squared_bc, dim=-1).values
+
+        # closest centroid with correct label is labeled, otherwise just the closest centroid
+        embedding_centroid_losses_b = (base_batch.labels * artifact_dist_squared_b + (1 - base_batch.labels) * normal_dist_squared_b) \
+            if base_batch.is_labeled() else min_dist_squared_b
+
+        # average distance between centroids
+        centroid_seps_cce = torch.unsqueeze(self.centroids_ce, dim=0) - torch.unsqueeze(self.centroids_ce, dim=1)
+        centroid_dist_squared_cc = torch.square(torch.norm(centroid_seps_cce, dim=-1))
+        centroid_centroid_loss = torch.mean(centroid_dist_squared_cc)
+
+        # TODO: need to control arbitrarily negative loss achieved by making an unused centroid go far away from the others
+        # note that broadcasting the subtraction means the centroid-centroid loss is repeated once for each datum in the batch
+        return embedding_centroid_losses_b - self.tau * centroid_centroid_loss
+
+    # I don't like implicit forward!!
+    def forward(self):
+        pass
+
+
 # artifact model parameters are for simultaneously training an artifact model on top of the base model
 # to measure quality, especially in unsupervised training when the loss metric isn't directly related to accuracy or cross-entropy
 def learn_base_model(base_model: BaseModel, dataset: BaseDataset, learning_method: LearningMethod, training_params: TrainingParameters,
@@ -389,6 +462,10 @@ def learn_base_model(base_model: BaseModel, dataset: BaseDataset, learning_metho
                                                         base_model_output_dim=base_model.output_dimension(), hidden_top_layers=[10,10,10], params=base_model._params)
     elif learning_method == LearningMethod.AUTOENCODER:
         learning_strategy = BaseModelAutoencoderLoss(read_dim=dataset.num_read_features, hidden_top_layers=[20,20,20], params=base_model._params)
+    elif learning_method == LearningMethod.DEEPSAD:
+        learning_strategy = BaseModelDeepSADLoss(embedding_dim=base_model.output_dimension())
+    elif learning_method == LearningMethod.MARS:
+        learning_strategy = BaseModelMARSLoss(embedding_dim=base_model.output_dimension())
     else:
         raise Exception("not implemented yet")
 
@@ -415,6 +492,10 @@ def learn_base_model(base_model: BaseModel, dataset: BaseDataset, learning_metho
             for n, batch in pbar:
                 representations = base_model.calculate_representations(batch, weight_range=base_model._params.reweighting_range)
                 separate_losses = learning_strategy.loss_function(base_model, batch, representations)
+
+                if separate_losses is None:
+                    continue
+
                 loss = torch.sum(separate_losses)
                 loss_metrics.record_total_batch_loss(loss.detach(), batch)
 
@@ -437,9 +518,31 @@ def learn_base_model(base_model: BaseModel, dataset: BaseDataset, learning_metho
             loss_metrics.write_to_summary_writer(epoch_type, epoch, summary_writer)
             classifier_metrics.write_to_summary_writer(epoch_type, epoch, summary_writer, prefix="auxiliary-classifier-")
 
-            print("Labeled loss for epoch " + str(epoch) + " of " + epoch_type.name + ": " + str(loss_metrics.get_labeled_loss()))
+            print("Labeled base model loss for epoch " + str(epoch) + " of " + epoch_type.name + ": " + str(loss_metrics.get_labeled_loss()))
+            print("Labeled auxiliary classifier loss for epoch " + str(epoch) + " of " + epoch_type.name + ": " + str(
+                classifier_metrics.get_labeled_loss()))
         # done with training and validation for this epoch
         # note that we have not learned the AF spectrum yet
     # done with training
 
+    record_embeddings(base_model, train_loader, summary_writer)
+
+
+# after training for visualizing clustering etc of base model embeddings
+def record_embeddings(base_model: BaseModel, loader, summary_writer: SummaryWriter):
+    # base_model.freeze_all() whoops -- it doesn't have freeze_all
+    embedding_metrics = EmbeddingMetrics()
+
+    pbar = tqdm(enumerate(filter(lambda bat: bat.is_labeled(), loader)), mininterval=60)
+    for n, batch in pbar:
+        representations = base_model.calculate_representations(batch, weight_range=base_model._params.reweighting_range)
+
+        labels = ["artifact" if x > 0.5 else "non-artifact" for x in batch.labels.tolist()] if batch.is_labeled() else \
+            (["unlabeled"] * batch.size())
+        embedding_metrics.label_metadata.extend(labels)
+        embedding_metrics.correct_metadata.extend(["unknown"] * batch.size())
+        embedding_metrics.type_metadata.extend([Variation(idx).name for idx in batch.variant_types()])
+        embedding_metrics.truncated_count_metadata.extend([str(round_up_to_nearest_three(min(MAX_COUNT, batch.alt_count)))] * batch.size())
+        embedding_metrics.representations.append(representations)
+    embedding_metrics.output_to_summary_writer(summary_writer)
 
