@@ -157,6 +157,8 @@ def generate_normalized_data(dataset_files, max_bytes_per_chunk: int):
 
 # this normalizes the buffer and also prepends new features to the info tensor
 def normalize_buffer(buffer, read_quantile_transform, info_quantile_transform, refit_transforms=True):
+    EPSILON = 0.00001   # tiny quantity for jitter
+
     # 2D array.  Rows are ref/alt reads, columns are read features
     all_ref = np.vstack([datum.ref_reads_2d for datum in buffer if datum.ref_reads_2d is not None])
     all_alt = np.vstack([datum.alt_reads_2d for datum in buffer])
@@ -164,24 +166,28 @@ def normalize_buffer(buffer, read_quantile_transform, info_quantile_transform, r
     # 2D array.  Rows are read sets, columns are info features
     all_info = np.vstack([datum.info_array_1d for datum in buffer])
 
+    all_ref_jittered = all_ref + EPSILON * np.random.randn(*all_ref.shape)
+    all_alt_jittered = all_alt + EPSILON * np.random.randn(*all_alt.shape)
+    all_info_jittered = all_info + EPSILON * np.random.randn(*all_info.shape)
+
     num_read_features = all_ref.shape[1]
-    binary_read_columns = binary_column_indices(all_ref)
+    binary_read_columns = binary_column_indices(all_ref)    # make sure not to use jittered arrays here!
     non_binary_read_columns = binary_column_indices(all_ref)
 
     # 1 if is binary, 0 if not binary
     binary_read_column_mask = np.zeros(num_read_features)
     binary_read_column_mask[binary_read_columns] = 1
 
-    binary_info_columns = binary_column_indices(all_info)
+    binary_info_columns = binary_column_indices(all_info)   # make sure not to use jittered arrays here!
 
     if refit_transforms:    # fit quantiles column by column (aka feature by feature)
-        read_quantile_transform.fit(all_ref)
-        info_quantile_transform.fit(all_info)
+        read_quantile_transform.fit(all_ref_jittered)
+        info_quantile_transform.fit(all_info_jittered)
 
     # it's more efficient to apply the quantile transform to all reads at once, then split it back into read sets
-    all_ref_transformed = transform_except_for_binary_columns(all_ref, read_quantile_transform, binary_read_columns)
-    all_alt_transformed = transform_except_for_binary_columns(all_alt, read_quantile_transform, binary_read_columns)
-    all_info_transformed = transform_except_for_binary_columns(all_info, info_quantile_transform, binary_info_columns)
+    all_ref_transformed = transform_except_for_binary_columns(all_ref_jittered, read_quantile_transform, binary_read_columns)
+    all_alt_transformed = transform_except_for_binary_columns(all_alt_jittered, read_quantile_transform, binary_read_columns)
+    all_info_transformed = transform_except_for_binary_columns(all_info_jittered, info_quantile_transform, binary_info_columns)
 
     ref_counts = np.array([0 if datum.ref_reads_2d is None else len(datum.ref_reads_2d) for datum in buffer])
     alt_counts = np.array([len(datum.alt_reads_2d) for datum in buffer])
