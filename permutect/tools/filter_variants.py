@@ -83,8 +83,10 @@ def parse_arguments():
     parser.add_argument('--' + constants.TENSORBOARD_DIR_NAME, type=str, default='tensorboard', required=False, help='path to output tensorboard')
     parser.add_argument('--' + constants.BATCH_SIZE_NAME, type=int, default=64, required=False, help='batch size')
     parser.add_argument('--' + constants.CHUNK_SIZE_NAME, type=int, default=100000, required=False, help='size in bytes of intermediate binary datasets')
-    parser.add_argument('--' + constants.NUM_SPECTRUM_ITERATIONS, type=int, default=10, required=False,
+    parser.add_argument('--' + constants.NUM_SPECTRUM_ITERATIONS_NAME, type=int, default=10, required=False,
                         help='number of epochs for fitting allele fraction spectra')
+    parser.add_argument('--' + constants.SPECTRUM_LEARNING_RATE_NAME, type=float, default=0.001, required=False,
+                        help='learning rate for fitting allele fraction spectra')
     parser.add_argument('--' + constants.INITIAL_LOG_VARIANT_PRIOR_NAME, type=float, default=-10.0, required=False,
                         help='initial value for natural log prior of somatic variants')
     parser.add_argument('--' + constants.INITIAL_LOG_ARTIFACT_PRIOR_NAME, type=float, default=-10.0, required=False,
@@ -139,7 +141,8 @@ def main_without_parsing(args):
                       output_vcf=getattr(args, constants.OUTPUT_NAME),
                       batch_size=getattr(args, constants.BATCH_SIZE_NAME),
                       chunk_size=getattr(args, constants.CHUNK_SIZE_NAME),
-                      num_spectrum_iterations=getattr(args, constants.NUM_SPECTRUM_ITERATIONS),
+                      num_spectrum_iterations=getattr(args, constants.NUM_SPECTRUM_ITERATIONS_NAME),
+                      spectrum_learning_rate=getattr(args, constants.SPECTRUM_LEARNING_RATE_NAME),
                       tensorboard_dir=getattr(args, constants.TENSORBOARD_DIR_NAME),
                       genomic_span=getattr(args, constants.GENOMIC_SPAN_NAME),
                       germline_mode=getattr(args, constants.GERMLINE_MODE_NAME),
@@ -149,9 +152,9 @@ def main_without_parsing(args):
 
 
 def make_filtered_vcf(saved_artifact_model_path, base_model_path, initial_log_variant_prior: float, initial_log_artifact_prior: float,
-                      test_dataset_file, contigs_table, input_vcf, output_vcf, batch_size: int, chunk_size: int, num_spectrum_iterations: int, tensorboard_dir,
-                      genomic_span: int, germline_mode: bool = False, no_germline_mode: bool = False, segmentation=defaultdict(IntervalTree),
-                      normal_segmentation=defaultdict(IntervalTree)):
+                      test_dataset_file, contigs_table, input_vcf, output_vcf, batch_size: int, chunk_size: int, num_spectrum_iterations: int,
+                      spectrum_learning_rate: float, tensorboard_dir, genomic_span: int, germline_mode: bool = False, no_germline_mode: bool = False,
+                      segmentation=defaultdict(IntervalTree), normal_segmentation=defaultdict(IntervalTree)):
     print("Loading artifact model and test dataset")
     base_model = load_base_model(base_model_path)
     contig_index_to_name_map = {}
@@ -173,7 +176,7 @@ def make_filtered_vcf(saved_artifact_model_path, base_model_path, initial_log_va
 
     posterior_model.learn_priors_and_spectra(posterior_data_loader, num_iterations=num_spectrum_iterations,
         summary_writer=summary_writer, ignored_to_non_ignored_ratio=num_ignored_sites/len(posterior_data_loader.dataset),
-        artifact_log_priors=artifact_log_priors, artifact_spectra_state_dict=artifact_spectra_state_dict)
+                                             learning_rate=spectrum_learning_rate)
 
     print("Calculating optimal logit threshold")
     error_probability_thresholds = posterior_model.calculate_probability_thresholds(posterior_data_loader, summary_writer, germline_mode=germline_mode)

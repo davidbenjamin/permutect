@@ -77,7 +77,7 @@ def test_on_dream1():
     setattr(filtering_args, constants.TENSORBOARD_DIR_NAME, filtering_tensorboard_dir.name)
     setattr(filtering_args, constants.BATCH_SIZE_NAME, 64)
     setattr(filtering_args, constants.CHUNK_SIZE_NAME, 100000)
-    setattr(filtering_args, constants.NUM_SPECTRUM_ITERATIONS, 10)
+    setattr(filtering_args, constants.NUM_SPECTRUM_ITERATIONS_NAME, 10)
     setattr(filtering_args, constants.INITIAL_LOG_VARIANT_PRIOR_NAME, -10.0)
     setattr(filtering_args, constants.INITIAL_LOG_ARTIFACT_PRIOR_NAME, -10.0)
     setattr(filtering_args, constants.GENOMIC_SPAN_NAME, 100000)

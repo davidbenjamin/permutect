@@ -213,7 +213,7 @@ class PosteriorModel(torch.nn.Module):
         return log_posteriors
 
     def learn_priors_and_spectra(self, posterior_loader, num_iterations, ignored_to_non_ignored_ratio: float,
-                                 summary_writer: SummaryWriter = None, artifact_log_priors=None, artifact_spectra_state_dict=None):
+                                 summary_writer: SummaryWriter = None, learning_rate: float = 0.001):
         """
         :param summary_writer:
         :param num_iterations:
@@ -230,7 +230,7 @@ class PosteriorModel(torch.nn.Module):
         spectra_and_prior_params = chain(self.somatic_spectrum.parameters(), self.artifact_af_predictor.parameters(),
                                          self._unnormalized_priors.parameters(), self.normal_seq_error_spectra.parameters(),
                                          self.normal_artifact_spectra.parameters())
-        optimizer = torch.optim.Adam(spectra_and_prior_params, lr=1e-2)
+        optimizer = torch.optim.Adam(spectra_and_prior_params, lr=learning_rate)
 
         for epoch in trange(1, num_iterations + 1, desc="AF spectra epoch"):
             epoch_loss = utils.StreamingAverage()
