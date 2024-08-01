@@ -14,6 +14,7 @@ workflow Permutect {
         File ref_dict
         Int scatter_count
         Int? num_spectrum_iterations
+        Float? spectrum_learning_rate
         File primary_bam
         File primary_bai
         File? control_bam
@@ -104,6 +105,7 @@ workflow Permutect {
             mutect_stats = Mutect2.mutect_stats,
             batch_size = batch_size,
             num_spectrum_iterations = num_spectrum_iterations,
+            spectrum_learning_rate = spectrum_learning_rate,
             chunk_size = chunk_size,
             m3_filtering_extra_args = m3_filtering_extra_args,
             permutect_docker = permutect_docker,
@@ -137,6 +139,7 @@ task PermutectFiltering {
         File? normal_maf_segments
         File mutect_stats
         Int? num_spectrum_iterations
+        Float? spectrum_learning_rate
         Int batch_size
         Int chunk_size
         String? m3_filtering_extra_args
@@ -166,6 +169,7 @@ task PermutectFiltering {
             --tensorboard_dir tensorboard \
             --batch_size ~{batch_size} --chunk_size ~{chunk_size} \
             ~{" --num_spectrum_iterations " + num_spectrum_iterations} \
+            ~{" --spectrum_learning_rate " + spectrum_learning_rate} \
             ~{" --maf_segments " + maf_segments} ~{" --normal_maf_segments " + normal_maf_segments} \
             --genomic_span $genomic_span ~{m3_filtering_extra_args}
 

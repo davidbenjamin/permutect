@@ -24,6 +24,7 @@ def test_filtering():
                                           batch_size=64,
                                           chunk_size=100002,
                                           num_spectrum_iterations=10,
+                                          spectrum_learning_rate=0.01,
                                           tensorboard_dir=tensorboard_dir,
                                           genomic_span=float("2.0E9"),
                                           segmentation=segmentation)

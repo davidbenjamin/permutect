@@ -41,7 +41,8 @@ CHUNK_SIZE_NAME = 'chunk_size'
 NUM_EPOCHS_NAME = 'num_epochs'
 NUM_CALIBRATION_EPOCHS_NAME = 'num_calibration_epochs'
 NUM_WORKERS_NAME = 'num_workers'
-NUM_SPECTRUM_ITERATIONS = 'num_spectrum_iterations'
+NUM_SPECTRUM_ITERATIONS_NAME = 'num_spectrum_iterations'
+SPECTRUM_LEARNING_RATE_NAME = 'spectrum_learning_rate'
 
 TENSORBOARD_DIR_NAME = 'tensorboard_dir'
 
