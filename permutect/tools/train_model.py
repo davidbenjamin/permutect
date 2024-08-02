@@ -33,13 +33,13 @@ def learn_artifact_priors_and_spectra(artifact_dataset: ArtifactDataset, genomic
     types_one_hot_list, depths_list, alt_counts_list = [], [], []
 
     for artifact_datum in artifact_dataset:
-        if artifact_datum.label != Label.ARTIFACT:
+        if artifact_datum.get_label() != Label.ARTIFACT:
             continue
         variant_type_one_hot = artifact_datum.variant_type_one_hot()
         artifact_counts += variant_type_one_hot
         types_one_hot_list.append(variant_type_one_hot)
-        depths_list.append(artifact_datum.counts_and_seq_lks.depth)
-        alt_counts_list.append(artifact_datum.counts_and_seq_lks.alt_count)
+        depths_list.append(artifact_datum.other_stuff.get_counts_and_seq_lks().depth)
+        alt_counts_list.append(artifact_datum.other_stuff.get_counts_and_seq_lks().alt_count)
 
     # turn the lists into tensors
     types_one_hot_tensor = torch.from_numpy(np.vstack(types_one_hot_list)).float()
