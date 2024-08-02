@@ -401,15 +401,16 @@ class ArtifactDatum:
         # Note: if changing any of the data fields below, make sure to modify the size_in_bytes() method below accordingly!
         assert representation.dim() == 1
         self.representation = representation
+        self.other_stuff = ArtifactDatum1DStuff(base_datum.get_other_stuff_1d())
 
-        # TODO: this is overkill.  We don't need ref seq and info tensors, for example
-        self.other_stuff = base_datum.get_other_stuff_1d()
-        self.alt_count = base_datum.alt_count
-        self.label = base_datum.label
+    def get_ref_count(self):
+        return self.other_stuff.get_ref_count()
 
-        self.ref_count = len(base_datum.reads_2d) - base_datum.alt_count
+    def get_alt_count(self):
+        return self.other_stuff.get_alt_count()
 
-        self.variant_type_one_hot = base_datum.variant_type_one_hot()
+    def get_label(self):
+        return self.other_stuff.get_label()
 
     def size_in_bytes(self):
         return self.representation.nbytes + self.other_stuff.nbytes
@@ -417,13 +418,11 @@ class ArtifactDatum:
     def get_other_stuff_1d(self) -> BaseDatum1DStuff:
         return self.other_stuff
 
-    def get_variant_type(self):
-        for n, var_type in enumerate(Variation):
-            if self.variant_type_one_hot[n] > 0:
-                return var_type
+    def variant_type_one_hot(self):
+        return self.other_stuff.variant_type_one_hot()
 
     def is_labeled(self):
-        return self.label != Label.UNLABELED
+        return self.get_label() != Label.UNLABELED
 
 
 class ArtifactBatch:
@@ -432,12 +431,12 @@ class ArtifactBatch:
         self.labeled = data[0].label != Label.UNLABELED
 
         self.representations_2d = torch.vstack([item.representation for item in data])
-        self.labels = FloatTensor([1.0 if item.label == Label.ARTIFACT else 0.0 for item in data]) if self.labeled else None
-        self.ref_counts = IntTensor([int(item.ref_count) for item in data])
-        self.alt_counts = IntTensor([int(item.alt_count) for item in data])
+        self.labels = FloatTensor([1.0 if item.get_label() == Label.ARTIFACT else 0.0 for item in data]) if self.labeled else None
+        self.ref_counts = IntTensor([int(item.get_ref_count()) for item in data])
+        self.alt_counts = IntTensor([int(item.get_alt_count()) for item in data])
         self._size = len(data)
 
-        self._variant_type_one_hot = torch.from_numpy(np.vstack([item.variant_type_one_hot for item in data]))
+        self._variant_type_one_hot = torch.from_numpy(np.vstack([item.variant_type_one_hot() for item in data]))
 
     # pin memory for all tensors that are sent to the GPU
     def pin_memory(self):
