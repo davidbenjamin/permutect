@@ -131,6 +131,9 @@ class BaseDatum1DStuff:
         else:
             self.array = array_override
 
+    def get_nbytes(self):
+        return self.array.nbytes
+
     def get_alt_count(self):
         return round(self.array[1])
 
@@ -157,16 +160,16 @@ class BaseDatum1DStuff:
         self.array = np.hstack((before_info, new_info, after_info))
 
     def get_label(self):
-        return self.array[-self.cls.NUM_ELEMENTS_AFTER_INFO]
+        return self.array[-self.__class__.NUM_ELEMENTS_AFTER_INFO]
 
     def variant_type_one_hot(self):
         return self.get_info_1d()[-len(Variation):]
 
     def get_variant(self):
-        return Variant.from_np_array(self.array[-self.cls.NUM_ELEMENTS_AFTER_INFO + 1:-CountsAndSeqLks.LENGTH])
+        return Variant.from_np_array(self.array[-self.__class__.NUM_ELEMENTS_AFTER_INFO + 1:-CountsAndSeqLks.LENGTH])
 
     def get_variant_array(self):
-        return self.array[-self.cls.NUM_ELEMENTS_AFTER_INFO + 1:-CountsAndSeqLks.LENGTH]
+        return self.array[-self.__class__.NUM_ELEMENTS_AFTER_INFO + 1:-CountsAndSeqLks.LENGTH]
 
     def get_counts_and_seq_lks(self):
         return CountsAndSeqLks.from_np_array(self.array[-CountsAndSeqLks.LENGTH:])
@@ -193,13 +196,13 @@ class ArtifactDatum1DStuff:
         if array_override is None:
             # we need ref count, alt count, label, variant, countsandseqlks, variant type one-hot
             # note: Label is an IntEnum so we can treat label as an integer
-            self.array = np.zeros(self.cls.NUM_ELEMENTS)
+            self.array = np.zeros(self.__class__.NUM_ELEMENTS)
             self.array[0] = base_datum_1d_stuff.array[0]    # ref count
             self.array[1] = base_datum_1d_stuff.array[1]    # alt count
             self.array[2] = base_datum_1d_stuff.get_label()
-            self.array[3:self.cls.VARIANT_END_POS] = base_datum_1d_stuff.get_variant_array()
-            self.array[self.cls.VARIANT_END_POS:self.cls.COUNTS_AND_SEQ_LKS_END_POS] = base_datum_1d_stuff.get_counts_and_seq_lks_array()
-            self.array[self.cls.COUNTS_AND_SEQ_LKS_END_POS:] = base_datum_1d_stuff.variant_type_one_hot()
+            self.array[3:self.__class__.VARIANT_END_POS] = base_datum_1d_stuff.get_variant_array()
+            self.array[self.__class__.VARIANT_END_POS:self.__class__.COUNTS_AND_SEQ_LKS_END_POS] = base_datum_1d_stuff.get_counts_and_seq_lks_array()
+            self.array[self.__class__.COUNTS_AND_SEQ_LKS_END_POS:] = base_datum_1d_stuff.variant_type_one_hot()
         else:
             self.array = array_override
 
@@ -213,13 +216,13 @@ class ArtifactDatum1DStuff:
         return self.array[2]
 
     def get_variant(self):
-        return Variant.from_np_array(self.array[3:self.cls.VARIANT_END_POS])
+        return Variant.from_np_array(self.array[3:self.__class__.VARIANT_END_POS])
 
     def get_counts_and_seq_lks(self):
-        return CountsAndSeqLks.from_np_array(self.array[self.cls.VARIANT_END_POS:self.cls.COUNTS_AND_SEQ_LKS_END_POS])
+        return CountsAndSeqLks.from_np_array(self.array[self.__class__.VARIANT_END_POS:self.__class__.COUNTS_AND_SEQ_LKS_END_POS])
 
     def variant_type_one_hot(self):
-        return self.array[self.cls.COUNTS_AND_SEQ_LKS_END_POS]
+        return self.array[self.__class__.COUNTS_AND_SEQ_LKS_END_POS]
 
     def to_np_array(self):
         return self.array
@@ -260,10 +263,10 @@ class BaseDatum:
         read_tensor = np.vstack([ref_tensor, alt_tensor]) if ref_tensor is not None else alt_tensor
         alt_count = len(alt_tensor)
         info_tensor = np.hstack([gatk_info_tensor, variant_type.one_hot_tensor().astype(DEFAULT_NUMPY_FLOAT)])
-        return cls(make_1d_sequence_tensor(ref_sequence_string), alt_count, read_tensor, info_tensor, label, variant, counts_and_seq_lks)
+        return cls(read_tensor, make_1d_sequence_tensor(ref_sequence_string), alt_count, info_tensor, label, variant, counts_and_seq_lks)
 
     def size_in_bytes(self):
-        return self.reads_2d.nbytes + self.other_stuff.nbytes
+        return self.reads_2d.nbytes + self.other_stuff.get_nbytes()
 
     def get_reads_2d(self):
         return self.reads_2d

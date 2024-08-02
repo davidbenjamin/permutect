@@ -55,9 +55,9 @@ class BaseDataset(Dataset):
             elif datum.label != Label.UNLABELED:
                 self.non_artifact_totals += datum.variant_type_one_hot()
 
-        self.num_read_features = self[0].reads_2d.shape[1]
-        self.num_info_features = len(self[0].info_array_1d)
-        self.ref_sequence_length = len(self[0].ref_sequence_1d)
+        self.num_read_features = self[0].get_reads_2d().shape[1]
+        self.num_info_features = len(self[0].get_info_tensor_1d())
+        self.ref_sequence_length = len(self[0].get_ref_sequence_1d())
 
     def __len__(self):
         return len(self._data) // TENSORS_PER_BASE_DATUM if self._memory_map_mode else len(self.data)
@@ -65,7 +65,7 @@ class BaseDataset(Dataset):
     def __getitem__(self, index):
         if self._memory_map_mode:
             bottom_index = index * TENSORS_PER_BASE_DATUM
-            other_stuff = BaseDatum1DStuff.from_np_array(reads_2d=self._data[bottom_index]+1)
+            other_stuff = BaseDatum1DStuff.from_np_array(self._data[bottom_index+1])
 
             return BaseDatum(reads_2d=self._data[bottom_index], ref_sequence_1d=None, alt_count=None, info_array_1d=None, label=None,
                               variant=None, counts_and_seq_lks=None, other_stuff_override=other_stuff)
