@@ -190,14 +190,15 @@ class BaseDatum:
 
         if other_stuff_override is None:
             self.alt_count = alt_count
+            self.label = label
             tensor_sizes = TensorSizes(ref_count=len(reads_2d) - alt_count, alt_count=alt_count,
                                        ref_sequence_length=len(ref_sequence_1d), info_tensor_length=len(info_array_1d))
             self.other_stuff = BaseDatum1DStuff(tensor_sizes, ref_sequence_1d, info_array_1d, label, variant, counts_and_seq_lks)
         else:
             self.other_stuff = other_stuff_override
             self.alt_count = other_stuff_override.get_alt_count()
+            self.label = other_stuff_override.get_label()
 
-        self.label = label
         self.variant = variant
         self.counts_and_seq_lks = counts_and_seq_lks
 
