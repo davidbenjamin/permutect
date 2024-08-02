@@ -108,8 +108,6 @@ class BaseDatum:
         # Note: if changing any of the data fields below, make sure to modify the size_in_bytes() method below accordingly!
         self.alt_count = alt_count
         self.reads_2d = reads_2d
-        self.ref_reads_2d = ref_reads_2d
-        self.alt_reads_2d = alt_reads_2d
 
         self.ref_sequence_1d = ref_sequence_1d
 
@@ -135,6 +133,12 @@ class BaseDatum:
 
     def get_variant_type(self):
         return Variation.get_type(self.variant.ref, str, self.variant.alt)
+
+    def get_ref_reads_2d(self):
+        return self.reads_2d[:-self.alt_count]
+
+    def get_alt_reads_2d(self):
+        return self.reads_2d[-self.alt_count:]
 
 
 def save_list_base_data(base_data: List[BaseDatum], file):
@@ -187,8 +191,8 @@ class BaseBatch:
     def __init__(self, data: List[BaseDatum]):
         self._original_list = data
         self.labeled = data[0].label != Label.UNLABELED
-        self.ref_count = len(data[0].ref_reads_2d) if data[0].ref_reads_2d is not None else 0
-        self.alt_count = len(data[0].alt_reads_2d)
+        self.ref_count = len(data[0].reads_2d) - data[0].alt_count
+        self.alt_count = data[0].alt_count
 
         # for datum in data:
         #    assert (datum.label() != Label.UNLABELED) == self.labeled, "Batch may not mix labeled and unlabeled"
@@ -196,8 +200,9 @@ class BaseBatch:
         #    assert len(datum.alt_tensor) == self.alt_count, "batch may not mix different alt counts"
 
         self.ref_sequences_2d = torch.permute(torch.nn.functional.one_hot(torch.from_numpy(np.stack([item.ref_sequence_1d for item in data])).long(), num_classes=4), (0, 2, 1))
-        list_of_ref_tensors = [item.ref_reads_2d for item in data] if self.ref_count > 0 else []
-        self.reads_2d = torch.from_numpy(np.vstack(list_of_ref_tensors + [item.alt_reads_2d for item in data]))
+        list_of_ref_tensors = [item.get_ref_reads_2d() for item in data]
+        list_of_alt_tensors = [item.get_alt_reads_2d() for item in data]
+        self.reads_2d = torch.from_numpy(np.vstack(list_of_ref_tensors + list_of_alt_tensors))
         self.info_2d = torch.from_numpy(np.vstack([item.info_array_1d for item in data]))
         self.labels = FloatTensor([1.0 if item.label == Label.ARTIFACT else 0.0 for item in data]) if self.labeled else None
         self._size = len(data)
@@ -253,8 +258,8 @@ class ArtifactDatum:
         self.label = base_datum.label
         self.variant = base_datum.variant
         self.counts_and_seq_lks = base_datum.counts_and_seq_lks
-        self.ref_count = len(base_datum.ref_reads_2d) if base_datum.ref_reads_2d is not None else 0
-        self.alt_count = len(base_datum.alt_reads_2d)
+        self.ref_count = len(base_datum.reads_2d) - base_datum.alt_count
+        self.alt_count = base_datum.alt_count
         self.variant_type_one_hot = base_datum.variant_type_one_hot()
 
     def size_in_bytes(self):

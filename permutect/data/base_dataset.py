@@ -46,7 +46,7 @@ class BaseDataset(Dataset):
 
         for n, datum in enumerate(self):
             fold = n % num_folds
-            counts = (len(datum.ref_reads_2d) if datum.ref_reads_2d is not None else 0, len(datum.alt_reads_2d))
+            counts = (len(datum.reads_2d) - datum.alt_count, datum.alt_count)
             (self.unlabeled_indices_by_count if datum.label == Label.UNLABELED else self.labeled_indices_by_count)[fold][counts].append(n)
 
             if datum.label == Label.ARTIFACT:
