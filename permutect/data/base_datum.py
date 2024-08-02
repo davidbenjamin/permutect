@@ -62,6 +62,8 @@ def bases5_as_base_string(base5: int) -> str:
 
 
 class Variant:
+    LENGTH = 4
+
     def __init__(self, contig: int, position: int, ref: str, alt: str):
         self.contig = contig
         self.position = position
@@ -75,10 +77,13 @@ class Variant:
     # do we need to specify that it's a uint32 array?
     @classmethod
     def from_np_array(cls, np_array: np.ndarray):
+        assert len(np_array) == cls.LENGTH
         return cls(round(np_array[0]), round(np_array[1]), bases5_as_base_string(round(np_array[2])), bases5_as_base_string(round(np_array[3])))
 
 
 class CountsAndSeqLks:
+    LENGTH = 6
+
     def __init__(self, depth: int, alt_count: int, normal_depth: int, normal_alt_count: int,
                  seq_error_log_lk: float, normal_seq_error_log_lk: float):
         self.depth = depth
@@ -93,7 +98,68 @@ class CountsAndSeqLks:
 
     @classmethod
     def from_np_array(cls, np_array: np.ndarray):
+        assert len(np_array) == cls.LENGTH
         return cls(round(np_array[0]), round(np_array[1]), round(np_array[2]), round(np_array[3]), np_array[4], np_array[5])
+
+
+class TensorSizes:
+    LENGTH = 4
+
+    def __init__(self, ref_count: int, alt_count: int, ref_sequence_length: int, info_tensor_length: int):
+        self.ref_count = ref_count
+        self.alt_count = alt_count
+        self.ref_sequence_length = ref_sequence_length
+        self.info_tensor_length = info_tensor_length
+
+    def to_np_array(self):
+        return np.array([self.ref_count, self.alt_count, self.ref_sequence_length, self.info_tensor_length])
+
+    @classmethod
+    def from_np_array(cls, np_array: np.ndarray):
+        assert len(np_array) == cls.LENGTH
+        return cls(round(np_array[0]), round(np_array[1]), round(np_array[2]), round(np_array[3]))
+
+
+class BaseDatum1DStuff:
+    NUM_ELEMENTS_AFTER_INFO = 1 + Variant.LENGTH + CountsAndSeqLks.LENGTH   # 1 for the label
+
+    def __init__(self, tensor_sizes: TensorSizes, ref_sequence_1d: np.ndarray, info_array_1d: np.ndarray, label: Label,
+                 variant: Variant, counts_and_seq_lks: CountsAndSeqLks, array_override: np.ndarray = None):
+        if array_override is None:
+            # note: Label is an IntEnum so we can treat label as an integer
+            self.array = np.hstack((tensor_sizes.to_np_array(), ref_sequence_1d, info_array_1d, np.array([label]),
+                                variant.to_np_array(), counts_and_seq_lks.to_np_array()))
+        else:
+            self.array = array_override
+
+    def get_alt_count(self):
+        return round(self.array[1])
+
+    def get_ref_seq_1d(self):
+        ref_seq_length = round(self.array[2])
+        return self.array[4:4 + ref_seq_length]
+
+    def get_info_1d(self):
+        ref_seq_length = round(self.array[2])
+        info_length = round(self.array[3])
+        return self.array[4 + ref_seq_length:4 + ref_seq_length + info_length]
+
+    def get_label(self):
+        return self.array[-self.cls.NUM_ELEMENTS_AFTER_INFO]
+
+    def get_variant(self):
+        return Variant.from_np_array(self.array[-self.cls.NUM_ELEMENTS_AFTER_INFO + 1:-CountsAndSeqLks.LENGTH])
+
+    def get_counts_and_seq_lks(self):
+        return CountsAndSeqLks.from_np_array(self.array[-CountsAndSeqLks.LENGTH:])
+
+    def to_np_array(self):
+        return self.array
+
+    @classmethod
+    def from_np_array(cls, np_array: np.ndarray):
+        return cls(tensor_sizes=None, ref_sequence_1d=None, info_array_1d=None, label=None,
+                   variant=None, counts_and_seq_lks=None, array_override=np_array)
 
 
 class BaseDatum:
@@ -103,11 +169,20 @@ class BaseDatum:
     :param info_array_1d  1D tensor of information about the variant as a whole
     :param label        an object of the Label enum artifact, non-artifact, unlabeled
     """
-    def __init__(self, ref_sequence_1d: np.ndarray, alt_count: int, reads_2d: np.ndarray, info_array_1d: np.ndarray, label: Label,
-                 variant: Variant = None, counts_and_seq_lks: CountsAndSeqLks = None):
+    def __init__(self, reads_2d: np.ndarray, ref_sequence_1d: np.ndarray, alt_count: int,  info_array_1d: np.ndarray, label: Label,
+                 variant: Variant, counts_and_seq_lks: CountsAndSeqLks, other_stuff_override: BaseDatum1DStuff = None):
         # Note: if changing any of the data fields below, make sure to modify the size_in_bytes() method below accordingly!
-        self.alt_count = alt_count
+
         self.reads_2d = reads_2d
+
+        if other_stuff_override is None:
+            self.alt_count = alt_count
+            tensor_sizes = TensorSizes(ref_count=len(reads_2d) - alt_count, alt_count=alt_count,
+                                       ref_sequence_length=len(ref_sequence_1d), info_tensor_length=len(info_array_1d))
+            self.other_stuff = BaseDatum1DStuff(tensor_sizes, ref_sequence_1d, info_array_1d, label, variant, counts_and_seq_lks)
+        else:
+            self.other_stuff = other_stuff_override
+            self.alt_count = other_stuff_override.get_alt_count()
 
         self.ref_sequence_1d = ref_sequence_1d
 
@@ -127,6 +202,12 @@ class BaseDatum:
 
     def size_in_bytes(self):
         return self.reads_2d.nbytes + self.info_array_1d.nbytes + sys.getsizeof(self.label)
+
+    def get_reads_2d(self):
+        return self.reads_2d
+
+    def get_other_stuff_1d(self) -> BaseDatum1DStuff:
+        return self.other_stuff
 
     def variant_type_one_hot(self):
         return self.info_array_1d[-len(Variation):]
@@ -148,15 +229,10 @@ def save_list_base_data(base_data: List[BaseDatum], file):
     :param file:
     :return:
     """
-    ref_sequence_tensors = [datum.ref_sequence_1d for datum in base_data]
-    read_tensors = [datum.reads_2d for datum in base_data]
-    info_tensors = [datum.info_array_1d for datum in base_data]
-    labels = IntTensor([datum.label.value for datum in base_data])
-    alt_counts = IntTensor([datum.alt_count for datum in base_data])
-    counts_and_lks = [datum.counts_and_seq_lks.to_np_array() for datum in base_data]
-    variants = [datum.variant.to_np_array() for datum in base_data]
-
-    torch.save([ref_sequence_tensors, alt_counts, read_tensors, info_tensors, labels, counts_and_lks, variants], file)
+    # TODO: should I combine stack these into big arrays rather than leaving them as lists of arrays?
+    read_tensors = [datum.get_reads_2d() for datum in base_data]
+    other_stuff = [datum.get_other_stuff_1d().to_np_array() for datum in base_data]
+    torch.save([read_tensors, other_stuff], file)
 
 
 def load_list_of_base_data(file) -> List[BaseDatum]:
@@ -165,9 +241,10 @@ def load_list_of_base_data(file) -> List[BaseDatum]:
     :param file:
     :return:
     """
-    ref_sequence_tensors, alt_counts, read_tensors, info_tensors, labels, counts_and_lks, variants = torch.load(file)
-    return [BaseDatum(ref_sequence_tensor, alt_count, reads, info, Label(label), Variant.from_np_array(variant), CountsAndSeqLks.from_np_array(cnts_lks)) for ref_sequence_tensor, alt_count, reads, info, label, cnts_lks, variant in
-            zip(ref_sequence_tensors, alt_counts, read_tensors, info_tensors, labels.tolist(), counts_and_lks, variants)]
+    read_tensors, other_stuffs = torch.load(file)
+    return [BaseDatum(reads_2d=reads, ref_sequence_1d=None, alt_count=None, info_array_1d=None, label=None,
+                      variant=None, counts_and_seq_lks=None, other_stuff_override=BaseDatum1DStuff.from_np_array(other_stuff)) for reads, other_stuff in
+            zip(read_tensors, other_stuffs)]
 
 
 class BaseBatch:
