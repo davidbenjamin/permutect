@@ -103,10 +103,10 @@ class BaseDatum:
     :param info_array_1d  1D tensor of information about the variant as a whole
     :param label        an object of the Label enum artifact, non-artifact, unlabeled
     """
-    def __init__(self, ref_sequence_1d: np.ndarray, reads_2d: np.ndarray, info_array_1d: np.ndarray, label: Label,
+    def __init__(self, ref_sequence_1d: np.ndarray, alt_count: int, reads_2d: np.ndarray, info_array_1d: np.ndarray, label: Label,
                  variant: Variant = None, counts_and_seq_lks: CountsAndSeqLks = None):
         # Note: if changing any of the data fields below, make sure to modify the size_in_bytes() method below accordingly!
-
+        self.alt_count = alt_count
         self.reads_2d = reads_2d
         self.ref_reads_2d = ref_reads_2d
         self.alt_reads_2d = alt_reads_2d
@@ -122,9 +122,10 @@ class BaseDatum:
     @classmethod
     def from_gatk(cls, ref_sequence_string: str, variant_type: Variation, ref_tensor: np.ndarray, alt_tensor: np.ndarray,
                  gatk_info_tensor: np.ndarray, label: Label, variant: Variant = None, counts_and_seq_lks: CountsAndSeqLks = None):
-        read_tensor = np.vstack([ref_tensor, alt_tensor])
+        read_tensor = np.vstack([ref_tensor, alt_tensor]) if ref_tensor is not None else alt_tensor
+        alt_count = len(alt_tensor)
         info_tensor = np.hstack([gatk_info_tensor, variant_type.one_hot_tensor().astype(DEFAULT_NUMPY_FLOAT)])
-        return cls(make_1d_sequence_tensor(ref_sequence_string), read_tensor, info_tensor, label, variant, counts_and_seq_lks)
+        return cls(make_1d_sequence_tensor(ref_sequence_string), alt_count, read_tensor, info_tensor, label, variant, counts_and_seq_lks)
 
     def size_in_bytes(self):
         return self.reads_2d.nbytes + self.info_array_1d.nbytes + sys.getsizeof(self.label)
@@ -147,10 +148,11 @@ def save_list_base_data(base_data: List[BaseDatum], file):
     read_tensors = [datum.reads_2d for datum in base_data]
     info_tensors = [datum.info_array_1d for datum in base_data]
     labels = IntTensor([datum.label.value for datum in base_data])
+    alt_counts = IntTensor([datum.alt_count for datum in base_data])
     counts_and_lks = [datum.counts_and_seq_lks.to_np_array() for datum in base_data]
     variants = [datum.variant.to_np_array() for datum in base_data]
 
-    torch.save([ref_sequence_tensors, read_tensors, info_tensors, labels, counts_and_lks, variants], file)
+    torch.save([ref_sequence_tensors, alt_counts, read_tensors, info_tensors, labels, counts_and_lks, variants], file)
 
 
 def load_list_of_base_data(file) -> List[BaseDatum]:
@@ -159,9 +161,9 @@ def load_list_of_base_data(file) -> List[BaseDatum]:
     :param file:
     :return:
     """
-    ref_sequence_tensors, read_tensors, info_tensors, labels, counts_and_lks, variants = torch.load(file)
-    return [BaseDatum(ref_sequence_tensor, reads, info, Label(label), Variant.from_np_array(variant), CountsAndSeqLks.from_np_array(cnts_lks)) for ref_sequence_tensor, reads, info, label, cnts_lks, variant in
-            zip(ref_sequence_tensors, read_tensors, info_tensors, labels.tolist(), counts_and_lks, variants)]
+    ref_sequence_tensors, alt_counts, read_tensors, info_tensors, labels, counts_and_lks, variants = torch.load(file)
+    return [BaseDatum(ref_sequence_tensor, alt_count, reads, info, Label(label), Variant.from_np_array(variant), CountsAndSeqLks.from_np_array(cnts_lks)) for ref_sequence_tensor, alt_count, reads, info, label, cnts_lks, variant in
+            zip(ref_sequence_tensors, alt_counts, read_tensors, info_tensors, labels.tolist(), counts_and_lks, variants)]
 
 
 class BaseBatch:

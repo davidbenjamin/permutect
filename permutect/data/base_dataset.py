@@ -66,13 +66,15 @@ class BaseDataset(Dataset):
             bottom_index = index * TENSORS_PER_BASE_DATUM
 
             # The order here corresponds to the order of yield statements within make_flattened_tensor_generator()
-            # concatenated_1d's elements are: 1) info array 2) counts and likelihoods (length = 6), 3) variant (length = 4), 4) the label (one element)
+            # concatenated_1d's elements are: 1) info array 2) counts and likelihoods (length = 6), 3) variant (length = 4), 4) the label (one element), 5) the alt count (one element)
             concatenated_1d = self._data[bottom_index + 2]
-            counts_and_seq = CountsAndSeqLks.from_np_array(concatenated_1d[-11:-5])
-            variant = Variant.from_np_array(concatenated_1d[-5:-1])
-            label = utils.Label(concatenated_1d[-1])
+            counts_and_seq = CountsAndSeqLks.from_np_array(concatenated_1d[-12:-6])
+            variant = Variant.from_np_array(concatenated_1d[-6:-2])
+            label = utils.Label(concatenated_1d[-2])
+            alt_count = concatenated_1d[-1]
 
             return BaseDatum(ref_sequence_1d=self._data[bottom_index + 1],
+                             alt_count=alt_count,
                              reads_2d=self._data[bottom_index],
                              info_array_1d=concatenated_1d[:-11],  # skip the six elements of counts and seq likelihoods, the 4 of variant, and the label (6 + 4 + 1 = 11)
                              label=label,
@@ -118,8 +120,9 @@ def make_flattened_tensor_generator(base_data_generator):
         # 2) the read set counts and likelihoods as a 1D array (length = 6)
         # 3) the read set variant as a 1D array (length = 4)
         # 4) the label (one element)
+        # 5) the alt count
         yield np.hstack((base_datum.info_array_1d, base_datum.counts_and_seq_lks.to_np_array(),
-                         base_datum.variant.to_np_array(), np.array([base_datum.label.value])))
+                         base_datum.variant.to_np_array(), np.array([base_datum.label.value, base_datum.alt_count])))
 
 
 def make_base_data_generator_from_tarfile(data_tarfile):
