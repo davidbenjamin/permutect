@@ -76,9 +76,6 @@ class PosteriorBatch:
     def variant_type_one_hot(self):
         return self._variant_type_one_hot
 
-    def variant_type_mask(self, variant_type):
-        return BoolTensor([item.variant_type == variant_type for item in self._original_list])
-
     # return list of variant type integer indices
     def variant_types(self):
         one_hot = self.variant_type_one_hot()

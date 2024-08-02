@@ -385,9 +385,6 @@ class BaseBatch:
     def variant_type_one_hot(self) -> Tensor:
         return self.info_2d[:, -len(Variation):]
 
-    def variant_type_mask(self, variant_type: Variation) -> Tensor:
-        return self.info_2d[:, -len(Variation) + variant_type.value] == 1
-
     # return list of variant type integer indices
     def variant_types(self):
         one_hot = self.variant_type_one_hot()
@@ -442,6 +439,9 @@ class ArtifactBatch:
     def pin_memory(self):
         self.representations_2d = self.representations_2d.pin_memory()
         self.labels = self.labels.pin_memory()
+        self.ref_counts = self.ref_counts.pin_memory()
+        self.alt_counts = self.alt_counts.pin_memory()
+        self._variant_type_one_hot = self._variant_type_one_hot.pin_memory()
         return self
 
     def get_representations_2d(self) -> Tensor:
@@ -455,9 +455,6 @@ class ArtifactBatch:
 
     def variant_type_one_hot(self) -> Tensor:
         return self._variant_type_one_hot
-
-    def variant_type_mask(self, variant_type: Variation) -> Tensor:
-        pass
 
     # return list of variant type integer indices
     def variant_types(self):
