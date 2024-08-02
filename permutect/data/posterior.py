@@ -3,7 +3,7 @@ import math
 from typing import List, Iterable
 
 import torch
-from torch import Tensor, IntTensor, BoolTensor, vstack, from_numpy
+from torch import IntTensor, vstack, from_numpy
 from torch.utils.data import Dataset, DataLoader
 from permutect.data.base_datum import Variant, CountsAndSeqLks
 
