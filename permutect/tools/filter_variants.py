@@ -259,8 +259,8 @@ def apply_filtering_to_vcf(input_vcf, output_vcf, contig_index_to_name_map, erro
         artifact_logits = [datum.artifact_logit for datum in batch.original_list()]
         var_types = [datum.variant_type for datum in batch.original_list()]
         labels = [datum.label for datum in batch.original_list()]
-        alt_counts = batch.alt_counts.tolist()
-        depths = batch.depths.tolist()
+        alt_counts = batch.get_alt_counts().tolist()
+        depths = batch.get_depths().tolist()
 
         for encoding, post_probs, logit, log_prior, log_spec, log_normal, label, alt_count, depth, var_type, embedding in zip(encodings, posterior_probs, artifact_logits, log_priors, spectra_lls, normal_lls, labels, alt_counts, depths, var_types, batch.embeddings):
             encoding_to_posterior_results[encoding] = PosteriorResult(logit, post_probs.tolist(), log_prior, log_spec, log_normal, label, alt_count, depth, var_type, embedding)

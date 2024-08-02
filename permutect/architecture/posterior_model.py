@@ -22,7 +22,7 @@ HOM_ALPHA, HOM_BETA = torch.Tensor([98.0]), torch.Tensor([2.0])
 
 # TODO: write unit test asserting that this comes out to zero when counts are zero
 # given germline, the probability of these particular reads being alt
-def germline_log_likelihood(afs, mafs, alt_counts, ref_counts):
+def germline_log_likelihood(afs, mafs, alt_counts, depths):
     het_probs = 2 * afs * (1 - afs)
     hom_probs = afs * afs
     het_proportion = het_probs / (het_probs + hom_probs)
@@ -32,7 +32,7 @@ def germline_log_likelihood(afs, mafs, alt_counts, ref_counts):
     log_1m_mafs = torch.log(1 - mafs)
     log_half_het_prop = torch.log(het_proportion / 2)
 
-    depths = alt_counts + ref_counts
+    ref_counts = depths - alt_counts
 
     combinatorial_term = torch.lgamma(depths + 1) - torch.lgamma(alt_counts + 1) - torch.lgamma(ref_counts + 1)
     # the following should both be 1D tensors of length batch size
@@ -159,50 +159,52 @@ class PosteriorModel(torch.nn.Module):
         # spectra tensors contain the likelihood that these *particular* reads (that is, not just the read count) are alt
         # normal log likelihoods contain everything going on in the matched normal sample
         # note that the call to make_unnormalized_priors ensures that no_germline_mode works
-        log_priors = torch.nn.functional.log_softmax(self.make_unnormalized_priors(types, batch.allele_frequencies), dim=1)
+        log_priors = torch.nn.functional.log_softmax(self.make_unnormalized_priors(types, batch.get_allele_frequencies()), dim=1)
 
         # defined as log [ int_0^1 Binom(alt count | depth, f) df ], including the combinatorial N choose N_alt factor
-        flat_prior_spectra_log_likelihoods = -torch.log(batch.depths + 1)
-        somatic_spectrum_log_likelihoods = self.somatic_spectrum.forward(batch.depths, batch.alt_counts)
-        tumor_artifact_spectrum_log_likelihood = self.artifact_af_predictor.forward(batch.embeddings, batch.depths, batch.alt_counts)
+        depths, alt_counts = batch.get_depths(), batch.get_alt_counts()
+        normal_depths, normal_alt_counts = batch.get_normal_depths(), batch.get_normal_alt_counts()
+        flat_prior_spectra_log_likelihoods = -torch.log(depths + 1)
+        somatic_spectrum_log_likelihoods = self.somatic_spectrum.forward(depths, alt_counts)
+        tumor_artifact_spectrum_log_likelihood = self.artifact_af_predictor.forward(batch.embeddings, depths, alt_counts)
         spectra_log_likelihoods = torch.zeros_like(log_priors).to(device=self._device, dtype=self._dtype)
 
         # essentially, this corrects the TLOD from M2, computed with a flat prior, to account for the precises somatic spectrum
         spectra_log_likelihoods[:, Call.SOMATIC] = somatic_spectrum_log_likelihoods - flat_prior_spectra_log_likelihoods
         spectra_log_likelihoods[:, Call.ARTIFACT] = tumor_artifact_spectrum_log_likelihood - flat_prior_spectra_log_likelihoods
         spectra_log_likelihoods[:, Call.NORMAL_ARTIFACT] = tumor_artifact_spectrum_log_likelihood - flat_prior_spectra_log_likelihoods # yup, it's the same spectrum
-        spectra_log_likelihoods[:, Call.SEQ_ERROR] = -batch.tlods_from_m2
+        spectra_log_likelihoods[:, Call.SEQ_ERROR] = -batch.get_tlods_from_m2()
         # spectra_log_likelihoods[:, Call.GERMLINE] is computed below
 
         normal_log_likelihoods = torch.zeros_like(log_priors)
-        normal_seq_error_log_likelihoods = torch.zeros_like(batch.alt_counts).float()
+        normal_seq_error_log_likelihoods = torch.zeros_like(alt_counts).float()
 
         for var_index, _ in enumerate(Variation):
             mask = types[:, var_index]
-            log_likelihoods_for_this_type = self.normal_seq_error_spectra[var_index].forward(batch.normal_alt_counts, batch.normal_ref_counts())
+            log_likelihoods_for_this_type = self.normal_seq_error_spectra[var_index].forward(normal_alt_counts, batch.get_normal_ref_counts())
             normal_seq_error_log_likelihoods += mask * log_likelihoods_for_this_type
 
         normal_log_likelihoods[:, Call.SOMATIC] = normal_seq_error_log_likelihoods
         normal_log_likelihoods[:, Call.ARTIFACT] = normal_seq_error_log_likelihoods
         normal_log_likelihoods[:, Call.SEQ_ERROR] = normal_seq_error_log_likelihoods
 
-        no_alt_in_normal_mask = batch.normal_alt_counts < 1
+        no_alt_in_normal_mask = normal_alt_counts < 1
         normal_log_likelihoods[:, Call.NORMAL_ARTIFACT] = -9999 * no_alt_in_normal_mask + \
-            torch.logical_not(no_alt_in_normal_mask) * self.normal_artifact_spectra.forward(types, batch.normal_depths, batch.normal_alt_counts)
+            torch.logical_not(no_alt_in_normal_mask) * self.normal_artifact_spectra.forward(types, normal_depths, normal_alt_counts)
 
-        afs = batch.allele_frequencies
-        spectra_log_likelihoods[:, Call.GERMLINE] = germline_log_likelihood(afs, batch.mafs, batch.alt_counts, batch.ref_counts()) - flat_prior_spectra_log_likelihoods
+        afs = batch.get_allele_frequencies()
+        spectra_log_likelihoods[:, Call.GERMLINE] = germline_log_likelihood(afs, batch.get_mafs(), alt_counts, depths) - flat_prior_spectra_log_likelihoods
 
         # it is correct not to subtract the flat prior likelihood from the normal term because this is an absolute likelihood, not
         # relative to seq error as the M2 TLOD is defined
-        normal_log_likelihoods[:, Call.GERMLINE] = germline_log_likelihood(afs, batch.normal_mafs, batch.normal_alt_counts, batch.normal_ref_counts())
+        normal_log_likelihoods[:, Call.GERMLINE] = germline_log_likelihood(afs, batch.get_normal_mafs(), normal_alt_counts, normal_depths)
 
         log_posteriors = log_priors + spectra_log_likelihoods + normal_log_likelihoods
-        log_posteriors[:, Call.ARTIFACT] += batch.artifact_logits
+        log_posteriors[:, Call.ARTIFACT] += batch.get_artifact_logits()
 
         # we hedge our bets and average the two possibilities for a normal artifact: 1), that the tumor does not exhibit
         # an artifact, and 2), that it does
-        log_normal_artifact_with_tumor_artifact = log_posteriors[:, Call.NORMAL_ARTIFACT] + batch.artifact_logits
+        log_normal_artifact_with_tumor_artifact = log_posteriors[:, Call.NORMAL_ARTIFACT] + batch.get_artifact_logits()
         log_normal_artifact_without_tumor_artifact = log_posteriors[:, Call.NORMAL_ARTIFACT]
         log_posteriors[:, Call.NORMAL_ARTIFACT] = torch.logsumexp(torch.vstack((log_normal_artifact_with_tumor_artifact, log_normal_artifact_without_tumor_artifact)), dim=0) - torch.log(torch.Tensor([2]))
 
@@ -306,7 +308,7 @@ class PosteriorModel(torch.nn.Module):
 
         pbar = tqdm(enumerate(loader), mininterval=10)
         for n, batch in pbar:
-            alt_counts = batch.alt_counts.tolist()
+            alt_counts = batch.get_alt_counts().tolist()
             # 0th column is true variant, subtract it from 1 to get error prob
             error_probs = self.error_probabilities(batch, germline_mode).tolist()
             types = [posterior_datum.variant_type for posterior_datum in batch.original_list()]
