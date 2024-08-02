@@ -211,7 +211,10 @@ def make_posterior_data_loader(dataset_file, input_vcf, contig_index_to_name_map
             artifact_logits = artifact_model.forward(batch=artifact_batch).detach().tolist()
 
             labels = ([Label.ARTIFACT if x > 0.5 else Label.VARIANT for x in artifact_batch.labels]) if artifact_batch.is_labeled() else (artifact_batch.size()*[Label.UNLABELED])
-            for variant, counts_and_seq_lks, logit, label, embedding in zip(artifact_batch.variants, artifact_batch.counts_and_likelihoods, artifact_logits, labels, artifact_batch.get_representations_2d()):
+
+            for artifact_datum, logit, label, embedding in zip(artifact_batch.original_data, artifact_logits, labels, artifact_batch.get_representations_2d()):
+                variant = artifact_datum.get_other_stuff_1d().get_variant()
+                counts_and_seq_lks = artifact_datum.get_other_stuff_1d().get_counts_and_seq_lks()
                 contig_name = contig_index_to_name_map[variant.contig]
                 encoding = encode(contig_name, variant.position, variant.ref, variant.alt)
                 if encoding in allele_frequencies and encoding not in m2_filtering_to_keep:

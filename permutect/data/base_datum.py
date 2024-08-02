@@ -199,9 +199,6 @@ class BaseDatum:
             self.alt_count = other_stuff_override.get_alt_count()
             self.label = other_stuff_override.get_label()
 
-        self.variant = variant
-        self.counts_and_seq_lks = counts_and_seq_lks
-
     # gatk_info tensor comes from GATK and does not include one-hot encoding of variant type
     @classmethod
     def from_gatk(cls, ref_sequence_string: str, variant_type: Variation, ref_tensor: np.ndarray, alt_tensor: np.ndarray,
@@ -222,9 +219,6 @@ class BaseDatum:
 
     def variant_type_one_hot(self):
         return self.other_stuff.get_info_1d()[-len(Variation):]
-
-    def get_variant_type(self):
-        return Variation.get_type(self.variant.ref, str, self.variant.alt)
 
     def get_ref_reads_2d(self) -> np.ndarray:
         return self.reads_2d[:-self.alt_count]
@@ -307,10 +301,6 @@ class BaseBatch:
         self.labels = FloatTensor([1.0 if item.label == Label.ARTIFACT else 0.0 for item in data]) if self.labeled else None
         self._size = len(data)
 
-        # TODO: these are unnecessary -- they can be obtained lazily from the original_list
-        self.counts_and_likelihoods = [datum.counts_and_seq_lks for datum in data]
-        self.variants = None if data[0].variant is None else [datum.variant for datum in data]
-
     # pin memory for all tensors that are sent to the GPU
     def pin_memory(self):
         self.ref_sequences_2d = self.ref_sequences_2d.pin_memory()
@@ -356,15 +346,21 @@ class ArtifactDatum:
         # Note: if changing any of the data fields below, make sure to modify the size_in_bytes() method below accordingly!
         assert representation.dim() == 1
         self.representation = representation
-        self.label = base_datum.label
-        self.variant = base_datum.variant
-        self.counts_and_seq_lks = base_datum.counts_and_seq_lks
-        self.ref_count = len(base_datum.reads_2d) - base_datum.alt_count
+
+        # TODO: this is overkill.  We don't need ref seq and info tensors, for example
+        self.other_stuff = base_datum.get_other_stuff_1d()
         self.alt_count = base_datum.alt_count
+        self.label = base_datum.label
+
+        self.ref_count = len(base_datum.reads_2d) - base_datum.alt_count
+
         self.variant_type_one_hot = base_datum.variant_type_one_hot()
 
     def size_in_bytes(self):
-        pass
+        return self.representation.nbytes + self.other_stuff.nbytes
+
+    def get_other_stuff_1d(self) -> BaseDatum1DStuff:
+        return self.other_stuff
 
     def get_variant_type(self):
         for n, var_type in enumerate(Variation):
@@ -377,6 +373,7 @@ class ArtifactDatum:
 
 class ArtifactBatch:
     def __init__(self, data: List[ArtifactDatum]):
+        self.original_data = data
         self.labeled = data[0].label != Label.UNLABELED
 
         self.representations_2d = torch.vstack([item.representation for item in data])
@@ -384,8 +381,6 @@ class ArtifactBatch:
         self.ref_counts = IntTensor([int(item.ref_count) for item in data])
         self.alt_counts = IntTensor([int(item.alt_count) for item in data])
         self._size = len(data)
-        self.counts_and_likelihoods = [item.counts_and_seq_lks for item in data]
-        self.variants = None if data[0].variant is None else [datum.variant for datum in data]
 
         self._variant_type_one_hot = torch.from_numpy(np.vstack([item.variant_type_one_hot for item in data]))
 
