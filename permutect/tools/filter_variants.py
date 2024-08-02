@@ -4,6 +4,7 @@ from collections import defaultdict
 from typing import Set
 
 import cyvcf2
+import psutil
 import torch
 from intervaltree import IntervalTree
 from torch.utils.tensorboard import SummaryWriter
@@ -201,10 +202,14 @@ def make_posterior_data_loader(dataset_file, input_vcf, contig_index_to_name_map
     # pass through the plain text dataset, normalizing and creating ReadSetDatasets as we go, running the artifact model
     # to get artifact logits, which we record in a dict keyed by variant strings.  These will later be added to PosteriorDatum objects.
     print("reading dataset and calculating artifact logits")
+    print("memory usage percent before loading data: " + str(psutil.virtual_memory().percent))
     posterior_data = []
     for list_of_base_data in plain_text_data.generate_normalized_data([dataset_file], chunk_size):
+        print("memory usage percent before creating BaseDataset: " + str(psutil.virtual_memory().percent))
         raw_dataset = base_dataset.BaseDataset(data_in_ram=list_of_base_data)
+        print("memory usage percent before creating ArtifactDataset: " + str(psutil.virtual_memory().percent))
         artifact_dataset = ArtifactDataset(raw_dataset, base_model)
+        print("memory usage percent after creating ArtifactDataset: " + str(psutil.virtual_memory().percent))
         artifact_loader = artifact_dataset.make_data_loader(artifact_dataset.all_folds(), batch_size, pin_memory=False, num_workers=0)
 
         for artifact_batch in artifact_loader:
@@ -232,6 +237,7 @@ def make_posterior_data_loader(dataset_file, input_vcf, contig_index_to_name_map
 
     print("Size of filtering dataset: " + str(len(posterior_data)))
     posterior_dataset = PosteriorDataset(posterior_data)
+    print("memory usage percent after creating PosteriorDataset: " + str(psutil.virtual_memory().percent))
     return posterior_dataset.make_data_loader(batch_size)
 
 

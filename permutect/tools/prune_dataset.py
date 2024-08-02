@@ -131,6 +131,7 @@ def generate_pruned_data_for_all_folds(base_dataset: BaseDataset, base_model: Ba
     for pruning_fold in range(NUM_FOLDS):
         summary_writer = SummaryWriter(tensorboard_dir + "/fold_" + str(pruning_fold))
         print("Pruning data from fold " + str(pruning_fold) + " of " + str(NUM_FOLDS))
+        print("memory usage percent: " + str(psutil.virtual_memory().percent))
 
         # learn an artifact model with the pruning data held out
         artifact_dataset = ArtifactDataset(base_dataset, base_model, base_dataset.all_but_one_fold(pruning_fold))

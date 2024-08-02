@@ -3,7 +3,6 @@ import torch
 from torch import Tensor, IntTensor, FloatTensor
 
 from typing import List
-import sys
 
 from permutect.utils import Variation, Label
 
