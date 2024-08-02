@@ -144,6 +144,19 @@ class BaseDatum1DStuff:
         info_length = round(self.array[3])
         return self.array[4 + ref_seq_length:4 + ref_seq_length + info_length]
 
+    # note: this potentially resizes the array and requires the leading info tensor size element to be modified
+    # we do this in preprocessing when adding extra info to the info from GATK.
+    # this method should not otherwise be used!!!
+    def set_info_1d(self, new_info: np.ndarray):
+        ref_seq_length = round(self.array[2])
+        old_info_length = round(self.array[3])
+
+        before_info = self.array[:4 + ref_seq_length]
+        after_info = self.array[4 + ref_seq_length + old_info_length:]
+
+        self.array[3] = len(new_info)   # update the info tensor size
+        self.array = np.hstack((before_info, new_info, after_info))
+
     def get_label(self):
         return self.array[-self.cls.NUM_ELEMENTS_AFTER_INFO]
 
@@ -186,7 +199,6 @@ class BaseDatum:
 
         self.ref_sequence_1d = ref_sequence_1d
 
-        self.info_array_1d = info_array_1d
         self.label = label
         self.variant = variant
         self.counts_and_seq_lks = counts_and_seq_lks
@@ -201,7 +213,7 @@ class BaseDatum:
         return cls(make_1d_sequence_tensor(ref_sequence_string), alt_count, read_tensor, info_tensor, label, variant, counts_and_seq_lks)
 
     def size_in_bytes(self):
-        return self.reads_2d.nbytes + self.info_array_1d.nbytes + sys.getsizeof(self.label)
+        return self.reads_2d.nbytes + self.other_stuff.nbytes
 
     def get_reads_2d(self):
         return self.reads_2d
@@ -210,16 +222,25 @@ class BaseDatum:
         return self.other_stuff
 
     def variant_type_one_hot(self):
-        return self.info_array_1d[-len(Variation):]
+        return self.other_stuff.get_info_1d()[-len(Variation):]
 
     def get_variant_type(self):
         return Variation.get_type(self.variant.ref, str, self.variant.alt)
 
-    def get_ref_reads_2d(self):
+    def get_ref_reads_2d(self) -> np.ndarray:
         return self.reads_2d[:-self.alt_count]
 
-    def get_alt_reads_2d(self):
+    def get_alt_reads_2d(self) -> np.ndarray:
         return self.reads_2d[-self.alt_count:]
+
+    def get_info_tensor_1d(self) -> np.ndarray:
+        return self.other_stuff.get_info_1d()
+
+    def set_info_tensor_1d(self, new_info: np.ndarray) -> np.ndarray:
+        return self.other_stuff.set_info_1d(new_info)
+
+    def get_ref_sequence_1d(self) -> np.ndarray:
+        return self.other_stuff.get_ref_seq_1d()
 
 
 def save_list_base_data(base_data: List[BaseDatum], file):
@@ -276,14 +297,19 @@ class BaseBatch:
         #    assert len(datum.ref_tensor) == self.ref_count, "batch may not mix different ref counts"
         #    assert len(datum.alt_tensor) == self.alt_count, "batch may not mix different alt counts"
 
+        # TODO: fix this
         self.ref_sequences_2d = torch.permute(torch.nn.functional.one_hot(torch.from_numpy(np.stack([item.ref_sequence_1d for item in data])).long(), num_classes=4), (0, 2, 1))
+
         list_of_ref_tensors = [item.get_ref_reads_2d() for item in data]
         list_of_alt_tensors = [item.get_alt_reads_2d() for item in data]
         self.reads_2d = torch.from_numpy(np.vstack(list_of_ref_tensors + list_of_alt_tensors))
-        self.info_2d = torch.from_numpy(np.vstack([item.info_array_1d for item in data]))
+        self.info_2d = torch.from_numpy(np.vstack([base_datum.get_info_tensor_1d() for base_datum in data]))
+
+        # TODO: get this from the other_stuff_1d tensor
         self.labels = FloatTensor([1.0 if item.label == Label.ARTIFACT else 0.0 for item in data]) if self.labeled else None
         self._size = len(data)
 
+        # TODO: these are unnecessary -- they can be obtained lazily from the original_list
         self.counts_and_likelihoods = [datum.counts_and_seq_lks for datum in data]
         self.variants = None if data[0].variant is None else [datum.variant for datum in data]
 

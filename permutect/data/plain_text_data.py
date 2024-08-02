@@ -164,7 +164,7 @@ def normalize_buffer(buffer, read_quantile_transform, info_quantile_transform, r
     all_reads = np.vstack([datum.reads_2d for datum in buffer])
 
     # 2D array.  Rows are read sets, columns are info features
-    all_info = np.vstack([datum.info_array_1d for datum in buffer])
+    all_info = np.vstack([datum.get_info_tensor_1d() for datum in buffer])
 
     all_ref_jittered = all_ref + EPSILON * np.random.randn(*all_ref.shape)
     all_reads_jittered = all_reads + EPSILON * np.random.randn(*all_reads.shape)
@@ -198,7 +198,7 @@ def normalize_buffer(buffer, read_quantile_transform, info_quantile_transform, r
         alt_means = np.mean(datum.get_alt_reads_2d(), axis=0)
 
         extra_info = binary_read_column_mask * alt_means + (1 - binary_read_column_mask) * alt_medians
-        datum.info_array_1d = np.hstack([extra_info, all_info_transformed[n]])
+        datum.set_info_tensor_1d(np.hstack([extra_info, all_info_transformed[n]]))
 
 
 def line_to_tensor(line: str) -> np.ndarray:
