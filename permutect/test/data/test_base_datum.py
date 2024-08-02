@@ -18,7 +18,7 @@ def test_base_datum():
 
     snv_datum = base_datum.BaseDatum.from_gatk("AC", Variation.SNV, ref_tensor, alt_tensor, gatk_info_tensor, label)
 
-    assert torch.equal(snv_datum.ref_sequence_1d, torch.Tensor([0,1]))
+    assert torch.equal(snv_datum.get_ref_sequence_1d(), torch.Tensor([0,1]))
     assert torch.equal(snv_datum.reads_2d, np.vstack([ref_tensor, alt_tensor]))
     assert torch.equal(snv_datum.variant_type_one_hot(), gatk_info_tensor)
     assert snv_datum.label == label

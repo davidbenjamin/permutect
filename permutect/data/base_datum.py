@@ -197,8 +197,6 @@ class BaseDatum:
             self.other_stuff = other_stuff_override
             self.alt_count = other_stuff_override.get_alt_count()
 
-        self.ref_sequence_1d = ref_sequence_1d
-
         self.label = label
         self.variant = variant
         self.counts_and_seq_lks = counts_and_seq_lks
@@ -297,8 +295,7 @@ class BaseBatch:
         #    assert len(datum.ref_tensor) == self.ref_count, "batch may not mix different ref counts"
         #    assert len(datum.alt_tensor) == self.alt_count, "batch may not mix different alt counts"
 
-        # TODO: fix this
-        self.ref_sequences_2d = torch.permute(torch.nn.functional.one_hot(torch.from_numpy(np.stack([item.ref_sequence_1d for item in data])).long(), num_classes=4), (0, 2, 1))
+        self.ref_sequences_2d = torch.permute(torch.nn.functional.one_hot(torch.from_numpy(np.stack([item.get_ref_sequence_1d() for item in data])).long(), num_classes=4), (0, 2, 1))
 
         list_of_ref_tensors = [item.get_ref_reads_2d() for item in data]
         list_of_alt_tensors = [item.get_alt_reads_2d() for item in data]
