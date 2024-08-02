@@ -16,7 +16,7 @@ from permutect import utils
 from permutect.data.base_datum import BaseDatum, BaseBatch, load_list_of_base_data, CountsAndSeqLks, Variant
 from permutect.utils import Label
 
-TENSORS_PER_BASE_DATUM = 4
+TENSORS_PER_BASE_DATUM = 3  # 1) reads (ref and alt), 2) ref sequence, 3) concatenated stuff
 
 
 class BaseDataset(Dataset):
@@ -54,7 +54,7 @@ class BaseDataset(Dataset):
             elif datum.label != Label.UNLABELED:
                 self.non_artifact_totals += datum.variant_type_one_hot()
 
-        self.num_read_features = self[0].alt_reads_2d.shape[1]
+        self.num_read_features = self[0].reads_2d.shape[1]
         self.num_info_features = len(self[0].info_array_1d)
         self.ref_sequence_length = len(self[0].ref_sequence_1d)
 
@@ -65,18 +65,15 @@ class BaseDataset(Dataset):
         if self._memory_map_mode:
             bottom_index = index * TENSORS_PER_BASE_DATUM
 
-            possible_ref = self._data[bottom_index]
-
             # The order here corresponds to the order of yield statements within make_flattened_tensor_generator()
             # concatenated_1d's elements are: 1) info array 2) counts and likelihoods (length = 6), 3) variant (length = 4), 4) the label (one element)
-            concatenated_1d = self._data[bottom_index + 3]
+            concatenated_1d = self._data[bottom_index + 2]
             counts_and_seq = CountsAndSeqLks.from_np_array(concatenated_1d[-11:-5])
             variant = Variant.from_np_array(concatenated_1d[-5:-1])
             label = utils.Label(concatenated_1d[-1])
 
-            return BaseDatum(ref_sequence_1d=self._data[bottom_index + 2],
-                             ref_reads_2d=possible_ref if len(possible_ref) > 0 else None,
-                             alt_reads_2d=self._data[bottom_index + 1],
+            return BaseDatum(ref_sequence_1d=self._data[bottom_index + 1],
+                             reads_2d=self._data[bottom_index],
                              info_array_1d=concatenated_1d[:-11],  # skip the six elements of counts and seq likelihoods, the 4 of variant, and the label (6 + 4 + 1 = 11)
                              label=label,
                              variant=variant,
@@ -113,8 +110,7 @@ class BaseDataset(Dataset):
 # ref tensor, alt tensor, ref sequence tensor, info tensor, label tensor, ref tensor alt tensor. . .
 def make_flattened_tensor_generator(base_data_generator):
     for base_datum in base_data_generator:
-        yield base_datum.ref_reads_2d if base_datum.ref_reads_2d is not None else np.empty((0, 0))
-        yield base_datum.alt_reads_2d
+        yield base_datum.reads_2d
         yield base_datum.ref_sequence_1d
 
         # for efficiency, concatenate (hstack) several 1D arrays and scalars:
