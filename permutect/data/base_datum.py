@@ -222,7 +222,7 @@ class ArtifactDatum1DStuff:
         return CountsAndSeqLks.from_np_array(self.array[self.__class__.VARIANT_END_POS:self.__class__.COUNTS_AND_SEQ_LKS_END_POS])
 
     def variant_type_one_hot(self):
-        return self.array[self.__class__.COUNTS_AND_SEQ_LKS_END_POS]
+        return self.array[self.__class__.COUNTS_AND_SEQ_LKS_END_POS:]
 
     def to_np_array(self):
         return self.array
@@ -427,7 +427,7 @@ class ArtifactDatum:
 class ArtifactBatch:
     def __init__(self, data: List[ArtifactDatum]):
         self.original_data = data
-        self.labeled = data[0].label != Label.UNLABELED
+        self.labeled = data[0].get_label() != Label.UNLABELED
 
         self.representations_2d = torch.vstack([item.representation for item in data])
         self.labels = FloatTensor([1.0 if item.get_label() == Label.ARTIFACT else 0.0 for item in data]) if self.labeled else None
