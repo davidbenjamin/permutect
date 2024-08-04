@@ -39,8 +39,8 @@ class PosteriorDatum:
         self.int_array = torch.zeros(10, dtype=int)
         self.int_array[this_class.CONTIG] = variant.contig
         self.int_array[this_class.POSITION] = variant.position
-        self.int_array[this_class.REF] = variant.ref    # ref and alt are the base-5 encoding as integers
-        self.int_array[this_class.ALT] = variant.alt
+        self.int_array[this_class.REF] = variant.get_ref_as_int()    # ref and alt are the base-5 encoding as integers
+        self.int_array[this_class.ALT] = variant.get_alt_as_int()
         self.int_array[this_class.VAR_TYPE] = utils.Variation.get_type(self.ref, self.alt)  # Variation is IntEnum so this is int
         self.int_array[this_class.DEPTH] = counts_and_seq_lks.depth
         self.int_array[this_class.ALT_COUNT] = counts_and_seq_lks.alt_count

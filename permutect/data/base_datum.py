@@ -79,6 +79,11 @@ class Variant:
         assert len(np_array) == cls.LENGTH
         return cls(round(np_array[0]), round(np_array[1]), bases5_as_base_string(round(np_array[2])), bases5_as_base_string(round(np_array[3])))
 
+    def get_ref_as_int(self):
+        return bases_as_base5_int(self.ref)
+
+    def get_alt_as_int(self):
+        return bases_as_base5_int(self.alt)
 
 class CountsAndSeqLks:
     LENGTH = 6
