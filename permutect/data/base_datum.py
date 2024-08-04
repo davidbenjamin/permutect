@@ -281,6 +281,7 @@ class BaseDatum:
         info_tensor = np.hstack([gatk_info_tensor, variant_type.one_hot_tensor().astype(DEFAULT_NUMPY_FLOAT)])
         result = cls(read_tensor, make_1d_sequence_tensor(ref_sequence_string), alt_count, info_tensor, label, variant, counts_and_seq_lks)
         result.set_dtype(np.float16)
+        return result
 
     def size_in_bytes(self):
         return self.reads_2d.nbytes + self.other_stuff.get_nbytes()
