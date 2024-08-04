@@ -419,7 +419,7 @@ class ArtifactDatum:
     def size_in_bytes(self):
         return self.representation.nbytes + self.other_stuff.nbytes
 
-    def get_other_stuff_1d(self) -> BaseDatum1DStuff:
+    def get_other_stuff_1d(self) -> ArtifactDatum1DStuff:
         return self.other_stuff
 
     def variant_type_one_hot(self):

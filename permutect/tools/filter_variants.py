@@ -45,7 +45,7 @@ def get_first_numeric_element(variant, key):
 # if alt and ref alleles are not in minimal representation ie have redundant matching bases at the end, trim them
 def trim_alleles_on_right(ref: str, alt: str):
     trimmed_ref, trimmed_alt = ref, alt
-    while len(ref) > 1 and len(alt) > 1 and trimmed_alt[-1] == trimmed_ref[-1]:
+    while len(trimmed_ref) > 1 and len(trimmed_alt) > 1 and trimmed_alt[-1] == trimmed_ref[-1]:
         trimmed_ref, trimmed_alt = trimmed_ref[:-1], trimmed_alt[:-1]
     return trimmed_ref, trimmed_alt
 
