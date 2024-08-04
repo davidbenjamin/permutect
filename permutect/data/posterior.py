@@ -41,7 +41,7 @@ class PosteriorDatum:
         self.int_array[this_class.POSITION] = variant.position
         self.int_array[this_class.REF] = variant.get_ref_as_int()    # ref and alt are the base-5 encoding as integers
         self.int_array[this_class.ALT] = variant.get_alt_as_int()
-        self.int_array[this_class.VAR_TYPE] = utils.Variation.get_type(self.ref, self.alt)  # Variation is IntEnum so this is int
+        self.int_array[this_class.VAR_TYPE] = utils.Variation.get_type(variant.ref, variant.alt)  # Variation is IntEnum so this is int
         self.int_array[this_class.DEPTH] = counts_and_seq_lks.depth
         self.int_array[this_class.ALT_COUNT] = counts_and_seq_lks.alt_count
         self.int_array[this_class.NORMAL_DEPTH] = counts_and_seq_lks.normal_depth
