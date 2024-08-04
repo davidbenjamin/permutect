@@ -35,7 +35,7 @@ class PosteriorDatum:
                  artifact_logit: float, embedding: torch.Tensor, label: Label, maf: float, normal_maf: float):
         self.embedding = embedding
 
-        this_class = self.cls
+        this_class = self.__class__
         self.int_array = torch.zeros(10, dtype=int)
         self.int_array[this_class.CONTIG] = variant.contig
         self.int_array[this_class.POSITION] = variant.position
