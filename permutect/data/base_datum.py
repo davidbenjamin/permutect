@@ -139,6 +139,9 @@ class BaseDatum1DStuff:
     def get_nbytes(self):
         return self.array.nbytes
 
+    def set_dtype(self, dtype):
+        self.array = self.array.astype(dtype)
+
     def get_alt_count(self):
         return round(self.array[1])
 
@@ -211,6 +214,9 @@ class ArtifactDatum1DStuff:
         else:
             self.array = array_override
 
+    def set_dtype(self, dtype):
+        self.array = self.array.astype(dtype)
+
     def get_ref_count(self):
         return round(self.array[0])
 
@@ -260,6 +266,11 @@ class BaseDatum:
             self.other_stuff = other_stuff_override
             self.alt_count = other_stuff_override.get_alt_count()
             self.label = other_stuff_override.get_label()
+        self.set_dtype(np.float16)
+
+    def set_dtype(self, dtype):
+        self.reads_2d = self.reads_2d.astype(dtype)
+        self.other_stuff.set_dtype(dtype)
 
     # gatk_info tensor comes from GATK and does not include one-hot encoding of variant type
     @classmethod
@@ -268,7 +279,8 @@ class BaseDatum:
         read_tensor = np.vstack([ref_tensor, alt_tensor]) if ref_tensor is not None else alt_tensor
         alt_count = len(alt_tensor)
         info_tensor = np.hstack([gatk_info_tensor, variant_type.one_hot_tensor().astype(DEFAULT_NUMPY_FLOAT)])
-        return cls(read_tensor, make_1d_sequence_tensor(ref_sequence_string), alt_count, info_tensor, label, variant, counts_and_seq_lks)
+        result = cls(read_tensor, make_1d_sequence_tensor(ref_sequence_string), alt_count, info_tensor, label, variant, counts_and_seq_lks)
+        result.set_dtype(np.float16)
 
     def size_in_bytes(self):
         return self.reads_2d.nbytes + self.other_stuff.get_nbytes()
@@ -406,6 +418,11 @@ class ArtifactDatum:
         assert representation.dim() == 1
         self.representation = representation
         self.other_stuff = ArtifactDatum1DStuff(base_datum.get_other_stuff_1d())
+        self.set_dtype(np.float16)
+
+    def set_dtype(self, dtype):
+        self.representation = self.representation.astype(dtype)
+        self.other_stuff.set_dtype(dtype)
 
     def get_ref_count(self):
         return self.other_stuff.get_ref_count()
