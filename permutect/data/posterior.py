@@ -50,7 +50,7 @@ class PosteriorDatum:
 
         self.float_array = torch.zeros(7)
         self.float_array[this_class.SEQ_ERROR_LOG_LK] = counts_and_seq_lks.seq_error_log_lk
-        self.float_array[this_class.TLOD_FROM_M2] = -counts_and_seq_lks.seq_error_log_lk - math.log(self.depth + 1)
+        self.float_array[this_class.TLOD_FROM_M2] = -counts_and_seq_lks.seq_error_log_lk - math.log(counts_and_seq_lks.depth + 1)
         self.float_array[this_class.NORMAL_SEQ_ERROR_LOG_LK] = counts_and_seq_lks.normal_seq_error_log_lk
         self.float_array[this_class.ALLELE_FREQUENCY] = allele_frequency
         self.float_array[this_class.ARTIFACT_LOGIT] = artifact_logit
