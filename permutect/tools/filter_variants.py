@@ -306,7 +306,7 @@ def apply_filtering_to_vcf(input_vcf, output_vcf, contig_index_to_name_map, erro
             v.INFO[ARTIFACT_LOD_INFO_KEY] = "{:.3f}".format(posterior_result.artifact_logit)
             v.INFO[NORMAL_LOG_LIKELIHOOD_INFO_KEY] = ','.join(map(lambda ll: "{:.3f}".format(ll), posterior_result.normal_lls))
 
-            label = posterior_result.label    # this is the Label enum, might be UNLABELED
+            label = Label(posterior_result.label)    # this is the Label enum, might be UNLABELED
             error_prob = 1 - post_probs[passing_call_type]
             variant_type = find_variant_type(v)
             called_as_error = error_prob > error_probability_thresholds[variant_type]
