@@ -121,7 +121,7 @@ class CountsAndSeqLks:
     @classmethod
     def from_np_array(cls, np_array: np.ndarray):
         assert len(np_array) == cls.LENGTH
-        return cls(round(np_array[0]), round(np_array[1]), round(np_array[2]), round(np_array[3]), np_array[4], np_array[5])
+        return cls(round(np_array[0]), round(np_array[1]), round(np_array[2]), round(np_array[3]), float(np_array[4]), float(np_array[5]))
 
 
 class TensorSizes:

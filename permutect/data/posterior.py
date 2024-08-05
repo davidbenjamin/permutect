@@ -48,7 +48,7 @@ class PosteriorDatum:
         self.int_array[this_class.NORMAL_ALT_COUNT] = counts_and_seq_lks.normal_alt_count
         self.int_array[this_class.LABEL] = label
 
-        self.float_array = torch.zeros(7)
+        self.float_array = torch.zeros(7, dtype=torch.float16)
         self.float_array[this_class.SEQ_ERROR_LOG_LK] = counts_and_seq_lks.seq_error_log_lk
         self.float_array[this_class.TLOD_FROM_M2] = -counts_and_seq_lks.seq_error_log_lk - math.log(counts_and_seq_lks.depth + 1)
         self.float_array[this_class.NORMAL_SEQ_ERROR_LOG_LK] = counts_and_seq_lks.normal_seq_error_log_lk
