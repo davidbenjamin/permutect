@@ -326,20 +326,43 @@ def apply_filtering_to_vcf(input_vcf, output_vcf, contig_index_to_name_map, erro
                 str(round_up_to_nearest_three(min(MAX_COUNT, posterior_result.alt_count))))
             embedding_metrics.representations.append(posterior_result.embedding)
 
+            correctness_label = "unknown"
             if label != Label.UNLABELED:
                 labeled_truth = True
                 clipped_error_prob = 0.5 + 0.9999999 * (error_prob - 0.5)
                 error_logit = prob_to_logit(clipped_error_prob)
                 float_label = 1.0 if label == Label.ARTIFACT else 0.0
+
+                # TODO: this is sloppy -- it only works because when we label the posterior dataset (if truth is available)
+                # TODO: we stretch the definitions so that "Label.ARTIFACT" simply means "something we shouldn't call", including
+                # TODO: artifact or germline (in the somatic calling case), and "Label.VARIANT" means "something we should call"
                 is_correct = (called_as_error and label == Label.ARTIFACT) or (not called_as_error and label == Label.VARIANT)
                 evaluation_metrics.record_call(Epoch.TEST, variant_type, error_logit, float_label, is_correct, posterior_result.alt_count)
 
-                if not is_correct:
+                # TODO: double-check the logic here
+                if is_correct:
+                    if label == Label.VARIANT:
+                        correctness_label = EmbeddingMetrics.TRUE_POSITIVE
+                    elif error_call == Call.ARTIFACT or error_call == Call.NORMAL_ARTIFACT:
+                        correctness_label = EmbeddingMetrics.TRUE_NEGATIVE_ARTIFACT
+                    #elif error_call == Call.SEQ_ERROR:
+                    #    correctness_label = EmbeddingMetrics.TRUE_NEGATIVE_SEQ_ERROR
+                    # we don't do anything for germline (in somatic mode) or seq error --
+                else:
+                    if called_as_error:
+                        if error_call == Call.ARTIFACT or error_call == Call.NORMAL_ARTIFACT:
+                            correctness_label = EmbeddingMetrics.FALSE_NEGATIVE_ARTIFACT
+                    else:
+                        correctness_label = EmbeddingMetrics.FALSE_POSITIVE
+                    # TODO: this is only right for somatic calling
                     bad_call = error_call if called_as_error else Call.SOMATIC
                     evaluation_metrics.record_mistake(posterior_result, bad_call)
+                # TODO: instead of just correct/incorrect, we want false positive, filtered false negative etc, and later we will want to
+                # TODO: subsample in favor of the errors; otherwise the embeddings will be swamped by things like germline
+                # TODO: non-artifacts
                 embedding_metrics.correct_metadata.append("correct" if is_correct else "incorrect")
             else:
-                embedding_metrics.correct_metadata.append("unknown")
+            embedding_metrics.correct_metadata.append(correctness_label)
 
         v.FILTER = ';'.join(filters) if filters else 'PASS'
         writer.write_record(v)
@@ -347,7 +370,7 @@ def apply_filtering_to_vcf(input_vcf, output_vcf, contig_index_to_name_map, erro
     writer.close()
     unfiltered_vcf.close()
 
-    embedding_metrics.output_to_summary_writer(summary_writer)
+    embedding_metrics.output_to_summary_writer(summary_writer, is_filter_variants=True)
 
     if labeled_truth:
         given_thresholds = {var_type: prob_to_logit(error_probability_thresholds[var_type]) for var_type in Variation}
