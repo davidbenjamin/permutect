@@ -60,8 +60,16 @@ def bases5_as_base_string(base5: int) -> str:
     return result
 
 
+def convert_to_two_ints(n: int, base: int):
+    return n // base, n % base
+
+
+def from_two_ints(a, b, base):
+    return a * base + b
+
+
 class Variant:
-    LENGTH = 5  # in order to compress to float16 we need two numbers for the large position integer
+    LENGTH = 7  # in order to compress to float16 we need two numbers for the large position integer and the alt, ref encodings
     FLOAT_16_LIMIT = 65000  # approximate, doesn't need to be exact
 
     def __init__(self, contig: int, position: int, ref: str, alt: str):
@@ -70,17 +78,23 @@ class Variant:
         self.ref = ref
         self.alt = alt
 
-    # note: if base strings are treated as numbers in base 5, uint32 can hold up to 13 bases
+    # note: if base strings are treated as numbers in base 5, uint32 (equivalent to two uint16's) can hold up to 13 bases
     def to_np_array(self):
-        return np.array([self.contig, self.position // self.__class__.FLOAT_16_LIMIT, self.position % self.__class__.FLOAT_16_LIMIT,
-                         bases_as_base5_int(self.ref), bases_as_base5_int(self.alt)], dtype=np.uint32)
+        base = self.__class__.FLOAT_16_LIMIT
+        el1, el2 = convert_to_two_ints(self.position, base)
+        el3, el4 = convert_to_two_ints(bases_as_base5_int(self.ref), base)
+        el5, el6 = convert_to_two_ints(bases_as_base5_int(self.alt), base)
+        return np.array([self.contig, el1, el2, el3, el4, el5, el6], dtype=np.uint16)
 
     # do we need to specify that it's a uint32 array?
     @classmethod
     def from_np_array(cls, np_array: np.ndarray):
         assert len(np_array) == cls.LENGTH
-        position = cls.FLOAT_16_LIMIT * round(np_array[1]) + round(np_array[2])
-        return cls(round(np_array[0]), position, bases5_as_base_string(round(np_array[3])), bases5_as_base_string(round(np_array[4])))
+        base = cls.FLOAT_16_LIMIT
+        position = from_two_ints(round(np_array[1]), round(np_array[2]), base)
+        ref = bases5_as_base_string(from_two_ints(round(np_array[3]), round(np_array[4]), base))
+        alt = bases5_as_base_string(from_two_ints(round(np_array[5]), round(np_array[6]), base))
+        return cls(round(np_array[0]), position, ref, alt)
 
     def get_ref_as_int(self):
         return bases_as_base5_int(self.ref)
