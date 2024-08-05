@@ -7,7 +7,6 @@ from permutect.tools import filter_variants
 
 def test_filtering_on_dream1_chr20():
     # Inputs
-    training_data_tarfile = '/Users/davidben/mutect3/permutect/integration-tests/singular-10-Mb/preprocessed-dataset.tar'
     base_model = '/Users/davidben/mutect3/permutect/integration-tests/singular-10-Mb/base-model.pt'
     artifact_model = '/Users/davidben/mutect3/permutect/integration-tests/singular-10-Mb/artifact-model.pt'
 

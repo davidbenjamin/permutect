@@ -62,9 +62,9 @@ class PosteriorBatch:
 
     def __init__(self, data: List[PosteriorDatum]):
         self._original_list = data  # keep this for downsampling augmentation
-        self.embeddings = torch.vstack([item.embedding for item in data])
+        self.embeddings = torch.vstack([item.embedding for item in data]).float()
         self.int_tensor = torch.vstack([item.int_array for item in data])
-        self.float_tensor = torch.vstack([item.float_array for item in data])
+        self.float_tensor = torch.vstack([item.float_array for item in data]).float()
 
         self._size = len(data)
 
@@ -106,7 +106,7 @@ class PosteriorBatch:
         return self._size
 
     def get_normal_ref_counts(self) -> IntTensor:
-        return self.get_normal_depths() - self.normal_alt_counts()
+        return self.get_normal_depths() - self.get_normal_alt_counts()
 
 
 class PosteriorDataset(Dataset):
