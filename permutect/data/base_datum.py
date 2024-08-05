@@ -61,7 +61,8 @@ def bases5_as_base_string(base5: int) -> str:
 
 
 class Variant:
-    LENGTH = 4
+    LENGTH = 5  # in order to compress to float16 we need two numbers for the large position integer
+    FLOAT_16_LIMIT = 65000  # approximate, doesn't need to be exact
 
     def __init__(self, contig: int, position: int, ref: str, alt: str):
         self.contig = contig
@@ -71,19 +72,22 @@ class Variant:
 
     # note: if base strings are treated as numbers in base 5, uint32 can hold up to 13 bases
     def to_np_array(self):
-        return np.array([self.contig, self.position, bases_as_base5_int(self.ref), bases_as_base5_int(self.alt)], dtype=np.uint32)
+        return np.array([self.contig, self.position // self.__class__.FLOAT_16_LIMIT, self.position % self.__class__.FLOAT_16_LIMIT,
+                         bases_as_base5_int(self.ref), bases_as_base5_int(self.alt)], dtype=np.uint32)
 
     # do we need to specify that it's a uint32 array?
     @classmethod
     def from_np_array(cls, np_array: np.ndarray):
         assert len(np_array) == cls.LENGTH
-        return cls(round(np_array[0]), round(np_array[1]), bases5_as_base_string(round(np_array[2])), bases5_as_base_string(round(np_array[3])))
+        position = cls.FLOAT_16_LIMIT * round(np_array[1]) + round(np_array[2])
+        return cls(round(np_array[0]), position, bases5_as_base_string(round(np_array[3])), bases5_as_base_string(round(np_array[4])))
 
     def get_ref_as_int(self):
         return bases_as_base5_int(self.ref)
 
     def get_alt_as_int(self):
         return bases_as_base5_int(self.alt)
+
 
 class CountsAndSeqLks:
     LENGTH = 6
