@@ -357,11 +357,6 @@ def apply_filtering_to_vcf(input_vcf, output_vcf, contig_index_to_name_map, erro
                     # TODO: this is only right for somatic calling
                     bad_call = error_call if called_as_error else Call.SOMATIC
                     evaluation_metrics.record_mistake(posterior_result, bad_call)
-                # TODO: instead of just correct/incorrect, we want false positive, filtered false negative etc, and later we will want to
-                # TODO: subsample in favor of the errors; otherwise the embeddings will be swamped by things like germline
-                # TODO: non-artifacts
-                embedding_metrics.correct_metadata.append("correct" if is_correct else "incorrect")
-            else:
             embedding_metrics.correct_metadata.append(correctness_label)
 
         v.FILTER = ';'.join(filters) if filters else 'PASS'
