@@ -5,7 +5,7 @@ from typing import List, Iterable
 import torch
 from torch import IntTensor, vstack, from_numpy
 from torch.utils.data import Dataset, DataLoader
-from permutect.data.base_datum import Variant, CountsAndSeqLks
+from permutect.data.base_datum import Variant, CountsAndSeqLks, bases5_as_base_string
 
 from permutect import utils
 from permutect.utils import Label, Variation
@@ -57,6 +57,14 @@ class PosteriorDatum:
         self.float_array[this_class.MAF] = maf
         self.float_array[this_class.NORMAL_MAF] = normal_maf
 
+    def get_variant(self) -> Variant:
+        this_class = self.__class__
+        contig = self.int_array[this_class.CONTIG].item()
+        position = self.int_array[this_class.POSITION].item()
+        ref = bases5_as_base_string(self.int_array[this_class.REF].item()) # ref and alt are the base-5 encoding as integers
+        alt = bases5_as_base_string(self.int_array[this_class.ALT].item())
+        return Variant(contig, position, ref, alt)
+
 
 class PosteriorBatch:
 
@@ -68,15 +76,20 @@ class PosteriorBatch:
 
         self._size = len(data)
 
+    def get_variant_types(self) -> torch.Tensor:
+        return self.int_tensor[:, PosteriorDatum.VAR_TYPE]
+
     def variant_type_one_hot(self) -> torch.Tensor:
-        var_types = self.int_tensor[:, PosteriorDatum.VAR_TYPE]
-        return torch.nn.functional.one_hot(var_types, num_classes=len(Variation))
+        return torch.nn.functional.one_hot(self.get_variant_types(), num_classes=len(Variation))
 
     def get_alt_counts(self) -> torch.Tensor:
         return self.int_tensor[:, PosteriorDatum.ALT_COUNT]
 
     def get_depths(self) -> torch.Tensor:
         return self.int_tensor[:, PosteriorDatum.DEPTH]
+
+    def get_labels(self) -> torch.Tensor:
+        return self.int_tensor[:, PosteriorDatum.LABEL]
 
     def get_normal_alt_counts(self) -> torch.Tensor:
         return self.int_tensor[:, PosteriorDatum.NORMAL_ALT_COUNT]

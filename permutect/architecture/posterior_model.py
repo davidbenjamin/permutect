@@ -311,9 +311,8 @@ class PosteriorModel(torch.nn.Module):
             alt_counts = batch.get_alt_counts().tolist()
             # 0th column is true variant, subtract it from 1 to get error prob
             error_probs = self.error_probabilities(batch, germline_mode).tolist()
-            types = [posterior_datum.variant_type for posterior_datum in batch.original_list()]
 
-            for var_type, alt_count, error_prob in zip(types, alt_counts, error_probs):
+            for var_type, alt_count, error_prob in zip(batch.get_variant_types().tolist(), alt_counts, error_probs):
                 error_probs_by_type[var_type].append(error_prob)
                 error_probs_by_type_by_cnt[var_type][multiple_of_three_bin_index(min(alt_count, MAX_COUNT))].append(error_prob)
 

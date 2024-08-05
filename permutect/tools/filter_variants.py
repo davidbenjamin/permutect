@@ -57,8 +57,9 @@ def encode(contig: str, position: int, ref: str, alt: str):
 
 
 def encode_datum(datum: PosteriorDatum, contig_index_to_name_map):
-    contig_name = contig_index_to_name_map[datum.contig]
-    return encode(contig_name, datum.position, datum.ref, datum.alt)
+    variant = datum.get_variant()
+    contig_name = contig_index_to_name_map[variant.contig]
+    return encode(contig_name, variant.position, variant.ref, variant.alt)
 
 
 def encode_variant(v: cyvcf2.Variant, zero_based=False):
@@ -256,9 +257,9 @@ def apply_filtering_to_vcf(input_vcf, output_vcf, contig_index_to_name_map, erro
         posterior_probs = torch.nn.functional.softmax(log_posteriors, dim=1)
 
         encodings = [encode_datum(datum, contig_index_to_name_map) for datum in batch.original_list()]
-        artifact_logits = [datum.artifact_logit for datum in batch.original_list()]
-        var_types = [datum.variant_type for datum in batch.original_list()]
-        labels = [datum.label for datum in batch.original_list()]
+        artifact_logits = batch.get_artifact_logits().tolist()
+        var_types = batch.get_variant_types().tolist()
+        labels = batch.get_labels().tolist()
         alt_counts = batch.get_alt_counts().tolist()
         depths = batch.get_depths().tolist()
 
