@@ -422,7 +422,7 @@ class ArtifactDatum:
         self.set_dtype(np.float16)
 
     def set_dtype(self, dtype):
-        self.representation = self.representation.astype(dtype)
+        self.representation = self.representation.to(torch.float16)
         self.other_stuff.set_dtype(dtype)
 
     def get_ref_count(self):
