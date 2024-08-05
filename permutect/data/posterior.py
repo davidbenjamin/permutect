@@ -65,7 +65,6 @@ class PosteriorBatch:
         self.embeddings = torch.vstack([item.embedding for item in data])
         self.int_tensor = torch.vstack([item.int_array for item in data])
         self.float_tensor = torch.vstack([item.float_array for item in data])
-        self._variant_type_one_hot = vstack([from_numpy(item.variant_type.one_hot_tensor()) for item in self._original_list])
 
         self._size = len(data)
 
@@ -104,14 +103,6 @@ class PosteriorBatch:
 
     def get_normal_ref_counts(self) -> IntTensor:
         return self.get_normal_depths() - self.normal_alt_counts()
-
-    def variant_type_one_hot(self):
-        return self._variant_type_one_hot
-
-    # return list of variant type integer indices
-    def variant_types(self):
-        one_hot = self.variant_type_one_hot()
-        return [int(x) for x in sum([n * one_hot[:, n] for n in range(len(Variation))])]
 
 
 class PosteriorDataset(Dataset):
