@@ -2,6 +2,7 @@
 import warnings
 from typing import List
 
+import psutil
 import torch
 from torch import nn, Tensor
 import numpy as np
@@ -170,6 +171,7 @@ class ArtifactModel(nn.Module):
         valid_loader = dataset.make_data_loader([validation_fold_to_use], training_params.batch_size, self._device.type == 'cuda', training_params.num_workers)
 
         for epoch in trange(1, training_params.num_epochs + 1 + training_params.num_calibration_epochs, desc="Epoch"):
+            print("epoch " + str(epoch) + ", memory usage percent: " + str(psutil.virtual_memory().percent))
             is_calibration_epoch = epoch > training_params.num_epochs
             for epoch_type in ([utils.Epoch.VALID] if is_calibration_epoch else [utils.Epoch.TRAIN, utils.Epoch.VALID]):
                 self.set_epoch_type(epoch_type)

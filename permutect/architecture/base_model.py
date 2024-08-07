@@ -3,6 +3,7 @@ from enum import Enum
 from itertools import chain
 from typing import List
 
+import psutil
 import torch
 from torch.utils.tensorboard import SummaryWriter
 from torch.nn.parameter import Parameter
@@ -441,6 +442,8 @@ def learn_base_model(base_model: BaseModel, dataset: BaseDataset, learning_metho
 
     print("Training data contains {} labeled examples and {} unlabeled examples".format(total_labeled,
                                                                                             total_unlabeled))
+    print("memory usage percent: " + str(psutil.virtual_memory().percent))
+
     for variation_type in utils.Variation:
         idx = variation_type.value
         print("For variation type {}, there are {} labeled artifact examples and {} labeled non-artifact examples"
@@ -482,6 +485,7 @@ def learn_base_model(base_model: BaseModel, dataset: BaseDataset, learning_metho
     valid_loader = dataset.make_data_loader([validation_fold_to_use], training_params.batch_size, base_model._device.type == 'cuda', training_params.num_workers)
 
     for epoch in trange(1, training_params.num_epochs + 1, desc="Epoch"):
+        print("epoch " + str(epoch) + ", memory usage percent: " + str(psutil.virtual_memory().percent))
         for epoch_type in (utils.Epoch.TRAIN, utils.Epoch.VALID):
             base_model.set_epoch_type(epoch_type)
 
