@@ -194,17 +194,20 @@ def make_posterior_data_loader(dataset_file, input_vcf, contig_index_to_name_map
     allele_frequencies = {}
 
     print("recording M2 filters and allele frequencies from input VCF")
+    n = 0
     for v in cyvcf2.VCF(input_vcf):
         encoding = encode_variant(v, zero_based=True)
         if filters_to_keep_from_m2(v):
             m2_filtering_to_keep.add(encoding)
         allele_frequencies[encoding] = 10 ** (-get_first_numeric_element(v, "POPAF"))
+        n += 1  # DEBUG
 
     # pass through the plain text dataset, normalizing and creating ReadSetDatasets as we go, running the artifact model
     # to get artifact logits, which we record in a dict keyed by variant strings.  These will later be added to PosteriorDatum objects.
     print("reading dataset and calculating artifact logits")
     print("memory usage percent before loading data: " + str(psutil.virtual_memory().percent))
     posterior_data = []
+    m = 0
     for list_of_base_data in plain_text_data.generate_normalized_data([dataset_file], chunk_size):
         print("memory usage percent before creating BaseDataset: " + str(psutil.virtual_memory().percent))
         raw_dataset = base_dataset.BaseDataset(data_in_ram=list_of_base_data)
@@ -219,6 +222,7 @@ def make_posterior_data_loader(dataset_file, input_vcf, contig_index_to_name_map
             labels = ([Label.ARTIFACT if x > 0.5 else Label.VARIANT for x in artifact_batch.labels]) if artifact_batch.is_labeled() else (artifact_batch.size()*[Label.UNLABELED])
 
             for artifact_datum, logit, label, embedding in zip(artifact_batch.original_data, artifact_logits, labels, artifact_batch.get_representations_2d()):
+                m += 1  # DEBUG
                 variant = artifact_datum.get_other_stuff_1d().get_variant()
                 counts_and_seq_lks = artifact_datum.get_other_stuff_1d().get_counts_and_seq_lks()
                 contig_name = contig_index_to_name_map[variant.contig]
@@ -292,6 +296,7 @@ def apply_filtering_to_vcf(input_vcf, output_vcf, contig_index_to_name_map, erro
     labeled_truth = False
     embedding_metrics = EmbeddingMetrics() # only if there is labeled truth for evaluation
 
+    missing_encodings = []
     for n, v in pbar:
         filters = filters_to_keep_from_m2(v)
 
@@ -359,7 +364,8 @@ def apply_filtering_to_vcf(input_vcf, output_vcf, contig_index_to_name_map, erro
                     bad_call = error_call if called_as_error else Call.SOMATIC
                     evaluation_metrics.record_mistake(posterior_result, bad_call)
             embedding_metrics.correct_metadata.append(correctness_label)
-
+        else:
+            missing_encodings.append(encoding)
         v.FILTER = ';'.join(filters) if filters else 'PASS'
         writer.write_record(v)
     print("closing resources")
@@ -372,7 +378,6 @@ def apply_filtering_to_vcf(input_vcf, output_vcf, contig_index_to_name_map, erro
         given_thresholds = {var_type: prob_to_logit(error_probability_thresholds[var_type]) for var_type in Variation}
         evaluation_metrics.make_plots(summary_writer, given_thresholds, sens_prec=True)
         evaluation_metrics.make_mistake_histograms(summary_writer)
-
 
 
 def main():
