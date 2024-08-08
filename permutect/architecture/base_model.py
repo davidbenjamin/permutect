@@ -485,7 +485,7 @@ def learn_base_model(base_model: BaseModel, dataset: BaseDataset, learning_metho
     valid_loader = dataset.make_data_loader([validation_fold_to_use], training_params.batch_size, base_model._device.type == 'cuda', training_params.num_workers)
 
     for epoch in trange(1, training_params.num_epochs + 1, desc="Epoch"):
-        print("epoch " + str(epoch) + ", memory usage percent: " + str(psutil.virtual_memory().percent))
+        print("start of epoch " + str(epoch) + ", memory usage percent: " + str(psutil.virtual_memory().percent))
         for epoch_type in (utils.Epoch.TRAIN, utils.Epoch.VALID):
             base_model.set_epoch_type(epoch_type)
 
@@ -525,6 +525,7 @@ def learn_base_model(base_model: BaseModel, dataset: BaseDataset, learning_metho
             print("Labeled base model loss for epoch " + str(epoch) + " of " + epoch_type.name + ": " + str(loss_metrics.get_labeled_loss()))
             print("Labeled auxiliary classifier loss for epoch " + str(epoch) + " of " + epoch_type.name + ": " + str(
                 classifier_metrics.get_labeled_loss()))
+        print("end of epoch " + str(epoch) + ", memory usage percent: " + str(psutil.virtual_memory().percent))
         # done with training and validation for this epoch
         # note that we have not learned the AF spectrum yet
     # done with training
