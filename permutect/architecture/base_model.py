@@ -471,11 +471,13 @@ def learn_base_model(base_model: BaseModel, dataset: BaseDataset, learning_metho
         learning_strategy = BaseModelMARSLoss(embedding_dim=base_model.output_dimension())
     else:
         raise Exception("not implemented yet")
+    learning_strategy.to(device=base_model._device, dtype=base_model._dtype)
 
     train_optimizer = torch.optim.AdamW(chain(base_model.parameters(), learning_strategy.parameters()),
                                         lr=training_params.learning_rate, weight_decay=training_params.weight_decay)
 
-    classifier_on_top = MLP([base_model.output_dimension()] + [base_model.output_dimension(), base_model.output_dimension()] + [1])
+    classifier_on_top = MLP([base_model.output_dimension()] + [base_model.output_dimension(), base_model.output_dimension()] + [1])\
+        .to(device=base_model._device, dtype=base_model._dtype)
     classifier_bce = torch.nn.BCEWithLogitsLoss(reduction='none')
     classifier_optimizer = torch.optim.AdamW(classifier_on_top.parameters(), lr=training_params.learning_rate, weight_decay=training_params.weight_decay)
     classifier_metrics = LossMetrics(base_model._device)
@@ -504,13 +506,13 @@ def learn_base_model(base_model: BaseModel, dataset: BaseDataset, learning_metho
                 loss_metrics.record_total_batch_loss(loss.detach(), batch)
 
                 if batch.is_labeled():
-                    loss_metrics.record_losses_by_type_and_count(separate_losses, batch)
+                    loss_metrics.record_losses_by_type_and_count(separate_losses.detach(), batch)
 
                     classification_logits = classifier_on_top.forward(representations.detach()).reshape(batch.size())
                     separate_classification_losses = classifier_bce(classification_logits, batch.labels)
                     classification_loss = torch.sum(separate_classification_losses)
                     classifier_metrics.record_total_batch_loss(classification_loss.detach(), batch)
-                    classifier_metrics.record_losses_by_type_and_count(separate_classification_losses, batch)
+                    classifier_metrics.record_losses_by_type_and_count(separate_classification_losses.detach(), batch)
 
                     if epoch_type == utils.Epoch.TRAIN:
                         utils.backpropagate(classifier_optimizer, classification_loss)

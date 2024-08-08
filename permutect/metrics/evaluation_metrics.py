@@ -97,7 +97,7 @@ class LossMetrics:
     def record_losses_by_type_and_count(self, losses: torch.Tensor, batch):
         if batch.is_labeled():
             # by type
-            types_one_hot = batch.variant_type_one_hot()
+            types_one_hot = batch.variant_type_one_hot().detach()
             losses_masked_by_type = losses.reshape(batch.size(), 1) * types_one_hot
             counts_by_type = torch.sum(types_one_hot, dim=0)
             total_loss_by_type = torch.sum(losses_masked_by_type, dim=0)
