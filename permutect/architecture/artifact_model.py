@@ -193,7 +193,7 @@ class ArtifactModel(nn.Module):
                         loss = torch.sum(separate_losses)
 
                         loss_metrics.record_total_batch_loss(loss.detach(), batch)
-                        loss_metrics.record_losses_by_type_and_count(separate_losses, batch)
+                        loss_metrics.record_losses_by_type_and_count(separate_losses.detach(), batch)
                     else:
                         # unlabeled loss: entropy regularization
                         posterior_probabilities = torch.sigmoid(posterior_logits)
@@ -233,10 +233,10 @@ class ArtifactModel(nn.Module):
             for n, batch in pbar:
                 # In training we minimize the cross entropy loss wrt the posterior probability, accounting for priors;
                 # Here we are considering artifacts and non-artifacts separately and use the uncorrected likelihood logits
-                pred = self.forward(batch)
+                pred = self.forward(batch).detach()
                 correct = ((pred > 0) == (batch.labels > 0.5)).tolist()
 
-                for variant_type, predicted_logit, label, correct_call, alt_count in zip(batch.variant_types(), pred.tolist(), batch.labels.tolist(), correct, batch.alt_counts):
+                for variant_type, predicted_logit, label, correct_call, alt_count in zip(batch.variant_types().detach(), pred.tolist(), batch.labels.tolist(), correct, batch.alt_counts):
                     evaluation_metrics.record_call(epoch_type, variant_type, predicted_logit, label, correct_call, alt_count)
             # done with this epoch type
         # done collecting data
@@ -249,10 +249,10 @@ class ArtifactModel(nn.Module):
         pbar = tqdm(enumerate(filter(lambda bat: bat.is_labeled(), valid_loader)), mininterval=60)
 
         for n, batch in pbar:
-            types_one_hot = batch.variant_type_one_hot()
+            types_one_hot = batch.variant_type_one_hot().detach()
             log_prior_odds = torch.sum(log_artifact_to_non_artifact_ratios * types_one_hot, dim=1)
 
-            pred = self.forward(batch)
+            pred = self.forward(batch).detach()
             posterior_pred = pred + log_prior_odds
             correct = ((posterior_pred > 0) == (batch.labels > 0.5)).tolist()
 
@@ -260,7 +260,7 @@ class ArtifactModel(nn.Module):
             embedding_metrics.correct_metadata.extend([str(val) for val in correct])
             embedding_metrics.type_metadata.extend([Variation(idx).name for idx in batch.variant_types()])
             embedding_metrics.truncated_count_metadata.extend([str(round_up_to_nearest_three(min(MAX_COUNT, alt_count))) for alt_count in batch.alt_counts])
-            embedding_metrics.representations.append(batch.get_representations_2d())
+            embedding_metrics.representations.append(batch.get_representations_2d().detach())
         embedding_metrics.output_to_summary_writer(summary_writer)
 
         # done collecting data
