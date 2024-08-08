@@ -475,6 +475,7 @@ def learn_base_model(base_model: BaseModel, dataset: BaseDataset, learning_metho
 
     train_optimizer = torch.optim.AdamW(chain(base_model.parameters(), learning_strategy.parameters()),
                                         lr=training_params.learning_rate, weight_decay=training_params.weight_decay)
+    train_scheduler = torch.optim.lr_scheduler.CyclicLR(train_optimizer, base_lr=training_params.learning_rate/10, max_lr=training_params.learning_rate)
 
     classifier_on_top = MLP([base_model.output_dimension()] + [base_model.output_dimension(), base_model.output_dimension()] + [1])\
         .to(device=base_model._device, dtype=base_model._dtype)
@@ -519,6 +520,7 @@ def learn_base_model(base_model: BaseModel, dataset: BaseDataset, learning_metho
 
                 if epoch_type == utils.Epoch.TRAIN:
                     utils.backpropagate(train_optimizer, loss)
+                    train_scheduler.step()
 
             # done with one epoch type -- training or validation -- for this epoch
             loss_metrics.write_to_summary_writer(epoch_type, epoch, summary_writer)
