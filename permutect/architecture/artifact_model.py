@@ -236,7 +236,7 @@ class ArtifactModel(nn.Module):
                 pred = self.forward(batch).detach()
                 correct = ((pred > 0) == (batch.labels > 0.5)).tolist()
 
-                for variant_type, predicted_logit, label, correct_call, alt_count in zip(batch.variant_types().detach(), pred.tolist(), batch.labels.tolist(), correct, batch.alt_counts):
+                for variant_type, predicted_logit, label, correct_call, alt_count in zip(batch.variant_types(), pred.tolist(), batch.labels.tolist(), correct, batch.alt_counts):
                     evaluation_metrics.record_call(epoch_type, variant_type, predicted_logit, label, correct_call, alt_count)
             # done with this epoch type
         # done collecting data
