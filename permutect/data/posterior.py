@@ -144,5 +144,6 @@ class PosteriorDataset(Dataset):
         else:
             idx = [n for n, datum in enumerate(self.data) if abs(datum.get_artifact_logit()) >= artifact_logit_threshold]
             subset = torch.utils.data.Subset(self, idx)
+            print("making posterior data loader using " + str(len(subset)) + " out of " + str(len(self)) + " data.")
 
             return DataLoader(subset, batch_size=batch_size, shuffle=True, collate_fn=PosteriorBatch)
