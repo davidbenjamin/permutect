@@ -243,7 +243,7 @@ def make_posterior_data_loader(dataset_file, input_vcf, contig_index_to_name_map
     print("Size of filtering dataset: " + str(len(posterior_data)))
     posterior_dataset = PosteriorDataset(posterior_data)
     print("memory usage percent after creating PosteriorDataset: " + str(psutil.virtual_memory().percent))
-    return posterior_dataset.make_data_loader(batch_size)
+    return posterior_dataset.make_data_loader(batch_size, artifact_logit_threshold=3.0)
 
 
 # error probability thresholds is a dict from Variant type to error probability threshold (float)

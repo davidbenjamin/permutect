@@ -65,6 +65,9 @@ class PosteriorDatum:
         alt = bases5_as_base_string(self.int_array[this_class.ALT].item())
         return Variant(contig, position, ref, alt)
 
+    def get_artifact_logit(self) -> float:
+        return self.float_array[self.__class__.ARTIFACT_LOGIT]
+
 
 class PosteriorBatch:
 
@@ -135,5 +138,11 @@ class PosteriorDataset(Dataset):
     def __getitem__(self, index) -> PosteriorDatum:
         return self.data[index]
 
-    def make_data_loader(self, batch_size: int):
-        return DataLoader(dataset=self, batch_size=batch_size, collate_fn=PosteriorBatch)
+    def make_data_loader(self, batch_size: int, artifact_logit_threshold: float = 0.0):
+        if artifact_logit_threshold == 0.0:
+            return DataLoader(dataset=self, batch_size=batch_size, collate_fn=PosteriorBatch)
+        else:
+            idx = [n for n, datum in enumerate(self.data) if abs(datum.get_artifact_logit()) >= artifact_logit_threshold]
+            subset = torch.utils.data.Subset(self, idx)
+
+            return DataLoader(subset, batch_size=batch_size, shuffle=True, collate_fn=PosteriorBatch)
