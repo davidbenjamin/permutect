@@ -1,6 +1,7 @@
 import argparse
 
 import numpy as np
+import psutil
 import torch
 from torch.utils.tensorboard import SummaryWriter
 
@@ -29,19 +30,19 @@ def train_artifact_model(hyperparams: ArtifactModelParameters, training_params: 
 
 def learn_artifact_priors_and_spectra(artifact_dataset: ArtifactDataset, genomic_span_of_data: int):
     artifact_counts = torch.zeros(len(utils.Variation))
-    types_list, depths_list, alt_counts_list = [], [], []
+    types_one_hot_list, depths_list, alt_counts_list = [], [], []
 
     for artifact_datum in artifact_dataset:
-        if artifact_datum.label != Label.ARTIFACT:
+        if artifact_datum.get_label() != Label.ARTIFACT:
             continue
-        variant_type = artifact_datum.get_variant_type()
-        artifact_counts[variant_type] += 1
-        types_list.append(variant_type)
-        depths_list.append(artifact_datum.counts_and_seq_lks.depth)
-        alt_counts_list.append(artifact_datum.counts_and_seq_lks.alt_count)
+        variant_type_one_hot = artifact_datum.variant_type_one_hot()
+        artifact_counts += variant_type_one_hot
+        types_one_hot_list.append(variant_type_one_hot)
+        depths_list.append(artifact_datum.other_stuff.get_counts_and_seq_lks().depth)
+        alt_counts_list.append(artifact_datum.other_stuff.get_counts_and_seq_lks().alt_count)
 
     # turn the lists into tensors
-    types_one_hot_tensor = torch.from_numpy(np.vstack([var_type.one_hot_tensor() for var_type in types_list])).float()
+    types_one_hot_tensor = torch.from_numpy(np.vstack(types_one_hot_list)).float()
     depths_tensor = torch.Tensor(depths_list).float()
     alt_counts_tensor = torch.Tensor(alt_counts_list).float()
 
@@ -91,10 +92,14 @@ def main_without_parsing(args):
     summary_writer = SummaryWriter(tensorboard_dir)
 
     base_model = load_base_model(getattr(args, constants.BASE_MODEL_NAME))
+    print("memory usage percent before creating BaseDataset: " + str(psutil.virtual_memory().percent))
     base_dataset = BaseDataset(data_tarfile=getattr(args, constants.TRAIN_TAR_NAME), num_folds=10)
+    print("memory usage percent before creating ArtifactDataset: " + str(psutil.virtual_memory().percent))
     artifact_dataset = ArtifactDataset(base_dataset, base_model)
+    print("memory usage percent after creating ArtifactDataset: " + str(psutil.virtual_memory().percent))
 
     model = train_artifact_model(hyperparams=params, training_params=training_params, summary_writer=summary_writer, dataset=artifact_dataset)
+    print("memory usage percent after training artifact model: " + str(psutil.virtual_memory().percent))
 
     artifact_log_priors, artifact_spectra = learn_artifact_priors_and_spectra(artifact_dataset, genomic_span) if learn_artifact_spectra else (None, None)
     if artifact_spectra is not None:

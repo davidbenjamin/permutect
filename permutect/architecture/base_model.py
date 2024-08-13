@@ -3,6 +3,7 @@ from enum import Enum
 from itertools import chain
 from typing import List
 
+import psutil
 import torch
 from torch.utils.tensorboard import SummaryWriter
 from torch.nn.parameter import Parameter
@@ -441,6 +442,8 @@ def learn_base_model(base_model: BaseModel, dataset: BaseDataset, learning_metho
 
     print("Training data contains {} labeled examples and {} unlabeled examples".format(total_labeled,
                                                                                             total_unlabeled))
+    print("memory usage percent: " + str(psutil.virtual_memory().percent))
+
     for variation_type in utils.Variation:
         idx = variation_type.value
         print("For variation type {}, there are {} labeled artifact examples and {} labeled non-artifact examples"
@@ -468,11 +471,14 @@ def learn_base_model(base_model: BaseModel, dataset: BaseDataset, learning_metho
         learning_strategy = BaseModelMARSLoss(embedding_dim=base_model.output_dimension())
     else:
         raise Exception("not implemented yet")
+    learning_strategy.to(device=base_model._device, dtype=base_model._dtype)
 
     train_optimizer = torch.optim.AdamW(chain(base_model.parameters(), learning_strategy.parameters()),
                                         lr=training_params.learning_rate, weight_decay=training_params.weight_decay)
+    train_scheduler = torch.optim.lr_scheduler.CyclicLR(train_optimizer, base_lr=training_params.learning_rate/10, max_lr=training_params.learning_rate)
 
-    classifier_on_top = MLP([base_model.output_dimension()] + [base_model.output_dimension(), base_model.output_dimension()] + [1])
+    classifier_on_top = MLP([base_model.output_dimension()] + [base_model.output_dimension(), base_model.output_dimension()] + [1])\
+        .to(device=base_model._device, dtype=base_model._dtype)
     classifier_bce = torch.nn.BCEWithLogitsLoss(reduction='none')
     classifier_optimizer = torch.optim.AdamW(classifier_on_top.parameters(), lr=training_params.learning_rate, weight_decay=training_params.weight_decay)
     classifier_metrics = LossMetrics(base_model._device)
@@ -482,6 +488,7 @@ def learn_base_model(base_model: BaseModel, dataset: BaseDataset, learning_metho
     valid_loader = dataset.make_data_loader([validation_fold_to_use], training_params.batch_size, base_model._device.type == 'cuda', training_params.num_workers)
 
     for epoch in trange(1, training_params.num_epochs + 1, desc="Epoch"):
+        print("start of epoch " + str(epoch) + ", memory usage percent: " + str(psutil.virtual_memory().percent))
         for epoch_type in (utils.Epoch.TRAIN, utils.Epoch.VALID):
             base_model.set_epoch_type(epoch_type)
 
@@ -500,19 +507,20 @@ def learn_base_model(base_model: BaseModel, dataset: BaseDataset, learning_metho
                 loss_metrics.record_total_batch_loss(loss.detach(), batch)
 
                 if batch.is_labeled():
-                    loss_metrics.record_losses_by_type_and_count(separate_losses, batch)
+                    loss_metrics.record_losses_by_type_and_count(separate_losses.detach(), batch)
 
                     classification_logits = classifier_on_top.forward(representations.detach()).reshape(batch.size())
                     separate_classification_losses = classifier_bce(classification_logits, batch.labels)
                     classification_loss = torch.sum(separate_classification_losses)
                     classifier_metrics.record_total_batch_loss(classification_loss.detach(), batch)
-                    classifier_metrics.record_losses_by_type_and_count(separate_classification_losses, batch)
+                    classifier_metrics.record_losses_by_type_and_count(separate_classification_losses.detach(), batch)
 
                     if epoch_type == utils.Epoch.TRAIN:
                         utils.backpropagate(classifier_optimizer, classification_loss)
 
                 if epoch_type == utils.Epoch.TRAIN:
                     utils.backpropagate(train_optimizer, loss)
+                    train_scheduler.step()
 
             # done with one epoch type -- training or validation -- for this epoch
             loss_metrics.write_to_summary_writer(epoch_type, epoch, summary_writer)
@@ -521,6 +529,7 @@ def learn_base_model(base_model: BaseModel, dataset: BaseDataset, learning_metho
             print("Labeled base model loss for epoch " + str(epoch) + " of " + epoch_type.name + ": " + str(loss_metrics.get_labeled_loss()))
             print("Labeled auxiliary classifier loss for epoch " + str(epoch) + " of " + epoch_type.name + ": " + str(
                 classifier_metrics.get_labeled_loss()))
+        print("end of epoch " + str(epoch) + ", memory usage percent: " + str(psutil.virtual_memory().percent))
         # done with training and validation for this epoch
         # note that we have not learned the AF spectrum yet
     # done with training

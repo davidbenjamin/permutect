@@ -97,7 +97,7 @@ class LossMetrics:
     def record_losses_by_type_and_count(self, losses: torch.Tensor, batch):
         if batch.is_labeled():
             # by type
-            types_one_hot = batch.variant_type_one_hot()
+            types_one_hot = batch.variant_type_one_hot().detach()
             losses_masked_by_type = losses.reshape(batch.size(), 1) * types_one_hot
             counts_by_type = torch.sum(types_one_hot, dim=0)
             total_loss_by_type = torch.sum(losses_masked_by_type, dim=0)
@@ -296,6 +296,14 @@ def sample_indices_for_tensorboard(indices: List[int]):
 
 
 class EmbeddingMetrics:
+    TRUE_POSITIVE = "true-positive"
+    FALSE_POSITIVE = "false-positive"
+    TRUE_NEGATIVE_ARTIFACT = "true-negative-artifact"   # distinguish these because artifact and eg germline should embed differently
+    TRUE_NEGATIVE_NONARTIFACT = "true-negative-nonartifact"
+    TRUE_NEGATIVE = "true-negative"
+    FALSE_NEGATIVE_ARTIFACT = "false-negative-artifact"
+    TRUE_NEGATIVE_SEQ_ERROR = "true-negative-seq-error"
+
     def __init__(self):
         # things we will collect for the projections
         self.label_metadata = []  # list (extended by each batch) 1 if artifact, 0 if not
@@ -304,10 +312,38 @@ class EmbeddingMetrics:
         self.truncated_count_metadata = []  # list of lists
         self.representations = []  # list of 2D tensors (to be stacked into a single 2D tensor), representations over batches
 
-    def output_to_summary_writer(self, summary_writer: SummaryWriter, prefix: str = ""):
+    def output_to_summary_writer(self, summary_writer: SummaryWriter, prefix: str = "", is_filter_variants: bool = False):
         # downsample to a reasonable amount of UMAP data
         all_metadata = list(zip(self.label_metadata, self.correct_metadata, self.type_metadata, self.truncated_count_metadata))
-        idx = np.random.choice(len(all_metadata), size=min(NUM_DATA_FOR_TENSORBOARD_PROJECTION, len(all_metadata)), replace=False)
+        if is_filter_variants:
+            indices_of_bad_calls = []
+            indices_of_unknown_calls = []
+            indices_of_good_calls = []
+            for n, correct_status in enumerate(self.correct_metadata):
+                if correct_status == "unknown":
+                    indices_of_unknown_calls.append(n)
+                elif correct_status == EmbeddingMetrics.FALSE_POSITIVE or correct_status == EmbeddingMetrics.FALSE_NEGATIVE_ARTIFACT:
+                    indices_of_bad_calls.append(n)
+                elif correct_status == EmbeddingMetrics.TRUE_POSITIVE or correct_status == EmbeddingMetrics.TRUE_NEGATIVE_ARTIFACT:
+                    indices_of_good_calls.append(n)
+
+            # heuristic: at most 5000 bad calls, then fill out with good or unknown calls until we have at least 1000 good points total or
+            # twice the number of bad calls, whichever is greater
+
+            indices_of_bad_calls = np.array(indices_of_bad_calls)
+            indices_of_good_calls = np.array(indices_of_good_calls)
+            indices_of_unknown_calls = np.array(indices_of_unknown_calls)
+
+            num_bad_calls_to_keep = min(len(indices_of_bad_calls), NUM_DATA_FOR_TENSORBOARD_PROJECTION // 2)
+            num_good_calls_to_keep = min(max(num_bad_calls_to_keep, 1000), len(indices_of_good_calls))
+            num_unknown_calls_to_keep = max(1000 - num_bad_calls_to_keep - num_good_calls_to_keep, 0)
+
+            bad_indices = indices_of_bad_calls[np.random.choice(len(indices_of_bad_calls), size=num_bad_calls_to_keep, replace=False)]
+            good_indices = indices_of_good_calls[np.random.choice(len(indices_of_good_calls), size=num_good_calls_to_keep, replace=False)]
+            unknown_indices = indices_of_unknown_calls[np.random.choice(len(indices_of_unknown_calls), size=num_unknown_calls_to_keep, replace=False)]
+            idx = np.hstack((bad_indices, good_indices, unknown_indices))
+        else:
+            idx = np.random.choice(len(all_metadata), size=min(NUM_DATA_FOR_TENSORBOARD_PROJECTION, len(all_metadata)), replace=False)
 
         summary_writer.add_embedding(torch.vstack(self.representations)[idx],
                                      metadata=[all_metadata[n] for n in idx],

@@ -31,9 +31,9 @@ def do_work(training_datasets, training_output_file, chunk_size):
 
     # save all the lists of read sets to tempfiles. . .
     for base_data_list in generate_normalized_data(training_datasets, max_bytes_per_chunk=chunk_size):
-        num_read_features.check(base_data_list[0].alt_reads_2d.shape[1])
-        num_info_features.check(base_data_list[0].info_array_1d.shape[0])
-        ref_sequence_length.check(base_data_list[0].ref_sequence_1d.shape[0])
+        num_read_features.check(base_data_list[0].get_reads_2d().shape[1])
+        num_info_features.check(base_data_list[0].get_info_tensor_1d().shape[0])
+        ref_sequence_length.check(base_data_list[0].get_ref_sequence_1d().shape[0])
 
         with tempfile.NamedTemporaryFile(delete=False) as train_data_file:
             base_datum.save_list_base_data(base_data_list, train_data_file)

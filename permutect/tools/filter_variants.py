@@ -4,6 +4,7 @@ from collections import defaultdict
 from typing import Set
 
 import cyvcf2
+import psutil
 import torch
 from intervaltree import IntervalTree
 from torch.utils.tensorboard import SummaryWriter
@@ -44,7 +45,7 @@ def get_first_numeric_element(variant, key):
 # if alt and ref alleles are not in minimal representation ie have redundant matching bases at the end, trim them
 def trim_alleles_on_right(ref: str, alt: str):
     trimmed_ref, trimmed_alt = ref, alt
-    while len(ref) > 1 and len(alt) > 1 and trimmed_alt[-1] == trimmed_ref[-1]:
+    while len(trimmed_ref) > 1 and len(trimmed_alt) > 1 and trimmed_alt[-1] == trimmed_ref[-1]:
         trimmed_ref, trimmed_alt = trimmed_ref[:-1], trimmed_alt[:-1]
     return trimmed_ref, trimmed_alt
 
@@ -56,8 +57,9 @@ def encode(contig: str, position: int, ref: str, alt: str):
 
 
 def encode_datum(datum: PosteriorDatum, contig_index_to_name_map):
-    contig_name = contig_index_to_name_map[datum.contig]
-    return encode(contig_name, datum.position, datum.ref, datum.alt)
+    variant = datum.get_variant()
+    contig_name = contig_index_to_name_map[variant.contig]
+    return encode(contig_name, variant.position, variant.ref, variant.alt)
 
 
 def encode_variant(v: cyvcf2.Variant, zero_based=False):
@@ -192,26 +194,37 @@ def make_posterior_data_loader(dataset_file, input_vcf, contig_index_to_name_map
     allele_frequencies = {}
 
     print("recording M2 filters and allele frequencies from input VCF")
+    n = 0
     for v in cyvcf2.VCF(input_vcf):
         encoding = encode_variant(v, zero_based=True)
         if filters_to_keep_from_m2(v):
             m2_filtering_to_keep.add(encoding)
         allele_frequencies[encoding] = 10 ** (-get_first_numeric_element(v, "POPAF"))
+        n += 1  # DEBUG
 
     # pass through the plain text dataset, normalizing and creating ReadSetDatasets as we go, running the artifact model
     # to get artifact logits, which we record in a dict keyed by variant strings.  These will later be added to PosteriorDatum objects.
     print("reading dataset and calculating artifact logits")
+    print("memory usage percent before loading data: " + str(psutil.virtual_memory().percent))
     posterior_data = []
+    m = 0
     for list_of_base_data in plain_text_data.generate_normalized_data([dataset_file], chunk_size):
+        print("memory usage percent before creating BaseDataset: " + str(psutil.virtual_memory().percent))
         raw_dataset = base_dataset.BaseDataset(data_in_ram=list_of_base_data)
+        print("memory usage percent before creating ArtifactDataset: " + str(psutil.virtual_memory().percent))
         artifact_dataset = ArtifactDataset(raw_dataset, base_model)
+        print("memory usage percent after creating ArtifactDataset: " + str(psutil.virtual_memory().percent))
         artifact_loader = artifact_dataset.make_data_loader(artifact_dataset.all_folds(), batch_size, pin_memory=False, num_workers=0)
 
         for artifact_batch in artifact_loader:
             artifact_logits = artifact_model.forward(batch=artifact_batch).detach().tolist()
 
             labels = ([Label.ARTIFACT if x > 0.5 else Label.VARIANT for x in artifact_batch.labels]) if artifact_batch.is_labeled() else (artifact_batch.size()*[Label.UNLABELED])
-            for variant, counts_and_seq_lks, logit, label, embedding in zip(artifact_batch.variants, artifact_batch.counts_and_likelihoods, artifact_logits, labels, artifact_batch.get_representations_2d()):
+
+            for artifact_datum, logit, label, embedding in zip(artifact_batch.original_data, artifact_logits, labels, artifact_batch.get_representations_2d()):
+                m += 1  # DEBUG
+                variant = artifact_datum.get_other_stuff_1d().get_variant()
+                counts_and_seq_lks = artifact_datum.get_other_stuff_1d().get_counts_and_seq_lks()
                 contig_name = contig_index_to_name_map[variant.contig]
                 encoding = encode(contig_name, variant.position, variant.ref, variant.alt)
                 if encoding in allele_frequencies and encoding not in m2_filtering_to_keep:
@@ -229,6 +242,7 @@ def make_posterior_data_loader(dataset_file, input_vcf, contig_index_to_name_map
 
     print("Size of filtering dataset: " + str(len(posterior_data)))
     posterior_dataset = PosteriorDataset(posterior_data)
+    print("memory usage percent after creating PosteriorDataset: " + str(psutil.virtual_memory().percent))
     return posterior_dataset.make_data_loader(batch_size)
 
 
@@ -247,11 +261,11 @@ def apply_filtering_to_vcf(input_vcf, output_vcf, contig_index_to_name_map, erro
         posterior_probs = torch.nn.functional.softmax(log_posteriors, dim=1)
 
         encodings = [encode_datum(datum, contig_index_to_name_map) for datum in batch.original_list()]
-        artifact_logits = [datum.artifact_logit for datum in batch.original_list()]
-        var_types = [datum.variant_type for datum in batch.original_list()]
-        labels = [datum.label for datum in batch.original_list()]
-        alt_counts = batch.alt_counts.tolist()
-        depths = batch.depths.tolist()
+        artifact_logits = batch.get_artifact_logits().tolist()
+        var_types = batch.get_variant_types().tolist()
+        labels = batch.get_labels().tolist()
+        alt_counts = batch.get_alt_counts().tolist()
+        depths = batch.get_depths().tolist()
 
         for encoding, post_probs, logit, log_prior, log_spec, log_normal, label, alt_count, depth, var_type, embedding in zip(encodings, posterior_probs, artifact_logits, log_priors, spectra_lls, normal_lls, labels, alt_counts, depths, var_types, batch.embeddings):
             encoding_to_posterior_results[encoding] = PosteriorResult(logit, post_probs.tolist(), log_prior, log_spec, log_normal, label, alt_count, depth, var_type, embedding)
@@ -282,6 +296,7 @@ def apply_filtering_to_vcf(input_vcf, output_vcf, contig_index_to_name_map, erro
     labeled_truth = False
     embedding_metrics = EmbeddingMetrics() # only if there is labeled truth for evaluation
 
+    missing_encodings = []
     for n, v in pbar:
         filters = filters_to_keep_from_m2(v)
 
@@ -296,7 +311,7 @@ def apply_filtering_to_vcf(input_vcf, output_vcf, contig_index_to_name_map, erro
             v.INFO[ARTIFACT_LOD_INFO_KEY] = "{:.3f}".format(posterior_result.artifact_logit)
             v.INFO[NORMAL_LOG_LIKELIHOOD_INFO_KEY] = ','.join(map(lambda ll: "{:.3f}".format(ll), posterior_result.normal_lls))
 
-            label = posterior_result.label    # this is the Label enum, might be UNLABELED
+            label = Label(posterior_result.label)    # this is the Label enum, might be UNLABELED
             error_prob = 1 - post_probs[passing_call_type]
             variant_type = find_variant_type(v)
             called_as_error = error_prob > error_probability_thresholds[variant_type]
@@ -317,34 +332,52 @@ def apply_filtering_to_vcf(input_vcf, output_vcf, contig_index_to_name_map, erro
                 str(round_up_to_nearest_three(min(MAX_COUNT, posterior_result.alt_count))))
             embedding_metrics.representations.append(posterior_result.embedding)
 
+            correctness_label = "unknown"
             if label != Label.UNLABELED:
                 labeled_truth = True
                 clipped_error_prob = 0.5 + 0.9999999 * (error_prob - 0.5)
                 error_logit = prob_to_logit(clipped_error_prob)
                 float_label = 1.0 if label == Label.ARTIFACT else 0.0
+
+                # TODO: this is sloppy -- it only works because when we label the posterior dataset (if truth is available)
+                # TODO: we stretch the definitions so that "Label.ARTIFACT" simply means "something we shouldn't call", including
+                # TODO: artifact or germline (in the somatic calling case), and "Label.VARIANT" means "something we should call"
                 is_correct = (called_as_error and label == Label.ARTIFACT) or (not called_as_error and label == Label.VARIANT)
                 evaluation_metrics.record_call(Epoch.TEST, variant_type, error_logit, float_label, is_correct, posterior_result.alt_count)
 
-                if not is_correct:
+                # TODO: double-check the logic here
+                if is_correct:
+                    if label == Label.VARIANT:
+                        correctness_label = EmbeddingMetrics.TRUE_POSITIVE
+                    elif error_call == Call.ARTIFACT or error_call == Call.NORMAL_ARTIFACT:
+                        correctness_label = EmbeddingMetrics.TRUE_NEGATIVE_ARTIFACT
+                    #elif error_call == Call.SEQ_ERROR:
+                    #    correctness_label = EmbeddingMetrics.TRUE_NEGATIVE_SEQ_ERROR
+                    # we don't do anything for germline (in somatic mode) or seq error --
+                else:
+                    if called_as_error:
+                        if error_call == Call.ARTIFACT or error_call == Call.NORMAL_ARTIFACT:
+                            correctness_label = EmbeddingMetrics.FALSE_NEGATIVE_ARTIFACT
+                    else:
+                        correctness_label = EmbeddingMetrics.FALSE_POSITIVE
+                    # TODO: this is only right for somatic calling
                     bad_call = error_call if called_as_error else Call.SOMATIC
                     evaluation_metrics.record_mistake(posterior_result, bad_call)
-                embedding_metrics.correct_metadata.append("correct" if is_correct else "incorrect")
-            else:
-                embedding_metrics.correct_metadata.append("unknown")
-
+            embedding_metrics.correct_metadata.append(correctness_label)
+        else:
+            missing_encodings.append(encoding)
         v.FILTER = ';'.join(filters) if filters else 'PASS'
         writer.write_record(v)
     print("closing resources")
     writer.close()
     unfiltered_vcf.close()
 
-    embedding_metrics.output_to_summary_writer(summary_writer)
+    embedding_metrics.output_to_summary_writer(summary_writer, is_filter_variants=True)
 
     if labeled_truth:
         given_thresholds = {var_type: prob_to_logit(error_probability_thresholds[var_type]) for var_type in Variation}
         evaluation_metrics.make_plots(summary_writer, given_thresholds, sens_prec=True)
         evaluation_metrics.make_mistake_histograms(summary_writer)
-
 
 
 def main():

@@ -160,19 +160,18 @@ def normalize_buffer(buffer, read_quantile_transform, info_quantile_transform, r
     EPSILON = 0.00001   # tiny quantity for jitter
 
     # 2D array.  Rows are ref/alt reads, columns are read features
-    all_ref = np.vstack([datum.ref_reads_2d for datum in buffer if datum.ref_reads_2d is not None])
-    all_alt = np.vstack([datum.alt_reads_2d for datum in buffer])
+    all_ref = np.vstack([datum.get_ref_reads_2d() for datum in buffer])
+    all_reads = np.vstack([datum.reads_2d for datum in buffer])
 
     # 2D array.  Rows are read sets, columns are info features
-    all_info = np.vstack([datum.info_array_1d for datum in buffer])
+    all_info = np.vstack([datum.get_info_tensor_1d() for datum in buffer])
 
     all_ref_jittered = all_ref + EPSILON * np.random.randn(*all_ref.shape)
-    all_alt_jittered = all_alt + EPSILON * np.random.randn(*all_alt.shape)
+    all_reads_jittered = all_reads + EPSILON * np.random.randn(*all_reads.shape)
     all_info_jittered = all_info + EPSILON * np.random.randn(*all_info.shape)
 
     num_read_features = all_ref.shape[1]
     binary_read_columns = binary_column_indices(all_ref)    # make sure not to use jittered arrays here!
-    non_binary_read_columns = binary_column_indices(all_ref)
 
     # 1 if is binary, 0 if not binary
     binary_read_column_mask = np.zeros(num_read_features)
@@ -185,26 +184,21 @@ def normalize_buffer(buffer, read_quantile_transform, info_quantile_transform, r
         info_quantile_transform.fit(all_info_jittered)
 
     # it's more efficient to apply the quantile transform to all reads at once, then split it back into read sets
-    all_ref_transformed = transform_except_for_binary_columns(all_ref_jittered, read_quantile_transform, binary_read_columns)
-    all_alt_transformed = transform_except_for_binary_columns(all_alt_jittered, read_quantile_transform, binary_read_columns)
+    all_reads_transformed = transform_except_for_binary_columns(all_reads_jittered, read_quantile_transform, binary_read_columns)
     all_info_transformed = transform_except_for_binary_columns(all_info_jittered, info_quantile_transform, binary_info_columns)
 
-    ref_counts = np.array([0 if datum.ref_reads_2d is None else len(datum.ref_reads_2d) for datum in buffer])
-    alt_counts = np.array([len(datum.alt_reads_2d) for datum in buffer])
-
-    ref_index_ranges = np.cumsum(ref_counts)
-    alt_index_ranges = np.cumsum(alt_counts)
+    read_counts = np.array([len(datum.reads_2d) for datum in buffer])
+    read_index_ranges = np.cumsum(read_counts)
 
     for n, datum in enumerate(buffer):
-        datum.ref_reads_2d = None if datum.ref_reads_2d is None else all_ref_transformed[0 if n == 0 else ref_index_ranges[n-1]:ref_index_ranges[n]]
-        datum.alt_reads_2d = all_alt_transformed[0 if n == 0 else alt_index_ranges[n-1]:alt_index_ranges[n]]
+        datum.reads_2d = all_reads_transformed[0 if n == 0 else read_index_ranges[n-1]:read_index_ranges[n]]
 
         # medians are an appropriate outlier-tolerant summary, except for binary columns where the mean makes more sense
-        alt_medians = np.median(datum.alt_reads_2d, axis=0)
-        alt_means = np.mean(datum.alt_reads_2d, axis=0)
+        alt_medians = np.median(datum.get_alt_reads_2d(), axis=0)
+        alt_means = np.mean(datum.get_alt_reads_2d(), axis=0)
 
         extra_info = binary_read_column_mask * alt_means + (1 - binary_read_column_mask) * alt_medians
-        datum.info_array_1d = np.hstack([extra_info, all_info_transformed[n]])
+        datum.set_info_tensor_1d(np.hstack([extra_info, all_info_transformed[n]]))
 
 
 def line_to_tensor(line: str) -> np.ndarray:

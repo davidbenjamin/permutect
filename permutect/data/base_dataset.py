@@ -13,10 +13,11 @@ from torch.utils.data.sampler import Sampler
 
 from mmap_ninja.ragged import RaggedMmap
 from permutect import utils
-from permutect.data.base_datum import BaseDatum, BaseBatch, load_list_of_base_data, CountsAndSeqLks, Variant
+from permutect.data.base_datum import BaseDatum, BaseBatch, load_list_of_base_data, CountsAndSeqLks, Variant, \
+    BaseDatum1DStuff
 from permutect.utils import Label
 
-TENSORS_PER_BASE_DATUM = 4
+TENSORS_PER_BASE_DATUM = 2  # 1) 2D reads (ref and alt), 1) 1D concatenated stuff
 
 
 class BaseDataset(Dataset):
@@ -46,7 +47,7 @@ class BaseDataset(Dataset):
 
         for n, datum in enumerate(self):
             fold = n % num_folds
-            counts = (len(datum.ref_reads_2d) if datum.ref_reads_2d is not None else 0, len(datum.alt_reads_2d))
+            counts = (len(datum.reads_2d) - datum.alt_count, datum.alt_count)
             (self.unlabeled_indices_by_count if datum.label == Label.UNLABELED else self.labeled_indices_by_count)[fold][counts].append(n)
 
             if datum.label == Label.ARTIFACT:
@@ -54,9 +55,9 @@ class BaseDataset(Dataset):
             elif datum.label != Label.UNLABELED:
                 self.non_artifact_totals += datum.variant_type_one_hot()
 
-        self.num_read_features = self[0].alt_reads_2d.shape[1]
-        self.num_info_features = len(self[0].info_array_1d)
-        self.ref_sequence_length = len(self[0].ref_sequence_1d)
+        self.num_read_features = self[0].get_reads_2d().shape[1]
+        self.num_info_features = len(self[0].get_info_tensor_1d())
+        self.ref_sequence_length = len(self[0].get_ref_sequence_1d())
 
     def __len__(self):
         return len(self._data) // TENSORS_PER_BASE_DATUM if self._memory_map_mode else len(self.data)
@@ -64,23 +65,10 @@ class BaseDataset(Dataset):
     def __getitem__(self, index):
         if self._memory_map_mode:
             bottom_index = index * TENSORS_PER_BASE_DATUM
+            other_stuff = BaseDatum1DStuff.from_np_array(self._data[bottom_index+1])
 
-            possible_ref = self._data[bottom_index]
-
-            # The order here corresponds to the order of yield statements within make_flattened_tensor_generator()
-            # concatenated_1d's elements are: 1) info array 2) counts and likelihoods (length = 6), 3) variant (length = 4), 4) the label (one element)
-            concatenated_1d = self._data[bottom_index + 3]
-            counts_and_seq = CountsAndSeqLks.from_np_array(concatenated_1d[-11:-5])
-            variant = Variant.from_np_array(concatenated_1d[-5:-1])
-            label = utils.Label(concatenated_1d[-1])
-
-            return BaseDatum(ref_sequence_1d=self._data[bottom_index + 2],
-                             ref_reads_2d=possible_ref if len(possible_ref) > 0 else None,
-                             alt_reads_2d=self._data[bottom_index + 1],
-                             info_array_1d=concatenated_1d[:-11],  # skip the six elements of counts and seq likelihoods, the 4 of variant, and the label (6 + 4 + 1 = 11)
-                             label=label,
-                             variant=variant,
-                             counts_and_seq_lks=counts_and_seq)
+            return BaseDatum(reads_2d=self._data[bottom_index], ref_sequence_1d=None, alt_count=None, info_array_1d=None, label=None,
+                              variant=None, counts_and_seq_lks=None, other_stuff_override=other_stuff)
         else:
             return self._data[index]
 
@@ -109,21 +97,11 @@ class BaseDataset(Dataset):
         return DataLoader(dataset=self, batch_sampler=sampler, collate_fn=BaseBatch, pin_memory=pin_memory, num_workers=num_workers)
 
 
-# from a generator that yields BaseDatum(s), create a generator that yields
-# ref tensor, alt tensor, ref sequence tensor, info tensor, label tensor, ref tensor alt tensor. . .
+# from a generator that yields BaseDatum(s), create a generator that yields the two numpy arrays needed to reconstruct the datum
 def make_flattened_tensor_generator(base_data_generator):
     for base_datum in base_data_generator:
-        yield base_datum.ref_reads_2d if base_datum.ref_reads_2d is not None else np.empty((0, 0))
-        yield base_datum.alt_reads_2d
-        yield base_datum.ref_sequence_1d
-
-        # for efficiency, concatenate (hstack) several 1D arrays and scalars:
-        # 1) the read set info array
-        # 2) the read set counts and likelihoods as a 1D array (length = 6)
-        # 3) the read set variant as a 1D array (length = 4)
-        # 4) the label (one element)
-        yield np.hstack((base_datum.info_array_1d, base_datum.counts_and_seq_lks.to_np_array(),
-                         base_datum.variant.to_np_array(), np.array([base_datum.label.value])))
+        yield base_datum.get_reads_2d()
+        yield base_datum.get_other_stuff_1d().to_np_array()
 
 
 def make_base_data_generator_from_tarfile(data_tarfile):
