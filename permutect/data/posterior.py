@@ -138,12 +138,5 @@ class PosteriorDataset(Dataset):
     def __getitem__(self, index) -> PosteriorDatum:
         return self.data[index]
 
-    def make_data_loader(self, batch_size: int, artifact_logit_threshold: float = 0.0):
-        if artifact_logit_threshold == 0.0:
-            return DataLoader(dataset=self, batch_size=batch_size, collate_fn=PosteriorBatch)
-        else:
-            idx = [n for n, datum in enumerate(self.data) if abs(datum.get_artifact_logit()) >= artifact_logit_threshold]
-            subset = torch.utils.data.Subset(self, idx)
-            print("making posterior data loader using " + str(len(subset)) + " out of " + str(len(self)) + " data.")
-
-            return DataLoader(subset, batch_size=batch_size, shuffle=True, collate_fn=PosteriorBatch)
+    def make_data_loader(self, batch_size: int):
+        return DataLoader(dataset=self, batch_size=batch_size, collate_fn=PosteriorBatch)

@@ -241,7 +241,10 @@ class PosteriorModel(torch.nn.Module):
             for n, batch in pbar:
                 relative_posteriors = self.log_relative_posteriors(batch)
                 log_evidence = torch.logsumexp(relative_posteriors, dim=1)
-                loss = -torch.mean(log_evidence)
+
+                confidence_mask = torch.abs(batch.get_artifact_logits()) > 3.0
+                #loss = -torch.mean(confidence_mask * log_evidence)
+                loss = - torch.sum(confidence_mask * log_evidence) / (torch.sum(confidence_mask) + 0.000001)
 
                 # note that we don't multiply by batch size because we take the mean of log evidence above
                 # however, we must sum over variant types since each ignored site is simultaneously a missing non-SNV,
