@@ -144,5 +144,5 @@ class PosteriorDataset(Dataset):
     def __getitem__(self, index) -> PosteriorDatum:
         return self.data[index]
 
-    def make_data_loader(self, batch_size: int, pin_memory: bool = False):
-        return DataLoader(dataset=self, batch_size=batch_size, pin_memory=pin_memory, collate_fn=PosteriorBatch)
+    def make_data_loader(self, batch_size: int, pin_memory: bool = False, num_workers: int = 0):
+        return DataLoader(dataset=self, batch_size=batch_size, pin_memory=pin_memory, num_workers=num_workers, collate_fn=PosteriorBatch)

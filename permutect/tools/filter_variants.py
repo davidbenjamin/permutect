@@ -84,6 +84,9 @@ def parse_arguments():
     parser.add_argument('--' + constants.OUTPUT_NAME, required=True, help='path to output filtered VCF')
     parser.add_argument('--' + constants.TENSORBOARD_DIR_NAME, type=str, default='tensorboard', required=False, help='path to output tensorboard')
     parser.add_argument('--' + constants.BATCH_SIZE_NAME, type=int, default=64, required=False, help='batch size')
+    parser.add_argument('--' + constants.NUM_WORKERS_NAME, type=int, default=0, required=False,
+                        help='number of subprocesses devoted to data loading, which includes reading from memory map, '
+                             'collating batches, and transferring to GPU.')
     parser.add_argument('--' + constants.CHUNK_SIZE_NAME, type=int, default=100000, required=False, help='size in bytes of intermediate binary datasets')
     parser.add_argument('--' + constants.NUM_SPECTRUM_ITERATIONS_NAME, type=int, default=10, required=False,
                         help='number of epochs for fitting allele fraction spectra')
@@ -142,6 +145,7 @@ def main_without_parsing(args):
                       input_vcf=getattr(args, constants.INPUT_NAME),
                       output_vcf=getattr(args, constants.OUTPUT_NAME),
                       batch_size=getattr(args, constants.BATCH_SIZE_NAME),
+                      num_workers=getattr(args, constants.NUM_WORKERS_NAME),
                       chunk_size=getattr(args, constants.CHUNK_SIZE_NAME),
                       num_spectrum_iterations=getattr(args, constants.NUM_SPECTRUM_ITERATIONS_NAME),
                       spectrum_learning_rate=getattr(args, constants.SPECTRUM_LEARNING_RATE_NAME),
@@ -154,7 +158,7 @@ def main_without_parsing(args):
 
 
 def make_filtered_vcf(saved_artifact_model_path, base_model_path, initial_log_variant_prior: float, initial_log_artifact_prior: float,
-                      test_dataset_file, contigs_table, input_vcf, output_vcf, batch_size: int, chunk_size: int, num_spectrum_iterations: int,
+                      test_dataset_file, contigs_table, input_vcf, output_vcf, batch_size: int, num_workers: int, chunk_size: int, num_spectrum_iterations: int,
                       spectrum_learning_rate: float, tensorboard_dir, genomic_span: int, germline_mode: bool = False, no_germline_mode: bool = False,
                       segmentation=defaultdict(IntervalTree), normal_segmentation=defaultdict(IntervalTree)):
     print("Loading artifact model and test dataset")
@@ -168,7 +172,7 @@ def make_filtered_vcf(saved_artifact_model_path, base_model_path, initial_log_va
     artifact_model, artifact_log_priors, artifact_spectra_state_dict = load_artifact_model(saved_artifact_model_path)
     posterior_model = PosteriorModel(initial_log_variant_prior, initial_log_artifact_prior, no_germline_mode=no_germline_mode, num_base_features=artifact_model.num_base_features)
     posterior_data_loader = make_posterior_data_loader(test_dataset_file, input_vcf, contig_index_to_name_map,
-        base_model, artifact_model, batch_size, chunk_size=chunk_size, segmentation=segmentation, normal_segmentation=normal_segmentation)
+        base_model, artifact_model, batch_size, num_workers=num_workers, chunk_size=chunk_size, segmentation=segmentation, normal_segmentation=normal_segmentation)
 
     print("Learning AF spectra")
     summary_writer = SummaryWriter(tensorboard_dir)
@@ -187,7 +191,7 @@ def make_filtered_vcf(saved_artifact_model_path, base_model_path, initial_log_va
 
 
 def make_posterior_data_loader(dataset_file, input_vcf, contig_index_to_name_map, base_model: BaseModel, artifact_model: ArtifactModel,
-                               batch_size: int, chunk_size: int, segmentation=defaultdict(IntervalTree), normal_segmentation=defaultdict(IntervalTree)):
+                               batch_size: int, num_workers: int, chunk_size: int, segmentation=defaultdict(IntervalTree), normal_segmentation=defaultdict(IntervalTree)):
     print("Reading test dataset")
 
     m2_filtering_to_keep = set()
@@ -214,7 +218,7 @@ def make_posterior_data_loader(dataset_file, input_vcf, contig_index_to_name_map
         print("memory usage percent before creating ArtifactDataset: " + str(psutil.virtual_memory().percent))
         artifact_dataset = ArtifactDataset(raw_dataset, base_model)
         print("memory usage percent after creating ArtifactDataset: " + str(psutil.virtual_memory().percent))
-        artifact_loader = artifact_dataset.make_data_loader(artifact_dataset.all_folds(), batch_size, pin_memory=False, num_workers=0)
+        artifact_loader = artifact_dataset.make_data_loader(artifact_dataset.all_folds(), batch_size, pin_memory=torch.cuda.is_available(), num_workers=num_workers)
 
         for artifact_batch in artifact_loader:
             artifact_logits = artifact_model.forward(batch=artifact_batch).detach().tolist()
@@ -243,7 +247,7 @@ def make_posterior_data_loader(dataset_file, input_vcf, contig_index_to_name_map
     print("Size of filtering dataset: " + str(len(posterior_data)))
     posterior_dataset = PosteriorDataset(posterior_data)
     print("memory usage percent after creating PosteriorDataset: " + str(psutil.virtual_memory().percent))
-    return posterior_dataset.make_data_loader(batch_size, pin_memory=torch.cuda.is_available())
+    return posterior_dataset.make_data_loader(batch_size, pin_memory=torch.cuda.is_available(), num_workers=num_workers)
 
 
 # error probability thresholds is a dict from Variant type to error probability threshold (float)

@@ -27,6 +27,7 @@ def test_filtering_on_dream1_chr20():
     setattr(filtering_args, constants.OUTPUT_NAME, permutect_vcf.name)
     setattr(filtering_args, constants.TENSORBOARD_DIR_NAME, tensorboard_dir.name)
     setattr(filtering_args, constants.BATCH_SIZE_NAME, 64)
+    setattr(filtering_args, constants.NUM_WORKERS_NAME, 2)
     setattr(filtering_args, constants.CHUNK_SIZE_NAME, 100000)
     setattr(filtering_args, constants.NUM_SPECTRUM_ITERATIONS_NAME, 2)
     setattr(filtering_args, constants.SPECTRUM_LEARNING_RATE_NAME, 0.001)
