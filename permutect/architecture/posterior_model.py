@@ -279,7 +279,7 @@ class PosteriorModel(torch.nn.Module):
 
                 var_spectra_fig, var_spectra_axs = plt.subplots()
                 frac, dens = self.somatic_spectrum.spectrum_density_vs_fraction()
-                var_spectra_axs.plot(frac.numpy(), dens.numpy())
+                var_spectra_axs.plot(frac.detach().numpy(), dens.detach().numpy())
                 var_spectra_axs.set_title("Variant AF Spectrum")
                 summary_writer.add_figure("Variant AF Spectra", var_spectra_fig, epoch)
 
