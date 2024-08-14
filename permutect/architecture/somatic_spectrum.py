@@ -97,7 +97,7 @@ class SomaticSpectrum(nn.Module):
         beta = torch.exp(self.beta_pre_exp)
 
         beta = torch.distributions.beta.Beta(alpha, beta)
-        log_beta_fk = beta.log_prob(fractions_f.unsqueeze(dim=1)).size()
+        log_beta_fk = beta.log_prob(fractions_f.unsqueeze(dim=1))
 
         log_densities_fk = torch.hstack((log_gauss_fk, log_beta_fk))
 
