@@ -3,7 +3,7 @@ import math
 from typing import List, Iterable
 
 import torch
-from torch import IntTensor, vstack, from_numpy
+from torch import IntTensor
 from torch.utils.data import Dataset, DataLoader
 from permutect.data.base_datum import Variant, CountsAndSeqLks, bases5_as_base_string
 
@@ -79,6 +79,12 @@ class PosteriorBatch:
 
         self._size = len(data)
 
+    def pin_memory(self):
+        self.embeddings = self.embeddings.pin_memory()
+        self.int_tensor = self.int_tensor.pin_memory()
+        self.float_tensor = self.float_tensor.pin_memory()
+        return self
+
     def get_variant_types(self) -> torch.Tensor:
         return self.int_tensor[:, PosteriorDatum.VAR_TYPE]
 
@@ -138,5 +144,5 @@ class PosteriorDataset(Dataset):
     def __getitem__(self, index) -> PosteriorDatum:
         return self.data[index]
 
-    def make_data_loader(self, batch_size: int):
-        return DataLoader(dataset=self, batch_size=batch_size, collate_fn=PosteriorBatch)
+    def make_data_loader(self, batch_size: int, pin_memory: bool = False):
+        return DataLoader(dataset=self, batch_size=batch_size, pin_memory=pin_memory, collate_fn=PosteriorBatch)
