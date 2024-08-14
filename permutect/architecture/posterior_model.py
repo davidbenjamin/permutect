@@ -11,6 +11,7 @@ from tqdm.autonotebook import trange, tqdm
 from permutect import utils
 from permutect.architecture.overdispersed_binomial_mixture import OverdispersedBinomialMixture, FeaturelessBetaBinomialMixture
 from permutect.architecture.normal_seq_error_spectrum import NormalSeqErrorSpectrum
+from permutect.architecture.somatic_spectrum import SomaticSpectrum
 from permutect.data.base_datum import DEFAULT_GPU_FLOAT, DEFAULT_CPU_FLOAT
 from permutect.data.posterior import PosteriorBatch
 from permutect.metrics import plotting
@@ -80,8 +81,7 @@ class PosteriorModel(torch.nn.Module):
         self.num_base_features = num_base_features
 
         # TODO introduce parameters class so that num_components is not hard-coded
-        # featureless because true variant types share a common AF spectrum
-        self.somatic_spectrum = FeaturelessBetaBinomialMixture(num_components=5)
+        self.somatic_spectrum = SomaticSpectrum(num_components=5)
 
         # It's very important to understand the subtleties here.  Basing the prediction of artifact/non-artifact on the
         # allele fraction is antithetical to Permutect.  However, it is perfectly legitimate to try to predict the
