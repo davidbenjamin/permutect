@@ -1,14 +1,12 @@
 import math
-from typing import List
 
 import torch
 from permutect import utils
-from torch import nn, exp, unsqueeze, logsumexp
-from torch.nn.functional import softmax, log_softmax
+from torch import nn
+from torch.nn.functional import log_softmax
 
-from permutect.architecture.mlp import MLP
 from permutect.metrics.plotting import simple_plot
-from permutect.utils import beta_binomial, gamma_binomial, binomial
+from permutect.utils import beta_binomial, binomial
 
 
 class SomaticSpectrum(nn.Module):
@@ -66,7 +64,7 @@ class SomaticSpectrum(nn.Module):
         log_weights_bk = log_weights_k.expand(batch_size, -1)
         weighted_likelihoods_bk = log_weights_bk + likelihoods_bk
 
-        result_b = logsumexp(weighted_likelihoods_bk, dim=1, keepdim=False)
+        result_b = torch.logsumexp(weighted_likelihoods_bk, dim=1, keepdim=False)
         return result_b
 
     def fit(self, num_epochs, depths_1d_tensor, alt_counts_1d_tensor, batch_size=64):
@@ -105,7 +103,7 @@ class SomaticSpectrum(nn.Module):
         log_weights_fk = log_weights_k.expand(len(fractions_f), -1)
 
         log_weighted_densities_fk = log_weights_fk + log_densities_fk
-        densities_f = exp(torch.logsumexp(log_weighted_densities_fk, dim=1, keepdim=False))
+        densities_f = torch.exp(torch.logsumexp(log_weighted_densities_fk, dim=1, keepdim=False))
 
         return fractions_f, densities_f
 
