@@ -61,7 +61,7 @@ def plot_artifact_spectra(artifact_spectra):
         n = variant_type
         row, col = int(n / 2), n % 2
         frac, dens = artifact_spectra.spectrum_density_vs_fraction(variant_type)
-        art_spectra_axs[row, col].plot(frac.numpy(), dens.numpy())
+        art_spectra_axs[row, col].plot(frac.detach().numpy(), dens.detach().numpy())
         art_spectra_axs[row, col].set_title(variant_type.name + " artifact AF spectrum")
     for ax in art_spectra_fig.get_axes():
         ax.label_outer()
