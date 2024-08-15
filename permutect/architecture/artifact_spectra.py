@@ -1,14 +1,11 @@
 import math
-from typing import List
 
 import torch
 from permutect import utils
-from torch import nn, exp, unsqueeze, logsumexp
-from torch.nn.functional import softmax, log_softmax
+from torch import nn
 
-from permutect.architecture.mlp import MLP
 from permutect.metrics.plotting import simple_plot
-from permutect.utils import beta_binomial, gamma_binomial, binomial, Variation
+from permutect.utils import beta_binomial, Variation
 
 
 class ArtifactSpectra(nn.Module):

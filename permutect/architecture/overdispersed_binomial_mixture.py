@@ -8,7 +8,7 @@ from torch.nn.functional import softmax, log_softmax
 
 from permutect.architecture.mlp import MLP
 from permutect.metrics.plotting import simple_plot
-from permutect.utils import beta_binomial, gamma_binomial, binomial
+from permutect.utils import beta_binomial, gamma_binomial, binomial, Variation
 
 
 class OverdispersedBinomialMixture(nn.Module):
@@ -221,8 +221,9 @@ class OverdispersedBinomialMixture(nn.Module):
     get raw data for a spectrum plot of probability density vs allele fraction.  
     here x is a 1D tensor, a single datum/row of the 2D tensors as above
     '''
-    def spectrum_density_vs_fraction(self, x):
+    def spectrum_density_vs_fraction(self, variant_type: Variation):
         fractions = torch.arange(0.01, 0.99, 0.001)  # 1D tensor
+        x = torch.from_numpy(variant_type.one_hot_tensor()).float()
 
         unsqueezed = x.unsqueeze(dim=0)  # this and the three following tensors are 2D tensors with one row
         log_weights = log_softmax(self.weights_pre_softmax(unsqueezed).detach(), dim=1)
@@ -256,44 +257,3 @@ class OverdispersedBinomialMixture(nn.Module):
         return simple_plot([(fractions.numpy(), densities.numpy(), " ")], "AF", "density", title)
 
 
-class FeaturelessBetaBinomialMixture(nn.Module):
-    """
-    Same as above, but no feature input -- there's only one spectrum as opposed to feature-dependent spectra
-    """
-
-    def __init__(self, num_components):
-        super(FeaturelessBetaBinomialMixture, self).__init__()
-        self.beta_binomial_mixture = OverdispersedBinomialMixture(1, num_components)
-
-    '''
-    n and k are 1D tensors, the only dimension being batch.
-    '''
-    def forward(self, n, k):
-        assert len(n) == len(k)
-        assert n.dim() == 1
-        assert k.dim() == 1
-        dummy_features = torch.ones(len(n), 1)
-        return self.beta_binomial_mixture.forward(dummy_features, n, k)
-
-    '''
-    n is a 1D tensor, the only dimension being batch, and we sample a 1D tensor of k's
-    '''
-    def sample(self, n):
-        assert n.dim() == 1
-        dummy_features = torch.ones(len(n), 1)
-        return self.beta_binomial_mixture.sample(dummy_features, n)
-
-    def fit(self, num_epochs, depths_1d_tensor, alt_counts_1d_tensor, batch_size=64):
-        dummy_inputs = torch.ones(len(depths_1d_tensor), 1)
-        self.beta_binomial_mixture.fit(num_epochs, dummy_inputs, depths_1d_tensor, alt_counts_1d_tensor, batch_size)
-
-    def spectrum_density_vs_fraction(self):
-        dummy_feature_vector = torch.Tensor([1])
-        return self.beta_binomial_mixture.spectrum_density_vs_fraction(dummy_feature_vector)
-
-    '''
-    here x is a 1D tensor, a single datum/row of the 2D tensors as above
-    '''
-    def plot_spectrum(self, title):
-        dummy_feature_vector = torch.Tensor([1])
-        return self.beta_binomial_mixture.plot_spectrum(dummy_feature_vector, title)
