@@ -198,13 +198,12 @@ def make_posterior_data_loader(dataset_file, input_vcf, contig_index_to_name_map
     allele_frequencies = {}
 
     print("recording M2 filters and allele frequencies from input VCF")
-    n = 0
-    for v in cyvcf2.VCF(input_vcf):
+    pbar = tqdm(enumerate(cyvcf2.VCF(input_vcf)), mininterval=60)
+    for n, v in pbar:
         encoding = encode_variant(v, zero_based=True)
         if filters_to_keep_from_m2(v):
             m2_filtering_to_keep.add(encoding)
         allele_frequencies[encoding] = 10 ** (-get_first_numeric_element(v, "POPAF"))
-        n += 1  # DEBUG
 
     # pass through the plain text dataset, normalizing and creating ReadSetDatasets as we go, running the artifact model
     # to get artifact logits, which we record in a dict keyed by variant strings.  These will later be added to PosteriorDatum objects.
@@ -220,7 +219,9 @@ def make_posterior_data_loader(dataset_file, input_vcf, contig_index_to_name_map
         print("memory usage percent after creating ArtifactDataset: " + str(psutil.virtual_memory().percent))
         artifact_loader = artifact_dataset.make_data_loader(artifact_dataset.all_folds(), batch_size, pin_memory=torch.cuda.is_available(), num_workers=num_workers)
 
-        for artifact_batch in artifact_loader:
+        print("creating posterior data for this chunk...")
+        pbar = tqdm(enumerate(artifact_loader), mininterval=60)
+        for n, artifact_batch in pbar:
             artifact_logits = artifact_model.forward(batch=artifact_batch).detach().tolist()
 
             labels = ([Label.ARTIFACT if x > 0.5 else Label.VARIANT for x in artifact_batch.labels]) if artifact_batch.is_labeled() else (artifact_batch.size()*[Label.UNLABELED])
