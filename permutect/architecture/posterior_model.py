@@ -189,7 +189,7 @@ class PosteriorModel(torch.nn.Module):
         log_posteriors = log_priors + spectra_log_likelihoods + normal_log_likelihoods
         log_posteriors[:, Call.ARTIFACT] += batch.get_artifact_logits()
 
-        log_posteriors[:, Call.NORMAL_ARTIFACT] = batch.get_artifact_logits()
+        log_posteriors[:, Call.NORMAL_ARTIFACT] += batch.get_artifact_logits()
 
         return log_priors, spectra_log_likelihoods, normal_log_likelihoods, log_posteriors
 
