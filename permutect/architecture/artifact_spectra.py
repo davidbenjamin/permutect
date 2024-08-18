@@ -30,7 +30,12 @@ class ArtifactSpectra(nn.Module):
         self.K = num_components
         self.V = len(Variation)
 
-        self.weights_pre_softmax_vk = torch.nn.Parameter(torch.ones(self.V, self.K))
+        self.weights0_pre_softmax_vk = torch.nn.Parameter(torch.ones(self.V, self.K))
+
+        # for each component and variant type:
+        # weight_pre_softmax = weight0_pre_softmax + gamma * sigmoid(depth * kappa)
+        self.gamma_vk = torch.nn.Parameter(0.1 * torch.rand(self.V, self.K))
+        self.kappa_vk = torch.nn.Parameter(0.02 * torch.ones(self.V, self.K))
 
         # initialize evenly spaced alphas from 1 to 7 for each variant type
         self.alpha0_pre_exp_vk = torch.nn.Parameter(torch.log(1 + 7 * (torch.arange(self.K) / self.K)).repeat(self.V, 1))
@@ -38,6 +43,9 @@ class ArtifactSpectra(nn.Module):
         self.eta_pre_exp_vk = torch.nn.Parameter(torch.ones(self.V, self.K))
 
         self.delta_pre_exp_vk = torch.nn.Parameter(torch.log(torch.ones(self.V, self.K)/50))
+
+        # for each component and variant type:
+        # alpha = exp(alpha0_pre_exp - exp(eta_pre_exp)*sigmoid(depth * exp(delta_pre_exp)))
 
 
 
@@ -54,6 +62,7 @@ class ArtifactSpectra(nn.Module):
         eta_vk = torch.exp(self.eta_pre_exp_vk)
         delta_vk = torch.exp(self.delta_pre_exp_vk)
         alpha0_pre_exp_bvk, eta_bvk, delta_bvk = self.alpha0_pre_exp_vk[None, :, :], eta_vk[None, :, :], delta_vk[None, :, :]
+        weights0_pre_softmax_bvk, gamma_bvk, kappa_bvk = self.weights0_pre_softmax_vk[None, :, :], self.gamma_vk[None, :, :], self.kappa_vk[None, :, :]
 
         alpha_bvk = torch.exp(alpha0_pre_exp_bvk - eta_bvk * torch.sigmoid(depths_bvk * delta_bvk))
 
@@ -63,8 +72,9 @@ class ArtifactSpectra(nn.Module):
 
         beta_binomial_likelihoods_bk = beta_binomial(depths_bk, alt_counts_bk, alpha_bk, beta_bk)
 
-        log_weights_vk = torch.log_softmax(self.weights_pre_softmax_vk, dim=-1) # softmax over component dimension
-        log_weights_bvk = torch.unsqueeze(log_weights_vk, dim=0)
+        weights_pre_softmax_bvk = weights0_pre_softmax_bvk + gamma_bvk * torch.sigmoid(depths_bvk * kappa_bvk)
+
+        log_weights_bvk = torch.log_softmax(weights_pre_softmax_bvk, dim=-1)    # softmax over component dimension
         log_weights_bk = torch.sum(types_one_hot_bvk * log_weights_bvk, dim=1)  # same idea as above
 
         weighted_likelihoods_bk = log_weights_bk + beta_binomial_likelihoods_bk
@@ -91,12 +101,15 @@ class ArtifactSpectra(nn.Module):
     def spectrum_density_vs_fraction(self, variant_type: Variation, depth: int):
         fractions_f = torch.arange(0.01, 0.99, 0.001)  # 1D tensor
 
-        weights_pre_softmax_k = self.weights_pre_softmax_vk[variant_type]
+        weights0_pre_softmax_k = self.weights0_pre_softmax_vk[variant_type]
+        gamma_k = self.gamma_vk[variant_type]
+        kappa_k = self.kappa_vk[variant_type]
         alpha0_pre_exp_k = self.alpha0_pre_exp_vk[variant_type]
         eta_k = torch.exp(self.eta_pre_exp_vk[variant_type])
         delta_k = torch.exp(self.delta_pre_exp_vk[variant_type])
 
         alpha_k = torch.exp(alpha0_pre_exp_k - eta_k * torch.sigmoid(depth * delta_k))
+        weights_pre_softmax_k = weights0_pre_softmax_k + gamma_k * torch.sigmoid(depth * kappa_k)
 
         log_weights_k = torch.log_softmax(weights_pre_softmax_k, dim=0)
         beta_k = self.beta * torch.ones_like(alpha_k)
