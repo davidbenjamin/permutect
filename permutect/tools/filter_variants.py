@@ -14,7 +14,7 @@ from permutect import constants
 from permutect.architecture.artifact_model import ArtifactModel, load_artifact_model
 from permutect.architecture.posterior_model import PosteriorModel
 from permutect.architecture.base_model import BaseModel, load_base_model
-from permutect.data import base_dataset, plain_text_data
+from permutect.data import base_dataset, plain_text_data, base_datum
 from permutect.data.posterior import PosteriorDataset, PosteriorDatum
 from permutect.data.artifact_dataset import ArtifactDataset
 from permutect.metrics.evaluation_metrics import EvaluationMetrics, PosteriorResult, EmbeddingMetrics, \
@@ -53,7 +53,7 @@ def trim_alleles_on_right(ref: str, alt: str):
 # TODO: contigs stored as integer index must be converted back to string to compare VCF variants with dataset variants!!!
 def encode(contig: str, position: int, ref: str, alt: str):
     trimmed_ref, trimmed_alt = trim_alleles_on_right(ref, alt)
-    return contig + ':' + str(position) + ':' + trimmed_alt
+    return contig + ':' + str(position) + ':' + base_datum.truncate_bases_if_necessary(trimmed_alt)
 
 
 def encode_datum(datum: PosteriorDatum, contig_index_to_name_map):
