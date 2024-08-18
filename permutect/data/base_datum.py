@@ -4,7 +4,7 @@ from torch import Tensor, IntTensor, FloatTensor
 
 from typing import List
 
-from permutect.utils import Variation, Label
+from permutect.utils import Variation, Label, trim_alleles_on_right
 
 DEFAULT_NUMPY_FLOAT = np.float16
 DEFAULT_GPU_FLOAT = torch.float16
@@ -89,8 +89,10 @@ class Variant:
     def __init__(self, contig: int, position: int, ref: str, alt: str):
         self.contig = contig
         self.position = position
-        self.ref = ref
-        self.alt = alt
+        # note: it is very important to trim here, as early as possible, because truncating to 13 or fewer bases
+        # does not commute with trimming!!!  If we are not consistent about trimming first, dataset variants and
+        # VCF variants might get inconsistent encodings!!!
+        self.ref, self.alt = trim_alleles_on_right(ref, alt)
 
     # note: if base strings are treated as numbers in base 5, uint32 (equivalent to two uint16's) can hold up to 13 bases
     def to_np_array(self):

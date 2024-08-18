@@ -19,7 +19,7 @@ from permutect.data.posterior import PosteriorDataset, PosteriorDatum
 from permutect.data.artifact_dataset import ArtifactDataset
 from permutect.metrics.evaluation_metrics import EvaluationMetrics, PosteriorResult, EmbeddingMetrics, \
     round_up_to_nearest_three, MAX_COUNT
-from permutect.utils import Call, find_variant_type, Label, Variation, Epoch
+from permutect.utils import Call, find_variant_type, Label, Variation, Epoch, trim_alleles_on_right
 
 TRUSTED_M2_FILTERS = {'contamination'}
 
@@ -43,11 +43,6 @@ def get_first_numeric_element(variant, key):
 
 
 # if alt and ref alleles are not in minimal representation ie have redundant matching bases at the end, trim them
-def trim_alleles_on_right(ref: str, alt: str):
-    trimmed_ref, trimmed_alt = ref, alt
-    while len(trimmed_ref) > 1 and len(trimmed_alt) > 1 and trimmed_alt[-1] == trimmed_ref[-1]:
-        trimmed_ref, trimmed_alt = trimmed_ref[:-1], trimmed_alt[:-1]
-    return trimmed_ref, trimmed_alt
 
 
 # TODO: contigs stored as integer index must be converted back to string to compare VCF variants with dataset variants!!!
