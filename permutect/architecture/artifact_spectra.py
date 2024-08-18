@@ -50,12 +50,12 @@ class ArtifactSpectra(nn.Module):
         depths_bk = torch.unsqueeze(depths_b, dim=1).expand(-1, self.K - 1)
         depths_bvk = depths_bk[:, None, :]
 
-        alpha0_vk = torch.exp(self.alpha0_pre_exp_vk)
+        self.alpha0_pre_exp_vk
         eta_vk = torch.exp(self.eta_pre_exp_vk)
         delta_vk = torch.exp(self.delta_pre_exp_vk)
-        alpha0_bvk, eta_bvk, delta_bvk = alpha0_vk[None, :, :], eta_vk[None, :, :], delta_vk[None, :, :]
+        alpha0_pre_exp_bvk, eta_bvk, delta_bvk = self.alpha0_pre_exp_vk[None, :, :], eta_vk[None, :, :], delta_vk[None, :, :]
 
-        alpha_bvk = alpha0_bvk - eta_bvk * torch.sigmoid(depths_bvk * delta_bvk)
+        alpha_bvk = torch.exp(alpha0_pre_exp_bvk - eta_bvk * torch.sigmoid(depths_bvk * delta_bvk))
 
         types_one_hot_bvk = torch.unsqueeze(types_one_hot_bv, dim=-1)   # gives it broadcastable length-1 component dimension
         alpha_bk = torch.sum(types_one_hot_bvk * alpha_bvk, dim=1)  # due to one-hotness only one v contributes to the sum
@@ -92,11 +92,11 @@ class ArtifactSpectra(nn.Module):
         fractions_f = torch.arange(0.01, 0.99, 0.001)  # 1D tensor
 
         weights_pre_softmax_k = self.weights_pre_softmax_vk[variant_type]
-        alpha0_k = torch.exp(self.alpha0_pre_exp_vk[variant_type])
+        alpha0_pre_exp_k = self.alpha0_pre_exp_vk[variant_type]
         eta_k = torch.exp(self.eta_pre_exp_vk[variant_type])
         delta_k = torch.exp(self.delta_pre_exp_vk[variant_type])
 
-        alpha_k = alpha0_k - eta_k * torch.sigmoid(depth * delta_k)
+        alpha_k = torch.exp(alpha0_pre_exp_k - eta_k * torch.sigmoid(depth * delta_k))
 
         log_weights_k = torch.log_softmax(weights_pre_softmax_k, dim=0)
         beta_k = self.beta * torch.ones_like(alpha_k)
