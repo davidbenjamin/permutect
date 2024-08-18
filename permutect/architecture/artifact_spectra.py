@@ -33,7 +33,13 @@ class ArtifactSpectra(nn.Module):
         self.weights_pre_softmax_vk = torch.nn.Parameter(torch.ones(self.V, self.K))
 
         # initialize evenly spaced alphas from 1 to 7 for each variant type
-        self.alpha_pre_exp_vk = torch.nn.Parameter(torch.log(1 + 7*(torch.arange(self.K) / self.K)).repeat(self.V, 1))
+        self.alpha0_pre_exp_vk = torch.nn.Parameter(torch.log(1 + 7 * (torch.arange(self.K) / self.K)).repeat(self.V, 1))
+
+        self.eta_pre_exp_vk = torch.nn.Parameter(torch.ones(self.V, self.K))
+
+        self.delta_pre_exp_vk = torch.nn.Parameter(torch.log(torch.ones(self.V, self.K)/50))
+
+
 
     '''
     here x is a 2D tensor, 1st dimension batch, 2nd dimension being features that determine which Beta mixture to use
@@ -42,9 +48,14 @@ class ArtifactSpectra(nn.Module):
     def forward(self, types_one_hot_bv, depths_b, alt_counts_b):
         alt_counts_bk = torch.unsqueeze(alt_counts_b, dim=1).expand(-1, self.K - 1)
         depths_bk = torch.unsqueeze(depths_b, dim=1).expand(-1, self.K - 1)
+        depths_bvk = depths_bk[:, None, :]
 
-        alpha_vk = torch.exp(self.alpha_pre_exp_vk)
-        alpha_bvk = torch.unsqueeze(alpha_vk, dim=0)    # gives it a broadcastable length-1 batch dimension
+        alpha0_vk = torch.exp(self.alpha0_pre_exp_vk)
+        eta_vk = torch.exp(self.eta_pre_exp_vk)
+        delta_vk = torch.exp(self.delta_pre_exp_vk)
+        alpha0_bvk, eta_bvk, delta_bvk = alpha0_vk[None, :, :], eta_vk[None, :, :], delta_vk[None, :, :]
+
+        alpha_bvk = alpha0_bvk - eta_bvk * torch.sigmoid(depths_bvk * delta_bvk)
 
         types_one_hot_bvk = torch.unsqueeze(types_one_hot_bv, dim=-1)   # gives it broadcastable length-1 component dimension
         alpha_bk = torch.sum(types_one_hot_bvk * alpha_bvk, dim=1)  # due to one-hotness only one v contributes to the sum
@@ -77,13 +88,17 @@ class ArtifactSpectra(nn.Module):
     '''
     get raw data for a spectrum plot of probability density vs allele fraction for a particular variant type
     '''
-    def spectrum_density_vs_fraction(self, variant_type: Variation):
+    def spectrum_density_vs_fraction(self, variant_type: Variation, depth: int):
         fractions_f = torch.arange(0.01, 0.99, 0.001)  # 1D tensor
 
         weights_pre_softmax_k = self.weights_pre_softmax_vk[variant_type]
-        alpha_pre_exp_k = self.alpha_pre_exp_vk[variant_type]
+        alpha0_k = torch.exp(self.alpha0_pre_exp_vk[variant_type])
+        eta_k = torch.exp(self.eta_pre_exp_vk[variant_type])
+        delta_k = torch.exp(self.delta_pre_exp_vk[variant_type])
+
+        alpha_k = alpha0_k - eta_k * torch.sigmoid(depth * delta_k)
+
         log_weights_k = torch.log_softmax(weights_pre_softmax_k, dim=0)
-        alpha_k = torch.exp(alpha_pre_exp_k)
         beta_k = self.beta * torch.ones_like(alpha_k)
 
         dist = torch.distributions.beta.Beta(alpha_k, beta_k)
@@ -99,6 +114,6 @@ class ArtifactSpectra(nn.Module):
     '''
     here x is a 1D tensor, a single datum/row of the 2D tensors as above
     '''
-    def plot_spectrum(self, variant_type: Variation, title):
-        fractions, densities = self.spectrum_density_vs_fraction(variant_type)
+    def plot_spectrum(self, variant_type: Variation, title, depth: int):
+        fractions, densities = self.spectrum_density_vs_fraction(variant_type, depth)
         return simple_plot([(fractions.numpy(), densities.numpy(), " ")], "AF", "density", title)

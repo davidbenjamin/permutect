@@ -54,13 +54,13 @@ def initialize_normal_artifact_spectra():
 
 
 # this work for ArtifactSpectra and OverdispersedBinomialMixture
-def plot_artifact_spectra(artifact_spectra):
+def plot_artifact_spectra(artifact_spectra, depth: int = None):
     # plot AF spectra in two-column grid with as many rows as needed
     art_spectra_fig, art_spectra_axs = plt.subplots(ceil(len(Variation) / 2), 2, sharex='all', sharey='all')
     for variant_type in Variation:
         n = variant_type
         row, col = int(n / 2), n % 2
-        frac, dens = artifact_spectra.spectrum_density_vs_fraction(variant_type)
+        frac, dens = artifact_spectra.spectrum_density_vs_fraction(variant_type, depth)
         art_spectra_axs[row, col].plot(frac.detach().numpy(), dens.detach().numpy())
         art_spectra_axs[row, col].set_title(variant_type.name + " artifact AF spectrum")
     for ax in art_spectra_fig.get_axes():
@@ -250,8 +250,9 @@ class PosteriorModel(torch.nn.Module):
                     mean = self.normal_seq_error_spectra[variant_index].get_mean()
                     summary_writer.add_scalar("normal seq error mean fraction for " + variant_type.name, mean, epoch)
 
-                art_spectra_fig, art_spectra_axs = plot_artifact_spectra(self.artifact_spectra)
-                summary_writer.add_figure("Artifact AF Spectra", art_spectra_fig, epoch)
+                for depth in [10, 20, 30, 50, 100]:
+                    art_spectra_fig, art_spectra_axs = plot_artifact_spectra(self.artifact_spectra, depth)
+                    summary_writer.add_figure("Artifact AF Spectra at depth = " + str(depth), art_spectra_fig, epoch)
 
                 #normal_seq_error_spectra_fig, normal_seq_error_spectra_axs = plot_artifact_spectra(self.normal_seq_error_spectra)
                 #summary_writer.add_figure("Normal Seq Error AF Spectra", normal_seq_error_spectra_fig, epoch)

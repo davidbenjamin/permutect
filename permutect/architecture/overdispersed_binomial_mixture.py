@@ -221,7 +221,7 @@ class OverdispersedBinomialMixture(nn.Module):
     get raw data for a spectrum plot of probability density vs allele fraction.  
     here x is a 1D tensor, a single datum/row of the 2D tensors as above
     '''
-    def spectrum_density_vs_fraction(self, variant_type: Variation):
+    def spectrum_density_vs_fraction(self, variant_type: Variation, depth: int):
         fractions = torch.arange(0.01, 0.99, 0.001)  # 1D tensor
         x = torch.from_numpy(variant_type.one_hot_tensor()).float()
 
@@ -252,8 +252,8 @@ class OverdispersedBinomialMixture(nn.Module):
     '''
     here x is a 1D tensor, a single datum/row of the 2D tensors as above
     '''
-    def plot_spectrum(self, x, title):
-        fractions, densities = self.spectrum_density_vs_fraction(x)
+    def plot_spectrum(self, x, title, depth: int):
+        fractions, densities = self.spectrum_density_vs_fraction(x, depth)
         return simple_plot([(fractions.numpy(), densities.numpy(), " ")], "AF", "density", title)
 
 
