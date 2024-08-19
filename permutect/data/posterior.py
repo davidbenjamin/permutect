@@ -3,7 +3,7 @@ import math
 from typing import List, Iterable
 
 import torch
-from torch import IntTensor, vstack, from_numpy
+from torch import IntTensor
 from torch.utils.data import Dataset, DataLoader
 from permutect.data.base_datum import Variant, CountsAndSeqLks, bases5_as_base_string
 
@@ -65,6 +65,9 @@ class PosteriorDatum:
         alt = bases5_as_base_string(self.int_array[this_class.ALT].item())
         return Variant(contig, position, ref, alt)
 
+    def get_artifact_logit(self) -> float:
+        return self.float_array[self.__class__.ARTIFACT_LOGIT]
+
 
 class PosteriorBatch:
 
@@ -75,6 +78,12 @@ class PosteriorBatch:
         self.float_tensor = torch.vstack([item.float_array for item in data]).float()
 
         self._size = len(data)
+
+    def pin_memory(self):
+        self.embeddings = self.embeddings.pin_memory()
+        self.int_tensor = self.int_tensor.pin_memory()
+        self.float_tensor = self.float_tensor.pin_memory()
+        return self
 
     def get_variant_types(self) -> torch.Tensor:
         return self.int_tensor[:, PosteriorDatum.VAR_TYPE]
@@ -135,5 +144,5 @@ class PosteriorDataset(Dataset):
     def __getitem__(self, index) -> PosteriorDatum:
         return self.data[index]
 
-    def make_data_loader(self, batch_size: int):
-        return DataLoader(dataset=self, batch_size=batch_size, collate_fn=PosteriorBatch)
+    def make_data_loader(self, batch_size: int, pin_memory: bool = False, num_workers: int = 0):
+        return DataLoader(dataset=self, batch_size=batch_size, pin_memory=pin_memory, num_workers=num_workers, collate_fn=PosteriorBatch)

@@ -4,11 +4,14 @@ from torch import Tensor, IntTensor, FloatTensor
 
 from typing import List
 
-from permutect.utils import Variation, Label
+from permutect.utils import Variation, Label, trim_alleles_on_right
 
 DEFAULT_NUMPY_FLOAT = np.float16
 DEFAULT_GPU_FLOAT = torch.float16
 DEFAULT_CPU_FLOAT = torch.float32
+
+# base strings longer than this when encoding data
+MAX_NUM_BASES_FOR_ENCODING = 13
 
 
 def make_1d_sequence_tensor(sequence_string: str) -> np.ndarray:
@@ -37,10 +40,14 @@ def make_sequence_tensor(sequence_string: str) -> np.ndarray:
     return result
 
 
+def truncate_bases_if_necessary(bases: str):
+    return bases if len(bases) <= MAX_NUM_BASES_FOR_ENCODING else bases[:MAX_NUM_BASES_FOR_ENCODING]
+
+
 # here we just butcher variants longer than 13 bases and chop!!!
 def bases_as_base5_int(bases: str) -> int:
     power_of_5 = 1
-    bases_to_use = bases if len(bases) < 14 else bases[:13]
+    bases_to_use = truncate_bases_if_necessary(bases)
     result = 0
     for nuc in bases_to_use:
         coeff = 1 if nuc == 'A' else (2 if nuc == 'C' else (3 if nuc == 'G' else 4))
@@ -82,8 +89,10 @@ class Variant:
     def __init__(self, contig: int, position: int, ref: str, alt: str):
         self.contig = contig
         self.position = position
-        self.ref = ref
-        self.alt = alt
+        # note: it is very important to trim here, as early as possible, because truncating to 13 or fewer bases
+        # does not commute with trimming!!!  If we are not consistent about trimming first, dataset variants and
+        # VCF variants might get inconsistent encodings!!!
+        self.ref, self.alt = trim_alleles_on_right(ref, alt)
 
     # note: if base strings are treated as numbers in base 5, uint32 (equivalent to two uint16's) can hold up to 13 bases
     def to_np_array(self):

@@ -103,7 +103,7 @@ def main_without_parsing(args):
 
     artifact_log_priors, artifact_spectra = learn_artifact_priors_and_spectra(artifact_dataset, genomic_span) if learn_artifact_spectra else (None, None)
     if artifact_spectra is not None:
-        art_spectra_fig, art_spectra_axs = plot_artifact_spectra(artifact_spectra)
+        art_spectra_fig, art_spectra_axs = plot_artifact_spectra(artifact_spectra, depth=50)
         summary_writer.add_figure("Artifact AF Spectra", art_spectra_fig)
 
     summary_writer.close()

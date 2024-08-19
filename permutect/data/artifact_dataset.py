@@ -1,6 +1,7 @@
 import math
 import random
 from typing import List
+from tqdm.autonotebook import tqdm
 
 import numpy as np
 from torch.utils.data import Dataset, DataLoader, Sampler
@@ -26,7 +27,9 @@ class ArtifactDataset(Dataset):
         index = 0
 
         loader = base_dataset.make_data_loader(base_dataset.all_folds() if folds_to_use is None else folds_to_use, batch_size=256)
-        for base_batch in loader:
+        print("making artifact dataset from base dataset")
+        pbar = tqdm(enumerate(loader), mininterval=60)
+        for n, base_batch in pbar:
             representations = base_model.calculate_representations(base_batch).detach()
             for representation, base_datum in zip(representations, base_batch.original_list()):
                 artifact_datum = ArtifactDatum(base_datum, representation)

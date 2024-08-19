@@ -223,3 +223,10 @@ def extract_to_temp_dir(tar_file, directory):
     tar.extractall(directory)
     tar.close()
     return [os.path.abspath(os.path.join(directory, p)) for p in os.listdir(directory)]
+
+
+def trim_alleles_on_right(ref: str, alt: str):
+    trimmed_ref, trimmed_alt = ref, alt
+    while len(trimmed_ref) > 1 and len(trimmed_alt) > 1 and trimmed_alt[-1] == trimmed_ref[-1]:
+        trimmed_ref, trimmed_alt = trimmed_ref[:-1], trimmed_alt[:-1]
+    return trimmed_ref, trimmed_alt
