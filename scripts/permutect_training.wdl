@@ -9,6 +9,7 @@ workflow TrainPermutect {
         Int num_calibration_epochs
         Int batch_size
         Int? num_workers
+        Int? gpu_count
         Float dropout_p
         Array[Int] aggregation_layers
         Array[Int] calibration_layers
@@ -34,6 +35,7 @@ workflow TrainPermutect {
                 num_calibration_epochs = num_calibration_epochs,
                 batch_size = batch_size,
                 num_workers = num_workers,
+                gpu_count = gpu_count,
                 dropout_p = dropout_p,
                 aggregation_layers = aggregation_layers,
                 calibration_layers = calibration_layers,
@@ -82,6 +84,7 @@ task TrainPermutectGPU {
         Int num_calibration_epochs
         Int batch_size
         Int? num_workers
+        Int? gpu_count
         Float dropout_p
         Array[Int] aggregation_layers
         Array[Int] calibration_layers
@@ -135,7 +138,7 @@ task TrainPermutectGPU {
         maxRetries: select_first([max_retries, 0])
         cpu: select_first([cpu, 1])
         gpuType: "nvidia-tesla-t4"
-        gpuCount: 1
+        gpuCount: select_first([gpu_count, 1])
     }
 
     output {
