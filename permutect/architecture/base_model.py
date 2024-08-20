@@ -149,8 +149,8 @@ class BaseModel(torch.nn.Module):
             total_alt = batch.size() * self.alt_downsample
 
         # undo some of the above rearrangement
-        transformed_alt_vre = self.alt_transformer_encoder(alt_reads_info_seq_vre)
-        transformed_ref_vre = None if total_ref == 0 else self.ref_transformer_encoder(ref_reads_info_seq_vre)
+        transformed_alt_vre = torch.sigmoid(self.alt_transformer_encoder(alt_reads_info_seq_vre))
+        transformed_ref_vre = None if total_ref == 0 else torch.sigmoid(self.ref_transformer_encoder(ref_reads_info_seq_vre))
 
         all_read_means_ve = ((0 if ref_count == 0 else torch.sum(transformed_ref_vre, dim=1)) + torch.sum(transformed_alt_vre, dim=1)) / (alt_count + ref_count)
 
