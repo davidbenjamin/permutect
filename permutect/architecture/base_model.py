@@ -138,7 +138,7 @@ class BaseModel(torch.nn.Module):
         info_and_seq_ve = torch.hstack((info_embeddings_ve, ref_seq_embeddings_ve))
         info_and_seq_re = torch.vstack((torch.repeat_interleave(info_and_seq_ve, ref_count, dim=0),
                                        torch.repeat_interleave(info_and_seq_ve, alt_count, dim=0)))
-        reads_info_seq_re = torch.hstack((read_embeddings_re, info_and_seq_re))
+        reads_info_seq_re = torch.sigmoid(torch.hstack((read_embeddings_re, info_and_seq_re)))
         ref_reads_info_seq_vre = None if total_ref == 0 else reads_info_seq_re[:total_ref].reshape(batch.size(), ref_count, -1)
         alt_reads_info_seq_vre = reads_info_seq_re[total_ref:].reshape(batch.size(), alt_count, -1)
 
