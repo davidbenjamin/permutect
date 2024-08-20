@@ -54,10 +54,13 @@ class LearningMethod(Enum):
 
 
 def make_transformer_encoder(input_dimension: int, params: BaseModelParameters):
-    encoder_layer = torch.nn.TransformerEncoderLayer(d_model=input_dimension, nhead=params.num_transformer_heads,
+    layers = []
+    for n in range(params.num_transformer_layers):
+        encoder_layer = torch.nn.TransformerEncoderLayer(d_model=input_dimension, nhead=params.num_transformer_heads,
                                                      batch_first=True, dim_feedforward=params.transformer_hidden_dimension, dropout=params.dropout_p)
-    encoder_norm = torch.nn.LayerNorm(input_dimension)
-    return torch.nn.TransformerEncoder(encoder_layer, num_layers=params.num_transformer_layers, norm=encoder_norm)
+        layers.append(encoder_layer)
+
+    return torch.nn.Sequential(*layers)
 
 
 class BaseModel(torch.nn.Module):
