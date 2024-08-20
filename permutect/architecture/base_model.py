@@ -54,13 +54,10 @@ class LearningMethod(Enum):
 
 
 def make_transformer_encoder(input_dimension: int, params: BaseModelParameters):
-    layers = []
-    for n in range(params.num_transformer_layers):
-        encoder_layer = torch.nn.TransformerEncoderLayer(d_model=input_dimension, nhead=params.num_transformer_heads,
+    encoder_layer = torch.nn.TransformerEncoderLayer(d_model=input_dimension, nhead=params.num_transformer_heads,
                                                      batch_first=True, dim_feedforward=params.transformer_hidden_dimension, dropout=params.dropout_p)
-        layers.append(encoder_layer)
-
-    return torch.nn.Sequential(*layers)
+    encoder_norm = torch.nn.LayerNorm(input_dimension)
+    return torch.nn.TransformerEncoder(encoder_layer, num_layers=params.num_transformer_layers, norm=encoder_norm)
 
 
 class BaseModel(torch.nn.Module):
@@ -152,8 +149,8 @@ class BaseModel(torch.nn.Module):
             total_alt = batch.size() * self.alt_downsample
 
         # undo some of the above rearrangement
-        transformed_alt_vre = torch.sigmoid(self.alt_transformer_encoder(alt_reads_info_seq_vre))
-        transformed_ref_vre = None if total_ref == 0 else torch.sigmoid(self.ref_transformer_encoder(ref_reads_info_seq_vre))
+        transformed_alt_vre = self.alt_transformer_encoder(alt_reads_info_seq_vre)
+        transformed_ref_vre = None if total_ref == 0 else self.ref_transformer_encoder(ref_reads_info_seq_vre)
 
         all_read_means_ve = ((0 if ref_count == 0 else torch.sum(transformed_ref_vre, dim=1)) + torch.sum(transformed_alt_vre, dim=1)) / (alt_count + ref_count)
 
