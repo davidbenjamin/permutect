@@ -20,6 +20,7 @@ workflow TrainPermutectBaseModel {
         Array[String] ref_seq_layer_strings
         String? train_m3_extra_args
         Boolean use_gpu
+        Int? gpu_count
 
         String permutect_docker
         Int? preemptible
@@ -37,6 +38,7 @@ workflow TrainPermutectBaseModel {
                 num_epochs = num_epochs,
                 batch_size = batch_size,
                 num_workers = num_workers,
+                gpu_count = gpu_count,
                 dropout_p = dropout_p,
                 alt_downsample = alt_downsample,
                 reweighting_range = reweighting_range,
@@ -93,6 +95,7 @@ task TrainPermutectBaseGPU {
         Int num_epochs
         Int batch_size
         Int? num_workers
+        Int? gpu_count
         Float dropout_p
         Int? alt_downsample
         Float reweighting_range
@@ -154,7 +157,7 @@ task TrainPermutectBaseGPU {
         maxRetries: select_first([max_retries, 0])
         cpu: select_first([cpu, 1])
         gpuType: "nvidia-tesla-t4"
-        gpuCount: 1
+        gpuCount: select_first([gpu_count, 1])
     }
 
     output {
