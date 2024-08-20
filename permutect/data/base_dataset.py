@@ -1,5 +1,6 @@
 import math
 import os
+import psutil
 import random
 import tarfile
 import tempfile
@@ -13,11 +14,13 @@ from torch.utils.data.sampler import Sampler
 
 from mmap_ninja.ragged import RaggedMmap
 from permutect import utils
-from permutect.data.base_datum import BaseDatum, BaseBatch, load_list_of_base_data, CountsAndSeqLks, Variant, \
-    BaseDatum1DStuff
+from permutect.data.base_datum import BaseDatum, BaseBatch, load_list_of_base_data, BaseDatum1DStuff
 from permutect.utils import Label
 
 TENSORS_PER_BASE_DATUM = 2  # 1) 2D reads (ref and alt), 1) 1D concatenated stuff
+
+# tarfiles on disk take up about 4x as much as the dataset on RAM
+TARFILE_TO_RAM_RATIO = 4
 
 
 class BaseDataset(Dataset):
@@ -25,18 +28,32 @@ class BaseDataset(Dataset):
         super(BaseDataset, self).__init__()
         assert data_in_ram is not None or data_tarfile is not None, "No data given"
         assert data_in_ram is None or data_tarfile is None, "Data given from both RAM and tarfile"
-        self._memory_map_mode = data_tarfile is not None
         self.num_folds = num_folds
 
-        if self._memory_map_mode:
-            self._memory_map_dir = tempfile.TemporaryDirectory()
-
-            RaggedMmap.from_generator(out_dir=self._memory_map_dir.name,
-                sample_generator=make_flattened_tensor_generator(make_base_data_generator_from_tarfile(data_tarfile)),
-                batch_size=10000, verbose=False)
-            self._data = RaggedMmap(self._memory_map_dir.name)
-        else:
+        if data_in_ram is not None:
             self._data = data_in_ram
+            self._memory_map_mode = False
+        else:
+            tarfile_size = os.path.getsize(data_tarfile)    # in bytes
+            estimated_data_size_in_ram = tarfile_size // TARFILE_TO_RAM_RATIO
+            available_memory = psutil.virtual_memory().available
+            fits_in_ram = estimated_data_size_in_ram < 0.8 * available_memory
+
+            print(f"The tarfile size is {tarfile_size} bytes on disk for an estimated {estimated_data_size_in_ram} bytes in memory and the system has {available_memory} bytes of RAM available.")
+            if fits_in_ram:
+                print("loading the dataset from the tarfile into RAM:")
+                self._data = list(make_base_data_generator_from_tarfile(data_tarfile))
+                self._memory_map_mode = False
+            else:
+                print("loading the dataset into a memory-mapped file:")
+                self._memory_map_dir = tempfile.TemporaryDirectory()
+
+                RaggedMmap.from_generator(out_dir=self._memory_map_dir.name,
+                                          sample_generator=make_flattened_tensor_generator(
+                                              make_base_data_generator_from_tarfile(data_tarfile)),
+                                          batch_size=10000, verbose=False)
+                self._data = RaggedMmap(self._memory_map_dir.name)
+                self._memory_map_mode = True
 
         # keys = (ref read count, alt read count) tuples; values = list of indices
         # this is used in the batch sampler to make same-shape batches
@@ -60,7 +77,7 @@ class BaseDataset(Dataset):
         self.ref_sequence_length = len(self[0].get_ref_sequence_1d())
 
     def __len__(self):
-        return len(self._data) // TENSORS_PER_BASE_DATUM if self._memory_map_mode else len(self.data)
+        return len(self._data) // TENSORS_PER_BASE_DATUM if self._memory_map_mode else len(self._data)
 
     def __getitem__(self, index):
         if self._memory_map_mode:
