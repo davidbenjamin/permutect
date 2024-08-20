@@ -46,7 +46,7 @@ class MLP(nn.Module):
 
             # k runs from 0 to len(layer_sizes) - 2.  Omit the nonlinearity after the last layer.
             if k < len(layer_sizes) - 2:
-                layers.append(nn.LeakyReLU())
+                layers.append(nn.SiLU())
 
             input_dim = output_dim  # note that this does not happen for a residual skip connection
 
