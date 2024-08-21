@@ -117,7 +117,7 @@ def get_segmentation(segments_file) -> defaultdict:
     if segments_file is None:
         return result
 
-    print(" reading segmentation file")
+    print("reading segmentation file")
     with open(segments_file, 'r') as file:
         for line in file:
             if line.startswith("#") or (line.startswith("contig") and "minor_allele_fraction" in line):
@@ -181,7 +181,7 @@ def make_filtered_vcf(saved_artifact_model_path, base_model_path, initial_log_va
 
     print("Calculating optimal logit threshold")
     error_probability_thresholds = posterior_model.calculate_probability_thresholds(posterior_data_loader, summary_writer, germline_mode=germline_mode)
-    print("Optimal probability threshold: " + str(error_probability_thresholds))
+    print(f"Optimal probability threshold: {error_probability_thresholds}")
     apply_filtering_to_vcf(input_vcf, output_vcf, contig_index_to_name_map, error_probability_thresholds, posterior_data_loader, posterior_model, summary_writer=summary_writer, germline_mode=germline_mode)
 
 
@@ -203,15 +203,15 @@ def make_posterior_data_loader(dataset_file, input_vcf, contig_index_to_name_map
     # pass through the plain text dataset, normalizing and creating ReadSetDatasets as we go, running the artifact model
     # to get artifact logits, which we record in a dict keyed by variant strings.  These will later be added to PosteriorDatum objects.
     print("reading dataset and calculating artifact logits")
-    print("memory usage percent before loading data: " + str(psutil.virtual_memory().percent))
+    print(f"Memory usage percent before loading data: {psutil.virtual_memory().percent:.1f}")
     posterior_data = []
     m = 0
     for list_of_base_data in plain_text_data.generate_normalized_data([dataset_file], chunk_size):
-        print("memory usage percent before creating BaseDataset: " + str(psutil.virtual_memory().percent))
+        print(f"Memory usage percent before creating BaseDataset: {psutil.virtual_memory().percent:.1f}")
         raw_dataset = base_dataset.BaseDataset(data_in_ram=list_of_base_data)
-        print("memory usage percent before creating ArtifactDataset: " + str(psutil.virtual_memory().percent))
+        print(f"Memory usage percent before creating ArtifactDataset: {psutil.virtual_memory().percent:.1f}")
         artifact_dataset = ArtifactDataset(raw_dataset, base_model)
-        print("memory usage percent after creating ArtifactDataset: " + str(psutil.virtual_memory().percent))
+        print(f"Memory usage percent after creating ArtifactDataset: {psutil.virtual_memory().percent:.1f}")
         artifact_loader = artifact_dataset.make_data_loader(artifact_dataset.all_folds(), batch_size, pin_memory=torch.cuda.is_available(), num_workers=num_workers)
 
         print("creating posterior data for this chunk...")
@@ -240,9 +240,9 @@ def make_posterior_data_loader(dataset_file, input_vcf, contig_index_to_name_map
                     posterior_datum = PosteriorDatum(variant, counts_and_seq_lks, allele_frequency, logit, embedding, label, maf, normal_maf)
                     posterior_data.append(posterior_datum)
 
-    print("Size of filtering dataset: " + str(len(posterior_data)))
+    print(f"Size of filtering dataset: {len(posterior_data)}")
     posterior_dataset = PosteriorDataset(posterior_data)
-    print("memory usage percent after creating PosteriorDataset: " + str(psutil.virtual_memory().percent))
+    print(f"Memory usage percent after creating PosteriorDataset: {psutil.virtual_memory().percent:.1f}")
     return posterior_dataset.make_data_loader(batch_size, pin_memory=torch.cuda.is_available(), num_workers=num_workers)
 
 

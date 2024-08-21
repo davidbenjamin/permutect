@@ -92,7 +92,7 @@ def read_data(dataset_file, round_down: bool = True, only_artifacts: bool = Fals
             contig, position = map(int, locus.split(":"))   # contig is an integer *index* from a sequence dictionary
             # TODO: replace with tqdm progress bar by counting file in initial pass.  It can't be that expensive.
             if n % 100000 == 0:
-                print(str(contig) + ":" + str(position))
+                print(f"{contig}:{position}")
             ref_allele, alt_allele = mutation.strip().split("->")
 
             ref_sequence_string = file.readline().strip()
@@ -141,8 +141,8 @@ def generate_normalized_data(dataset_files, max_bytes_per_chunk: int):
             buffer.append(base_datum)
             bytes_in_buffer += base_datum.size_in_bytes()
             if bytes_in_buffer > max_bytes_per_chunk:
-                print("memory usage percent: " + str(psutil.virtual_memory().percent))
-                print("bytes in chunk: " + str(bytes_in_buffer))
+                print(f"Memory usage percent: {psutil.virtual_memory().percent:.1f}")
+                print(f"{bytes_in_buffer} bytes in chunk")
 
                 normalize_buffer(buffer, read_quantile_transform, info_quantile_transform)
                 yield buffer
