@@ -202,10 +202,11 @@ class ArtifactModel(nn.Module):
                         loss = torch.sum(entropies) * labeled_to_unlabeled_ratio
                         loss_metrics.record_total_batch_loss(loss.detach(), batch)
 
+                    batch_weight = batch.size() / training_params.batch_size
                     if epoch_type == utils.Epoch.TRAIN:
-                        utils.backpropagate(train_optimizer, loss)
+                        utils.backpropagate(train_optimizer, batch_weight * loss)
                     if is_calibration_epoch:
-                        utils.backpropagate(calibration_optimizer, loss)
+                        utils.backpropagate(calibration_optimizer, batch_weight * loss)
 
                 # done with one epoch type -- training or validation -- for this epoch
                 loss_metrics.write_to_summary_writer(epoch_type, epoch, summary_writer)
