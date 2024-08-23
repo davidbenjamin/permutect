@@ -160,14 +160,16 @@ class ArtifactModel(nn.Module):
         total_labeled, total_unlabeled = dataset.total_labeled_and_unlabeled()
         labeled_to_unlabeled_ratio = 1 if total_unlabeled < total_labeled else total_labeled / total_unlabeled
 
-        print(f"Training data contains {int(total_labeled)} labeled examples and {int(total_unlabeled)} unlabeled examples")
+        print(f"Training data contains {total_labeled:.0f} labeled examples and {total_unlabeled:.0f} unlabeled examples")
         for variation_type in utils.Variation:
             idx = variation_type.value
             print(f"For variation type {variation_type.name} there are {int(dataset.artifact_totals[idx].item())} labeled artifact examples and {int(dataset.non_artifact_totals[idx].item())} labeled non-artifact examples")
 
         validation_fold_to_use = (dataset.num_folds - 1) if validation_fold is None else validation_fold
         train_loader = dataset.make_data_loader(dataset.all_but_one_fold(validation_fold_to_use), training_params.batch_size, self._device.type == 'cuda', training_params.num_workers)
+        print(f"Train loader created, memory usage percent: {psutil.virtual_memory().percent:.1f}")
         valid_loader = dataset.make_data_loader([validation_fold_to_use], training_params.batch_size, self._device.type == 'cuda', training_params.num_workers)
+        print(f"Validation loader created, memory usage percent: {psutil.virtual_memory().percent:.1f}")
 
         for epoch in trange(1, training_params.num_epochs + 1 + training_params.num_calibration_epochs, desc="Epoch"):
             print(f"Epoch {epoch}, memory usage percent: {psutil.virtual_memory().percent:.1f}")
