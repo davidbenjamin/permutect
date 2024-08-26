@@ -1,5 +1,6 @@
 # bug before PyTorch 1.7.1 that warns when constructing ParameterList
 import warnings
+from collections import defaultdict
 from typing import List
 
 import psutil
@@ -7,6 +8,7 @@ import torch
 from torch import nn, Tensor
 import numpy as np
 from torch.utils.tensorboard import SummaryWriter
+from queue import PriorityQueue
 
 
 from tqdm.autonotebook import trange, tqdm
@@ -15,17 +17,18 @@ from matplotlib import pyplot as plt
 
 from permutect.architecture.mlp import MLP
 from permutect.architecture.monotonic import MonoDense
-from permutect.architecture.overdispersed_binomial_mixture import OverdispersedBinomialMixture
 from permutect.data.base_datum import ArtifactBatch, DEFAULT_GPU_FLOAT, DEFAULT_CPU_FLOAT
 from permutect.data.artifact_dataset import ArtifactDataset
 from permutect import utils, constants
-from permutect.metrics.evaluation_metrics import LossMetrics, EvaluationMetrics, NUM_COUNT_BINS, \
-    multiple_of_three_bin_index_to_count, MAX_COUNT, round_up_to_nearest_three, EmbeddingMetrics
+from permutect.metrics.evaluation_metrics import LossMetrics, EvaluationMetrics, MAX_COUNT, round_up_to_nearest_three, EmbeddingMetrics
 from permutect.parameters import TrainingParameters, ArtifactModelParameters
-from permutect.utils import Variation, Epoch
+from permutect.utils import Variation, Epoch, Label
 from permutect.metrics import plotting
 
 warnings.filterwarnings("ignore", message="Setting attributes on ParameterList is not supported.")
+
+
+WORST_OFFENDERS_QUEUE_SIZE = 100
 
 
 def effective_count(weights: Tensor):
@@ -223,8 +226,9 @@ class ArtifactModel(nn.Module):
         valid_loader = dataset.make_data_loader(dataset.last_fold_only(), batch_size, self._device.type == 'cuda', num_workers)
         epoch_types = [Epoch.TRAIN, Epoch.VALID]
         self.freeze_all()
-        self.cpu()
-        self._device = "cpu"
+
+        # the keys are tuples of (true label -- 1 for variant, 0 for artifact; rounded alt count)
+        worst_offenders_by_truth_and_alt_count = defaultdict(lambda: PriorityQueue(WORST_OFFENDERS_QUEUE_SIZE))
 
         log_artifact_to_non_artifact_ratios = torch.from_numpy(np.log(dataset.artifact_to_non_artifact_ratios()))
         evaluation_metrics = EvaluationMetrics()
@@ -238,10 +242,36 @@ class ArtifactModel(nn.Module):
                 pred = self.forward(batch).detach()
                 correct = ((pred > 0) == (batch.labels > 0.5)).tolist()
 
-                for variant_type, predicted_logit, label, correct_call, alt_count in zip(batch.variant_types(), pred.tolist(), batch.labels.tolist(), correct, batch.alt_counts):
+                for variant_type, predicted_logit, label, correct_call, alt_count, datum in zip(batch.variant_types(), pred.tolist(), batch.labels.tolist(), correct, batch.alt_counts, batch.original_data):
                     evaluation_metrics.record_call(epoch_type, variant_type, predicted_logit, label, correct_call, alt_count)
+                    if not correct_call:
+                        rounded_count = round_up_to_nearest_three(alt_count)
+                        label_name = Label.ARTIFACT.name if label > 0.5 else Label.VARIANT.name
+                        confidence = abs(predicted_logit)
+
+                        # the 0th aka highest priority element in the queue is the one with the lowest confidence
+                        pqueue = worst_offenders_by_truth_and_alt_count[(label_name, rounded_count)]
+
+                        # clear space if this confidence is more egregious
+                        if pqueue.full() and pqueue.queue[0][0] < confidence:
+                            pqueue.get()    # discards the least confident bad call
+
+                        if not pqueue.full():   # if space was cleared or if it wasn't full already
+                            variant = datum.get_other_stuff_1d().get_variant()
+                            pqueue.put((confidence, str(variant.contig) + ":" + str(variant.position) + ':' + variant.ref + "->" + variant.alt))
+
             # done with this epoch type
         # done collecting data
+
+        for (true_label, rounded_count), pqueue in worst_offenders_by_truth_and_alt_count.items():
+            tag = "True label: " + true_label + ", rounded alt count: " + str(rounded_count)
+
+            lines = []
+            while not pqueue.empty():   # this goes from least to most egregious, FYI
+                confidence, var_string = pqueue.get()
+                lines.append(var_string + ", " + confidence)
+
+            summary_writer.add_text(tag, "\n".join(lines))
 
         evaluation_metrics.make_plots(summary_writer)
 
