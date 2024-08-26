@@ -92,14 +92,14 @@ def main_without_parsing(args):
     summary_writer = SummaryWriter(tensorboard_dir)
 
     base_model = load_base_model(getattr(args, constants.BASE_MODEL_NAME))
-    print("memory usage percent before creating BaseDataset: " + str(psutil.virtual_memory().percent))
+    print(f"Memory usage percent before creating BaseDataset: {psutil.virtual_memory().percent:.1f}")
     base_dataset = BaseDataset(data_tarfile=getattr(args, constants.TRAIN_TAR_NAME), num_folds=10)
-    print("memory usage percent before creating ArtifactDataset: " + str(psutil.virtual_memory().percent))
+    print(f"Memory usage percent before creating ArtifactDataset: {psutil.virtual_memory().percent:.1f}")
     artifact_dataset = ArtifactDataset(base_dataset, base_model)
-    print("memory usage percent after creating ArtifactDataset: " + str(psutil.virtual_memory().percent))
+    print(f"Memory usage percent after creating ArtifactDataset: {psutil.virtual_memory().percent:.1f}")
 
     model = train_artifact_model(hyperparams=params, training_params=training_params, summary_writer=summary_writer, dataset=artifact_dataset)
-    print("memory usage percent after training artifact model: " + str(psutil.virtual_memory().percent))
+    print(f"Memory usage percent after training artifact model: {psutil.virtual_memory().percent:.1f}")
 
     artifact_log_priors, artifact_spectra = learn_artifact_priors_and_spectra(artifact_dataset, genomic_span) if learn_artifact_spectra else (None, None)
     if artifact_spectra is not None:

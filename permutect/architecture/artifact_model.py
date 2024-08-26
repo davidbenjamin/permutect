@@ -160,18 +160,19 @@ class ArtifactModel(nn.Module):
         total_labeled, total_unlabeled = dataset.total_labeled_and_unlabeled()
         labeled_to_unlabeled_ratio = 1 if total_unlabeled < total_labeled else total_labeled / total_unlabeled
 
-        print("Training data contains {} labeled examples and {} unlabeled examples".format(total_labeled, total_unlabeled))
+        print(f"Training data contains {total_labeled:.0f} labeled examples and {total_unlabeled:.0f} unlabeled examples")
         for variation_type in utils.Variation:
             idx = variation_type.value
-            print("For variation type {}, there are {} labeled artifact examples and {} labeled non-artifact examples"
-                  .format(variation_type.name, dataset.artifact_totals[idx].item(), dataset.non_artifact_totals[idx].item()))
+            print(f"For variation type {variation_type.name} there are {int(dataset.artifact_totals[idx].item())} labeled artifact examples and {int(dataset.non_artifact_totals[idx].item())} labeled non-artifact examples")
 
         validation_fold_to_use = (dataset.num_folds - 1) if validation_fold is None else validation_fold
         train_loader = dataset.make_data_loader(dataset.all_but_one_fold(validation_fold_to_use), training_params.batch_size, self._device.type == 'cuda', training_params.num_workers)
+        print(f"Train loader created, memory usage percent: {psutil.virtual_memory().percent:.1f}")
         valid_loader = dataset.make_data_loader([validation_fold_to_use], training_params.batch_size, self._device.type == 'cuda', training_params.num_workers)
+        print(f"Validation loader created, memory usage percent: {psutil.virtual_memory().percent:.1f}")
 
         for epoch in trange(1, training_params.num_epochs + 1 + training_params.num_calibration_epochs, desc="Epoch"):
-            print("epoch " + str(epoch) + ", memory usage percent: " + str(psutil.virtual_memory().percent))
+            print(f"Epoch {epoch}, memory usage percent: {psutil.virtual_memory().percent:.1f}")
             is_calibration_epoch = epoch > training_params.num_epochs
             for epoch_type in ([utils.Epoch.VALID] if is_calibration_epoch else [utils.Epoch.TRAIN, utils.Epoch.VALID]):
                 self.set_epoch_type(epoch_type)
@@ -203,15 +204,16 @@ class ArtifactModel(nn.Module):
                         loss = torch.sum(entropies) * labeled_to_unlabeled_ratio
                         loss_metrics.record_total_batch_loss(loss.detach(), batch)
 
+                    batch_weight = batch.size() / training_params.batch_size
                     if epoch_type == utils.Epoch.TRAIN:
-                        utils.backpropagate(train_optimizer, loss)
+                        utils.backpropagate(train_optimizer, batch_weight * loss)
                     if is_calibration_epoch:
-                        utils.backpropagate(calibration_optimizer, loss)
+                        utils.backpropagate(calibration_optimizer, batch_weight * loss)
 
                 # done with one epoch type -- training or validation -- for this epoch
                 loss_metrics.write_to_summary_writer(epoch_type, epoch, summary_writer)
 
-                print("Labeled loss for epoch " + str(epoch) + " of " + epoch_type.name + ": " + str(loss_metrics.get_labeled_loss()))
+                print(f"Labeled loss for {epoch_type.name} epoch {epoch}: {loss_metrics.get_labeled_loss():.3f}")
             # done with training and validation for this epoch
             # note that we have not learned the AF spectrum yet
         # done with training

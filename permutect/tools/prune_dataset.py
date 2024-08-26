@@ -83,20 +83,20 @@ def calculate_pruning_thresholds(pruning_loader, artifact_model: ArtifactModel, 
         inv_nonart_error_rate = (art_error_rate / label_nonart_frac) * (label_art_frac - nonart_error_rate) / (1 - art_error_rate - nonart_error_rate)
 
         print("Estimated error rates: ")
-        print("artifact mislabeled as nonartifact " + str(art_error_rate))
-        print("non-artifact mislabeled as artifact " + str(nonart_error_rate))
+        print(f"artifact mislabeled as non-artifact: {art_error_rate:.3f}")
+        print(f"non-artifact mislabeled as artifact: {nonart_error_rate:.3f}")
 
         print("Estimated inverse error rates: ")
-        print("Labeled artifact was actually nonartifact " + str(inv_art_error_rate))
-        print("Labeled non-artifact was actually artifact " + str(inv_nonart_error_rate))
+        print(f"Labeled artifact was actually non-artifact: {inv_art_error_rate:.3f}")
+        print(f"Labeled non-artifact was actually artifact: {inv_nonart_error_rate:.3f}")
 
         print("calculating rank pruning thresholds")
         nonart_threshold = torch.quantile(torch.Tensor(probs_of_agreeing_with_label[0]), inv_nonart_error_rate).item()
         art_threshold = torch.quantile(torch.Tensor(probs_of_agreeing_with_label[1]), inv_art_error_rate).item()
 
         print("Rank pruning thresholds: ")
-        print("Labeled artifacts are pruned if predicted artifact probability is less than " + str(art_threshold))
-        print("Labeled non-artifacts are pruned if predicted non-artifact probability is less than " + str(nonart_threshold))
+        print(f"Labeled artifacts are pruned if predicted artifact probability is less than {art_threshold:.3f}")
+        print(f"Labeled non-artifacts are pruned if predicted non-artifact probability is less than {nonart_threshold:.3f}")
 
         return art_threshold, nonart_threshold
 
@@ -130,8 +130,8 @@ def generate_pruned_data_for_all_folds(base_dataset: BaseDataset, base_model: Ba
 
     for pruning_fold in range(NUM_FOLDS):
         summary_writer = SummaryWriter(tensorboard_dir + "/fold_" + str(pruning_fold))
-        print("Pruning data from fold " + str(pruning_fold) + " of " + str(NUM_FOLDS))
-        print("memory usage percent: " + str(psutil.virtual_memory().percent))
+        print(f"Pruning data from fold {pruning_fold} of {NUM_FOLDS}")
+        print(f"Memory usage percent: {psutil.virtual_memory().percent:.3f}")
 
         # learn an artifact model with the pruning data held out
         artifact_dataset = ArtifactDataset(base_dataset, base_model, base_dataset.all_but_one_fold(pruning_fold))
@@ -161,8 +161,8 @@ def generate_pruned_data_buffers(pruned_data_generator, max_bytes_per_chunk: int
         buffer.append(datum)
         bytes_in_buffer += datum.size_in_bytes()
         if bytes_in_buffer > max_bytes_per_chunk:
-            print("memory usage percent: " + str(psutil.virtual_memory().percent))
-            print("bytes in chunk: " + str(bytes_in_buffer))
+            print(f"Memory usage percent: {psutil.virtual_memory().percent:.1f}")
+            print(f"{bytes_in_buffer} bytes in chunk")
             yield buffer
             buffer, bytes_in_buffer = [], 0
 

@@ -39,17 +39,6 @@ class NormalSeqErrorSpectrum(nn.Module):
         # average over sample dimension
         log_likelihoods_1d = torch.logsumexp(log_likelihoods_2d, dim=1) - math.log(self.num_samples)
 
-        if log_likelihoods_1d.isnan().any():
-            print("nan in normal seq error spectrum forward")
-            print("alt counts: " + str(alt_counts_1d.detach().numpy()))
-            print("ref counts: " + str(ref_counts_1d.detach().numpy()))
-            print("fractions: " + str(fractions_2d.detach().numpy()))
-            print("min fraction: " + str(torch.min(fractions_2d)))
-            print("max fraction: " + str(torch.max(fractions_2d)))
-            print("mean pre sigmoid " + str(self.mean_pre_sigmoid))
-
-            assert 5 < 4, "NAN CRASH!!!"
-
         combinatorial_term = torch.lgamma(alt_counts_1d + ref_counts_1d + 1) - torch.lgamma(alt_counts_1d + 1) - torch.lgamma(ref_counts_1d + 1)
 
         return combinatorial_term + log_likelihoods_1d

@@ -440,15 +440,13 @@ def learn_base_model(base_model: BaseModel, dataset: BaseDataset, learning_metho
     total_labeled, total_unlabeled = dataset.total_labeled_and_unlabeled()
     labeled_to_unlabeled_ratio = 1 if total_unlabeled < total_labeled else total_labeled / total_unlabeled
 
-    print("Training data contains {} labeled examples and {} unlabeled examples".format(total_labeled,
-                                                                                            total_unlabeled))
-    print("memory usage percent: " + str(psutil.virtual_memory().percent))
+    print(f"Training data contains {int(total_labeled)} labeled examples and {int(total_unlabeled)} unlabeled examples")
+    print(f"Memory usage percent: {psutil.virtual_memory().percent:.1f}")
 
     for variation_type in utils.Variation:
         idx = variation_type.value
-        print("For variation type {}, there are {} labeled artifact examples and {} labeled non-artifact examples"
-            .format(variation_type.name, dataset.artifact_totals[idx].item(),
-                    dataset.non_artifact_totals[idx].item()))
+        print(f"For variation type {variation_type.name}, there are {int(dataset.artifact_totals[idx].item())} \
+            labeled artifact examples and {int(dataset.non_artifact_totals[idx].item())} labeled non-artifact examples")
 
     # TODO: use Python's match syntax, but this requires updating Python version in the docker
     # TODO: hidden_top_layers are hard-coded!
@@ -457,7 +455,7 @@ def learn_base_model(base_model: BaseModel, dataset: BaseDataset, learning_metho
                 device=base_model._device, dtype=base_model._dtype)
         artifact_to_non_artifact_log_prior_ratios = torch.log(artifact_to_non_artifact_ratios)
 
-        learning_strategy = BaseModelSemiSupervisedLoss(input_dim=base_model.output_dimension(), hidden_top_layers=[10,10,10],
+        learning_strategy = BaseModelSemiSupervisedLoss(input_dim=base_model.output_dimension(), hidden_top_layers=[30,-1,-1,-1,10],
                                                             params=base_model._params, artifact_to_non_artifact_log_prior_ratios=artifact_to_non_artifact_log_prior_ratios,
                                                             labeled_to_unlabeled_ratio=labeled_to_unlabeled_ratio)
     elif learning_method == LearningMethod.MASK_PREDICTION:
@@ -477,7 +475,7 @@ def learn_base_model(base_model: BaseModel, dataset: BaseDataset, learning_metho
                                         lr=training_params.learning_rate, weight_decay=training_params.weight_decay)
     train_scheduler = torch.optim.lr_scheduler.CyclicLR(train_optimizer, base_lr=training_params.learning_rate/10, max_lr=training_params.learning_rate)
 
-    classifier_on_top = MLP([base_model.output_dimension()] + [base_model.output_dimension(), base_model.output_dimension()] + [1])\
+    classifier_on_top = MLP([base_model.output_dimension()] + [30, -1, -1, -1, 10] + [1])\
         .to(device=base_model._device, dtype=base_model._dtype)
     classifier_bce = torch.nn.BCEWithLogitsLoss(reduction='none')
     classifier_optimizer = torch.optim.AdamW(classifier_on_top.parameters(), lr=training_params.learning_rate, weight_decay=training_params.weight_decay)
@@ -488,7 +486,7 @@ def learn_base_model(base_model: BaseModel, dataset: BaseDataset, learning_metho
     valid_loader = dataset.make_data_loader([validation_fold_to_use], training_params.batch_size, base_model._device.type == 'cuda', training_params.num_workers)
 
     for epoch in trange(1, training_params.num_epochs + 1, desc="Epoch"):
-        print("start of epoch " + str(epoch) + ", memory usage percent: " + str(psutil.virtual_memory().percent))
+        print(f"Start of epoch {epoch}, memory usage percent: {psutil.virtual_memory().percent:.1f}")
         for epoch_type in (utils.Epoch.TRAIN, utils.Epoch.VALID):
             base_model.set_epoch_type(epoch_type)
 
@@ -528,10 +526,9 @@ def learn_base_model(base_model: BaseModel, dataset: BaseDataset, learning_metho
             loss_metrics.write_to_summary_writer(epoch_type, epoch, summary_writer)
             classifier_metrics.write_to_summary_writer(epoch_type, epoch, summary_writer, prefix="auxiliary-classifier-")
 
-            print("Labeled base model loss for epoch " + str(epoch) + " of " + epoch_type.name + ": " + str(loss_metrics.get_labeled_loss()))
-            print("Labeled auxiliary classifier loss for epoch " + str(epoch) + " of " + epoch_type.name + ": " + str(
-                classifier_metrics.get_labeled_loss()))
-        print("end of epoch " + str(epoch) + ", memory usage percent: " + str(psutil.virtual_memory().percent))
+            print(f"Labeled base model loss for {epoch_type.name} epoch {epoch}: {loss_metrics.get_labeled_loss():.3f}")
+            print(f"Labeled auxiliary classifier loss for {epoch_type.name} epoch {epoch}: {classifier_metrics.get_labeled_loss():.3f}")
+        print(f"End of epoch {epoch}, memory usage percent: {psutil.virtual_memory().percent:.1f}")
         # done with training and validation for this epoch
         # note that we have not learned the AF spectrum yet
     # done with training
