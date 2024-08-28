@@ -269,7 +269,7 @@ class ArtifactModel(nn.Module):
             lines = []
             while not pqueue.empty():   # this goes from least to most egregious, FYI
                 confidence, var_string = pqueue.get()
-                lines.append(var_string + ", " + str(confidence))
+                lines.append(f"{var_string} ({confidence:.2f})")
 
             summary_writer.add_text(tag, "\n".join(lines))
 
