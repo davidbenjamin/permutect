@@ -260,10 +260,10 @@ class ArtifactDatum1DStuff:
     def get_label(self):
         return self.array[2]
 
-    def get_variant(self):
+    def get_variant(self) -> Variant:
         return Variant.from_np_array(self.array[3:self.__class__.VARIANT_END_POS])
 
-    def get_counts_and_seq_lks(self):
+    def get_counts_and_seq_lks(self) -> CountsAndSeqLks:
         return CountsAndSeqLks.from_np_array(self.array[self.__class__.VARIANT_END_POS:self.__class__.COUNTS_AND_SEQ_LKS_END_POS])
 
     def variant_type_one_hot(self):
