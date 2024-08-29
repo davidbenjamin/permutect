@@ -110,6 +110,9 @@ class BaseModel(torch.nn.Module):
     def output_dimension(self) -> int:
         return self.aggregation.output_dimension()
 
+    def ref_alt_seq_embedding_dimension(self) -> int:
+        return self.ref_seq_cnn.output_dimension()
+
     def ref_sequence_length(self) -> int:
         return self._ref_sequence_length
 
@@ -495,6 +498,7 @@ def learn_base_model(base_model: BaseModel, dataset: BaseDataset, learning_metho
             loader = train_loader if epoch_type == utils.Epoch.TRAIN else valid_loader
             pbar = tqdm(enumerate(loader), mininterval=60)
             for n, batch in pbar:
+                # unused output is the embedding of ref and alt alleles with context
                 representations, _ = base_model.calculate_representations(batch, weight_range=base_model._params.reweighting_range)
                 separate_losses = learning_strategy.loss_function(base_model, batch, representations)
 

@@ -527,6 +527,7 @@ class ArtifactBatch:
         self.labeled = data[0].get_label() != Label.UNLABELED
 
         self.representations_2d = torch.vstack([item.representation for item in data])
+        self.ref_alt_seq_embeddings_2d = torch.vstack([item.ref_alt_seq_embedding for item in data])
         self.labels = FloatTensor([1.0 if item.get_label() == Label.ARTIFACT else 0.0 for item in data]) if self.labeled else None
         self.ref_counts = IntTensor([int(item.get_ref_count()) for item in data])
         self.alt_counts = IntTensor([int(item.get_alt_count()) for item in data])
@@ -537,6 +538,7 @@ class ArtifactBatch:
     # pin memory for all tensors that are sent to the GPU
     def pin_memory(self):
         self.representations_2d = self.representations_2d.pin_memory()
+        self.ref_alt_seq_embeddings_2d = self.ref_alt_seq_embeddings_2d.pin_memory()
         self.labels = self.labels.pin_memory()
         self.ref_counts = self.ref_counts.pin_memory()
         self.alt_counts = self.alt_counts.pin_memory()

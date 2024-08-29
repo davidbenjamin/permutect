@@ -142,7 +142,7 @@ def generate_pruned_data_for_all_folds(base_dataset: BaseDataset, base_model: Ba
         pruning_artifact_dataset = ArtifactDataset(base_dataset, base_model, [pruning_fold])
         pruning_loader = pruning_artifact_dataset.make_data_loader(pruning_artifact_dataset.all_folds(),
             training_params.batch_size, use_gpu, training_params.num_workers)
-        model = ArtifactModel(params=params, num_base_features=artifact_dataset.num_base_features, device=device).float()
+        model = ArtifactModel(params=params, num_base_features=artifact_dataset.num_base_features, num_ref_alt_features=base_model.ref_alt_seq_embedding_dimension(), device=device).float()
         model.learn(artifact_dataset, training_params, summary_writer=summary_writer)
 
         art_threshold, nonart_threshold = calculate_pruning_thresholds(pruning_loader, model, label_art_frac, training_params)

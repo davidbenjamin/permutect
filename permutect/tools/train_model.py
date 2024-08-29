@@ -17,7 +17,7 @@ from permutect.utils import Variation, Label
 
 
 def train_artifact_model(hyperparams: ArtifactModelParameters, training_params: TrainingParameters, summary_writer: SummaryWriter, dataset: ArtifactDataset):
-    model = ArtifactModel(params=hyperparams, num_base_features=dataset.num_base_features, device=utils.gpu_if_available())
+    model = ArtifactModel(params=hyperparams, num_base_features=dataset.num_base_features, num_ref_alt_features=dataset.num_ref_alt_features, device=utils.gpu_if_available())
     model.learn(dataset, training_params, summary_writer=summary_writer)
 
     for n, var_type in enumerate(Variation):
