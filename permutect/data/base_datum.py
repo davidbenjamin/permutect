@@ -118,6 +118,57 @@ class Variant:
     def get_alt_as_int(self):
         return bases_as_base5_int(self.alt)
 
+# count how many times a unit string is repeated at the beginning of a larger string
+# eg 'ATATGGG', 'AT' -> 1; 'AGGGGG', 'G' -> 0; 'TTATTATTAGTTA', 'TTA' -> 3
+def count_leading_repeats(sequence: str, unit: str):
+    result = 0
+    idx = 0
+    unit_length = len(unit)
+    while (idx + unit_length - 1 < len(sequence)) and sequence[idx:idx + unit_length] == unit:
+        result += 1
+        idx += unit_length
+    return result
+
+
+# same, but at the end of a sequence
+# eg 'ATATGGG', 'G' -> 3; 'AGGGGG', 'G' -> 5; 'TTATTATTAGTTA', 'TTA' -> 1
+def count_trailing_repeats(sequence: str, unit: str):
+    result = 0
+    unit_length = len(unit)
+    idx = len(sequence) - unit_length   # index at beginning of comparison eg 'GGATC', 'TC' starts at index 5 - 2 = 3, the 'T'
+    while idx >= 0 and sequence[idx:idx + unit_length] == unit:
+        result += 1
+        idx -= unit_length
+    return result
+
+
+
+def get_str_info_array(ref_sequence_string: str, variant: Variant):
+    assert len(ref_sequence_string) % 2 == 1, "must be odd length to have well-defined middle"
+    middle_idx = (len(ref_sequence_string) - 1) // 2
+
+    ref, alt = variant.ref, variant.alt
+
+    insertion_length = max(len(alt) - len(ref), 0)
+    deletion_length = max(len(ref) - len(alt), 0)
+
+    if len(ref) == len(alt):
+        unit = alt
+        repeats_after = count_leading_repeats(ref_sequence_string[middle_idx + len(ref):], unit)
+        repeats_before = count_trailing_repeats(ref_sequence_string[:middle_idx], unit)
+    elif insertion_length > 0:
+        unit = alt[1:]  # the inserted sequence is everything after the anchor base that matches ref
+        # TODO: we should account for cases like indel of ATAT where it's really two units of unit AT
+        repeats_after = count_leading_repeats(ref_sequence_string[middle_idx + len(ref):], unit)
+        repeats_before = count_trailing_repeats(ref_sequence_string[:middle_idx+1], unit)   # +1 accounts for the anchor base
+    else:
+        unit = ref[1:]  # the deleted sequence is everything after the anchor base
+        # it's pretty arbitrary whether we include the deleted bases themselves as 'after' or not
+        repeats_after = count_leading_repeats(ref_sequence_string[middle_idx + len(alt):], unit)
+        repeats_before = count_trailing_repeats(ref_sequence_string[middle_idx+1:], unit)   # likewise, account for the anchor base
+    # note that if indels are left-aligned (as they should be from the GATK) repeats_before really ought to be zero!!
+    return np.array([insertion_length, deletion_length, len(unit), repeats_before, repeats_after])
+
 
 class CountsAndSeqLks:
     LENGTH = 6
@@ -309,10 +360,11 @@ class BaseDatum:
     # gatk_info tensor comes from GATK and does not include one-hot encoding of variant type
     @classmethod
     def from_gatk(cls, ref_sequence_string: str, variant_type: Variation, ref_tensor: np.ndarray, alt_tensor: np.ndarray,
-                 gatk_info_tensor: np.ndarray, label: Label, variant: Variant = None, counts_and_seq_lks: CountsAndSeqLks = None):
+                 gatk_info_tensor: np.ndarray, label: Label, variant: Variant, counts_and_seq_lks: CountsAndSeqLks = None):
         read_tensor = np.vstack([ref_tensor, alt_tensor]) if ref_tensor is not None else alt_tensor
         alt_count = len(alt_tensor)
-        info_tensor = np.hstack([gatk_info_tensor, variant_type.one_hot_tensor().astype(DEFAULT_NUMPY_FLOAT)])
+        str_info = get_str_info_array(ref_sequence_string, variant)
+        info_tensor = np.hstack([gatk_info_tensor, str_info, variant_type.one_hot_tensor().astype(DEFAULT_NUMPY_FLOAT)])
         result = cls(read_tensor, make_1d_sequence_tensor(ref_sequence_string), alt_count, info_tensor, label, variant, counts_and_seq_lks)
         result.set_dtype(np.float16)
         return result
