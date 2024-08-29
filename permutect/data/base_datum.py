@@ -368,11 +368,10 @@ class BaseDatum:
 
             ref_array = np.hstack((before, ref_allele_array, after))
             alt_array = np.hstack((before, alt_allele_array, after))
+
+        assert len(ref_array) == len(alt_array)
+        assert alt_array[middle_idx] != ref_array[middle_idx]
         return ref_array[:len(original_ref_array)], alt_array[:len(original_ref_array)] # this clipping may be redundant
-
-
-
-
 
 
 def save_list_base_data(base_data: List[BaseDatum], file):
