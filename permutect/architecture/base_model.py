@@ -557,7 +557,7 @@ def record_embeddings(base_model: BaseModel, loader, summary_writer: SummaryWrit
             metrics.correct_metadata.extend(["unknown"] * batch.size())
             metrics.type_metadata.extend([Variation(idx).name for idx in batch.variant_types()])
             metrics.truncated_count_metadata.extend([str(round_up_to_nearest_three(min(MAX_COUNT, batch.alt_count)))] * batch.size())
-            embedding_metrics.representations.append(embeddings)
+            metrics.representations.append(embeddings)
     embedding_metrics.output_to_summary_writer(summary_writer)
     ref_alt_seq_metrics.output_to_summary_writer(summary_writer, prefix="ref and alt allele context")
 
