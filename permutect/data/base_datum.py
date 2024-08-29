@@ -349,8 +349,10 @@ class BaseDatum:
         original_ref_array = self.get_ref_sequence_1d() # gives an array eg ATTTCGG -> [0,3,3,3,1,2,2]
         assert len(original_ref_array) % 2 == 1, "ref sequence length should be odd"
         middle_idx = (len(original_ref_array) - 1) // 2
+        max_allele_length = middle_idx  # just kind of a coincidence
         variant = self.other_stuff.get_variant()
-        ref, alt = variant.ref, variant.alt # these are strings, not integers
+        ref, alt = variant.ref[:max_allele_length], variant.alt[:max_allele_length] # these are strings, not integers
+
         if len(ref) >= len(alt):    # substitution or deletion
             ref_array = original_ref_array
             alt_array = np.copy(ref_array)
