@@ -600,6 +600,9 @@ class ArtifactBatch:
     def get_representations_2d(self) -> Tensor:
         return self.representations_2d
 
+    def get_ref_alt_seq_embeddings_2d(self) -> Tensor:
+        return self.ref_alt_seq_embeddings_2d
+
     def is_labeled(self) -> bool:
         return self.labeled
 

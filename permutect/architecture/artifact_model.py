@@ -277,6 +277,7 @@ class ArtifactModel(nn.Module):
         evaluation_metrics.make_plots(summary_writer)
 
         embedding_metrics = EmbeddingMetrics()
+        ref_alt_seq_metrics = EmbeddingMetrics()
 
         # now go over just the validation data and generate feature vectors / metadata for tensorboard projectors (UMAP)
         pbar = tqdm(enumerate(filter(lambda bat: bat.is_labeled(), valid_loader)), mininterval=60)
@@ -289,12 +290,15 @@ class ArtifactModel(nn.Module):
             posterior_pred = pred + log_prior_odds
             correct = ((posterior_pred > 0) == (batch.labels > 0.5)).tolist()
 
-            embedding_metrics.label_metadata.extend(["artifact" if x > 0.5 else "non-artifact" for x in batch.labels.tolist()])
-            embedding_metrics.correct_metadata.extend([str(val) for val in correct])
-            embedding_metrics.type_metadata.extend([Variation(idx).name for idx in batch.variant_types()])
-            embedding_metrics.truncated_count_metadata.extend([str(round_up_to_nearest_three(min(MAX_COUNT, alt_count))) for alt_count in batch.alt_counts])
-            embedding_metrics.representations.append(batch.get_representations_2d().detach())
+            for (metrics, embedding) in [(embedding_metrics, batch.get_representations_2d().detach()),
+                                          (ref_alt_seq_metrics, batch.get_ref_alt_seq_embeddings_2d().detach())]:
+                metrics.label_metadata.extend(["artifact" if x > 0.5 else "non-artifact" for x in batch.labels.tolist()])
+                metrics.correct_metadata.extend([str(val) for val in correct])
+                metrics.type_metadata.extend([Variation(idx).name for idx in batch.variant_types()])
+                metrics.truncated_count_metadata.extend([str(round_up_to_nearest_three(min(MAX_COUNT, alt_count))) for alt_count in batch.alt_counts])
+                metrics.representations.append(embedding)
         embedding_metrics.output_to_summary_writer(summary_writer)
+        ref_alt_seq_metrics.output_to_summary_writer(summary_writer, prefix="ref alt seq ")
 
         # done collecting data
 
