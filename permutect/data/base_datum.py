@@ -487,10 +487,11 @@ class BaseBatch:
 class ArtifactDatum:
     """
     """
-    def __init__(self, base_datum: BaseDatum, representation: Tensor):
+    def __init__(self, base_datum: BaseDatum, representation: Tensor, ref_alt_seq_embedding: Tensor):
         # Note: if changing any of the data fields below, make sure to modify the size_in_bytes() method below accordingly!
         assert representation.dim() == 1
         self.representation = representation
+        self.ref_alt_seq_embedding = ref_alt_seq_embedding
         self.other_stuff = ArtifactDatum1DStuff(base_datum.get_other_stuff_1d())
         self.set_dtype(np.float16)
 
