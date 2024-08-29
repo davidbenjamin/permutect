@@ -430,7 +430,7 @@ class BaseBatch:
         #    assert len(datum.alt_tensor) == self.alt_count, "batch may not mix different alt counts"
 
         # num_classes = 5 for A, C, G, T, and deletion / insertion
-        ref_alt = [torch.flatten(torch.permute(torch.nn.functional.one_hot(torch.from_numpy(np.vstack(item.get_ref_and_alt_sequences())), num_classes=5), (0,2,1)), 0, 1) for item in data]    # list of 2D (2x5)xL
+        ref_alt = [torch.flatten(torch.permute(torch.nn.functional.one_hot(torch.from_numpy(np.vstack(item.get_ref_and_alt_sequences())).long(), num_classes=5), (0,2,1)), 0, 1) for item in data]    # list of 2D (2x5)xL
         # this is indexed by batch, length, channel (aka one-hot base encoding)
         ref_alt_bcl = torch.stack(ref_alt)
 
