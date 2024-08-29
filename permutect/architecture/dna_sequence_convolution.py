@@ -17,7 +17,7 @@ def pool_output_length(input_length, kernel_size=1, stride=None, pad=0, dilation
     return floor(((input_length + (2 * pad) - (dilation * (kernel_size - 1)) - 1) / (kernel_size if stride is None else stride)) + 1)
 
 
-INITIAL_NUM_CHANNELS = 4    # one channel for each DNA base
+INITIAL_NUM_CHANNELS = 10    # 2 x (4 + 1); the '2' is for ref and alt; the 4 is A/C/G/T; the +1 is for insertion/deletion
 TOKEN_SEPARATOR = '/'
 KEY_VALUE_SEPARATOR = '='
 
@@ -80,7 +80,7 @@ class DNASequenceConvolution(nn.Module):
             else:
                 raise Exception("unsupported layer_type: " + layer_type_token)
 
-        assert last_layer_length == 1, "dagta have not been flattened"
+        assert last_layer_length == 1, "data have not been flattened"
         self._output_dimension = last_layer_channels
         self._model = nn.Sequential(*layers)
 

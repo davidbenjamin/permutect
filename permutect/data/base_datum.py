@@ -344,6 +344,36 @@ class BaseDatum:
     def get_ref_sequence_1d(self) -> np.ndarray:
         return self.other_stuff.get_ref_seq_1d()
 
+    # returns two length-L 1D arrays of ref stacked on top of alt, with '4' in alt(ref) for deletions(insertions)
+    def get_ref_and_alt_sequences(self):
+        original_ref_array = self.get_ref_sequence_1d() # gives an array eg ATTTCGG -> [0,3,3,3,1,2,2]
+        assert len(original_ref_array) % 2 == 1, "ref sequence length should be odd"
+        middle_idx = (len(original_ref_array) - 1) // 2
+        variant = self.other_stuff.get_variant()
+        ref, alt = variant.ref, variant.alt # these are strings, not integers
+        if len(ref) >= len(alt):    # substitution or deletion
+            ref_array = original_ref_array
+            alt_array = np.copy(ref_array)
+            deletion_length = len(ref) - len(alt)
+            # add the deletion value '4' to make the alt allele array as long as the ref allele
+            alt_allele_array = make_1d_sequence_tensor(alt) if deletion_length == 0 else np.hstack((make_1d_sequence_tensor(alt), np.full(shape=deletion_length, fill_value=4)))
+            alt_array[middle_idx: middle_idx + len(alt_allele_array)] = alt_allele_array
+        else:   # insertion
+            insertion_length = len(alt) - len(ref)
+            before = original_ref_array[:middle_idx]
+            after = original_ref_array[middle_idx + len(ref):-insertion_length]
+
+            alt_allele_array = make_1d_sequence_tensor(alt)
+            ref_allele_array = np.hstack((make_1d_sequence_tensor(ref), np.full(shape=insertion_length, fill_value=4)))
+
+            ref_array = np.hstack((before, ref_allele_array, after))
+            alt_array = np.hstack((before, alt_allele_array, after))
+        return ref_array[:len(original_ref_array)], alt_array[:len(original_ref_array)] # this clipping may be redundant
+
+
+
+
+
 
 def save_list_base_data(base_data: List[BaseDatum], file):
     """
@@ -399,7 +429,12 @@ class BaseBatch:
         #    assert len(datum.ref_tensor) == self.ref_count, "batch may not mix different ref counts"
         #    assert len(datum.alt_tensor) == self.alt_count, "batch may not mix different alt counts"
 
-        self.ref_sequences_2d = torch.permute(torch.nn.functional.one_hot(torch.from_numpy(np.stack([item.get_ref_sequence_1d() for item in data])).long(), num_classes=4), (0, 2, 1))
+        # num_classes = 5 for A, C, G, T, and deletion / insertion
+        ref_alt = [torch.flatten(torch.permute(torch.nn.functional.one_hot(np.vstack(item.get_ref_and_alt_sequences()), num_classes=5), (0,2,1)), 0, 1) for item in data]    # list of 2D (2x5)xL
+        # this is indexed by batch, length, channel (aka one-hot base encoding)
+        ref_alt_bcl = torch.stack(ref_alt)
+
+        self.ref_sequences_2d = ref_alt_bcl
 
         list_of_ref_tensors = [item.get_ref_reads_2d() for item in data]
         list_of_alt_tensors = [item.get_alt_reads_2d() for item in data]
