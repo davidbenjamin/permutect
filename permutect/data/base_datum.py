@@ -165,7 +165,7 @@ def get_str_info_array(ref_sequence_string: str, variant: Variant):
         unit = ref[1:]  # the deleted sequence is everything after the anchor base
         # it's pretty arbitrary whether we include the deleted bases themselves as 'after' or not
         repeats_after = count_leading_repeats(ref_sequence_string[middle_idx + len(alt):], unit)
-        repeats_before = count_trailing_repeats(ref_sequence_string[middle_idx+1:], unit)   # likewise, account for the anchor base
+        repeats_before = count_trailing_repeats(ref_sequence_string[:middle_idx+1], unit)   # likewise, account for the anchor base
     # note that if indels are left-aligned (as they should be from the GATK) repeats_before really ought to be zero!!
     return np.array([insertion_length, deletion_length, len(unit), repeats_before, repeats_after])
 
