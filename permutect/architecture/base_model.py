@@ -163,7 +163,7 @@ class BaseModel(torch.nn.Module):
         concat_ve = torch.hstack((alt_means_ve, all_read_means_ve))
         result_ve = self.aggregation.forward(concat_ve)
 
-        return result_ve
+        return result_ve, ref_seq_embeddings_ve # ref seq embeddings are useful later
 
     def save(self, path):
         torch.save({
@@ -495,7 +495,7 @@ def learn_base_model(base_model: BaseModel, dataset: BaseDataset, learning_metho
             loader = train_loader if epoch_type == utils.Epoch.TRAIN else valid_loader
             pbar = tqdm(enumerate(loader), mininterval=60)
             for n, batch in pbar:
-                representations = base_model.calculate_representations(batch, weight_range=base_model._params.reweighting_range)
+                representations, _ = base_model.calculate_representations(batch, weight_range=base_model._params.reweighting_range)
                 separate_losses = learning_strategy.loss_function(base_model, batch, representations)
 
                 if separate_losses is None:
@@ -540,17 +540,20 @@ def learn_base_model(base_model: BaseModel, dataset: BaseDataset, learning_metho
 def record_embeddings(base_model: BaseModel, loader, summary_writer: SummaryWriter):
     # base_model.freeze_all() whoops -- it doesn't have freeze_all
     embedding_metrics = EmbeddingMetrics()
+    ref_alt_seq_metrics = EmbeddingMetrics()
 
     pbar = tqdm(enumerate(filter(lambda bat: bat.is_labeled(), loader)), mininterval=60)
     for n, batch in pbar:
-        representations = base_model.calculate_representations(batch, weight_range=base_model._params.reweighting_range)
+        representations, ref_alt_seq_embeddings = base_model.calculate_representations(batch, weight_range=base_model._params.reweighting_range)
 
         labels = ["artifact" if x > 0.5 else "non-artifact" for x in batch.labels.tolist()] if batch.is_labeled() else \
             (["unlabeled"] * batch.size())
-        embedding_metrics.label_metadata.extend(labels)
-        embedding_metrics.correct_metadata.extend(["unknown"] * batch.size())
-        embedding_metrics.type_metadata.extend([Variation(idx).name for idx in batch.variant_types()])
-        embedding_metrics.truncated_count_metadata.extend([str(round_up_to_nearest_three(min(MAX_COUNT, batch.alt_count)))] * batch.size())
-        embedding_metrics.representations.append(representations)
+        for (metrics, embeddings) in [(embedding_metrics, representations), (ref_alt_seq_metrics, ref_alt_seq_embeddings)]:
+            metrics.label_metadata.extend(labels)
+            metrics.correct_metadata.extend(["unknown"] * batch.size())
+            metrics.type_metadata.extend([Variation(idx).name for idx in batch.variant_types()])
+            metrics.truncated_count_metadata.extend([str(round_up_to_nearest_three(min(MAX_COUNT, batch.alt_count)))] * batch.size())
+            embedding_metrics.representations.append(embeddings)
     embedding_metrics.output_to_summary_writer(summary_writer)
+    ref_alt_seq_metrics.output_to_summary_writer(summary_writer, prefix="ref and alt allele context")
 
