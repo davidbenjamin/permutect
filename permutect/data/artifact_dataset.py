@@ -31,7 +31,7 @@ class ArtifactDataset(Dataset):
         print("making artifact dataset from base dataset")
         pbar = tqdm(enumerate(loader), mininterval=60)
         for n, base_batch in pbar:
-            representations, ref_alt_seq_embeddings = base_model.calculate_representations(base_batch).detach()
+            representations, ref_alt_seq_embeddings = base_model.calculate_representations(base_batch)
             for representation, ref_alt_emb, base_datum in zip(representations.detach(), ref_alt_seq_embeddings.detach(), base_batch.original_list()):
                 artifact_datum = ArtifactDatum(base_datum, representation.detach(), ref_alt_emb)
                 self.artifact_data.append(artifact_datum)
