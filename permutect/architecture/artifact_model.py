@@ -157,12 +157,12 @@ class ArtifactModel(nn.Module):
 
         if training_params.optimizer == 'adam':
             train_optimizer = torch.optim.AdamW(self.training_parameters(), lr=training_params.learning_rate, weight_decay=training_params.weight_decay)
+            calibration_optimizer = torch.optim.AdamW(self.calibration_parameters(), lr=training_params.learning_rate, weight_decay=training_params.weight_decay)
         elif training_params.optimizer == 'shampoo':
             train_optimizer = torch_optimizer.Shampoo(self.training_parameters(), lr=training_params.learning_rate, weight_decay=training_params.weight_decay)
+            calibration_optimizer = torch_optimizer.Shampoo(self.calibration_parameters(), lr=training_params.learning_rate, weight_decay=training_params.weight_decay)
         else:
             raise Exception(f"Optimizer {training_params.optimizer} is not implemented.")
-
-        calibration_optimizer = torch.optim.AdamW(self.calibration_parameters(), lr=training_params.learning_rate, weight_decay=training_params.weight_decay)
 
         artifact_to_non_artifact_ratios = torch.from_numpy(dataset.artifact_to_non_artifact_ratios()).to(self._device)
         artifact_to_non_artifact_log_prior_ratios = torch.log(artifact_to_non_artifact_ratios)

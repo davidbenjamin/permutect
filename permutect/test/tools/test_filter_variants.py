@@ -31,6 +31,7 @@ def test_filtering_on_dream1_chr20():
     setattr(filtering_args, constants.CHUNK_SIZE_NAME, 100000)
     setattr(filtering_args, constants.NUM_SPECTRUM_ITERATIONS_NAME, 2)
     setattr(filtering_args, constants.SPECTRUM_LEARNING_RATE_NAME, 0.001)
+    setattr(filtering_args, constants.OPTIMIZER_NAME, 'adam')
     setattr(filtering_args, constants.INITIAL_LOG_VARIANT_PRIOR_NAME, -10.0)
     setattr(filtering_args, constants.INITIAL_LOG_ARTIFACT_PRIOR_NAME, -10.0)
     setattr(filtering_args, constants.GENOMIC_SPAN_NAME, 60000000)

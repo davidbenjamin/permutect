@@ -87,6 +87,7 @@ def parse_arguments():
                         help='number of epochs for fitting allele fraction spectra')
     parser.add_argument('--' + constants.SPECTRUM_LEARNING_RATE_NAME, type=float, default=0.001, required=False,
                         help='learning rate for fitting allele fraction spectra')
+    parser.add_argument('--' + constants.OPTIMIZER_NAME, type=str, required=False, default='adam')
     parser.add_argument('--' + constants.INITIAL_LOG_VARIANT_PRIOR_NAME, type=float, default=-10.0, required=False,
                         help='initial value for natural log prior of somatic variants')
     parser.add_argument('--' + constants.INITIAL_LOG_ARTIFACT_PRIOR_NAME, type=float, default=-10.0, required=False,
@@ -144,6 +145,7 @@ def main_without_parsing(args):
                       chunk_size=getattr(args, constants.CHUNK_SIZE_NAME),
                       num_spectrum_iterations=getattr(args, constants.NUM_SPECTRUM_ITERATIONS_NAME),
                       spectrum_learning_rate=getattr(args, constants.SPECTRUM_LEARNING_RATE_NAME),
+                      optimizer=getattr(args, constants.OPTIMIZER_NAME),
                       tensorboard_dir=getattr(args, constants.TENSORBOARD_DIR_NAME),
                       genomic_span=getattr(args, constants.GENOMIC_SPAN_NAME),
                       germline_mode=getattr(args, constants.GERMLINE_MODE_NAME),
@@ -154,7 +156,7 @@ def main_without_parsing(args):
 
 def make_filtered_vcf(saved_artifact_model_path, base_model_path, initial_log_variant_prior: float, initial_log_artifact_prior: float,
                       test_dataset_file, contigs_table, input_vcf, output_vcf, batch_size: int, num_workers: int, chunk_size: int, num_spectrum_iterations: int,
-                      spectrum_learning_rate: float, tensorboard_dir, genomic_span: int, germline_mode: bool = False, no_germline_mode: bool = False,
+                      spectrum_learning_rate: float, optimizer: str, tensorboard_dir, genomic_span: int, germline_mode: bool = False, no_germline_mode: bool = False,
                       segmentation=defaultdict(IntervalTree), normal_segmentation=defaultdict(IntervalTree)):
     print("Loading artifact model and test dataset")
     base_model = load_base_model(base_model_path)
@@ -177,7 +179,7 @@ def make_filtered_vcf(saved_artifact_model_path, base_model_path, initial_log_va
 
     posterior_model.learn_priors_and_spectra(posterior_data_loader, num_iterations=num_spectrum_iterations,
         summary_writer=summary_writer, ignored_to_non_ignored_ratio=num_ignored_sites/len(posterior_data_loader.dataset),
-                                             learning_rate=spectrum_learning_rate)
+                                             learning_rate=spectrum_learning_rate, optimizer=optimizer)
 
     print("Calculating optimal logit threshold")
     error_probability_thresholds = posterior_model.calculate_probability_thresholds(posterior_data_loader, summary_writer, germline_mode=germline_mode)

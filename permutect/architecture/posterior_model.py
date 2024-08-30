@@ -5,6 +5,7 @@ from math import ceil
 import torch
 from matplotlib import pyplot as plt
 from torch.utils.tensorboard import SummaryWriter
+import torch_optimizer
 from tqdm.autonotebook import trange, tqdm
 
 from permutect import utils
@@ -198,7 +199,7 @@ class PosteriorModel(torch.nn.Module):
         return log_posteriors
 
     def learn_priors_and_spectra(self, posterior_loader, num_iterations, ignored_to_non_ignored_ratio: float,
-                                 summary_writer: SummaryWriter = None, learning_rate: float = 0.001):
+                                 summary_writer: SummaryWriter = None, learning_rate: float = 0.001, optimizer: str = 'adam'):
         """
         :param summary_writer:
         :param num_iterations:
@@ -215,7 +216,13 @@ class PosteriorModel(torch.nn.Module):
         spectra_and_prior_params = chain(self.somatic_spectrum.parameters(), self.artifact_spectra.parameters(),
                                          self._unnormalized_priors.parameters(), self.normal_seq_error_spectra.parameters(),
                                          self.normal_artifact_spectra.parameters())
-        optimizer = torch.optim.Adam(spectra_and_prior_params, lr=learning_rate)
+
+        if optimizer == 'adam':
+            posterior_optimizer = torch.optim.AdamW(spectra_and_prior_params, lr=learning_rate)
+        elif optimizer == 'shampoo':
+            posterior_optimizer = torch_optimizer.Shampoo(spectra_and_prior_params, lr=learning_rate)
+        else:
+            raise Exception(f"Optimizer {optimizer} is not implemented.")
 
         for epoch in trange(1, num_iterations + 1, desc="AF spectra epoch"):
             epoch_loss = utils.StreamingAverage()
@@ -239,7 +246,7 @@ class PosteriorModel(torch.nn.Module):
                     missing_loss = -ignored_to_non_ignored_ratio * log_seq_error_prior  
                     loss += missing_loss
 
-                utils.backpropagate(optimizer, loss)
+                utils.backpropagate(posterior_optimizer, loss)
 
                 epoch_loss.record_sum(batch.size() * loss.detach(), batch.size())
 
