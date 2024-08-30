@@ -21,7 +21,7 @@ import enum
 import itertools
 
 from dataclasses import dataclass
-import matrix_functions
+from permutect import matrix_functions
 import numpy as np
 import torch
 import torch.optim as optim
