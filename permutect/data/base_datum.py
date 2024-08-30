@@ -118,6 +118,57 @@ class Variant:
     def get_alt_as_int(self):
         return bases_as_base5_int(self.alt)
 
+# count how many times a unit string is repeated at the beginning of a larger string
+# eg 'ATATGGG', 'AT' -> 1; 'AGGGGG', 'G' -> 0; 'TTATTATTAGTTA', 'TTA' -> 3
+def count_leading_repeats(sequence: str, unit: str):
+    result = 0
+    idx = 0
+    unit_length = len(unit)
+    while (idx + unit_length - 1 < len(sequence)) and sequence[idx:idx + unit_length] == unit:
+        result += 1
+        idx += unit_length
+    return result
+
+
+# same, but at the end of a sequence
+# eg 'ATATGGG', 'G' -> 3; 'AGGGGG', 'G' -> 5; 'TTATTATTAGTTA', 'TTA' -> 1
+def count_trailing_repeats(sequence: str, unit: str):
+    result = 0
+    unit_length = len(unit)
+    idx = len(sequence) - unit_length   # index at beginning of comparison eg 'GGATC', 'TC' starts at index 5 - 2 = 3, the 'T'
+    while idx >= 0 and sequence[idx:idx + unit_length] == unit:
+        result += 1
+        idx -= unit_length
+    return result
+
+
+
+def get_str_info_array(ref_sequence_string: str, variant: Variant):
+    assert len(ref_sequence_string) % 2 == 1, "must be odd length to have well-defined middle"
+    middle_idx = (len(ref_sequence_string) - 1) // 2
+
+    ref, alt = variant.ref, variant.alt
+
+    insertion_length = max(len(alt) - len(ref), 0)
+    deletion_length = max(len(ref) - len(alt), 0)
+
+    if len(ref) == len(alt):
+        unit = alt
+        repeats_after = count_leading_repeats(ref_sequence_string[middle_idx + len(ref):], unit)
+        repeats_before = count_trailing_repeats(ref_sequence_string[:middle_idx], unit)
+    elif insertion_length > 0:
+        unit = alt[1:]  # the inserted sequence is everything after the anchor base that matches ref
+        # TODO: we should account for cases like indel of ATAT where it's really two units of unit AT
+        repeats_after = count_leading_repeats(ref_sequence_string[middle_idx + len(ref):], unit)
+        repeats_before = count_trailing_repeats(ref_sequence_string[:middle_idx+1], unit)   # +1 accounts for the anchor base
+    else:
+        unit = ref[1:]  # the deleted sequence is everything after the anchor base
+        # it's pretty arbitrary whether we include the deleted bases themselves as 'after' or not
+        repeats_after = count_leading_repeats(ref_sequence_string[middle_idx + len(alt):], unit)
+        repeats_before = count_trailing_repeats(ref_sequence_string[:middle_idx+1], unit)   # likewise, account for the anchor base
+    # note that if indels are left-aligned (as they should be from the GATK) repeats_before really ought to be zero!!
+    return np.array([insertion_length, deletion_length, len(unit), repeats_before, repeats_after])
+
 
 class CountsAndSeqLks:
     LENGTH = 6
@@ -309,10 +360,11 @@ class BaseDatum:
     # gatk_info tensor comes from GATK and does not include one-hot encoding of variant type
     @classmethod
     def from_gatk(cls, ref_sequence_string: str, variant_type: Variation, ref_tensor: np.ndarray, alt_tensor: np.ndarray,
-                 gatk_info_tensor: np.ndarray, label: Label, variant: Variant = None, counts_and_seq_lks: CountsAndSeqLks = None):
+                 gatk_info_tensor: np.ndarray, label: Label, variant: Variant, counts_and_seq_lks: CountsAndSeqLks = None):
         read_tensor = np.vstack([ref_tensor, alt_tensor]) if ref_tensor is not None else alt_tensor
         alt_count = len(alt_tensor)
-        info_tensor = np.hstack([gatk_info_tensor, variant_type.one_hot_tensor().astype(DEFAULT_NUMPY_FLOAT)])
+        str_info = get_str_info_array(ref_sequence_string, variant)
+        info_tensor = np.hstack([gatk_info_tensor, str_info, variant_type.one_hot_tensor().astype(DEFAULT_NUMPY_FLOAT)])
         result = cls(read_tensor, make_1d_sequence_tensor(ref_sequence_string), alt_count, info_tensor, label, variant, counts_and_seq_lks)
         result.set_dtype(np.float16)
         return result
@@ -343,6 +395,40 @@ class BaseDatum:
 
     def get_ref_sequence_1d(self) -> np.ndarray:
         return self.other_stuff.get_ref_seq_1d()
+
+    # returns two length-L 1D arrays of ref stacked on top of alt, with '4' in alt(ref) for deletions(insertions)
+    def get_ref_and_alt_sequences(self):
+        original_ref_array = self.get_ref_sequence_1d() # gives an array eg ATTTCGG -> [0,3,3,3,1,2,2]
+        assert len(original_ref_array) % 2 == 1, "ref sequence length should be odd"
+        middle_idx = (len(original_ref_array) - 1) // 2
+        max_allele_length = middle_idx  # just kind of a coincidence
+        variant = self.other_stuff.get_variant()
+        ref, alt = variant.ref[:max_allele_length], variant.alt[:max_allele_length] # these are strings, not integers
+
+        if len(ref) >= len(alt):    # substitution or deletion
+            ref_array = original_ref_array
+            alt_array = np.copy(ref_array)
+            deletion_length = len(ref) - len(alt)
+            # add the deletion value '4' to make the alt allele array as long as the ref allele
+            alt_allele_array = make_1d_sequence_tensor(alt) if deletion_length == 0 else np.hstack((make_1d_sequence_tensor(alt), np.full(shape=deletion_length, fill_value=4)))
+            alt_array[middle_idx: middle_idx + len(alt_allele_array)] = alt_allele_array
+        else:   # insertion
+            insertion_length = len(alt) - len(ref)
+            before = original_ref_array[:middle_idx]
+            after = original_ref_array[middle_idx + len(ref):-insertion_length]
+
+            alt_allele_array = make_1d_sequence_tensor(alt)
+            ref_allele_array = np.hstack((make_1d_sequence_tensor(ref), np.full(shape=insertion_length, fill_value=4)))
+
+            ref_array = np.hstack((before, ref_allele_array, after))
+            alt_array = np.hstack((before, alt_allele_array, after))
+
+        assert len(ref_array) == len(alt_array)
+        if len(ref) == len(alt): # SNV -- ref and alt ought to be different
+            assert alt_array[middle_idx] != ref_array[middle_idx]
+        else:   # indel -- ref and alt are the same at the anchor base, then are different
+            assert alt_array[middle_idx + 1] != ref_array[middle_idx + 1]
+        return ref_array[:len(original_ref_array)], alt_array[:len(original_ref_array)] # this clipping may be redundant
 
 
 def save_list_base_data(base_data: List[BaseDatum], file):
@@ -399,7 +485,12 @@ class BaseBatch:
         #    assert len(datum.ref_tensor) == self.ref_count, "batch may not mix different ref counts"
         #    assert len(datum.alt_tensor) == self.alt_count, "batch may not mix different alt counts"
 
-        self.ref_sequences_2d = torch.permute(torch.nn.functional.one_hot(torch.from_numpy(np.stack([item.get_ref_sequence_1d() for item in data])).long(), num_classes=4), (0, 2, 1))
+        # num_classes = 5 for A, C, G, T, and deletion / insertion
+        ref_alt = [torch.flatten(torch.permute(torch.nn.functional.one_hot(torch.from_numpy(np.vstack(item.get_ref_and_alt_sequences())).long(), num_classes=5), (0,2,1)), 0, 1) for item in data]    # list of 2D (2x5)xL
+        # this is indexed by batch, length, channel (aka one-hot base encoding)
+        ref_alt_bcl = torch.stack(ref_alt)
+
+        self.ref_sequences_2d = ref_alt_bcl
 
         list_of_ref_tensors = [item.get_ref_reads_2d() for item in data]
         list_of_alt_tensors = [item.get_alt_reads_2d() for item in data]
@@ -448,10 +539,11 @@ class BaseBatch:
 class ArtifactDatum:
     """
     """
-    def __init__(self, base_datum: BaseDatum, representation: Tensor):
+    def __init__(self, base_datum: BaseDatum, representation: Tensor, ref_alt_seq_embedding: Tensor):
         # Note: if changing any of the data fields below, make sure to modify the size_in_bytes() method below accordingly!
         assert representation.dim() == 1
         self.representation = representation
+        self.ref_alt_seq_embedding = ref_alt_seq_embedding
         self.other_stuff = ArtifactDatum1DStuff(base_datum.get_other_stuff_1d())
         self.set_dtype(np.float16)
 
@@ -487,6 +579,7 @@ class ArtifactBatch:
         self.labeled = data[0].get_label() != Label.UNLABELED
 
         self.representations_2d = torch.vstack([item.representation for item in data])
+        self.ref_alt_seq_embeddings_2d = torch.vstack([item.ref_alt_seq_embedding for item in data])
         self.labels = FloatTensor([1.0 if item.get_label() == Label.ARTIFACT else 0.0 for item in data]) if self.labeled else None
         self.ref_counts = IntTensor([int(item.get_ref_count()) for item in data])
         self.alt_counts = IntTensor([int(item.get_alt_count()) for item in data])
@@ -497,6 +590,7 @@ class ArtifactBatch:
     # pin memory for all tensors that are sent to the GPU
     def pin_memory(self):
         self.representations_2d = self.representations_2d.pin_memory()
+        self.ref_alt_seq_embeddings_2d = self.ref_alt_seq_embeddings_2d.pin_memory()
         self.labels = self.labels.pin_memory()
         self.ref_counts = self.ref_counts.pin_memory()
         self.alt_counts = self.alt_counts.pin_memory()
@@ -505,6 +599,9 @@ class ArtifactBatch:
 
     def get_representations_2d(self) -> Tensor:
         return self.representations_2d
+
+    def get_ref_alt_seq_embeddings_2d(self) -> Tensor:
+        return self.ref_alt_seq_embeddings_2d
 
     def is_labeled(self) -> bool:
         return self.labeled

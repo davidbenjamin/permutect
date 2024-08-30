@@ -108,9 +108,9 @@ def generated_pruned_data_for_fold(art_threshold: float, nonart_threshold: float
     pbar = tqdm(enumerate(filter(lambda bat: bat.is_labeled(), pruning_base_data_loader)), mininterval=60)
     for n, base_batch in pbar:
         # apply the representation model AND the artifact model to go from the original read set to artifact logits
-        representation = base_model.calculate_representations(base_batch)
+        representation, ref_alt_seq_embeddings = base_model.calculate_representations(base_batch)
 
-        rrs_batch = ArtifactBatch([ArtifactDatum(rs, rep) for rs, rep in zip(base_batch.original_list(), representation)])
+        rrs_batch = ArtifactBatch([ArtifactDatum(rs, rep, ref_alt_emb) for rs, rep, ref_alt_emb in zip(base_batch.original_list(), representation.detach(), ref_alt_seq_embeddings.detach())])
         art_probs = torch.sigmoid(artifact_model.forward(rrs_batch).detach())
         art_label_mask = (base_batch.labels > 0.5)
 
@@ -142,7 +142,7 @@ def generate_pruned_data_for_all_folds(base_dataset: BaseDataset, base_model: Ba
         pruning_artifact_dataset = ArtifactDataset(base_dataset, base_model, [pruning_fold])
         pruning_loader = pruning_artifact_dataset.make_data_loader(pruning_artifact_dataset.all_folds(),
             training_params.batch_size, use_gpu, training_params.num_workers)
-        model = ArtifactModel(params=params, num_base_features=artifact_dataset.num_base_features, device=device).float()
+        model = ArtifactModel(params=params, num_base_features=artifact_dataset.num_base_features, num_ref_alt_features=base_model.ref_alt_seq_embedding_dimension(), device=device).float()
         model.learn(artifact_dataset, training_params, summary_writer=summary_writer)
 
         art_threshold, nonart_threshold = calculate_pruning_thresholds(pruning_loader, model, label_art_frac, training_params)

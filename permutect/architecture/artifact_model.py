@@ -106,12 +106,13 @@ class ArtifactModel(nn.Module):
     because we have different output layers for each variant type.
     """
 
-    def __init__(self, params: ArtifactModelParameters, num_base_features: int, device=utils.gpu_if_available()):
+    def __init__(self, params: ArtifactModelParameters, num_base_features: int, num_ref_alt_features: int, device=utils.gpu_if_available()):
         super(ArtifactModel, self).__init__()
 
         self._device = device
         self._dtype = DEFAULT_GPU_FLOAT if device != torch.device("cpu") else DEFAULT_CPU_FLOAT
         self.num_base_features = num_base_features
+        self.num_ref_alt_features = num_ref_alt_features
         self.params = params
 
         # The [1] is for the output logit
@@ -276,6 +277,7 @@ class ArtifactModel(nn.Module):
         evaluation_metrics.make_plots(summary_writer)
 
         embedding_metrics = EmbeddingMetrics()
+        ref_alt_seq_metrics = EmbeddingMetrics()
 
         # now go over just the validation data and generate feature vectors / metadata for tensorboard projectors (UMAP)
         pbar = tqdm(enumerate(filter(lambda bat: bat.is_labeled(), valid_loader)), mininterval=60)
@@ -288,12 +290,15 @@ class ArtifactModel(nn.Module):
             posterior_pred = pred + log_prior_odds
             correct = ((posterior_pred > 0) == (batch.labels > 0.5)).tolist()
 
-            embedding_metrics.label_metadata.extend(["artifact" if x > 0.5 else "non-artifact" for x in batch.labels.tolist()])
-            embedding_metrics.correct_metadata.extend([str(val) for val in correct])
-            embedding_metrics.type_metadata.extend([Variation(idx).name for idx in batch.variant_types()])
-            embedding_metrics.truncated_count_metadata.extend([str(round_up_to_nearest_three(min(MAX_COUNT, alt_count))) for alt_count in batch.alt_counts])
-            embedding_metrics.representations.append(batch.get_representations_2d().detach())
+            for (metrics, embedding) in [(embedding_metrics, batch.get_representations_2d().detach()),
+                                          (ref_alt_seq_metrics, batch.get_ref_alt_seq_embeddings_2d().detach())]:
+                metrics.label_metadata.extend(["artifact" if x > 0.5 else "non-artifact" for x in batch.labels.tolist()])
+                metrics.correct_metadata.extend([str(val) for val in correct])
+                metrics.type_metadata.extend([Variation(idx).name for idx in batch.variant_types()])
+                metrics.truncated_count_metadata.extend([str(round_up_to_nearest_three(min(MAX_COUNT, alt_count))) for alt_count in batch.alt_counts])
+                metrics.representations.append(embedding)
         embedding_metrics.output_to_summary_writer(summary_writer)
+        ref_alt_seq_metrics.output_to_summary_writer(summary_writer, prefix="ref alt seq ")
 
         # done collecting data
 
@@ -301,6 +306,7 @@ class ArtifactModel(nn.Module):
         torch.save({
             constants.STATE_DICT_NAME: self.state_dict(),
             constants.NUM_BASE_FEATURES_NAME: self.num_base_features,
+            constants.NUM_REF_ALT_FEATURES_NAME: self.num_ref_alt_features,
             constants.HYPERPARAMS_NAME: self.params,
             constants.ARTIFACT_LOG_PRIORS_NAME: artifact_log_priors,
             constants.ARTIFACT_SPECTRA_STATE_DICT_NAME: artifact_spectra.state_dict()
@@ -312,7 +318,8 @@ def load_artifact_model(path) -> ArtifactModel:
     saved = torch.load(path)
     model_params = saved[constants.HYPERPARAMS_NAME]
     num_base_features = saved[constants.NUM_BASE_FEATURES_NAME]
-    model = ArtifactModel(model_params, num_base_features)
+    num_ref_alt_features = saved[constants.NUM_REF_ALT_FEATURES_NAME]
+    model = ArtifactModel(model_params, num_base_features, num_ref_alt_features)
     model.load_state_dict(saved[constants.STATE_DICT_NAME])
 
     artifact_log_priors = saved[constants.ARTIFACT_LOG_PRIORS_NAME]     # possibly None
