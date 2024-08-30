@@ -8,7 +8,6 @@ import torch
 from torch import nn, Tensor
 import numpy as np
 from torch.utils.tensorboard import SummaryWriter
-import torch_optimizer
 from queue import PriorityQueue
 
 
@@ -20,7 +19,7 @@ from permutect.architecture.mlp import MLP
 from permutect.architecture.monotonic import MonoDense
 from permutect.data.base_datum import ArtifactBatch, DEFAULT_GPU_FLOAT, DEFAULT_CPU_FLOAT
 from permutect.data.artifact_dataset import ArtifactDataset
-from permutect import utils, constants
+from permutect import utils, constants, shampoo
 from permutect.metrics.evaluation_metrics import LossMetrics, EvaluationMetrics, MAX_COUNT, round_up_to_nearest_three, EmbeddingMetrics
 from permutect.parameters import TrainingParameters, ArtifactModelParameters
 from permutect.utils import Variation, Epoch, Label
@@ -159,8 +158,9 @@ class ArtifactModel(nn.Module):
             train_optimizer = torch.optim.AdamW(self.training_parameters(), lr=training_params.learning_rate, weight_decay=training_params.weight_decay)
             calibration_optimizer = torch.optim.AdamW(self.calibration_parameters(), lr=training_params.learning_rate, weight_decay=training_params.weight_decay)
         elif training_params.optimizer == 'shampoo':
-            train_optimizer = torch_optimizer.Shampoo(self.training_parameters(), lr=training_params.learning_rate, weight_decay=training_params.weight_decay)
-            calibration_optimizer = torch_optimizer.Shampoo(self.calibration_parameters(), lr=training_params.learning_rate, weight_decay=training_params.weight_decay)
+            train_optimizer = shampoo.Shampoo(self.training_parameters(), lr=training_params.learning_rate, hyperparams=shampoo.ShampooHyperParams(weight_decay=training_params.weight_decay))
+            calibration_optimizer = shampoo.Shampoo(self.calibration_parameters(), lr=training_params.learning_rate, hyperparams=shampoo.ShampooHyperParams(weight_decay=training_params.weight_decay))
+
         else:
             raise Exception(f"Optimizer {training_params.optimizer} is not implemented.")
 

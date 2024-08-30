@@ -5,10 +5,9 @@ from math import ceil
 import torch
 from matplotlib import pyplot as plt
 from torch.utils.tensorboard import SummaryWriter
-import torch_optimizer
 from tqdm.autonotebook import trange, tqdm
 
-from permutect import utils
+from permutect import utils, shampoo
 from permutect.architecture.artifact_spectra import ArtifactSpectra
 from permutect.architecture.overdispersed_binomial_mixture import OverdispersedBinomialMixture
 from permutect.architecture.normal_seq_error_spectrum import NormalSeqErrorSpectrum
@@ -220,7 +219,7 @@ class PosteriorModel(torch.nn.Module):
         if optimizer == 'adam':
             posterior_optimizer = torch.optim.AdamW(spectra_and_prior_params, lr=learning_rate)
         elif optimizer == 'shampoo':
-            posterior_optimizer = torch_optimizer.Shampoo(spectra_and_prior_params, lr=learning_rate)
+            posterior_optimizer = shampoo.Shampoo(spectra_and_prior_params, lr=learning_rate)
         else:
             raise Exception(f"Optimizer {optimizer} is not implemented.")
 

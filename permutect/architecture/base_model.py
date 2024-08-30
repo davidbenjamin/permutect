@@ -7,10 +7,9 @@ import psutil
 import torch
 from torch.utils.tensorboard import SummaryWriter
 from torch.nn.parameter import Parameter
-import torch_optimizer
 from tqdm.autonotebook import trange, tqdm
 
-from permutect import utils, constants
+from permutect import utils, constants, shampoo
 from permutect.architecture.dna_sequence_convolution import DNASequenceConvolution
 from permutect.architecture.mlp import MLP
 from permutect.data.base_datum import BaseBatch, DEFAULT_GPU_FLOAT, DEFAULT_CPU_FLOAT
@@ -479,8 +478,8 @@ def learn_base_model(base_model: BaseModel, dataset: BaseDataset, learning_metho
         train_optimizer = torch.optim.AdamW(chain(base_model.parameters(), learning_strategy.parameters()),
                                         lr=training_params.learning_rate, weight_decay=training_params.weight_decay)
     elif training_params.optimizer == 'shampoo':
-        train_optimizer = torch_optimizer.Shampoo(chain(base_model.parameters(), learning_strategy.parameters()),
-                                        lr=training_params.learning_rate, weight_decay=training_params.weight_decay)
+        train_optimizer = shampoo.Shampoo(chain(base_model.parameters(), learning_strategy.parameters()),
+                                        lr=training_params.learning_rate, hyperparams=shampoo.ShampooHyperParams(weight_decay=training_params.weight_decay))
     else:
         raise Exception(f"Optimizer {training_params.optimizer} is not implemented.")
 
