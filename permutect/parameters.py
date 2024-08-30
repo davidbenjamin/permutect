@@ -94,6 +94,7 @@ class TrainingParameters:
 
 
 def parse_training_params(args) -> TrainingParameters:
+    optimizer = getattr(args, constants.OPTIMIZER_NAME)
     learning_rate = getattr(args, constants.LEARNING_RATE_NAME)
     weight_decay = getattr(args, constants.WEIGHT_DECAY_NAME)
     batch_size = getattr(args, constants.BATCH_SIZE_NAME)
@@ -104,6 +105,7 @@ def parse_training_params(args) -> TrainingParameters:
 
 
 def add_training_params_to_parser(parser):
+    parser.add_argument('--' + constants.OPTIMIZER_NAME, type=str, required=False, default='adam')
     parser.add_argument('--' + constants.LEARNING_RATE_NAME, type=float, default=0.001, required=False,
                         help='learning rate')
     parser.add_argument('--' + constants.WEIGHT_DECAY_NAME, type=float, default=0.0, required=False,

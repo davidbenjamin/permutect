@@ -437,7 +437,7 @@ class BaseModelMARSLoss(torch.nn.Module, BaseModelLearningStrategy):
 
 # artifact model parameters are for simultaneously training an artifact model on top of the base model
 # to measure quality, especially in unsupervised training when the loss metric isn't directly related to accuracy or cross-entropy
-def learn_base_model(base_model: BaseModel, dataset: BaseDataset, learning_method: LearningMethod, optimizer: str, training_params: TrainingParameters,
+def learn_base_model(base_model: BaseModel, dataset: BaseDataset, learning_method: LearningMethod, training_params: TrainingParameters,
                      summary_writer: SummaryWriter, validation_fold: int = None):
     # balance training by weighting the loss function
     # if total unlabeled is less than total labeled, we do not compensate, since labeled data are more informative
@@ -475,14 +475,14 @@ def learn_base_model(base_model: BaseModel, dataset: BaseDataset, learning_metho
         raise Exception(f"Learning method {learning_method} is not implemented.")
     learning_strategy.to(device=base_model._device, dtype=base_model._dtype)
 
-    if optimizer == 'adam':
+    if training_params.optimizer == 'adam':
         train_optimizer = torch.optim.AdamW(chain(base_model.parameters(), learning_strategy.parameters()),
                                         lr=training_params.learning_rate, weight_decay=training_params.weight_decay)
-    elif optimizer == 'shampoo':
+    elif training_params.optimizer == 'shampoo':
         train_optimizer = torch_optimizer.Shampoo(chain(base_model.parameters(), learning_strategy.parameters()),
                                         lr=training_params.learning_rate, weight_decay=training_params.weight_decay)
     else:
-        raise Exception(f"Optimizer {optimizer} is not implemented.")
+        raise Exception(f"Optimizer {training_params.optimizer} is not implemented.")
 
     train_scheduler = torch.optim.lr_scheduler.CyclicLR(train_optimizer, base_lr=training_params.learning_rate/10, max_lr=training_params.learning_rate)
 

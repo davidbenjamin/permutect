@@ -8,6 +8,7 @@ import torch
 from torch import nn, Tensor
 import numpy as np
 from torch.utils.tensorboard import SummaryWriter
+import torch_optimizer
 from queue import PriorityQueue
 
 
@@ -153,7 +154,14 @@ class ArtifactModel(nn.Module):
 
     def learn(self, dataset: ArtifactDataset, training_params: TrainingParameters, summary_writer: SummaryWriter, validation_fold: int = None):
         bce = nn.BCEWithLogitsLoss(reduction='none')  # no reduction because we may want to first multiply by weights for unbalanced data
-        train_optimizer = torch.optim.AdamW(self.training_parameters(), lr=training_params.learning_rate, weight_decay=training_params.weight_decay)
+
+        if training_params.optimizer == 'adam':
+            train_optimizer = torch.optim.AdamW(self.training_parameters(), lr=training_params.learning_rate, weight_decay=training_params.weight_decay)
+        elif training_params.optimizer == 'shampoo':
+            train_optimizer = torch_optimizer.Shampoo(self.training_parameters(), lr=training_params.learning_rate, weight_decay=training_params.weight_decay)
+        else:
+            raise Exception(f"Optimizer {training_params.optimizer} is not implemented.")
+
         calibration_optimizer = torch.optim.AdamW(self.calibration_parameters(), lr=training_params.learning_rate, weight_decay=training_params.weight_decay)
 
         artifact_to_non_artifact_ratios = torch.from_numpy(dataset.artifact_to_non_artifact_ratios()).to(self._device)
