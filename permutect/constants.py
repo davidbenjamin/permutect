@@ -19,6 +19,7 @@ TRANSFORMER_HIDDEN_DIMENSION_NAME = 'transformer_hidden_dimension'
 NUM_TRANSFORMER_LAYERS_NAME = 'num_transformer_layers'
 
 LEARNING_METHOD_NAME = 'learning_method'
+OPTIMIZER_NAME = 'optimizer'
 
 INFO_LAYERS_NAME = 'info_layers'
 AGGREGATION_LAYERS_NAME = 'aggregation_layers'

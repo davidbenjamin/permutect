@@ -31,6 +31,7 @@ def test_train_base_model():
     setattr(train_model_args, constants.BATCH_NORMALIZE_NAME, False)
 
     setattr(train_model_args, constants.LEARNING_METHOD_NAME, 'DEEPSAD')
+    setattr(train_model_args, constants.OPTIMIZER_NAME, 'adam')
 
     # Training data inputs
     setattr(train_model_args, constants.TRAIN_TAR_NAME, training_data_tarfile)

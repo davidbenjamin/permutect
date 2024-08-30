@@ -7,6 +7,7 @@ import psutil
 import torch
 from torch.utils.tensorboard import SummaryWriter
 from torch.nn.parameter import Parameter
+import torch_optimizer
 from tqdm.autonotebook import trange, tqdm
 
 from permutect import utils, constants
@@ -436,7 +437,7 @@ class BaseModelMARSLoss(torch.nn.Module, BaseModelLearningStrategy):
 
 # artifact model parameters are for simultaneously training an artifact model on top of the base model
 # to measure quality, especially in unsupervised training when the loss metric isn't directly related to accuracy or cross-entropy
-def learn_base_model(base_model: BaseModel, dataset: BaseDataset, learning_method: LearningMethod, training_params: TrainingParameters,
+def learn_base_model(base_model: BaseModel, dataset: BaseDataset, learning_method: LearningMethod, optimizer: str, training_params: TrainingParameters,
                      summary_writer: SummaryWriter, validation_fold: int = None):
     # balance training by weighting the loss function
     # if total unlabeled is less than total labeled, we do not compensate, since labeled data are more informative
@@ -471,11 +472,18 @@ def learn_base_model(base_model: BaseModel, dataset: BaseDataset, learning_metho
     elif learning_method == LearningMethod.MARS:
         learning_strategy = BaseModelMARSLoss(embedding_dim=base_model.output_dimension())
     else:
-        raise Exception("not implemented yet")
+        raise Exception(f"Learning method {learning_method} is not implemented.")
     learning_strategy.to(device=base_model._device, dtype=base_model._dtype)
 
-    train_optimizer = torch.optim.AdamW(chain(base_model.parameters(), learning_strategy.parameters()),
+    if optimizer == 'adam':
+        train_optimizer = torch.optim.AdamW(chain(base_model.parameters(), learning_strategy.parameters()),
                                         lr=training_params.learning_rate, weight_decay=training_params.weight_decay)
+    elif optimizer == 'shampoo':
+        train_optimizer = torch_optimizer.Shampoo(chain(base_model.parameters(), learning_strategy.parameters()),
+                                        lr=training_params.learning_rate, weight_decay=training_params.weight_decay)
+    else:
+        raise Exception(f"Optimizer {optimizer} is not implemented.")
+
     train_scheduler = torch.optim.lr_scheduler.CyclicLR(train_optimizer, base_lr=training_params.learning_rate/10, max_lr=training_params.learning_rate)
 
     classifier_on_top = MLP([base_model.output_dimension()] + [30, -1, -1, -1, 10] + [1])\
