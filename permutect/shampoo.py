@@ -317,7 +317,11 @@ class Shampoo(optim.Optimizer):
   def init_var_state(self, var, state):
     """Initialize the PyTorch state of for a single variable."""
     state[STEP] = 0
-    state[MOMENTUM] = torch.zeros_like(var.data, device=var.get_device())
+    # NOTE: I (David Benjamin) modified this line based on
+    # https://stackoverflow.com/questions/71043356/pytorch-cpu-device-index-must-not-be-negative
+    # it used to be:
+    # state[MOMENTUM] = torch.zeros_like(var.data, device=var.get_device())
+    state[MOMENTUM] = torch.zeros_like(var.data, device=var.device)
     state[PRECONDITIONER] = Preconditioner(var, self.hps)
     if self.hps.graft_type == LayerwiseGrafting.ADAGRAD:
       state[GRAFT] = AdagradGraft(self.hps, var)
