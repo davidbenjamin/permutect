@@ -157,7 +157,7 @@ class GatedRefAltMLPBlock(nn.Module):
         self.proj1_ref = nn.Linear(d_model, d_ffn)
         self.proj1_alt = nn.Linear(d_model, d_ffn)
         # Spacial Gating Unit $s(\cdot)$
-        self.sgu = SpacialGatingUnit(d_ffn)
+        self.sgu = SpacialGatingUnitRefAlt(d_ffn)
         # Projection layer for $Y = \tilde{Z}V$
         self.proj2_ref = nn.Linear(d_ffn // 2, d_model)
         self.proj2_alt = nn.Linear(d_ffn // 2, d_model)
