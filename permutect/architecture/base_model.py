@@ -11,6 +11,7 @@ from tqdm.autonotebook import trange, tqdm
 
 from permutect import utils, constants
 from permutect.architecture.dna_sequence_convolution import DNASequenceConvolution
+from permutect.architecture.gated_mlp import GatedMLP
 from permutect.architecture.mlp import MLP
 from permutect.data.base_datum import BaseBatch, DEFAULT_GPU_FLOAT, DEFAULT_CPU_FLOAT
 from permutect.data.base_dataset import BaseDataset
@@ -53,11 +54,8 @@ class LearningMethod(Enum):
     MARS = "MARS"
 
 
-def make_transformer_encoder(input_dimension: int, params: BaseModelParameters):
-    encoder_layer = torch.nn.TransformerEncoderLayer(d_model=input_dimension, nhead=params.num_transformer_heads,
-                                                     batch_first=True, dim_feedforward=params.transformer_hidden_dimension, dropout=params.dropout_p)
-    encoder_norm = torch.nn.LayerNorm(input_dimension)
-    return torch.nn.TransformerEncoder(encoder_layer, num_layers=params.num_transformer_layers, norm=encoder_norm)
+def make_gated_mlp_encoder(input_dimension: int, params: BaseModelParameters):
+    return GatedMLP(d_model=input_dimension, d_ffn=params.transformer_hidden_dimension, num_blocks=params.num_transformer_layers)
 
 
 class BaseModel(torch.nn.Module):
@@ -98,8 +96,8 @@ class BaseModel(torch.nn.Module):
         embedding_dim = self.read_embedding.output_dimension() + self.info_embedding.output_dimension() + self.ref_seq_cnn.output_dimension()
         assert embedding_dim % params.num_transformer_heads == 0
 
-        self.alt_transformer_encoder = make_transformer_encoder(embedding_dim, params)
-        self.ref_transformer_encoder = make_transformer_encoder(embedding_dim, params)
+        self.alt_encoder = make_gated_mlp_encoder(embedding_dim, params)
+        self.ref_encoder = make_gated_mlp_encoder(embedding_dim, params)
 
         # after passing alt and ref reads (along with info and ref seq embeddings) through transformers, concatenate and
         # pass through another MLP
@@ -152,8 +150,8 @@ class BaseModel(torch.nn.Module):
             total_alt = batch.size() * self.alt_downsample
 
         # undo some of the above rearrangement
-        transformed_alt_vre = self.alt_transformer_encoder(alt_reads_info_seq_vre)
-        transformed_ref_vre = None if total_ref == 0 else self.ref_transformer_encoder(ref_reads_info_seq_vre)
+        transformed_alt_vre = self.alt_encoder(alt_reads_info_seq_vre)
+        transformed_ref_vre = None if total_ref == 0 else self.ref_encoder(ref_reads_info_seq_vre)
 
         all_read_means_ve = ((0 if ref_count == 0 else torch.sum(transformed_ref_vre, dim=1)) + torch.sum(transformed_alt_vre, dim=1)) / (alt_count + ref_count)
 
@@ -328,8 +326,8 @@ class BaseModelAutoencoderLoss(torch.nn.Module, BaseModelLearningStrategy):
         # TODO: maybe also a parameter to scale the random vectors?
 
         # TODO: should these decoder params be the same as the base model encoder params?  It seems reasonable.
-        self.alt_transformer_decoder = make_transformer_encoder(self.transformer_dimension, params)
-        self.ref_transformer_decoder = make_transformer_encoder(self.transformer_dimension, params)
+        self.alt_decoder = make_gated_mlp_encoder(self.transformer_dimension, params)
+        self.ref_decoder = make_gated_mlp_encoder(self.transformer_dimension, params)
 
         self.mapping_back_to_reads = MLP([self.transformer_dimension] + hidden_top_layers + [read_dim])
 
@@ -347,8 +345,8 @@ class BaseModelAutoencoderLoss(torch.nn.Module, BaseModelLearningStrategy):
         alt_vre = torch.cat((alt_representations_vre, random_alt_seeds_vre), dim=-1)
         ref_vre = torch.cat((ref_representations_vre, random_ref_seeds_vre), dim=-1) if ref_count > 0 else None
 
-        decoded_alt_vre = self.alt_transformer_decoder(alt_vre)
-        decoded_ref_vre = self.ref_transformer_decoder(ref_vre) if ref_count > 0 else None
+        decoded_alt_vre = self.alt_decoder(alt_vre)
+        decoded_ref_vre = self.ref_decoder(ref_vre) if ref_count > 0 else None
 
         decoded_alt_re = torch.reshape(decoded_alt_vre, (var_count * alt_count, -1))
         decoded_ref_re = torch.reshape(decoded_ref_vre, (var_count * ref_count, -1)) if ref_count > 0 else None
