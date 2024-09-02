@@ -194,7 +194,6 @@ def get_str_info_array(ref_sequence_string: str, variant: Variant):
         repeats_before = count_trailing_repeats(ref_sequence_string[:middle_idx], unit)
     elif insertion_length > 0:
         unit, num_units = decompose_str_unit(alt[1:])  # the inserted sequence is everything after the anchor base that matches ref
-        # TODO: we should account for cases like indel of ATAT where it's really two units of unit AT
         repeats_after = count_leading_repeats(ref_sequence_string[middle_idx + len(ref):], unit)
         repeats_before = count_trailing_repeats(ref_sequence_string[:middle_idx+1], unit)   # +1 accounts for the anchor base
     else:
