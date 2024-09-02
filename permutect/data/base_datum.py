@@ -1,3 +1,5 @@
+import math
+
 import numpy as np
 import torch
 from torch import Tensor, IntTensor, FloatTensor
@@ -142,6 +144,40 @@ def count_trailing_repeats(sequence: str, unit: str):
     return result
 
 
+def find_factors(n: int):
+    result = []
+    for m in range(1, int(math.sqrt(n)) + 1):
+        if n % m == 0:
+            result.append(m)
+            if (n // m) > m:
+                result.append(n // m)
+    result.sort()
+    return result
+
+
+# eg ACGACGACG, ACG -> True; TTATTA, TA -> False
+def is_repeat(bases: str, unit: str):
+    unit_length = len(unit)
+    if len(bases) % unit_length == 0:
+        num_repeats = len(bases) // len(unit)
+        for repeat_idx in range(num_repeats):
+            start = repeat_idx * unit_length
+            if bases[start: start + unit_length] != unit:
+                return False
+        return True
+    else:
+        return False
+
+
+# decompose an indel into its most basic repeated unit
+# examples: "ATATAT" -> ("AT", 3); "AAAAA" -> ("A", 5); "TTGTTG" -> ("TTG", 2); "ATGTG" -> "ATGTG", 1
+def decompose_str_unit(indel_bases: str):
+    for unit_length in find_factors(len(indel_bases)):  # note: these are sorted ascending
+        unit = indel_bases[:unit_length]
+        if is_repeat(indel_bases, unit):
+            return unit, (len(indel_bases) // unit_length)
+    return indel_bases, 1
+
 
 def get_str_info_array(ref_sequence_string: str, variant: Variant):
     assert len(ref_sequence_string) % 2 == 1, "must be odd length to have well-defined middle"
@@ -153,21 +189,21 @@ def get_str_info_array(ref_sequence_string: str, variant: Variant):
     deletion_length = max(len(ref) - len(alt), 0)
 
     if len(ref) == len(alt):
-        unit = alt
+        unit, num_units = alt, 1
         repeats_after = count_leading_repeats(ref_sequence_string[middle_idx + len(ref):], unit)
         repeats_before = count_trailing_repeats(ref_sequence_string[:middle_idx], unit)
     elif insertion_length > 0:
-        unit = alt[1:]  # the inserted sequence is everything after the anchor base that matches ref
+        unit, num_units = decompose_str_unit(alt[1:])  # the inserted sequence is everything after the anchor base that matches ref
         # TODO: we should account for cases like indel of ATAT where it's really two units of unit AT
         repeats_after = count_leading_repeats(ref_sequence_string[middle_idx + len(ref):], unit)
         repeats_before = count_trailing_repeats(ref_sequence_string[:middle_idx+1], unit)   # +1 accounts for the anchor base
     else:
-        unit = ref[1:]  # the deleted sequence is everything after the anchor base
+        unit, num_units = decompose_str_unit(ref[1:])  # the deleted sequence is everything after the anchor base
         # it's pretty arbitrary whether we include the deleted bases themselves as 'after' or not
         repeats_after = count_leading_repeats(ref_sequence_string[middle_idx + len(alt):], unit)
         repeats_before = count_trailing_repeats(ref_sequence_string[:middle_idx+1], unit)   # likewise, account for the anchor base
     # note that if indels are left-aligned (as they should be from the GATK) repeats_before really ought to be zero!!
-    return np.array([insertion_length, deletion_length, len(unit), repeats_before, repeats_after])
+    return np.array([insertion_length, deletion_length, len(unit), num_units, repeats_before, repeats_after])
 
 
 class CountsAndSeqLks:
