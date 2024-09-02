@@ -11,7 +11,7 @@ from tqdm.autonotebook import trange, tqdm
 
 from permutect import utils, constants
 from permutect.architecture.dna_sequence_convolution import DNASequenceConvolution
-from permutect.architecture.gated_mlp import GatedMLP
+from permutect.architecture.gated_mlp import GatedMLP, GatedRefAltMLP
 from permutect.architecture.mlp import MLP
 from permutect.data.base_datum import BaseBatch, DEFAULT_GPU_FLOAT, DEFAULT_CPU_FLOAT
 from permutect.data.base_dataset import BaseDataset
@@ -58,6 +58,10 @@ def make_gated_mlp_encoder(input_dimension: int, params: BaseModelParameters):
     return GatedMLP(d_model=input_dimension, d_ffn=params.transformer_hidden_dimension, num_blocks=params.num_transformer_layers)
 
 
+def make_gated_ref_alt_mlp_encoder(input_dimension: int, params: BaseModelParameters):
+    return GatedRefAltMLP(d_model=input_dimension, d_ffn=params.transformer_hidden_dimension, num_blocks=params.num_transformer_layers)
+
+
 class BaseModel(torch.nn.Module):
     """
     DeepSets framework for reads and variant info.  We embed each read and concatenate the mean ref read
@@ -96,12 +100,12 @@ class BaseModel(torch.nn.Module):
         embedding_dim = self.read_embedding.output_dimension() + self.info_embedding.output_dimension() + self.ref_seq_cnn.output_dimension()
         assert embedding_dim % params.num_transformer_heads == 0
 
+        self.ref_alt_reads_encoder = make_gated_ref_alt_mlp_encoder(embedding_dim, params)
         self.alt_encoder = make_gated_mlp_encoder(embedding_dim, params)
-        self.ref_encoder = make_gated_mlp_encoder(embedding_dim, params)
 
-        # after passing alt and ref reads (along with info and ref seq embeddings) through transformers, concatenate and
+        # after encoding alt reads (along with info and ref seq embeddings and with self-attention to ref reads)
         # pass through another MLP
-        self.aggregation = MLP([2 * embedding_dim] + params.aggregation_layers, batch_normalize=params.batch_normalize, dropout_p=params.dropout_p)
+        self.aggregation = MLP([embedding_dim] + params.aggregation_layers, batch_normalize=params.batch_normalize, dropout_p=params.dropout_p)
 
         self.to(device=self._device, dtype=self._dtype)
 
@@ -150,10 +154,9 @@ class BaseModel(torch.nn.Module):
             total_alt = batch.size() * self.alt_downsample
 
         # undo some of the above rearrangement
-        transformed_alt_vre = self.alt_encoder(alt_reads_info_seq_vre)
-        transformed_ref_vre = None if total_ref == 0 else self.ref_encoder(ref_reads_info_seq_vre)
 
-        all_read_means_ve = ((0 if ref_count == 0 else torch.sum(transformed_ref_vre, dim=1)) + torch.sum(transformed_alt_vre, dim=1)) / (alt_count + ref_count)
+        transformed_ref_vre, transformed_alt_vre = (None, self.alt_encoder(alt_reads_info_seq_vre)) if total_ref == 0 else \
+            self.ref_alt_reads_encoder(ref_reads_info_seq_vre, alt_reads_info_seq_vre)
 
         alt_weights_vr = 1 + weight_range * (1 - 2 * torch.rand(batch.size(), alt_count, device=self._device, dtype=self._dtype))
         alt_wt_sums = torch.sum(alt_weights_vr, dim=1, keepdim=True)
@@ -161,8 +164,7 @@ class BaseModel(torch.nn.Module):
         normalized_alt_weights_vr1 = (alt_weights_vr / alt_wt_sums).reshape(batch.size(), alt_count, 1)
         alt_means_ve = torch.sum(transformed_alt_vre * normalized_alt_weights_vr1, dim=1)
 
-        concat_ve = torch.hstack((alt_means_ve, all_read_means_ve))
-        result_ve = self.aggregation.forward(concat_ve)
+        result_ve = self.aggregation.forward(alt_means_ve)
 
         return result_ve, ref_seq_embeddings_ve # ref seq embeddings are useful later
 
