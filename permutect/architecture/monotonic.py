@@ -19,8 +19,7 @@ class MonoDenseLayer(nn.Module):
     def __init__(self, input_dimension: int, output_dimension: int, num_increasing: int, num_decreasing: int, omit_activation: bool = False):
         super(MonoDenseLayer, self).__init__()
 
-        # TODO: this need not be hard-coded as ReLU
-        self.convex_activation = torch.relu
+        self.convex_activation = torch.selu
 
         self.omit_activation = omit_activation
 
