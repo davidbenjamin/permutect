@@ -531,7 +531,7 @@ def learn_base_model(base_model: BaseModel, dataset: BaseDataset, learning_metho
             loss_metrics.write_to_summary_writer(epoch_type, epoch, summary_writer)
             classifier_metrics.write_to_summary_writer(epoch_type, epoch, summary_writer, prefix="auxiliary-classifier-")
 
-            if epoch_type == utils.Epoch.TRAIN:     # plateau LR scheduler based on validation loss
+            if epoch_type == utils.Epoch.TRAIN:
                 train_scheduler.step(loss_metrics.get_labeled_loss())
 
             print(f"Labeled base model loss for {epoch_type.name} epoch {epoch}: {loss_metrics.get_labeled_loss():.3f}")
