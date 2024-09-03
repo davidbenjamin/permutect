@@ -1,3 +1,4 @@
+import torch
 from torch import nn, Tensor
 from typing import List
 
@@ -11,8 +12,11 @@ class DenseSkipBlock(nn.Module):
         super(DenseSkipBlock, self).__init__()
         self.mlp = MLP((num_layers + 1)*[input_size], batch_normalize, dropout_p, prepend_relu=True)
 
+        # scale the MLP and initially set it to a small amount so that the block is close to an identity map early in learning
+        self.alpha = nn.Parameter(torch.tensor(0.1))
+
     def forward(self, x):
-        return x + self.mlp.forward(x)
+        return x + self.alpha * self.mlp.forward(x)
 
 
 class MLP(nn.Module):
