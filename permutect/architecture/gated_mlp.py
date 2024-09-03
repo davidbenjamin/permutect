@@ -54,7 +54,7 @@ class GatedMLPBlock(nn.Module):
         # Normalization layer fro Pre-Norm
         self.norm = nn.LayerNorm([d_model])
         # Activation function $\sigma$
-        self.activation = nn.GELU()
+        self.activation = nn.SELU()
         # Projection layer for $Z = \sigma(XU)$
         self.proj1 = nn.Linear(d_model, d_ffn)
         # Spacial Gating Unit $s(\cdot)$
@@ -152,7 +152,7 @@ class GatedRefAltMLPBlock(nn.Module):
         # Normalization layer fro Pre-Norm
         self.norm = nn.LayerNorm([d_model])
         # Activation function $\sigma$
-        self.activation = nn.GELU()
+        self.activation = nn.SELU()
         # Projection layer for $Z = \sigma(XU)$
         self.proj1_ref = nn.Linear(d_model, d_ffn)
         self.proj1_alt = nn.Linear(d_model, d_ffn)
