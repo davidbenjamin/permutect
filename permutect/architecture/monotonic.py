@@ -76,6 +76,29 @@ class MonoDenseLayer(nn.Module):
         return torch.hstack([output1, output2, output3])
 
 
+class MonotonicHighwayLayer(nn.Module):
+    """
+    This is a purely monotonic increasing layer, like all layers but the first in the MonoDense architecture below.
+
+    It is a highway network layer of the form:
+       output = (1 - gate) * input + gate * nonlinear(input)
+    where the gate is the sigmoid of some linear transformation of the input, gating is element-by-element, and the
+    nonlinear function of the input is one or more monotonic dense layers as above.
+    """
+    def __init__(self, dim: int, num_layers: int):
+        super(MonotonicHighwayLayer, self).__init__()
+        self.nonlinear = MonoDense(input_dimension=dim, output_dimensions=(num_layers * [dim]), num_increasing=dim, num_decreasing=0)
+
+        # initialize with negative bias so behavior starts near identity with gates almost closed
+        self.gate_pre_sigmoid = nn.Linear(in_features=dim, out_features=dim)
+        nn.init.constant_(self.gate_pre_sigmoid.bias, -2)
+
+    def forward(self, x):
+        gate = torch.sigmoid(self.gate_pre_sigmoid(x))
+
+        return (1 - gate) * x + gate * self.nonlinear(x)
+
+
 class MonoDense(nn.Module):
     """
 
@@ -87,14 +110,21 @@ class MonoDense(nn.Module):
         self.input_dimension = input_dimension
         self.layers = torch.nn.Sequential()
 
-        for layer, dim in enumerate(output_dimensions):
+        last_layer_dim = input_dimension
+        for layer, output_dim in enumerate(output_dimensions):
             omit_activation = (layer == len(output_dimensions) - 1)
-            if layer == 0:
-                self.layers.append(MonoDenseLayer(input_dimension, dim, num_increasing, num_decreasing, omit_activation=omit_activation))
-            else:
-                # note how layers after the first are pure monotonically increasing
-                input_dim_to_layer = output_dimensions[layer-1]
-                self.layers.append(MonoDenseLayer(input_dim_to_layer, dim, input_dim_to_layer, 0, omit_activation=omit_activation))
+
+            if output_dim > 0:
+                # layers after the first are purely monotonic increasing
+                n_increasing = num_increasing if layer == 0 else last_layer_dim
+                n_decreasing = num_decreasing if layer == 0 else 0
+                self.layers.append(MonoDenseLayer(last_layer_dim, output_dim, n_increasing, n_decreasing, omit_activation=omit_activation))
+                last_layer_dim = output_dim
+            else:   # negative output dimension denotes monotonic highway layer
+                if layer == 0:
+                    assert num_increasing == input_dimension, "initial highway layer is only valid for purely increasing network"
+                num_hidden_layers = -output_dim
+                self.layers.append(MonotonicHighwayLayer(dim=last_layer_dim, num_layers=num_hidden_layers))
 
     def forward(self, x):
         return self.layers.forward(x)
