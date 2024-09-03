@@ -526,7 +526,6 @@ def learn_base_model(base_model: BaseModel, dataset: BaseDataset, learning_metho
                     # batch size might be different from requested if not enough data at a particular alt/ref count
                     batch_weight = batch.size() / training_params.batch_size
                     utils.backpropagate(train_optimizer, batch_weight * loss)
-                    train_scheduler.step()
 
             # done with one epoch type -- training or validation -- for this epoch
             loss_metrics.write_to_summary_writer(epoch_type, epoch, summary_writer)
