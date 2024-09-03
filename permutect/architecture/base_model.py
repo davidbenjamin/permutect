@@ -476,7 +476,9 @@ def learn_base_model(base_model: BaseModel, dataset: BaseDataset, learning_metho
 
     train_optimizer = torch.optim.AdamW(chain(base_model.parameters(), learning_strategy.parameters()),
                                         lr=training_params.learning_rate, weight_decay=training_params.weight_decay)
-    train_scheduler = torch.optim.lr_scheduler.CyclicLR(train_optimizer, base_lr=training_params.learning_rate/10, max_lr=training_params.learning_rate)
+    # train scheduler needs to be given the thing that's supposed to decrease at the end of each epoch
+    train_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+        train_optimizer, factor=0.1, patience=3, threshold=0.001, verbose=True)
 
     classifier_on_top = MLP([base_model.output_dimension()] + [30, -1, -1, -1, 10] + [1])\
         .to(device=base_model._device, dtype=base_model._dtype)
@@ -529,6 +531,9 @@ def learn_base_model(base_model: BaseModel, dataset: BaseDataset, learning_metho
             # done with one epoch type -- training or validation -- for this epoch
             loss_metrics.write_to_summary_writer(epoch_type, epoch, summary_writer)
             classifier_metrics.write_to_summary_writer(epoch_type, epoch, summary_writer, prefix="auxiliary-classifier-")
+
+            if epoch_type == utils.Epoch.VALID:     # plateau LR scheduler based on validation loss
+                train_scheduler.step(loss_metrics.get_labeled_loss())
 
             print(f"Labeled base model loss for {epoch_type.name} epoch {epoch}: {loss_metrics.get_labeled_loss():.3f}")
             print(f"Labeled auxiliary classifier loss for {epoch_type.name} epoch {epoch}: {classifier_metrics.get_labeled_loss():.3f}")
