@@ -227,6 +227,8 @@ def make_posterior_data_loader(dataset_file, input_vcf, contig_index_to_name_map
                 counts_and_seq_lks = artifact_datum.get_other_stuff_1d().get_counts_and_seq_lks()
                 contig_name = contig_index_to_name_map[variant.contig]
                 encoding = encode(contig_name, variant.position, variant.ref, variant.alt)
+
+                # TODO: if encoding is in m2_filtering_to_keep and label is VARIANT we should record it as a false negative
                 if encoding in allele_frequencies and encoding not in m2_filtering_to_keep:
                     allele_frequency = allele_frequencies[encoding]
 

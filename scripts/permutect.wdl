@@ -1,6 +1,6 @@
 version 1.0
 
-import "https://api.firecloud.org/ga4gh/v1/tools/davidben:mutect2/versions/12/plain-WDL/descriptor" as m2
+import "https://api.firecloud.org/ga4gh/v1/tools/davidben:mutect2/versions/13/plain-WDL/descriptor" as m2
 
 workflow Permutect {
     input {
@@ -52,6 +52,7 @@ workflow Permutect {
             m3_training_dataset_truth_vcf = test_dataset_truth_vcf,
             m3_training_dataset_truth_vcf_idx = test_dataset_truth_vcf_idx,
             intervals = intervals,
+            masked_intervals = masks,
             ref_fasta = ref_fasta,
             ref_fai = ref_fai,
             ref_dict = ref_dict,
