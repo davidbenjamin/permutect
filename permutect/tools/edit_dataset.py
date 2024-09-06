@@ -5,6 +5,7 @@ import tempfile
 from enum import Enum
 
 import psutil
+import torch.utils.data
 
 from permutect.data import base_datum
 from tqdm.autonotebook import tqdm
@@ -23,9 +24,8 @@ class EditType(Enum):
 
 
 # generates BaseDatum(s) from the original dataset that *pass* the pruning thresholds
-def generate_edited_data(base_dataset: BaseDataset, edit_type: str):
-    print("pruning the dataset")
-    pbar = tqdm(enumerate(base_dataset), mininterval=60)
+def generate_edited_data(base_datasets, edit_type: str):
+    pbar = tqdm(enumerate(torch.utils.data.ConcatDataset(base_datasets)), mininterval=60)
     for n, base_datum in pbar:
         if edit_type == EditType.UNLABEL_ARTIFACTS:
             if base_datum.label == Label.ARTIFACT:
@@ -87,22 +87,22 @@ def parse_arguments():
                         help='how to modify the dataset')
 
     # input / output
-    parser.add_argument('--' + constants.TRAIN_TAR_NAME, type=str, required=True,
-                        help='tarfile of training/validation datasets produced by preprocess_dataset.py')
+    parser.add_argument('--' + constants.TRAIN_TAR_NAME, nargs='+', type=str, required=True,
+                        help='tarfile(s) of training/validation datasets produced by preprocess_dataset.py')
     parser.add_argument('--' + constants.OUTPUT_NAME, type=str, required=True, help='path to pruned dataset file')
 
     return parser.parse_args()
 
 
 def main_without_parsing(args):
-    original_tarfile = getattr(args, constants.TRAIN_TAR_NAME)
+    original_tarfiles = getattr(args, constants.TRAIN_TAR_NAME) # list of files
     output_tarfile = getattr(args, constants.OUTPUT_NAME)
     chunk_size = getattr(args, constants.CHUNK_SIZE_NAME)
     edit_type = getattr(args, constants.DATASET_EDIT_TYPE_NAME)
-    base_dataset = BaseDataset(data_tarfile=original_tarfile)
+    base_datasets = map(lambda original_tarfile: BaseDataset(data_tarfile=original_tarfile), original_tarfiles)
 
     # generate ReadSets
-    output_data_generator = generate_edited_data(base_dataset, edit_type)
+    output_data_generator = generate_edited_data(base_datasets, edit_type)
 
     # generate List[ReadSet]s
     output_data_buffer_generator = generate_output_data_buffers(output_data_generator, chunk_size)
