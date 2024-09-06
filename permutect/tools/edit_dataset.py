@@ -2,6 +2,7 @@ import argparse
 import os
 import tarfile
 import tempfile
+from enum import Enum
 
 import psutil
 
@@ -10,17 +11,40 @@ from tqdm.autonotebook import tqdm
 
 from permutect import constants
 from permutect.data.base_dataset import BaseDataset
+from permutect.utils import Label
+
+
+class EditType(Enum):
+    UNLABEL_ARTIFACTS = "unlabel_artifacts"
+    UNLABEL_VARIANTS = "unlabel_variants"
+    REMOVE_ARTIFACTS = "remove_artifacts"
+    REMOVE_VARIANTS = "remove_variants"
+    KEEP_EVERYTHING = "keep_everything"
 
 
 # generates BaseDatum(s) from the original dataset that *pass* the pruning thresholds
-def generate_edited_data(base_dataset: BaseDataset):
+def generate_edited_data(base_dataset: BaseDataset, edit_type: str):
     print("pruning the dataset")
-    pbar = tqdm(enumerate(filter(lambda bat: bat.is_labeled(), base_dataset)), mininterval=60)
+    pbar = tqdm(enumerate(base_dataset), mininterval=60)
     for n, base_datum in pbar:
-        if:
-            pass
+        if edit_type == EditType.UNLABEL_ARTIFACTS:
+            if base_datum.label == Label.ARTIFACT:
+                base_datum.set_label(Label.UNLABELED)
+            yield base_datum
+        elif edit_type == EditType.UNLABEL_VARIANTS:
+            if base_datum.label == Label.VARIANT:
+                base_datum.set_label(Label.UNLABELED)
+            yield base_datum
+        elif edit_type == EditType.REMOVE_ARTIFACTS:
+            if base_datum.label != Label.ARTIFACT:
+                yield base_datum
+        elif edit_type == EditType.REMOVE_VARIANTS:
+            if base_datum.label != Label.VARIANT:
+                yield base_datum
+        elif edit_type == EditType.KEEP_EVERYTHING:
+            yield base_datum
         else:
-            yield edited_datum # this is a ReadSet
+            raise Exception(f"edit type {edit_type} not implemented yet")
 
 
 # takes a ReadSet generator and organizes into buffers.
@@ -59,6 +83,8 @@ def parse_arguments():
     parser = argparse.ArgumentParser(description='train the Mutect3 artifact model')
     parser.add_argument('--' + constants.CHUNK_SIZE_NAME, type=int, default=int(2e9), required=False,
                         help='size in bytes of output binary data files')
+    parser.add_argument('--' + constants.DATASET_EDIT_TYPE_NAME, type=str, required=True,
+                        help='how to modify the dataset')
 
     # input / output
     parser.add_argument('--' + constants.TRAIN_TAR_NAME, type=str, required=True,
@@ -72,10 +98,11 @@ def main_without_parsing(args):
     original_tarfile = getattr(args, constants.TRAIN_TAR_NAME)
     output_tarfile = getattr(args, constants.OUTPUT_NAME)
     chunk_size = getattr(args, constants.CHUNK_SIZE_NAME)
+    edit_type = getattr(args, constants.DATASET_EDIT_TYPE_NAME)
     base_dataset = BaseDataset(data_tarfile=original_tarfile)
 
     # generate ReadSets
-    output_data_generator = generate_edited_data(base_dataset)
+    output_data_generator = generate_edited_data(base_dataset, edit_type)
 
     # generate List[ReadSet]s
     output_data_buffer_generator = generate_output_data_buffers(output_data_generator, chunk_size)
