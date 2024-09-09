@@ -3,7 +3,7 @@ version 1.0
 
 workflow PreprocessPermutect {
     input {
-        Array[File] training_datasets
+        File training_dataset
         Int chunk_size
         String permutect_docker
         Int? preemptible
@@ -12,7 +12,7 @@ workflow PreprocessPermutect {
 
     call Preprocess {
         input:
-            training_datasets = training_datasets,
+            training_dataset = training_dataset,
             permutect_docker = permutect_docker,
             preemptible = preemptible,
             max_retries = max_retries,
@@ -27,7 +27,7 @@ workflow PreprocessPermutect {
 
 task Preprocess {
     input {
-        Array[File] training_datasets
+        File training_dataset
         Int chunk_size
 
         String permutect_docker
@@ -46,7 +46,7 @@ task Preprocess {
     command <<<
         set -e
 
-        preprocess_dataset --training_datasets ~{sep=' ' training_datasets} --chunk_size ~{chunk_size} --output train.tar
+        preprocess_dataset --training_datasets ~{training_dataset} --chunk_size ~{chunk_size} --output train.tar
     >>>
 
     runtime {
