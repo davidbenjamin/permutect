@@ -1,34 +1,36 @@
 version 1.0
 
 
-workflow PreprocessPermutect {
+workflow EditDataset {
     input {
-        File training_dataset
+        File train_tar
         Int chunk_size
+        String edit_type
+        String? extra_args
+
         String permutect_docker
-        Int? preemptible
-        Int? max_retries
     }
 
-    call Preprocess {
+    call EditDataset {
         input:
-            training_dataset = training_dataset,
+            train_tar = train_tar,
             permutect_docker = permutect_docker,
-            preemptible = preemptible,
-            max_retries = max_retries,
-            chunk_size = chunk_size
+            chunk_size = chunk_size,
+            edit_type = edit_type,
+            extra_args = extra_args
     }
 
     output {
-        File train_tar = Preprocess.train_tar
+        File edited_dataset_tarfile = EditDataset.output_dataset_tarfile
     }
 }
 
-
-task Preprocess {
+task EditDataset {
     input {
-        File training_dataset
+        File train_tar
         Int chunk_size
+        String edit_type
+        String? extra_args
 
         String permutect_docker
         Int? preemptible
@@ -46,7 +48,12 @@ task Preprocess {
     command <<<
         set -e
 
-        preprocess_dataset --training_datasets ~{training_dataset} --chunk_size ~{chunk_size} --output train.tar
+        edit_dataset \
+            --train_tar ~{train_tar} \
+            --chunk_size ~{chunk_size} \
+            --dataset_edit ~{edit_type} \
+            --output edited_dataset.tar \
+            ~{extra_args}
     >>>
 
     runtime {
@@ -54,12 +61,12 @@ task Preprocess {
         bootDiskSizeGb: 12
         memory: machine_mem + " MB"
         disks: "local-disk " + select_first([disk_space, 100]) + if use_ssd then " SSD" else " HDD"
-        preemptible: select_first([preemptible, 2])
+        preemptible: select_first([preemptible, 10])
         maxRetries: select_first([max_retries, 0])
         cpu: select_first([cpu, 1])
     }
 
     output {
-        File train_tar = "train.tar"
+        File output_dataset_tarfile = "edited_dataset.tar"
     }
 }

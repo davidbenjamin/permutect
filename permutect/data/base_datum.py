@@ -290,6 +290,9 @@ class BaseDatum1DStuff:
     def get_label(self):
         return self.array[-self.__class__.NUM_ELEMENTS_AFTER_INFO]
 
+    def set_label(self, label: Label):
+        self.array[-self.__class__.NUM_ELEMENTS_AFTER_INFO] = label
+
     def variant_type_one_hot(self):
         return self.get_info_1d()[-len(Variation):]
 
@@ -415,6 +418,10 @@ class BaseDatum:
 
     def variant_type_one_hot(self):
         return self.other_stuff.variant_type_one_hot()
+
+    def set_label(self, label: Label):
+        self.label = label
+        self.other_stuff.set_label(label)
 
     def get_ref_reads_2d(self) -> np.ndarray:
         return self.reads_2d[:-self.alt_count]

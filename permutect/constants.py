@@ -45,6 +45,8 @@ NUM_WORKERS_NAME = 'num_workers'
 NUM_SPECTRUM_ITERATIONS_NAME = 'num_spectrum_iterations'
 SPECTRUM_LEARNING_RATE_NAME = 'spectrum_learning_rate'
 
+DATASET_EDIT_TYPE_NAME = 'dataset_edit'
+
 TENSORBOARD_DIR_NAME = 'tensorboard_dir'
 
 INITIAL_LOG_VARIANT_PRIOR_NAME = 'initial_log_variant_prior'
