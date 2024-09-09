@@ -1,11 +1,10 @@
 version 1.0
 
 
-workflow EditDataset {
+workflow MergeDatasets {
     input {
-        File train_tar
+        Array[File] train_tar
         Int chunk_size
-        String edit_type
         String? extra_args
 
         String permutect_docker
@@ -16,18 +15,18 @@ workflow EditDataset {
             train_tar = train_tar,
             permutect_docker = permutect_docker,
             chunk_size = chunk_size,
-            edit_type = edit_type,
+            edit_type = "keep_everything",
             extra_args = extra_args
     }
 
     output {
-        File edited_dataset_tarfile = EditDataset.output_dataset_tarfile
+        File merged_dataset_tarfile = EditDataset.output_dataset_tarfile
     }
 }
 
 task EditDataset {
     input {
-        File train_tar
+        Array[File] train_tar
         Int chunk_size
         String edit_type
         String? extra_args
@@ -49,7 +48,7 @@ task EditDataset {
         set -e
 
         edit_dataset \
-            --train_tar ~{train_tar} \
+            --train_tar ~{sep=' ' train_tar} \
             --chunk_size ~{chunk_size} \
             --dataset_edit ~{edit_type} \
             --output edited_dataset.tar \
