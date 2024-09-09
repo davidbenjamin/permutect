@@ -27,21 +27,21 @@ class EditType(Enum):
 def generate_edited_data(base_datasets, edit_type: str):
     pbar = tqdm(enumerate(torch.utils.data.ConcatDataset(base_datasets)), mininterval=60)
     for n, base_datum in pbar:
-        if edit_type == EditType.UNLABEL_ARTIFACTS:
+        if edit_type == EditType.UNLABEL_ARTIFACTS.value:
             if base_datum.label == Label.ARTIFACT:
                 base_datum.set_label(Label.UNLABELED)
             yield base_datum
-        elif edit_type == EditType.UNLABEL_VARIANTS:
+        elif edit_type == EditType.UNLABEL_VARIANTS.value:
             if base_datum.label == Label.VARIANT:
                 base_datum.set_label(Label.UNLABELED)
             yield base_datum
-        elif edit_type == EditType.REMOVE_ARTIFACTS:
+        elif edit_type == EditType.REMOVE_ARTIFACTS.value:
             if base_datum.label != Label.ARTIFACT:
                 yield base_datum
-        elif edit_type == EditType.REMOVE_VARIANTS:
+        elif edit_type == EditType.REMOVE_VARIANTS.value:
             if base_datum.label != Label.VARIANT:
                 yield base_datum
-        elif edit_type == EditType.KEEP_EVERYTHING:
+        elif edit_type == EditType.KEEP_EVERYTHING.value:
             yield base_datum
         else:
             raise Exception(f"edit type {edit_type} not implemented yet")
