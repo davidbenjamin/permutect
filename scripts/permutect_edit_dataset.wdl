@@ -49,7 +49,7 @@ task EditDataset {
         set -e
 
         edit_dataset \
-            --train_tar ~{sep=' ' train_tar}
+            --train_tar ~{sep=' ' train_tar} \
             --chunk_size ~{chunk_size} \
             --dataset_edit ~{edit_type} \
             --output edited_dataset.tar \
