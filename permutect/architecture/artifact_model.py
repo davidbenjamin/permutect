@@ -206,11 +206,15 @@ class ArtifactModel(nn.Module):
 
                     if batch.is_labeled():
                         # binary cross entropy version -- before switching to robust loss
-                        # separate_losses = bce(posterior_logits, batch.labels)
+                        bce_separate_losses = bce(posterior_logits, batch.labels)
                         posterior_probs_of_wrong = batch.labels * (1 - posterior_probabilities) + (1 - batch.labels) * posterior_probabilities
                         # Taylor cross entropy
                         # TODO: magic constant order!
-                        separate_losses = taylor_cross_entropy(posterior_probs_of_wrong, order=4)
+                        tce_separate_losses = taylor_cross_entropy(posterior_probs_of_wrong, order=4)
+
+                        # experiment: apply tce robust loss to artifacts, which are less reliably labeled, and apply
+                        # regular bce loss to non-artifacts, which come from fairly reliable germline events
+                        separate_losses = batch.labels * tce_separate_losses + (1 - batch.labels) * bce_separate_losses
 
                         loss = torch.sum(separate_losses)
 
