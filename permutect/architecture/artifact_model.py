@@ -30,6 +30,14 @@ warnings.filterwarnings("ignore", message="Setting attributes on ParameterList i
 
 WORST_OFFENDERS_QUEUE_SIZE = 100
 
+def taylor_cross_entropy(prob_wrong, order: int):
+    result = 0
+    power = prob_wrong
+    for n in range(1, order + 1):
+        result += power / n
+        power = power * prob_wrong
+    return result
+
 
 def effective_count(weights: Tensor):
     return (torch.square(torch.sum(weights)) / torch.sum(torch.square(weights))).item()
@@ -193,17 +201,24 @@ class ArtifactModel(nn.Module):
                     logits = self.forward(batch)
                     types_one_hot = batch.variant_type_one_hot()
                     log_prior_ratios = torch.sum(artifact_to_non_artifact_log_prior_ratios * types_one_hot, dim=1)
-                    posterior_logits = logits + log_prior_ratios
+                    posterior_logits = logits + log_prior_ratios    # logit of artifact
+                    posterior_probabilities = torch.sigmoid(posterior_logits)   # posterior prob of artifact
 
                     if batch.is_labeled():
-                        separate_losses = bce(posterior_logits, batch.labels)
+                        # binary cross entropy version -- before switching to robust loss
+                        # separate_losses = bce(posterior_logits, batch.labels)
+                        posterior_probs_of_wrong = batch.labels * (1 - posterior_probabilities) + (1 - batch.labels) * posterior_probabilities
+                        # Taylor cross entropy
+                        # TODO: magic constant order!
+                        separate_losses = taylor_cross_entropy(posterior_probs_of_wrong, order=4)
+
                         loss = torch.sum(separate_losses)
 
                         loss_metrics.record_total_batch_loss(loss.detach(), batch)
                         loss_metrics.record_losses_by_type_and_count(separate_losses.detach(), batch)
                     else:
                         # unlabeled loss: entropy regularization
-                        posterior_probabilities = torch.sigmoid(posterior_logits)
+
                         entropies = torch.nn.functional.binary_cross_entropy_with_logits(posterior_logits, posterior_probabilities, reduction='none')
 
                         # TODO: we need a parameter to control the relative weight of unlabeled loss to labeled loss
