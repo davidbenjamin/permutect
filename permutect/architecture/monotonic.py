@@ -19,7 +19,7 @@ class MonoDenseLayer(nn.Module):
     def __init__(self, input_dimension: int, output_dimension: int, num_increasing: int, num_decreasing: int, omit_activation: bool = False):
         super(MonoDenseLayer, self).__init__()
 
-        self.convex_activation = torch.selu
+        self.convex_activation = torch.relu
 
         self.omit_activation = omit_activation
 
@@ -35,7 +35,7 @@ class MonoDenseLayer(nn.Module):
         # in the forward pass we multiply by the mask for convenience so that monotonically increasing AND decreasing can both
         # be treated as increasing
         self.mask = torch.ones(input_dimension)
-        self.mask[num_increasing: num_increasing + num_decreasing] = -self.mask[num_increasing: self.num_constrained]
+        self.mask[num_increasing: num_increasing + num_decreasing] = -1
 
         self.monotonic_W = nn.Parameter(torch.empty((output_dimension, self.num_constrained)))
         nn.init.kaiming_uniform_(self.monotonic_W, a=math.sqrt(5))
@@ -90,11 +90,10 @@ class MonotonicHighwayLayer(nn.Module):
         self.nonlinear = MonoDense(input_dimension=dim, output_dimensions=(num_layers * [dim]), num_increasing=dim, num_decreasing=0)
 
         # initialize with negative bias so behavior starts near identity with gates almost closed
-        self.gate_pre_sigmoid = nn.Linear(in_features=dim, out_features=dim)
-        nn.init.constant_(self.gate_pre_sigmoid.bias, -2)
+        self.gate_pre_sigmoid = nn.Parameter(torch.tensor(-2.0))
 
     def forward(self, x):
-        gate = torch.sigmoid(self.gate_pre_sigmoid(x))
+        gate = torch.sigmoid(self.gate_pre_sigmoid)
 
         return (1 - gate) * x + gate * self.nonlinear(x)
 

@@ -66,7 +66,7 @@ def plot_accuracy_vs_accuracy_roc_on_axis(lists_of_predictions_and_labels, curve
     small_dots = []
     big_dots = []
     for predictions_and_labels, curve_label in zip(lists_of_predictions_and_labels, curve_labels):
-        thresh_and_accs, _ = get_roc_data(predictions_and_labels, given_threshold, sens_prec)
+        thresh_and_accs, _ = get_roc_data(predictions_and_labels, given_threshold, sens_prec, use_harmonic_mean=True)
         x_y_lab_tuples.append(([x[1] for x in thresh_and_accs], [x[2] for x in thresh_and_accs], curve_label))
 
         for threshold, art_acc, non_art_acc in thresh_and_accs:
@@ -111,8 +111,8 @@ def plot_theoretical_roc_on_axis(predicted_error_probs, curve_labels, axis):
 
 # input is list of (predicted artifact logit, binary artifact/non-artifact label) tuples
 # 1st output is (threshold, accuracy on artifacts, accuracy on non-artifacts) tuples
-# 2nd output is the threshold that maximizes harmonic mean of accuracy on artifacts and accuracy on non-artifacts
-def get_roc_data(predictions_and_labels, given_threshold: float = None, sens_prec: bool = False):
+# 2nd output is the threshold that maximizes mean (by default harmonic mean, otherwise artithmetic) of accuracy on artifacts and accuracy on non-artifacts
+def get_roc_data(predictions_and_labels, given_threshold: float = None, sens_prec: bool = False, use_harmonic_mean: bool = True):
     predictions_and_labels.sort(key=lambda p_and_l: p_and_l[0])  # sort from least to greatest artifact logit
     num_calls = len(predictions_and_labels)
     total_artifact = sum([label for _, label in predictions_and_labels]) + 0.0001
@@ -120,8 +120,9 @@ def get_roc_data(predictions_and_labels, given_threshold: float = None, sens_pre
     # start at threshold = -infinity; that is, everything is called an artifact, and pick up one variant at a time
     thresh_and_accs = []  # tuples of threshold, accuracy on artifacts, accuracy on non-artifacts
     art_found, non_art_found = total_artifact, 0
+    best_art_acc, best_non_art_acc = 1, 0
     next_threshold = -10
-    best_threshold, best_harmonic_mean = -99999, 0
+    best_threshold, best_mean = -99999, 0
     given_threshold_reached = (given_threshold is None)
     for pred_logit, label in predictions_and_labels:
         art_found -= label  # if labeled as artifact, one artifact has slipped below threshold
@@ -136,10 +137,13 @@ def get_roc_data(predictions_and_labels, given_threshold: float = None, sens_pre
         art_metric = (tp/(tp + fp)) if sens_prec else art_acc
 
         harmonic_mean = 0 if (art_metric == 0 or non_art_acc == 0) else 1 / ((1 / art_metric) + (1 / non_art_acc))
+        arithmetic_mean = (art_acc + non_art_acc) / 2
+        mean = harmonic_mean if use_harmonic_mean else arithmetic_mean
 
-        if harmonic_mean > best_harmonic_mean:
-            best_harmonic_mean = harmonic_mean
+        if mean > best_mean:
+            best_mean = mean
             best_threshold = pred_logit
+            best_art_acc, best_non_art_acc = art_acc, non_art_acc
 
         if pred_logit > next_threshold:
             thresh_and_accs.append((next_threshold, art_metric, non_art_acc))
@@ -149,6 +153,10 @@ def get_roc_data(predictions_and_labels, given_threshold: float = None, sens_pre
         if not given_threshold_reached and pred_logit > given_threshold:
             thresh_and_accs.append((given_threshold, art_metric, non_art_acc))
             given_threshold_reached = True
+
+    # DEBUG STUFF -- definitely delete it !!!!!!
+    print(f"best mean and threshold.  mean: {best_mean}, threshold: {best_threshold}")
+    print(f"best art acc: {best_art_acc}, best non-art acc: {best_non_art_acc}")
 
     return thresh_and_accs, best_threshold
 

@@ -18,6 +18,8 @@ class ArtifactDataset(Dataset):
 
         self.artifact_totals = base_dataset.artifact_totals
         self.non_artifact_totals = base_dataset.non_artifact_totals
+        self.artifact_totals_by_count = base_dataset.artifact_totals_by_count
+        self.non_artifact_totals_by_count = base_dataset.non_artifact_totals_by_count
         self.artifact_data = []
         self.num_folds = base_dataset.num_folds
         self.labeled_indices = [[] for _ in range(self.num_folds)]  # one list for each fold
@@ -50,6 +52,10 @@ class ArtifactDataset(Dataset):
 
     def artifact_to_non_artifact_ratios(self):
         return self.artifact_totals / self.non_artifact_totals
+
+    def artifact_to_non_artifact_ratios_by_count(self, count: int):
+        # giving each a regularizing pseudocount of 1 -- not sure if this is a wise idea
+        return (self.artifact_totals_by_count[count] + 1) / (self.non_artifact_totals_by_count[count] + 1)
 
     def total_labeled_and_unlabeled(self):
         total_labeled = np.sum(self.artifact_totals + self.non_artifact_totals)

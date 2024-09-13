@@ -38,7 +38,8 @@ def calculate_pruning_thresholds(pruning_loader, artifact_model: ArtifactModel, 
         for n, batch in pbar:
             # TODO: should we use likelihoods as in evaluation or posteriors as in training???
             # TODO: does it even matter??
-            art_probs = torch.sigmoid(artifact_model.forward(batch).detach())
+            art_logits, _ = artifact_model.forward(batch)
+            art_probs = torch.sigmoid(art_logits.detach())
 
             art_label_mask = (batch.labels > 0.5)
             nonart_label_mask = (batch.labels < 0.5)
@@ -58,7 +59,8 @@ def calculate_pruning_thresholds(pruning_loader, artifact_model: ArtifactModel, 
         nonart_conf_threshold = average_nonartifact_confidence.get()
         pbar = tqdm(enumerate(filter(lambda bat: bat.is_labeled(), pruning_loader)), mininterval=60)
         for n, batch in pbar:
-            predicted_artifact_probs = torch.sigmoid(artifact_model.forward(batch).detach())
+            predicted_artifact_logits, _ = artifact_model.forward(batch)
+            predicted_artifact_probs = torch.sigmoid(predicted_artifact_logits.detach())
 
             conf_art_mask = predicted_artifact_probs >= art_conf_threshold
             conf_nonart_mask = (1 - predicted_artifact_probs) >= nonart_conf_threshold
@@ -111,7 +113,8 @@ def generated_pruned_data_for_fold(art_threshold: float, nonart_threshold: float
         representation, ref_alt_seq_embeddings = base_model.calculate_representations(base_batch)
 
         rrs_batch = ArtifactBatch([ArtifactDatum(rs, rep, ref_alt_emb) for rs, rep, ref_alt_emb in zip(base_batch.original_list(), representation.detach(), ref_alt_seq_embeddings.detach())])
-        art_probs = torch.sigmoid(artifact_model.forward(rrs_batch).detach())
+        art_logits, _ = artifact_model.forward(rrs_batch)
+        art_probs = torch.sigmoid(art_logits.detach())
         art_label_mask = (base_batch.labels > 0.5)
 
         for art_prob, labeled_as_art, datum in zip(art_probs.tolist(), art_label_mask.tolist(), base_batch.original_list()):

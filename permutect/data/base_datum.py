@@ -120,6 +120,7 @@ class Variant:
     def get_alt_as_int(self):
         return bases_as_base5_int(self.alt)
 
+
 # count how many times a unit string is repeated at the beginning of a larger string
 # eg 'ATATGGG', 'AT' -> 1; 'AGGGGG', 'G' -> 0; 'TTATTATTAGTTA', 'TTA' -> 3
 def count_leading_repeats(sequence: str, unit: str):

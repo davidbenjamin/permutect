@@ -4,6 +4,24 @@ from permutect import utils
 from permutect.architecture.monotonic import MonoDense
 
 
+def test_is_monotonic():
+    input_dim = 3
+    num_samples = 100
+    x = torch.randn(num_samples, input_dim)
+    x[:, 0] = torch.arange(num_samples) / num_samples   # 0th column is sorted least to greatest
+    x[:,1] = 0.5    # other columns are constant
+    x[:, 2] = 0.7
+
+    # an initialized random model.  We're not learning anything here.
+    model = MonoDense(input_dimension=input_dim, output_dimensions=[12,-2,-2,1], num_increasing=1, num_decreasing=0)
+
+    prediction = model.forward(x).flatten()
+
+    sorted_prediction = prediction.sort().values
+
+    assert torch.sum(torch.abs(prediction - sorted_prediction)) < 0.00001
+
+
 # test with artificial data where y = a dot x where a is a positive vector
 def test_monotonic_linear_data():
     input_dim = 3
