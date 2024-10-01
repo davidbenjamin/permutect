@@ -216,7 +216,6 @@ class ArtifactModel(nn.Module):
                     logits, precalibrated_logits = self.forward(batch)
                     types_one_hot = batch.variant_type_one_hot()
 
-                    # TODO: LEFT OFF HERE
                     # if it's a calibration epoch, get count- and variant type-dependent artifact ratio; otherwise it depends only on type
                     if is_calibration_epoch:
                         ratios = [dataset.artifact_to_non_artifact_ratios_by_count(alt_count)[var_type] for alt_count, var_type in zip(batch.alt_counts, batch.variant_types())]
@@ -230,15 +229,7 @@ class ArtifactModel(nn.Module):
                         # for artifacts, weight is 1; for non-artifacts it's artifact to nonartifact ratio
                         weights = batch.labels + (1 - batch.labels) * non_artifact_weights
 
-                        # EXPERIMENT: what if we use squared error loss on the calibrated probabilities?
-                        # (The idea is, it's still a proper loss, hence still in theory gets optimized to a
-                        # calibrated probability, but it's less suseptible to label errors since it doesn't have a
-                        # singularity like cross entropy)
                         separate_losses_calibrated = weights * bce(logits, batch.labels)
-                        # probabilities = torch.sigmoid(logits)
-                        # separate_losses_calibrated = weights * torch.square(probabilities - batch.labels)
-
-                        # DONE WITH EXPERIMENT
 
                         separate_losses_precalibrated = weights * bce(precalibrated_logits, batch.labels)
                         calibrated_loss = torch.sum(separate_losses_calibrated)
@@ -264,8 +255,6 @@ class ArtifactModel(nn.Module):
                     # I don't get this next line: loss is a sum, not a mean, so it's already weighted by size!!!
                     # batch_weight = batch.size() / training_params.batch_size
                     if epoch_type == utils.Epoch.TRAIN and not (is_calibration_epoch and not batch.is_labeled()):
-                        if not loss.requires_grad:
-                            print(f"epoch {epoch}, is labeled {batch.is_labeled}, batch number {n}")
                         utils.backpropagate(train_optimizer, loss)
 
                 # done with one epoch type -- training or validation -- for this epoch
@@ -282,12 +271,10 @@ class ArtifactModel(nn.Module):
             if is_last:
                 # collect data in order to do final calibration
                 print("collecting data for final calibration")
-                # TODO: the problem is somewhere in this next line -- it's not gathering any data!
                 evaluation_metrics, _ = self.collect_evaluation_data(dataset, train_loader, valid_loader, report_worst=False)
 
                 logit_adjustments_by_var_type_and_count_bin = evaluation_metrics.metrics[Epoch.VALID].calculate_logit_adjustments(use_harmonic_mean=False)
                 print("here are the logit adjustments:")
-                print(logit_adjustments_by_var_type_and_count_bin)
                 for var_type_idx, var_type in enumerate(Variation):
                     adjustments_by_count_bin = logit_adjustments_by_var_type_and_count_bin[var_type]
                     max_bin_idx = len(adjustments_by_count_bin) - 1

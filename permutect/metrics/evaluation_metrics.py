@@ -217,20 +217,13 @@ class EvaluationMetricsForOneEpochType:
 
     # return variant type, count bin -> logit adjustment to be subtracted (so that maximum accuracy is at threshold of logit = 0)
     def calculate_logit_adjustments(self, use_harmonic_mean: bool = False):
-        print("DEBUG: we are inside evaluation_metrics::calculate_logit_adjustments")
-
         result = {var_type: [0.0 for _ in range(NUM_COUNT_BINS)] for var_type in Variation}
         for var_type in Variation:
-            print(f"we are considering variant type {var_type}")
             for cbin in range(NUM_COUNT_BINS):
-                print(f"we are considering count bin {cbin}")
                 data = self.roc_data_by_cnt[var_type][cbin]
-                print(f"the amount of data is {len(data)}")
                 if data:    # leave adjustment at 0 if no data
                     result[var_type][cbin] = calculate_logit_adjustment(data, use_harmonic_mean)
 
-        print("calculate_logit_adjustment result:")
-        print(result)
         return result
 
 
