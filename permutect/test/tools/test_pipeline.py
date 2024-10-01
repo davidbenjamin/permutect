@@ -25,6 +25,7 @@ def test_on_dream1():
     setattr(preprocess_args, constants.CHUNK_SIZE_NAME, 1e6)
     setattr(preprocess_args, constants.TRAINING_DATASETS_NAME, training_datasets)
     setattr(preprocess_args, constants.OUTPUT_NAME, training_data_tarfile.name)
+    setattr(preprocess_args, constants.SOURCES_NAME, [0])
     preprocess_dataset.main_without_parsing(preprocess_args)
 
     # STEP 2: train a model

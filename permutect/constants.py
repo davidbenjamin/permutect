@@ -9,6 +9,8 @@ HIDDEN_LAYERS_NAME = 'hidden_layers'
 NUM_BASE_FEATURES_NAME = 'num_base_features'
 NUM_REF_ALT_FEATURES_NAME = 'num_ref_alt_features'
 
+SOURCES_NAME = 'sources'
+
 INPUT_NAME = 'input'
 OUTPUT_NAME = 'output'
 OUTPUT_DIR_NAME = 'output_dir'
