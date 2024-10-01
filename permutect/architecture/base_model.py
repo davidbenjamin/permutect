@@ -490,6 +490,8 @@ def learn_base_model(base_model: BaseModel, dataset: BaseDataset, learning_metho
     train_loader = dataset.make_data_loader(dataset.all_but_one_fold(validation_fold_to_use), training_params.batch_size, base_model._device.type == 'cuda', training_params.num_workers)
     valid_loader = dataset.make_data_loader([validation_fold_to_use], training_params.batch_size, base_model._device.type == 'cuda', training_params.num_workers)
 
+    artifact_to_non_artifact_ratios = torch.from_numpy(dataset.artifact_to_non_artifact_ratios()).to(base_model._device)
+
     for epoch in trange(1, training_params.num_epochs + 1, desc="Epoch"):
         print(f"Start of epoch {epoch}, memory usage percent: {psutil.virtual_memory().percent:.1f}")
         for epoch_type in (utils.Epoch.TRAIN, utils.Epoch.VALID):
@@ -507,25 +509,35 @@ def learn_base_model(base_model: BaseModel, dataset: BaseDataset, learning_metho
                 if separate_losses is None:
                     continue
 
-                loss = torch.sum(separate_losses)
-                loss_metrics.record_total_batch_loss(loss.detach(), batch)
+                types_one_hot = batch.variant_type_one_hot()
+                # for each variant in the batch, the ratio of artifacts to non-artifacts of its type in the training data
+                non_artifact_weights = torch.sum(artifact_to_non_artifact_ratios * types_one_hot, dim=1)
 
                 if batch.is_labeled():
+                    weights = batch.labels + (1 - batch.labels) * non_artifact_weights
+                    separate_losses = weights * separate_losses
+
                     loss_metrics.record_losses_by_type_and_count(separate_losses.detach(), batch)
 
                     classification_logits = classifier_on_top.forward(representations.detach()).reshape(batch.size())
-                    separate_classification_losses = classifier_bce(classification_logits, batch.labels)
+                    separate_classification_losses = weights * classifier_bce(classification_logits, batch.labels)
                     classification_loss = torch.sum(separate_classification_losses)
-                    classifier_metrics.record_total_batch_loss(classification_loss.detach(), batch)
+                    classifier_metrics.record_total_batch_loss(classification_loss.detach(), batch, weights)
                     classifier_metrics.record_losses_by_type_and_count(separate_classification_losses.detach(), batch)
 
                     if epoch_type == utils.Epoch.TRAIN:
                         utils.backpropagate(classifier_optimizer, classification_loss)
 
+                    loss = torch.sum(separate_losses)
+                    loss_metrics.record_total_batch_loss(loss.detach(), batch, weights)
+                else:
+                    loss = torch.sum(separate_losses)
+                    loss_metrics.record_total_batch_loss(loss.detach(), batch)
+
                 if epoch_type == utils.Epoch.TRAIN:
                     # batch size might be different from requested if not enough data at a particular alt/ref count
-                    batch_weight = batch.size() / training_params.batch_size
-                    utils.backpropagate(train_optimizer, batch_weight * loss)
+                    # batch_weight = batch.size() / training_params.batch_size
+                    utils.backpropagate(train_optimizer, loss)
 
             # done with one epoch type -- training or validation -- for this epoch
             loss_metrics.write_to_summary_writer(epoch_type, epoch, summary_writer)

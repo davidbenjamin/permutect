@@ -18,13 +18,15 @@ from permutect.utils import Variation, Label
 
 def train_artifact_model(hyperparams: ArtifactModelParameters, training_params: TrainingParameters, summary_writer: SummaryWriter, dataset: ArtifactDataset):
     model = ArtifactModel(params=hyperparams, num_base_features=dataset.num_base_features, num_ref_alt_features=dataset.num_ref_alt_features, device=utils.gpu_if_available())
-    model.learn(dataset, training_params, summary_writer=summary_writer)
+    # TODO: magic constant
+    model.learn(dataset, training_params, summary_writer=summary_writer, epochs_per_evaluation=10)
 
     for n, var_type in enumerate(Variation):
         cal_fig, cal_axes = model.calibration[n].plot_calibration()
-        summary_writer.add_figure("calibration for " + var_type.name, cal_fig)
+        summary_writer.add_figure("calibration by count for " + var_type.name, cal_fig)
 
-    model.evaluate_model_after_training(dataset, training_params.batch_size, training_params.num_workers, summary_writer)
+    # TODO: verify that this is redundant now that learning includes evaluations
+    #model.evaluate_model_after_training(dataset, training_params.batch_size, training_params.num_workers, summary_writer)
     return model
 
 

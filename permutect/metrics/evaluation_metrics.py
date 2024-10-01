@@ -12,7 +12,7 @@ from permutect.metrics import plotting
 from permutect.utils import Variation, Call, Epoch, StreamingAverage
 
 MAX_COUNT = 18  # counts above this will be truncated
-MAX_LOGIT = 6
+MAX_LOGIT = 15
 NUM_DATA_FOR_TENSORBOARD_PROJECTION = 10000
 
 
@@ -74,47 +74,64 @@ class LossMetrics:
         return self.unlabeled_loss.get()
 
     def write_to_summary_writer(self, epoch_type: Epoch, epoch: int, summary_writer: SummaryWriter, prefix: str = ""):
-        summary_writer.add_scalar(prefix + epoch_type.name + "/Labeled Loss", self.labeled_loss.get(), epoch)
-        summary_writer.add_scalar(prefix + epoch_type.name + "/Unlabeled Loss", self.unlabeled_loss.get(), epoch)
+        if not self.labeled_loss.is_empty():
+            summary_writer.add_scalar(prefix + epoch_type.name + "/Labeled Loss", self.labeled_loss.get(), epoch)
+
+        if not self.unlabeled_loss.is_empty():
+            summary_writer.add_scalar(prefix + epoch_type.name + "/Unlabeled Loss", self.unlabeled_loss.get(), epoch)
 
         for bin_idx, loss in self.labeled_loss_by_count.items():
-            summary_writer.add_scalar(
-                prefix + epoch_type.name + "/Labeled Loss/By Count/" + str(multiple_of_three_bin_index_to_count(bin_idx)), loss.get(), epoch)
+            if not loss.is_empty():
+                summary_writer.add_scalar(
+                    prefix + epoch_type.name + "/Labeled Loss/By Count/" + str(multiple_of_three_bin_index_to_count(bin_idx)), loss.get(), epoch)
 
         for var_type, loss in self.labeled_loss_by_type.items():
-            summary_writer.add_scalar(prefix + epoch_type.name + "/Labeled Loss/By Type/" + var_type.name, loss.get(), epoch)
-
+            if not loss.is_empty():
+                summary_writer.add_scalar(prefix + epoch_type.name + "/Labeled Loss/By Type/" + var_type.name, loss.get(), epoch)
 
     # TODO: put type hint batch: ReadSetBatch | RepresentationReadSetBatch once docker update
-    def record_total_batch_loss(self, total_loss: float, batch):
+    # if weights is not None, total_loss has *already* been weighted and summed
+    def record_total_batch_loss(self, total_loss: float, batch, weights=None):
+        effective_count = batch.size() if weights is None else torch.sum(weights).item()
         if batch.is_labeled():
-            self.labeled_loss.record_sum(total_loss, batch.size())
+            self.labeled_loss.record_sum(total_loss, effective_count)
         else:
-            self.unlabeled_loss.record_sum(total_loss, batch.size())
+            self.unlabeled_loss.record_sum(total_loss, effective_count)
 
     # record the losses by type
     # TODO: put type hint batch: ReadSetBatch | RepresentationReadSetBatch once docker update
-    def record_losses_by_type_and_count(self, losses: torch.Tensor, batch):
+    # if weights is not None, losses have *already* been weighted
+    def record_losses_by_type_and_count(self, losses: torch.Tensor, batch, weights=None):
         if batch.is_labeled():
             # by type
             types_one_hot = batch.variant_type_one_hot().detach()
-            losses_masked_by_type = losses.reshape(batch.size(), 1) * types_one_hot
-            counts_by_type = torch.sum(types_one_hot, dim=0)
-            total_loss_by_type = torch.sum(losses_masked_by_type, dim=0)
+            weighted_types_one_hot = types_one_hot if weights is None else weights[:,None]*types_one_hot
+            counts_by_type = torch.sum(weighted_types_one_hot, dim=0)
+            total_loss_by_type = torch.sum(losses[:, None] * types_one_hot, dim=0)
             variant_types = list(Variation)
             for variant_type_idx in range(len(Variation)):
-                count_for_type = int(counts_by_type[variant_type_idx].item())
+                count_for_type = counts_by_type[variant_type_idx].item()
                 loss_for_type = total_loss_by_type[variant_type_idx].item()
                 self.labeled_loss_by_type[variant_types[variant_type_idx]].record_sum(loss_for_type, count_for_type)
 
             # by count
             if isinstance(batch, BaseBatch):
                 if batch.alt_count <= MAX_COUNT:
-                    self.labeled_loss_by_count[multiple_of_three_bin_index(batch.alt_count)].record_sum(torch.sum(losses), batch.size())
+                    self.labeled_loss_by_count[multiple_of_three_bin_index(batch.alt_count)].record_sum(torch.sum(losses), batch.size(), weights)
             elif isinstance(batch, ArtifactBatch):
-                for loss, alt_count in zip(losses.tolist(), batch.alt_counts.tolist()):
+                weight_list = (torch.ones_like(losses) if weights is None else weights).tolist()
+                for loss, alt_count, weight in zip(losses.tolist(), batch.alt_counts.tolist(), weight_list):
                     if alt_count <= MAX_COUNT:
-                        self.labeled_loss_by_count[multiple_of_three_bin_index(alt_count)].record(loss)
+                        self.labeled_loss_by_count[multiple_of_three_bin_index(alt_count)].record(loss, weight)
+
+
+# predictions_and_labels is list of (predicted logit, actual label) tuples
+# adjustment is the logit threshold that maximizes accuracy -- basically we're trying to find the shift such that
+# a logit of 0 expresses 50/50 confidence
+# output is the amount to be SUBTRACTED from logit to get a final adjusted logit
+def calculate_logit_adjustment(predictions_and_labels, use_harmonic_mean: bool = False):
+    _, adjustment = plotting.get_roc_data(predictions_and_labels, given_threshold=None, sens_prec=False, use_harmonic_mean=use_harmonic_mean)
+    return adjustment
 
 
 class EvaluationMetricsForOneEpochType:
@@ -123,6 +140,9 @@ class EvaluationMetricsForOneEpochType:
         self.acc_vs_logit = {
             var_type: [[StreamingAverage() for _ in range(2 * MAX_LOGIT + 1)] for _ in range(NUM_COUNT_BINS)] for
             var_type in Variation}
+
+        self.acc_vs_logit_all_counts = {
+            var_type: [StreamingAverage() for _ in range(2 * MAX_LOGIT + 1)] for var_type in Variation}
 
         # indexed by variant type, then call type (artifact vs variant), then count bin
         self.acc_vs_cnt = {var_type: defaultdict(lambda: [StreamingAverage() for _ in range(NUM_COUNT_BINS)]) for
@@ -138,10 +158,11 @@ class EvaluationMetricsForOneEpochType:
     # label is 1 for artifact / error; 0 for non-artifact / true variant
     # correct_call is boolean -- was the prediction correct?
     # the predicted logit is the logit corresponding to the predicted probability that call in question is an artifact / error
-    def record_call(self, variant_type: Variation, predicted_logit: float, label: float, correct_call, alt_count: int):
+    def record_call(self, variant_type: Variation, predicted_logit: float, label: float, correct_call, alt_count: int, weight: float = 1.0):
         count_bin_index = multiple_of_three_bin_index(min(MAX_COUNT, alt_count))
-        self.acc_vs_cnt[variant_type][Call.SOMATIC if label < 0.5 else Call.ARTIFACT][count_bin_index].record(correct_call)
-        self.acc_vs_logit[variant_type][count_bin_index][logit_to_bin(predicted_logit)].record(correct_call)
+        self.acc_vs_cnt[variant_type][Call.SOMATIC if label < 0.5 else Call.ARTIFACT][count_bin_index].record(weight*correct_call, weight)
+        self.acc_vs_logit[variant_type][count_bin_index][logit_to_bin(predicted_logit)].record(weight*correct_call, weight)
+        self.acc_vs_logit_all_counts[variant_type][logit_to_bin(predicted_logit)].record(weight*correct_call, weight)
 
         self.roc_data[variant_type].append((predicted_logit, label))
         self.roc_data_by_cnt[variant_type][count_bin_index].append((predicted_logit, label))
@@ -168,6 +189,12 @@ class EvaluationMetricsForOneEpochType:
                                         str(multiple_of_three_bin_index_to_count(count_idx))) for count_idx in
                                        range(NUM_COUNT_BINS)]
 
+    # now it's (list of logits, list of accuracies)
+    def make_data_for_calibration_plot_all_counts(self, var_type: Variation):
+        non_empty_logit_bins = [idx for idx in range(2 * MAX_LOGIT + 1) if not self.acc_vs_logit_all_counts[var_type][idx].is_empty()]
+        return ([bin_center(idx) for idx in non_empty_logit_bins],
+                    [self.acc_vs_logit_all_counts[var_type][idx].get() for idx in non_empty_logit_bins])
+
     def plot_accuracy(self, var_type: Variation, axis):
         acc_vs_cnt_x_y_lab_tuples = self.make_data_for_accuracy_plot(var_type)
         plotting.simple_plot_on_axis(axis, acc_vs_cnt_x_y_lab_tuples, None, None)
@@ -176,6 +203,10 @@ class EvaluationMetricsForOneEpochType:
         acc_vs_logit_x_y_lab_tuples = self.make_data_for_calibration_plot(var_type)
         plotting.simple_plot_on_axis(axis, acc_vs_logit_x_y_lab_tuples, None, None)
 
+    def plot_calibration_all_counts(self, var_type: Variation, axis):
+        logits_list, accuracies_list = self.make_data_for_calibration_plot_all_counts(var_type)
+        plotting.simple_plot_on_axis(axis, [(logits_list, accuracies_list, "calibration")], None, None)
+
     def plot_roc_curve(self, var_type: Variation, axis, given_threshold: float = None, sens_prec: bool = False):
         plotting.plot_accuracy_vs_accuracy_roc_on_axis([self.roc_data[var_type]], [None], axis, given_threshold, sens_prec)
 
@@ -183,6 +214,17 @@ class EvaluationMetricsForOneEpochType:
         plotting.plot_accuracy_vs_accuracy_roc_on_axis(self.roc_data_by_cnt[var_type],
                                                        [str(multiple_of_three_bin_index_to_count(idx)) for idx in
                                                         range(NUM_COUNT_BINS)], axis, given_threshold, sens_prec)
+
+    # return variant type, count bin -> logit adjustment to be subtracted (so that maximum accuracy is at threshold of logit = 0)
+    def calculate_logit_adjustments(self, use_harmonic_mean: bool = False):
+        result = {var_type: [0.0 for _ in range(NUM_COUNT_BINS)] for var_type in Variation}
+        for var_type in Variation:
+            for cbin in range(NUM_COUNT_BINS):
+                data = self.roc_data_by_cnt[var_type][cbin]
+                if data:    # leave adjustment at 0 if no data
+                    result[var_type][cbin] = calculate_logit_adjustment(data, use_harmonic_mean)
+
+        return result
 
 
 class EvaluationMetrics:
@@ -197,8 +239,8 @@ class EvaluationMetrics:
     # label is 1 for artifact / error; 0 for non-artifact / true variant
     # correct_call is boolean -- was the prediction correct?
     # the predicted logit is the logit corresponding to the predicted probability that call in question is an artifact / error
-    def record_call(self, epoch_type: Epoch, variant_type: Variation, predicted_logit: float, label: float, correct_call, alt_count: int):
-        self.metrics[epoch_type].record_call(variant_type, predicted_logit, label, correct_call, alt_count)
+    def record_call(self, epoch_type: Epoch, variant_type: Variation, predicted_logit: float, label: float, correct_call, alt_count: int, weight: float = 1.0):
+        self.metrics[epoch_type].record_call(variant_type, predicted_logit, label, correct_call, alt_count, weight)
 
     # track bad calls when filtering is given an optional evaluation truth VCF
     def record_mistake(self, posterior_result: PosteriorResult, call: Call):
@@ -251,16 +293,17 @@ class EvaluationMetrics:
         summary_writer.add_figure("mistake artifact logits", logit_fig)
         summary_writer.add_figure("probability assigned to mistake calls", prob_fig)
 
-    def make_plots(self, summary_writer: SummaryWriter, given_thresholds=None, sens_prec: bool = False):
+    def make_plots(self, summary_writer: SummaryWriter, given_thresholds=None, sens_prec: bool = False, epoch: int = None):
         # given_thresholds is a dict from Variation to float (logit-scaled) used in the ROC curves
         keys = self.metrics.keys()
         num_rows = len(keys)
         # grid of figures -- rows are epoch types, columns are variant types
         # each subplot has two line graphs of accuracy vs alt count, one each for artifact, non-artifact
         acc_vs_cnt_fig, acc_vs_cnt_axes = plt.subplots(num_rows, len(Variation), sharex='all', sharey='all', squeeze=False)
-        roc_fig, roc_axes = plt.subplots(num_rows, len(Variation), sharex='all', sharey='all', squeeze=False, figsize=(8 * len(Variation), 8 * len(keys)), dpi=200)
+        roc_fig, roc_axes = plt.subplots(num_rows, len(Variation), sharex='all', sharey='all', squeeze=False, figsize=(4 * len(Variation), 4 * len(keys)), dpi=200)
         cal_fig, cal_axes = plt.subplots(num_rows, len(Variation), sharex='all', sharey='all', squeeze=False)
-        roc_by_cnt_fig, roc_by_cnt_axes = plt.subplots(num_rows, len(Variation), sharex='all', sharey='all', squeeze=False, figsize=(8 * len(Variation), 8 * len(keys)), dpi=200)
+        cal_fig_all_counts, cal_axes_all_counts = plt.subplots(num_rows, len(Variation), sharex='all', sharey='all', squeeze=False)
+        roc_by_cnt_fig, roc_by_cnt_axes = plt.subplots(num_rows, len(Variation), sharex='all', sharey='all', squeeze=False, figsize=(4 * len(Variation), 4 * len(keys)), dpi=200)
 
         for row_idx, key in enumerate(keys):
             metric = self.metrics[key]
@@ -268,6 +311,7 @@ class EvaluationMetrics:
                 given_threshold = None if given_thresholds is None else given_thresholds[var_type]
                 metric.plot_accuracy(var_type, acc_vs_cnt_axes[row_idx, var_type])
                 metric.plot_calibration(var_type, cal_axes[row_idx, var_type])
+                metric.plot_calibration_all_counts(var_type, cal_axes_all_counts[row_idx, var_type])
                 metric.plot_roc_curve(var_type, roc_axes[row_idx, var_type], given_threshold, sens_prec)
                 metric.plot_roc_curves_by_count(var_type, roc_by_cnt_axes[row_idx, var_type], given_threshold, sens_prec)
         # done collecting stats for all loaders and filling in subplots
@@ -278,11 +322,13 @@ class EvaluationMetrics:
         plotting.tidy_subplots(roc_fig, roc_axes, x_label="non-artifact accuracy", y_label="artifact accuracy", row_labels=row_names, column_labels=variation_types)
         plotting.tidy_subplots(roc_by_cnt_fig, roc_by_cnt_axes, x_label="non-artifact accuracy", y_label="artifact accuracy", row_labels=row_names, column_labels=variation_types)
         plotting.tidy_subplots(cal_fig, cal_axes, x_label="predicted logit", y_label="accuracy", row_labels=row_names, column_labels=variation_types)
+        plotting.tidy_subplots(cal_fig_all_counts, cal_axes_all_counts, x_label="predicted logit", y_label="accuracy", row_labels=row_names, column_labels=variation_types)
 
-        summary_writer.add_figure("accuracy by alt count", acc_vs_cnt_fig)
-        summary_writer.add_figure(" accuracy by logit output", cal_fig)
-        summary_writer.add_figure(" variant accuracy vs artifact accuracy curve", roc_fig)
-        summary_writer.add_figure(" variant accuracy vs artifact accuracy curves by alt count", roc_by_cnt_fig)
+        summary_writer.add_figure("accuracy by alt count", acc_vs_cnt_fig, global_step=epoch)
+        summary_writer.add_figure(" accuracy by logit output by count", cal_fig, global_step=epoch)
+        summary_writer.add_figure(" accuracy by logit output", cal_fig_all_counts, global_step=epoch)
+        summary_writer.add_figure(" variant accuracy vs artifact accuracy curve", roc_fig, global_step=epoch)
+        summary_writer.add_figure(" variant accuracy vs artifact accuracy curves by alt count", roc_by_cnt_fig, global_step=epoch)
 
 
 def sample_indices_for_tensorboard(indices: List[int]):
@@ -312,7 +358,7 @@ class EmbeddingMetrics:
         self.truncated_count_metadata = []  # list of lists
         self.representations = []  # list of 2D tensors (to be stacked into a single 2D tensor), representations over batches
 
-    def output_to_summary_writer(self, summary_writer: SummaryWriter, prefix: str = "", is_filter_variants: bool = False):
+    def output_to_summary_writer(self, summary_writer: SummaryWriter, prefix: str = "", is_filter_variants: bool = False, epoch: int = None):
         # downsample to a reasonable amount of UMAP data
         all_metadata = list(zip(self.label_metadata, self.correct_metadata, self.type_metadata, self.truncated_count_metadata))
         if is_filter_variants:
@@ -348,7 +394,7 @@ class EmbeddingMetrics:
         summary_writer.add_embedding(torch.vstack(self.representations)[idx],
                                      metadata=[all_metadata[n] for n in idx],
                                      metadata_header=["Labels", "Correctness", "Types", "Counts"],
-                                     tag=prefix+"embedding")
+                                     tag=prefix+"embedding", global_step=epoch)
 
         # read average embeddings stratified by variant type
         for variant_type in Variation:
@@ -358,7 +404,7 @@ class EmbeddingMetrics:
             summary_writer.add_embedding(torch.vstack(self.representations)[indices],
                                          metadata=[all_metadata[n] for n in indices],
                                          metadata_header=["Labels", "Correctness", "Types", "Counts"],
-                                         tag=prefix+"embedding for variant type " + variant_name)
+                                         tag=prefix+"embedding for variant type " + variant_name, global_step=epoch)
 
         # read average embeddings stratified by alt count
         for row_idx in range(NUM_COUNT_BINS):
@@ -369,7 +415,7 @@ class EmbeddingMetrics:
                 summary_writer.add_embedding(torch.vstack(self.representations)[indices],
                                         metadata=[all_metadata[n] for n in indices],
                                         metadata_header=["Labels", "Correctness", "Types", "Counts"],
-                                        tag=prefix+"embedding for alt count " + str(count))
+                                        tag=prefix+"embedding for alt count " + str(count), global_step=epoch)
 
 
 

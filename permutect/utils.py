@@ -186,12 +186,12 @@ class StreamingAverage:
         return self._sum.item() / (self._count + 0.0001)
 
     # value should live on same device as self._sum
-    def record(self, value: torch.Tensor):
-        self._count += 1
+    def record(self, value: torch.Tensor, weight=1):
+        self._count += weight
         self._sum += value
 
     # value_sum should live on same device as self._sum
-    def record_sum(self, value_sum: torch.Tensor, count: int):
+    def record_sum(self, value_sum: torch.Tensor, count):
         self._count += count
         self._sum += value_sum
 

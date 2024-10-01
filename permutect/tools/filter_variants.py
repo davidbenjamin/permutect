@@ -217,11 +217,11 @@ def make_posterior_data_loader(dataset_file, input_vcf, contig_index_to_name_map
         print("creating posterior data for this chunk...")
         pbar = tqdm(enumerate(artifact_loader), mininterval=60)
         for n, artifact_batch in pbar:
-            artifact_logits = artifact_model.forward(batch=artifact_batch).detach().tolist()
+            artifact_logits, _ = artifact_model.forward(batch=artifact_batch)
 
             labels = ([Label.ARTIFACT if x > 0.5 else Label.VARIANT for x in artifact_batch.labels]) if artifact_batch.is_labeled() else (artifact_batch.size()*[Label.UNLABELED])
 
-            for artifact_datum, logit, label, embedding in zip(artifact_batch.original_data, artifact_logits, labels, artifact_batch.get_representations_2d()):
+            for artifact_datum, logit, label, embedding in zip(artifact_batch.original_data, artifact_logits.detach().tolist(), labels, artifact_batch.get_representations_2d()):
                 m += 1  # DEBUG
                 variant = artifact_datum.get_other_stuff_1d().get_variant()
                 counts_and_seq_lks = artifact_datum.get_other_stuff_1d().get_counts_and_seq_lks()

@@ -20,7 +20,8 @@ from permutect.architecture.monotonic import MonoDense
 from permutect.data.base_datum import ArtifactBatch, DEFAULT_GPU_FLOAT, DEFAULT_CPU_FLOAT
 from permutect.data.artifact_dataset import ArtifactDataset
 from permutect import utils, constants
-from permutect.metrics.evaluation_metrics import LossMetrics, EvaluationMetrics, MAX_COUNT, round_up_to_nearest_three, EmbeddingMetrics
+from permutect.metrics.evaluation_metrics import LossMetrics, EvaluationMetrics, MAX_COUNT, round_up_to_nearest_three, \
+    EmbeddingMetrics, multiple_of_three_bin_index_to_count, multiple_of_three_bin_index
 from permutect.parameters import TrainingParameters, ArtifactModelParameters
 from permutect.utils import Variation, Epoch, Label
 from permutect.metrics import plotting
@@ -48,32 +49,52 @@ class Calibration(nn.Module):
         super(Calibration, self).__init__()
 
         # calibration takes [logit, ref count, alt count] as input and maps it to [calibrated logit]
-        # it is monotonically increasing in each input
+        # it is monotonically increasing in logit, unconstrained in ref and alt count
         # we initialize it to calibrated logit = input logit
 
-        # likewise, we cap the effective alt and ref counts to avoid arbitrarily large confidence
+        # likewise, we cap the effective alt and ref counts and input logits to avoid arbitrarily large confidence
         self.max_alt = nn.Parameter(torch.tensor(20.0))
         self.max_ref = nn.Parameter(torch.tensor(20.0))
+        self.max_input_logit = nn.Parameter(torch.tensor(20.0))
 
-        # because calibration is monotonic in the magnitude of the logit, not the logit itself i.e. more reads pushes
-        # the logit away from zero, not simply up, we have two monotonic networks, one for positive and one for negative
+        center_spacing = 1
+        ref_center_spacing = 5
 
-        # for positive input logit the calibrated logit grows more positive with the input and the read support
-        self.monotonic_positive = MonoDense(3, hidden_layer_sizes + [1], 3, 0)
+        # centers of Gaussian comb featurizations
+        self.alt_centers = torch.arange(start=1, end=20, step=center_spacing)
+        self.ref_centers = torch.arange(start=1, end=20, step=ref_center_spacing)
 
-        # for negative input logit the calibrated logit grows more negative with the read support
-        self.monotonic_negative = MonoDense(3, hidden_layer_sizes + [1], 1, 2)  # monotonically increasing in each input
+        # increasing in the 1st feature, logits
+        # logit is one feature, then the Gaussian comb for alt and ref counts is the other
+        self.monotonic = MonoDense(1 + len(self.ref_centers) + len(self.alt_centers), hidden_layer_sizes + [1], 1, 0)
 
-    def calibrated_logits(self, logits: Tensor, ref_counts: Tensor, alt_counts: Tensor):
+        self.is_turned_on = True
 
-        # scale counts and make everything batch size x 1 column tensors
-        ref_eff = torch.tanh(ref_counts / self.max_ref).reshape(-1, 1)
-        alt_eff = torch.tanh(alt_counts / self.max_alt).reshape(-1, 1)
-        logits_2d = logits.reshape(-1, 1)
-        input_2d = torch.hstack([logits_2d, ref_eff, alt_eff])
+        self.max_alt_count_for_adjustment = 20
+        # after training we comopute one final calibration adjustment, which depends on alt count
+        # the nth element is the adjustment for alt count n
+        # note that this is NOT a parameter!!!! It is *set* but not learned!!
+        self.final_adjustments = torch.zeros(self.max_alt_count_for_adjustment + 1)
 
-        is_positive = torch.where(logits > 0, 1.0, 0.0)
-        return self.monotonic_positive.forward(input_2d).squeeze() * is_positive + self.monotonic_negative.forward(input_2d).squeeze() * (1 - is_positive)
+    def set_adjustments(self, adjustments):
+        self.final_adjustments = adjustments
+        self.max_alt_count_for_adjustment = len(adjustments) - 1
+
+    def calibrated_logits(self, logits_b: Tensor, ref_counts_b: Tensor, alt_counts_b: Tensor):
+        if self.is_turned_on:
+            logits_bc = torch.tanh(logits_b / self.max_input_logit)[:, None]
+
+            ref_comb_bc = torch.softmax(-torch.square(ref_counts_b[:, None] - self.ref_centers[None, :]).float(), dim=1)
+            alt_comb_bc = torch.softmax(-torch.square(alt_counts_b[:, None] - self.alt_centers[None, :]).float(), dim=1)
+            input_2d = torch.hstack([logits_bc, ref_comb_bc, alt_comb_bc])
+            calibrated_b = self.monotonic.forward(input_2d).squeeze()
+
+            counts_for_adjustment = torch.clamp(alt_counts_b, max=self.max_alt_count_for_adjustment).long()
+            adjustments = self.final_adjustments[counts_for_adjustment]
+
+            return calibrated_b + adjustments
+        else:   # should never happen
+            return logits_b
 
     def forward(self, logits, ref_counts: Tensor, alt_counts: Tensor):
         return self.calibrated_logits(logits, ref_counts, alt_counts)
@@ -142,24 +163,21 @@ class ArtifactModel(nn.Module):
 
     # returns 1D tensor of length batch_size of log odds ratio (logits) between artifact and non-artifact
     def forward(self, batch: ArtifactBatch):
-        logits = self.aggregation.forward(batch.get_representations_2d().to(device=self._device, dtype=self._dtype)).reshape(batch.size())
-
-        calibrated = torch.zeros_like(logits)
+        precalibrated_logits = self.aggregation.forward(batch.get_representations_2d().to(device=self._device, dtype=self._dtype)).reshape(batch.size())
+        calibrated_logits = torch.zeros_like(precalibrated_logits)
         one_hot_types_2d = batch.variant_type_one_hot().to(device=self._device, dtype=self._dtype)
         for n, _ in enumerate(Variation):
             mask = one_hot_types_2d[:, n]
-            calibrated += mask * self.calibration[n].forward(logits, batch.ref_counts, batch.alt_counts)
-        return calibrated
+            calibrated_logits += mask * self.calibration[n].forward(precalibrated_logits, batch.ref_counts, batch.alt_counts)
+        return calibrated_logits, precalibrated_logits
 
-    def learn(self, dataset: ArtifactDataset, training_params: TrainingParameters, summary_writer: SummaryWriter, validation_fold: int = None):
+    def learn(self, dataset: ArtifactDataset, training_params: TrainingParameters, summary_writer: SummaryWriter, validation_fold: int = None, epochs_per_evaluation: int = None):
         bce = nn.BCEWithLogitsLoss(reduction='none')  # no reduction because we may want to first multiply by weights for unbalanced data
         train_optimizer = torch.optim.AdamW(self.training_parameters(), lr=training_params.learning_rate, weight_decay=training_params.weight_decay)
         train_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
             train_optimizer, factor=0.2, patience=3, threshold=0.001, min_lr=(training_params.learning_rate / 100),verbose=True)
-        calibration_optimizer = torch.optim.AdamW(self.calibration_parameters(), lr=training_params.learning_rate, weight_decay=training_params.weight_decay)
 
         artifact_to_non_artifact_ratios = torch.from_numpy(dataset.artifact_to_non_artifact_ratios()).to(self._device)
-        artifact_to_non_artifact_log_prior_ratios = torch.log(artifact_to_non_artifact_ratios)
 
         # balance training by weighting the loss function
         # if total unlabeled is less than total labeled, we do not compensate, since labeled data are more informative
@@ -177,79 +195,139 @@ class ArtifactModel(nn.Module):
         valid_loader = dataset.make_data_loader([validation_fold_to_use], training_params.batch_size, self._device.type == 'cuda', training_params.num_workers)
         print(f"Validation loader created, memory usage percent: {psutil.virtual_memory().percent:.1f}")
 
-        for epoch in trange(1, training_params.num_epochs + 1 + training_params.num_calibration_epochs, desc="Epoch"):
+        first_epoch, last_epoch = 1, training_params.num_epochs + training_params.num_calibration_epochs
+        for epoch in trange(1, last_epoch + 1, desc="Epoch"):
             print(f"Epoch {epoch}, memory usage percent: {psutil.virtual_memory().percent:.1f}")
             is_calibration_epoch = epoch > training_params.num_epochs
-            for epoch_type in ([utils.Epoch.VALID] if is_calibration_epoch else [utils.Epoch.TRAIN, utils.Epoch.VALID]):
+
+            for epoch_type in [utils.Epoch.TRAIN, utils.Epoch.VALID]:
                 self.set_epoch_type(epoch_type)
-                if is_calibration_epoch:
+                # in calibration epoch, freeze the model except for calibration
+                if is_calibration_epoch and epoch_type == utils.Epoch.TRAIN:
+                    utils.freeze(self.parameters())
                     utils.unfreeze(self.calibration_parameters())  # unfreeze calibration but everything else stays frozen
 
-                loss_metrics = LossMetrics(self._device)
+                loss_metrics = LossMetrics(self._device)    # based on calibrated logits
+                precalibrated_loss_metrics = LossMetrics(self._device)  # based on precalibrated logits
 
                 loader = train_loader if epoch_type == utils.Epoch.TRAIN else valid_loader
                 pbar = tqdm(enumerate(loader), mininterval=60)
                 for n, batch in pbar:
-                    logits = self.forward(batch)
+                    logits, precalibrated_logits = self.forward(batch)
                     types_one_hot = batch.variant_type_one_hot()
-                    log_prior_ratios = torch.sum(artifact_to_non_artifact_log_prior_ratios * types_one_hot, dim=1)
-                    posterior_logits = logits + log_prior_ratios
+
+                    # if it's a calibration epoch, get count- and variant type-dependent artifact ratio; otherwise it depends only on type
+                    if is_calibration_epoch:
+                        ratios = [dataset.artifact_to_non_artifact_ratios_by_count(alt_count)[var_type] for alt_count, var_type in zip(batch.alt_counts, batch.variant_types())]
+                        non_artifact_weights = torch.FloatTensor(ratios)
+                    else:
+                        non_artifact_weights = torch.sum(artifact_to_non_artifact_ratios * types_one_hot, dim=1)
 
                     if batch.is_labeled():
-                        separate_losses = bce(posterior_logits, batch.labels)
-                        loss = torch.sum(separate_losses)
+                        # maintain the interpretation of the logits as a likelihood ratio by weighting to effectively
+                        # achieve a balanced data set eg equal prior between artifact and non-artifact
+                        # for artifacts, weight is 1; for non-artifacts it's artifact to nonartifact ratio
+                        weights = batch.labels + (1 - batch.labels) * non_artifact_weights
 
-                        loss_metrics.record_total_batch_loss(loss.detach(), batch)
-                        loss_metrics.record_losses_by_type_and_count(separate_losses.detach(), batch)
+                        separate_losses_calibrated = weights * bce(logits, batch.labels)
+
+                        separate_losses_precalibrated = weights * bce(precalibrated_logits, batch.labels)
+                        calibrated_loss = torch.sum(separate_losses_calibrated)
+                        precalibrated_loss = torch.sum(separate_losses_precalibrated)
+                        loss = calibrated_loss + precalibrated_loss
+
+                        loss_metrics.record_total_batch_loss(calibrated_loss.detach(), batch, weights)
+                        loss_metrics.record_losses_by_type_and_count(separate_losses_calibrated.detach(), batch)
+                        precalibrated_loss_metrics.record_total_batch_loss(precalibrated_loss.detach(), batch, weights)
+                        precalibrated_loss_metrics.record_losses_by_type_and_count(separate_losses_precalibrated.detach(), batch)
+                    # calibration epochs freeze the model up to calibration, so the unlabeled loss is irrelevant
                     else:
                         # unlabeled loss: entropy regularization
-                        posterior_probabilities = torch.sigmoid(posterior_logits)
-                        entropies = torch.nn.functional.binary_cross_entropy_with_logits(posterior_logits, posterior_probabilities, reduction='none')
-
+                        # Note that we use the precalibrated logits because otherwise entropy regularization simply biases
+                        # calibration to be overconfident.
+                        probabilities = torch.sigmoid(precalibrated_logits)
+                        entropies = torch.nn.functional.binary_cross_entropy_with_logits(precalibrated_logits, probabilities, reduction='none')
                         # TODO: we need a parameter to control the relative weight of unlabeled loss to labeled loss
+                        # TODO: this interacts with the artifact / non-artifact weighting of labeled data!!!
                         loss = torch.sum(entropies) * labeled_to_unlabeled_ratio
-                        loss_metrics.record_total_batch_loss(loss.detach(), batch)
+                        precalibrated_loss_metrics.record_total_batch_loss(loss.detach(), batch)
 
-                    batch_weight = batch.size() / training_params.batch_size
-                    if epoch_type == utils.Epoch.TRAIN:
-                        utils.backpropagate(train_optimizer, batch_weight * loss)
-                    if is_calibration_epoch:
-                        utils.backpropagate(calibration_optimizer, batch_weight * loss)
+                    # I don't get this next line: loss is a sum, not a mean, so it's already weighted by size!!!
+                    # batch_weight = batch.size() / training_params.batch_size
+                    if epoch_type == utils.Epoch.TRAIN and not (is_calibration_epoch and not batch.is_labeled()):
+                        utils.backpropagate(train_optimizer, loss)
 
                 # done with one epoch type -- training or validation -- for this epoch
                 loss_metrics.write_to_summary_writer(epoch_type, epoch, summary_writer)
+                precalibrated_loss_metrics.write_to_summary_writer(epoch_type, epoch, summary_writer, prefix="uncalibrated")
                 if epoch_type == utils.Epoch.TRAIN:
                     train_scheduler.step(loss_metrics.get_labeled_loss())
 
                 print(f"Labeled loss for {epoch_type.name} epoch {epoch}: {loss_metrics.get_labeled_loss():.3f}")
             # done with training and validation for this epoch
+            is_last = (epoch == last_epoch)
+            if (epochs_per_evaluation is not None and epoch % epochs_per_evaluation == 0) or is_last:
+                self.evaluate_model(epoch, dataset, train_loader, valid_loader, summary_writer, collect_embeddings=False, report_worst=False)
+            if is_last:
+                # collect data in order to do final calibration
+                print("collecting data for final calibration")
+                evaluation_metrics, _ = self.collect_evaluation_data(dataset, train_loader, valid_loader, report_worst=False)
+
+                logit_adjustments_by_var_type_and_count_bin = evaluation_metrics.metrics[Epoch.VALID].calculate_logit_adjustments(use_harmonic_mean=False)
+                print("here are the logit adjustments:")
+                for var_type_idx, var_type in enumerate(Variation):
+                    adjustments_by_count_bin = logit_adjustments_by_var_type_and_count_bin[var_type]
+                    max_bin_idx = len(adjustments_by_count_bin) - 1
+                    max_count = multiple_of_three_bin_index_to_count(max_bin_idx)
+                    adjustments_by_count = torch.zeros(max_count + 1)
+                    for count in range(max_count + 1):
+                        bin_idx = multiple_of_three_bin_index(count)
+                        # negative sign because these are subtractive adjustments
+                        adjustments_by_count[count] = -adjustments_by_count_bin[bin_idx]
+                    print(f"for variant type {var_type.name} the adjustments are ")
+                    print(adjustments_by_count.tolist())
+                    self.calibration[var_type_idx].set_adjustments(adjustments_by_count)
+
+                # consider this an extra post-postprocessing/final calibration epoch, hence epoch+1
+                print("doing one final evaluation after the last logit adjustment")
+                self.evaluate_model(epoch + 1, dataset, train_loader, valid_loader, summary_writer, collect_embeddings=True, report_worst=True)
+
             # note that we have not learned the AF spectrum yet
         # done with training
 
     def evaluate_model_after_training(self, dataset: ArtifactDataset, batch_size, num_workers, summary_writer: SummaryWriter):
         train_loader = dataset.make_data_loader(dataset.all_but_the_last_fold(), batch_size, self._device.type == 'cuda', num_workers)
         valid_loader = dataset.make_data_loader(dataset.last_fold_only(), batch_size, self._device.type == 'cuda', num_workers)
-        epoch_types = [Epoch.TRAIN, Epoch.VALID]
-        self.freeze_all()
+        self.evaluate_model(None, dataset, train_loader, valid_loader, summary_writer, collect_embeddings=True, report_worst=True)
 
+    def collect_evaluation_data(self, dataset: ArtifactDataset, train_loader, valid_loader, report_worst: bool):
         # the keys are tuples of (true label -- 1 for variant, 0 for artifact; rounded alt count)
         worst_offenders_by_truth_and_alt_count = defaultdict(lambda: PriorityQueue(WORST_OFFENDERS_QUEUE_SIZE))
 
-        log_artifact_to_non_artifact_ratios = torch.from_numpy(np.log(dataset.artifact_to_non_artifact_ratios()))
+        artifact_to_non_artifact_ratios = torch.from_numpy(dataset.artifact_to_non_artifact_ratios())
         evaluation_metrics = EvaluationMetrics()
+        epoch_types = [Epoch.TRAIN, Epoch.VALID]
         for epoch_type in epoch_types:
-            assert epoch_type == Epoch.TRAIN or epoch_type == Epoch.VALID   # not doing TEST here
+            assert epoch_type == Epoch.TRAIN or epoch_type == Epoch.VALID  # not doing TEST here
             loader = train_loader if epoch_type == Epoch.TRAIN else valid_loader
             pbar = tqdm(enumerate(filter(lambda bat: bat.is_labeled(), loader)), mininterval=60)
             for n, batch in pbar:
-                # In training we minimize the cross entropy loss wrt the posterior probability, accounting for priors;
-                # Here we are considering artifacts and non-artifacts separately and use the uncorrected likelihood logits
-                pred = self.forward(batch).detach()
+
+                # these are the same weights used in training to effectively balance the data between artifact and
+                # non-artifact for each variant type
+                types_one_hot = batch.variant_type_one_hot()
+                non_artifact_weights = torch.sum(artifact_to_non_artifact_ratios * types_one_hot, dim=1)
+                weights = batch.labels + (1 - batch.labels) * non_artifact_weights
+
+                logits, _ = self.forward(batch)
+                pred = logits.detach()
                 correct = ((pred > 0) == (batch.labels > 0.5)).tolist()
 
-                for variant_type, predicted_logit, label, correct_call, alt_count, datum in zip(batch.variant_types(), pred.tolist(), batch.labels.tolist(), correct, batch.alt_counts, batch.original_data):
-                    evaluation_metrics.record_call(epoch_type, variant_type, predicted_logit, label, correct_call, alt_count)
-                    if not correct_call:
+                for variant_type, predicted_logit, label, correct_call, alt_count, datum, weight in zip(
+                        batch.variant_types(), pred.tolist(), batch.labels.tolist(), correct,
+                        batch.alt_counts, batch.original_data, weights.tolist()):
+                    evaluation_metrics.record_call(epoch_type, variant_type, predicted_logit, label, correct_call, alt_count, weight)
+                    if report_worst and not correct_call:
                         rounded_count = round_up_to_nearest_three(alt_count)
                         label_name = Label.ARTIFACT.name if label > 0.5 else Label.VARIANT.name
                         confidence = abs(predicted_logit)
@@ -259,50 +337,55 @@ class ArtifactModel(nn.Module):
 
                         # clear space if this confidence is more egregious
                         if pqueue.full() and pqueue.queue[0][0] < confidence:
-                            pqueue.get()    # discards the least confident bad call
+                            pqueue.get()  # discards the least confident bad call
 
-                        if not pqueue.full():   # if space was cleared or if it wasn't full already
+                        if not pqueue.full():  # if space was cleared or if it wasn't full already
                             variant = datum.get_other_stuff_1d().get_variant()
-                            pqueue.put((confidence, str(variant.contig) + ":" + str(variant.position) + ':' + variant.ref + "->" + variant.alt))
-
+                            pqueue.put((confidence, str(variant.contig) + ":" + str(
+                                variant.position) + ':' + variant.ref + "->" + variant.alt))
             # done with this epoch type
         # done collecting data
+        return evaluation_metrics, worst_offenders_by_truth_and_alt_count
 
-        for (true_label, rounded_count), pqueue in worst_offenders_by_truth_and_alt_count.items():
-            tag = "True label: " + true_label + ", rounded alt count: " + str(rounded_count)
+    def evaluate_model(self, epoch: int, dataset: ArtifactDataset, train_loader, valid_loader, summary_writer: SummaryWriter,
+                                      collect_embeddings: bool = False, report_worst: bool = False):
 
-            lines = []
-            while not pqueue.empty():   # this goes from least to most egregious, FYI
-                confidence, var_string = pqueue.get()
-                lines.append(f"{var_string} ({confidence:.2f})")
+        # self.freeze_all()
+        evaluation_metrics, worst_offenders_by_truth_and_alt_count = self.collect_evaluation_data(dataset, train_loader, valid_loader, report_worst)
+        evaluation_metrics.make_plots(summary_writer, epoch=epoch)
 
-            summary_writer.add_text(tag, "\n".join(lines))
+        if report_worst:
+            for (true_label, rounded_count), pqueue in worst_offenders_by_truth_and_alt_count.items():
+                tag = "True label: " + true_label + ", rounded alt count: " + str(rounded_count)
 
-        evaluation_metrics.make_plots(summary_writer)
+                lines = []
+                while not pqueue.empty():   # this goes from least to most egregious, FYI
+                    confidence, var_string = pqueue.get()
+                    lines.append(f"{var_string} ({confidence:.2f})")
 
-        embedding_metrics = EmbeddingMetrics()
-        ref_alt_seq_metrics = EmbeddingMetrics()
+                summary_writer.add_text(tag, "\n".join(lines), global_step=epoch)
 
-        # now go over just the validation data and generate feature vectors / metadata for tensorboard projectors (UMAP)
-        pbar = tqdm(enumerate(filter(lambda bat: bat.is_labeled(), valid_loader)), mininterval=60)
+        if collect_embeddings:
+            embedding_metrics = EmbeddingMetrics()
+            ref_alt_seq_metrics = EmbeddingMetrics()
 
-        for n, batch in pbar:
-            types_one_hot = batch.variant_type_one_hot().detach()
-            log_prior_odds = torch.sum(log_artifact_to_non_artifact_ratios * types_one_hot, dim=1)
+            # now go over just the validation data and generate feature vectors / metadata for tensorboard projectors (UMAP)
+            pbar = tqdm(enumerate(filter(lambda bat: bat.is_labeled(), valid_loader)), mininterval=60)
 
-            pred = self.forward(batch).detach()
-            posterior_pred = pred + log_prior_odds
-            correct = ((posterior_pred > 0) == (batch.labels > 0.5)).tolist()
+            for n, batch in pbar:
+                logits, _ = self.forward(batch)
+                pred = logits.detach()
+                correct = ((pred > 0) == (batch.labels > 0.5)).tolist()
 
-            for (metrics, embedding) in [(embedding_metrics, batch.get_representations_2d().detach()),
-                                          (ref_alt_seq_metrics, batch.get_ref_alt_seq_embeddings_2d().detach())]:
-                metrics.label_metadata.extend(["artifact" if x > 0.5 else "non-artifact" for x in batch.labels.tolist()])
-                metrics.correct_metadata.extend([str(val) for val in correct])
-                metrics.type_metadata.extend([Variation(idx).name for idx in batch.variant_types()])
-                metrics.truncated_count_metadata.extend([str(round_up_to_nearest_three(min(MAX_COUNT, alt_count))) for alt_count in batch.alt_counts])
-                metrics.representations.append(embedding)
-        embedding_metrics.output_to_summary_writer(summary_writer)
-        ref_alt_seq_metrics.output_to_summary_writer(summary_writer, prefix="ref alt seq ")
+                for (metrics, embedding) in [(embedding_metrics, batch.get_representations_2d().detach()),
+                                              (ref_alt_seq_metrics, batch.get_ref_alt_seq_embeddings_2d().detach())]:
+                    metrics.label_metadata.extend(["artifact" if x > 0.5 else "non-artifact" for x in batch.labels.tolist()])
+                    metrics.correct_metadata.extend([str(val) for val in correct])
+                    metrics.type_metadata.extend([Variation(idx).name for idx in batch.variant_types()])
+                    metrics.truncated_count_metadata.extend([str(round_up_to_nearest_three(min(MAX_COUNT, alt_count))) for alt_count in batch.alt_counts])
+                    metrics.representations.append(embedding)
+            embedding_metrics.output_to_summary_writer(summary_writer, epoch=epoch)
+            ref_alt_seq_metrics.output_to_summary_writer(summary_writer, prefix="ref alt seq ", epoch=epoch)
 
         # done collecting data
 
