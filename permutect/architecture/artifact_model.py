@@ -224,10 +224,16 @@ class ArtifactModel(nn.Module):
                         non_artifact_weights = torch.sum(artifact_to_non_artifact_ratios * types_one_hot, dim=1)
 
                     if batch.is_labeled():
+                        # TODO: labeled_to_unlabeled ratio should be recalculated based on the weighting of labeled data
                         # maintain the interpretation of the logits as a likelihood ratio by weighting to effectively
                         # achieve a balanced data set eg equal prior between artifact and non-artifact
                         # for artifacts, weight is 1; for non-artifacts it's artifact to nonartifact ratio
-                        weights = batch.labels + (1 - batch.labels) * non_artifact_weights
+                        # for unlabeled data, weight is labeled_to_unlabeled_ratio
+                        labeled_weights = batch.labels + (1 - batch.labels) * non_artifact_weights
+                        weights = (batch.is_labeled_mask * labeled_weights) + (1 - batch.is_labeled_mask) * labeled_to_unlabeled_ratio
+
+                        uncalibrated_cross_entropies = bce(precalibrated_logits, batch.labels)
+                        calibrated_cross_entropies = bce(logits, batch.labels)
 
                         separate_losses_calibrated = weights * bce(logits, batch.labels)
 
@@ -236,10 +242,8 @@ class ArtifactModel(nn.Module):
                         precalibrated_loss = torch.sum(separate_losses_precalibrated)
                         loss = calibrated_loss + precalibrated_loss
 
-                        loss_metrics.record_total_batch_loss(calibrated_loss.detach(), batch, weights)
-                        loss_metrics.record_losses_by_type_and_count(separate_losses_calibrated.detach(), batch)
-                        precalibrated_loss_metrics.record_total_batch_loss(precalibrated_loss.detach(), batch, weights)
-                        precalibrated_loss_metrics.record_losses_by_type_and_count(separate_losses_precalibrated.detach(), batch)
+                        loss_metrics.record_losses(separate_losses_calibrated.detach(), batch, weights)
+                        precalibrated_loss_metrics.record_losses(separate_losses_precalibrated.detach(), batch, weights)
                     # calibration epochs freeze the model up to calibration, so the unlabeled loss is irrelevant
                     else:
                         # unlabeled loss: entropy regularization
@@ -250,7 +254,7 @@ class ArtifactModel(nn.Module):
                         # TODO: we need a parameter to control the relative weight of unlabeled loss to labeled loss
                         # TODO: this interacts with the artifact / non-artifact weighting of labeled data!!!
                         loss = torch.sum(entropies) * labeled_to_unlabeled_ratio
-                        precalibrated_loss_metrics.record_total_batch_loss(loss.detach(), batch)
+                        precalibrated_loss_metrics.record_losses(entropies.detach(), batch, weights)
 
                     # I don't get this next line: loss is a sum, not a mean, so it's already weighted by size!!!
                     # batch_weight = batch.size() / training_params.batch_size

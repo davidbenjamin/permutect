@@ -517,22 +517,21 @@ def learn_base_model(base_model: BaseModel, dataset: BaseDataset, learning_metho
                     weights = batch.labels + (1 - batch.labels) * non_artifact_weights
                     separate_losses = weights * separate_losses
 
-                    loss_metrics.record_losses_by_type_and_count(separate_losses.detach(), batch)
+                    loss_metrics.record_losses(separate_losses.detach(), batch, weights)
 
                     classification_logits = classifier_on_top.forward(representations.detach()).reshape(batch.size())
                     separate_classification_losses = weights * classifier_bce(classification_logits, batch.labels)
                     classification_loss = torch.sum(separate_classification_losses)
-                    classifier_metrics.record_total_batch_loss(classification_loss.detach(), batch, weights)
-                    classifier_metrics.record_losses_by_type_and_count(separate_classification_losses.detach(), batch)
+                    classifier_metrics.record_losses(separate_classification_losses.detach(), batch, weights)
 
                     if epoch_type == utils.Epoch.TRAIN:
                         utils.backpropagate(classifier_optimizer, classification_loss)
 
                     loss = torch.sum(separate_losses)
-                    loss_metrics.record_total_batch_loss(loss.detach(), batch, weights)
+                    loss_metrics.record_losses(separate_losses.detach(), batch, weights)
                 else:
                     loss = torch.sum(separate_losses)
-                    loss_metrics.record_total_batch_loss(loss.detach(), batch)
+                    loss_metrics.record_losses(separate_losses.detach(), batch, weights)
 
                 if epoch_type == utils.Epoch.TRAIN:
                     # batch size might be different from requested if not enough data at a particular alt/ref count

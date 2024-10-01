@@ -89,23 +89,23 @@ class LossMetrics:
             if not loss.is_empty():
                 summary_writer.add_scalar(prefix + epoch_type.name + "/Labeled Loss/By Type/" + var_type.name, loss.get(), epoch)
 
-    # TODO: put type hint batch: ReadSetBatch | RepresentationReadSetBatch once docker update
-    # if weights is not None, total_loss has *already* been weighted and summed
-    def record_total_batch_loss(self, total_loss: float, batch, weights=None):
-        effective_count = batch.size() if weights is None else torch.sum(weights).item()
-        if batch.is_labeled():
-            self.labeled_loss.record_sum(total_loss, effective_count)
-        else:
-            self.unlabeled_loss.record_sum(total_loss, effective_count)
 
-    # record the losses by type
+    # record the losses (indexed by batch dimension) by type and count, as well as the total loss not stratified by type and count
+    # input losses are NOT weighted, but when recorded they are multiplied by weights if given
+    # losses are divided into labeled and unlabeled
     # TODO: put type hint batch: ReadSetBatch | RepresentationReadSetBatch once docker update
-    # if weights is not None, losses have *already* been weighted
-    def record_losses_by_type_and_count(self, losses: torch.Tensor, batch, weights=None):
+    def record_losses(self, losses: torch.Tensor, batch, weights):
+        # handle total loss
+        labeled_weights, unlabeled_weights = batch.is_labeled_mask * weights, (1 - batch.is_labeled_mask) * weights
+        self.labeled_loss.record_with_weights(losses, labeled_weights)
+        self.unlabeled_loss.record_with_weights(losses, unlabeled_weights)
+
         if batch.is_labeled():
             # by type
             types_one_hot = batch.variant_type_one_hot().detach()
-            weighted_types_one_hot = types_one_hot if weights is None else weights[:,None]*types_one_hot
+
+            # TODO: double-check weights
+            weighted_types_one_hot = weights[:, None] * types_one_hot
             counts_by_type = torch.sum(weighted_types_one_hot, dim=0)
             total_loss_by_type = torch.sum(losses[:, None] * types_one_hot, dim=0)
             variant_types = list(Variation)

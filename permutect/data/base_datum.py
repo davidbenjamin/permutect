@@ -541,7 +541,6 @@ class BaseBatch:
 
     def __init__(self, data: List[BaseDatum]):
         self._original_list = data
-        self.labeled = data[0].label != Label.UNLABELED
         self.ref_count = len(data[0].reads_2d) - data[0].alt_count
         self.alt_count = data[0].alt_count
 
@@ -563,7 +562,11 @@ class BaseBatch:
         self.info_2d = torch.from_numpy(np.vstack([base_datum.get_info_tensor_1d() for base_datum in data]))
 
         # TODO: get this from the other_stuff_1d tensor
-        self.labels = FloatTensor([1.0 if item.label == Label.ARTIFACT else 0.0 for item in data]) if self.labeled else None
+        # labels are 1 for artifact, 0 for non-artifact
+        # also 0 for UNLABELED but that value should NEVER be used if we apply the is_labeled_mask properly
+        self.labels = FloatTensor([1.0 if item.label == Label.ARTIFACT else 0.0 for item in data])
+        self.is_labeled_mask = FloatTensor([0.0 if item.label == Label.UNLABELED else 1.0 for item in data])
+
         self.sources = IntTensor([item.source for item in data])
         self._size = len(data)
 
@@ -573,6 +576,7 @@ class BaseBatch:
         self.reads_2d = self.reads_2d.pin_memory()
         self.info_2d = self.info_2d.pin_memory()
         self.labels = self.labels.pin_memory()
+        self.is_labeled_mask = self.is_labeled_mask.pin_memory()
         self.sources = self.sources.pin_memory()
         return self
 
@@ -646,11 +650,11 @@ class ArtifactDatum:
 class ArtifactBatch:
     def __init__(self, data: List[ArtifactDatum]):
         self.original_data = data
-        self.labeled = data[0].get_label() != Label.UNLABELED
 
         self.representations_2d = torch.vstack([item.representation for item in data])
         self.ref_alt_seq_embeddings_2d = torch.vstack([item.ref_alt_seq_embedding for item in data])
-        self.labels = FloatTensor([1.0 if item.get_label() == Label.ARTIFACT else 0.0 for item in data]) if self.labeled else None
+        self.labels = FloatTensor([1.0 if item.get_label() == Label.ARTIFACT else 0.0 for item in data])
+        self.is_labeled_mask = FloatTensor([0.0 if item.label == Label.UNLABELED else 1.0 for item in data])
         self.sources = IntTensor([item.get_source() for item in data])
         self.ref_counts = IntTensor([int(item.get_ref_count()) for item in data])
         self.alt_counts = IntTensor([int(item.get_alt_count()) for item in data])
@@ -663,6 +667,7 @@ class ArtifactBatch:
         self.representations_2d = self.representations_2d.pin_memory()
         self.ref_alt_seq_embeddings_2d = self.ref_alt_seq_embeddings_2d.pin_memory()
         self.labels = self.labels.pin_memory()
+        self.is_labeled_mask = self.is_labeled_mask.pin_memory()
         self.sources = self.sources.pin_memory()
         self.ref_counts = self.ref_counts.pin_memory()
         self.alt_counts = self.alt_counts.pin_memory()

@@ -201,6 +201,12 @@ class StreamingAverage:
         self._count += torch.sum(mask)
         self._sum += torch.sum(values*mask)
 
+    # record values with different weights
+    # values and mask should live on same device as self._sum
+    def record_with_weights(self, values: torch.Tensor, weights: torch.Tensor):
+        self._count += torch.sum(weights)
+        self._sum += torch.sum(values * weights)
+
 
 def log_binomial_coefficient(n: torch.Tensor, k: torch.Tensor):
     return (n + 1).lgamma() - (k + 1).lgamma() - ((n - k) + 1).lgamma()
