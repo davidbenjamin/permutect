@@ -372,7 +372,7 @@ class BaseModelDeepSADLoss(torch.nn.Module, BaseModelLearningStrategy):
         # labels are 1 for artifact, 0 otherwise.  We convert to +1 if normal, -1 if artifact
         # DeepSAD assumes most unlabeled data are normal and so the unlabeled loss is identical to the normal loss, that is,
         # squared Euclidean distance from the centroid
-        signs = (1 - 2 * base_batch.labels) if base_batch.is_labeled() else torch.ones(base_batch.size())
+        signs = (1 - 2 * base_batch.labels) * base_batch.is_labeled_mask + 1 * (1 - base_batch.is_labeled_mask)
 
         # distance squared for normal and unlabeled, inverse distance squared for artifact
         return dist_squared ** signs
@@ -407,8 +407,9 @@ class BaseModelMARSLoss(torch.nn.Module, BaseModelLearningStrategy):
         min_dist_squared_b = torch.min(dist_squared_bc, dim=-1).values
 
         # closest centroid with correct label is labeled, otherwise just the closest centroid
-        embedding_centroid_losses_b = (base_batch.labels * artifact_dist_squared_b + (1 - base_batch.labels) * normal_dist_squared_b) \
-            if base_batch.is_labeled() else min_dist_squared_b
+        labeled_losses_b = (base_batch.labels * artifact_dist_squared_b + (1 - base_batch.labels) * normal_dist_squared_b)
+        unlabeled_losses_b = min_dist_squared_b
+        embedding_centroid_losses_b =  base_batch.is_labeled_mask * labeled_losses_b + (1 - base_batch.is_labeled_mask) * unlabeled_losses_b
 
         # average distance between centroids
         centroid_seps_cce = torch.unsqueeze(self.centroids_ce, dim=0) - torch.unsqueeze(self.centroids_ce, dim=1)

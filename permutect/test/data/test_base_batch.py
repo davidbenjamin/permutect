@@ -38,7 +38,6 @@ def test_base_batch():
                            [[0,1,1],[0,0,0],[0,0,0],[1,0,0]]
                            ])
                        )
-    assert batch.is_labeled()
     assert batch.size() == 3
 
     assert batch.get_reads_2d().shape[0] == sum(ref_counts) + sum(alt_counts)

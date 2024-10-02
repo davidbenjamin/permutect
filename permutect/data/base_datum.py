@@ -592,9 +592,6 @@ class BaseBatch:
     def get_ref_sequences_2d(self) -> Tensor:
         return self.ref_sequences_2d
 
-    def is_labeled(self) -> bool:
-        return self.labeled
-
     def size(self) -> int:
         return self._size
 
@@ -679,9 +676,6 @@ class ArtifactBatch:
 
     def get_ref_alt_seq_embeddings_2d(self) -> Tensor:
         return self.ref_alt_seq_embeddings_2d
-
-    def is_labeled(self) -> bool:
-        return self.labeled
 
     def size(self) -> int:
         return self._size
