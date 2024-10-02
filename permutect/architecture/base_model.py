@@ -541,12 +541,12 @@ def record_embeddings(base_model: BaseModel, loader, summary_writer: SummaryWrit
     embedding_metrics = EmbeddingMetrics()
     ref_alt_seq_metrics = EmbeddingMetrics()
 
-    pbar = tqdm(enumerate(filter(lambda bat: bat.is_labeled(), loader)), mininterval=60)
+    pbar = tqdm(enumerate(loader), mininterval=60)
     for n, batch in pbar:
         representations, ref_alt_seq_embeddings = base_model.calculate_representations(batch, weight_range=base_model._params.reweighting_range)
 
-        labels = ["artifact" if x > 0.5 else "non-artifact" for x in batch.labels.tolist()] if batch.is_labeled() else \
-            (["unlabeled"] * batch.size())
+        labels = [("artifact" if label > 0.5 else "non-artifact") if is_labeled else "unlabeled" for (label, is_labeled) in
+                  zip(batch.labels.tolist(), batch.is_labeled_mask.tolist())]
         for (metrics, embeddings) in [(embedding_metrics, representations), (ref_alt_seq_metrics, ref_alt_seq_embeddings)]:
             metrics.label_metadata.extend(labels)
             metrics.correct_metadata.extend(["unknown"] * batch.size())
