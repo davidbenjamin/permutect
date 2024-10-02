@@ -651,7 +651,7 @@ class ArtifactBatch:
         self.representations_2d = torch.vstack([item.representation for item in data])
         self.ref_alt_seq_embeddings_2d = torch.vstack([item.ref_alt_seq_embedding for item in data])
         self.labels = FloatTensor([1.0 if item.get_label() == Label.ARTIFACT else 0.0 for item in data])
-        self.is_labeled_mask = FloatTensor([0.0 if item.label == Label.UNLABELED else 1.0 for item in data])
+        self.is_labeled_mask = FloatTensor([0.0 if item.get_label() == Label.UNLABELED else 1.0 for item in data])
         self.sources = IntTensor([item.get_source() for item in data])
         self.ref_counts = IntTensor([int(item.get_ref_count()) for item in data])
         self.alt_counts = IntTensor([int(item.get_alt_count()) for item in data])
