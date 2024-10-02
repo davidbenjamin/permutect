@@ -219,7 +219,7 @@ def make_posterior_data_loader(dataset_file, input_vcf, contig_index_to_name_map
         for n, artifact_batch in pbar:
             artifact_logits, _ = artifact_model.forward(batch=artifact_batch)
 
-            labels = ([Label.ARTIFACT if x > 0.5 else Label.VARIANT for x in artifact_batch.labels]) if artifact_batch.is_labeled() else (artifact_batch.size()*[Label.UNLABELED])
+            labels = [(Label.ARTIFACT if label > 0.5 else Label.VARIANT) if is_labeled > 0.5 else Label.UNLABELED for (label, is_labeled) in zip(artifact_batch.labels, artifact_batch.is_labeled_mask)]
 
             for artifact_datum, logit, label, embedding in zip(artifact_batch.original_data, artifact_logits.detach().tolist(), labels, artifact_batch.get_representations_2d()):
                 m += 1  # DEBUG

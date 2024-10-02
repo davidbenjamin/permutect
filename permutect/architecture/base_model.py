@@ -545,7 +545,7 @@ def record_embeddings(base_model: BaseModel, loader, summary_writer: SummaryWrit
     for n, batch in pbar:
         representations, ref_alt_seq_embeddings = base_model.calculate_representations(batch, weight_range=base_model._params.reweighting_range)
 
-        labels = [("artifact" if label > 0.5 else "non-artifact") if is_labeled else "unlabeled" for (label, is_labeled) in
+        labels = [("artifact" if label > 0.5 else "non-artifact") if is_labeled > 0.5 else "unlabeled" for (label, is_labeled) in
                   zip(batch.labels.tolist(), batch.is_labeled_mask.tolist())]
         for (metrics, embeddings) in [(embedding_metrics, representations), (ref_alt_seq_metrics, ref_alt_seq_embeddings)]:
             metrics.label_metadata.extend(labels)
