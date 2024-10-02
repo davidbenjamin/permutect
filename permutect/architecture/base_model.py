@@ -206,11 +206,8 @@ class BaseModelLearningStrategy(ABC):
 
 
 class BaseModelSemiSupervisedLoss(torch.nn.Module, BaseModelLearningStrategy):
-    def __init__(self, input_dim: int, hidden_top_layers: List[int], params: BaseModelParameters,
-                 artifact_to_non_artifact_log_prior_ratios, labeled_to_unlabeled_ratio):
+    def __init__(self, input_dim: int, hidden_top_layers: List[int], params: BaseModelParameters):
         super(BaseModelSemiSupervisedLoss, self).__init__()
-        self.artifact_to_non_artifact_log_prior_ratios = artifact_to_non_artifact_log_prior_ratios
-        self.labeled_to_unlabeled_ratio = labeled_to_unlabeled_ratio
 
         self.bce = torch.nn.BCEWithLogitsLoss(reduction='none')  # no reduction because we may want to first multiply by weights for unbalanced data
 
@@ -220,19 +217,12 @@ class BaseModelSemiSupervisedLoss(torch.nn.Module, BaseModelLearningStrategy):
     def loss_function(self, base_model: BaseModel, base_batch: BaseBatch, base_model_representations: torch.Tensor):
         logits = self.logit_predictor.forward(base_model_representations).reshape((base_batch.size()))
 
-        types_one_hot = base_batch.variant_type_one_hot()
-        log_prior_ratios = torch.sum(self.artifact_to_non_artifact_log_prior_ratios * types_one_hot, dim=1)
-        posterior_logits = logits + log_prior_ratios
+        # base batch always has labels, but for unlabeled elements these labels are meaningless and is_labeled_mask is zero
+        cross_entropies = self.bce(logits, base_batch.labels)
+        probabilities = torch.sigmoid(logits)
+        entropies = self.bce(logits, probabilities)
 
-        if base_batch.is_labeled():
-            return self.bce(posterior_logits, base_batch.labels)
-        else:
-            # unlabeled loss: entropy regularization
-            posterior_probabilities = torch.sigmoid(posterior_logits)
-            entropies = self.bce(posterior_logits, posterior_probabilities)
-
-            # TODO: we need a parameter to control the relative weight of unlabeled loss to labeled loss
-            return entropies * self.labeled_to_unlabeled_ratio
+        return base_batch.is_labeled_mask * cross_entropies + (1 - base_batch.is_labeled_mask) * entropies
 
     # I don't like implicit forward!!
     def forward(self):
@@ -441,6 +431,8 @@ def learn_base_model(base_model: BaseModel, dataset: BaseDataset, learning_metho
     # balance training by weighting the loss function
     # if total unlabeled is less than total labeled, we do not compensate, since labeled data are more informative
     total_labeled, total_unlabeled = dataset.total_labeled_and_unlabeled()
+    artifact_to_non_artifact_ratios = torch.from_numpy(dataset.artifact_to_non_artifact_ratios()).to(
+        device=base_model._device, dtype=base_model._dtype)
     labeled_to_unlabeled_ratio = 1 if total_unlabeled < total_labeled else total_labeled / total_unlabeled
 
     print(f"Training data contains {int(total_labeled)} labeled examples and {int(total_unlabeled)} unlabeled examples")
@@ -454,13 +446,7 @@ def learn_base_model(base_model: BaseModel, dataset: BaseDataset, learning_metho
     # TODO: use Python's match syntax, but this requires updating Python version in the docker
     # TODO: hidden_top_layers are hard-coded!
     if learning_method == LearningMethod.SUPERVISED or learning_method == LearningMethod.SEMISUPERVISED:
-        artifact_to_non_artifact_ratios = torch.from_numpy(dataset.artifact_to_non_artifact_ratios()).to(
-                device=base_model._device, dtype=base_model._dtype)
-        artifact_to_non_artifact_log_prior_ratios = torch.log(artifact_to_non_artifact_ratios)
-
-        learning_strategy = BaseModelSemiSupervisedLoss(input_dim=base_model.output_dimension(), hidden_top_layers=[30,-1,-1,-1,10],
-                                                            params=base_model._params, artifact_to_non_artifact_log_prior_ratios=artifact_to_non_artifact_log_prior_ratios,
-                                                            labeled_to_unlabeled_ratio=labeled_to_unlabeled_ratio)
+        learning_strategy = BaseModelSemiSupervisedLoss(input_dim=base_model.output_dimension(), hidden_top_layers=[30,-1,-1,-1,10], params=base_model._params)
     elif learning_method == LearningMethod.MASK_PREDICTION:
         learning_strategy = BaseModelMaskPredictionLoss(num_read_features=dataset.num_read_features,
                                                         base_model_output_dim=base_model.output_dimension(), hidden_top_layers=[10,10,10], params=base_model._params)
@@ -504,39 +490,33 @@ def learn_base_model(base_model: BaseModel, dataset: BaseDataset, learning_metho
             for n, batch in pbar:
                 # unused output is the embedding of ref and alt alleles with context
                 representations, _ = base_model.calculate_representations(batch, weight_range=base_model._params.reweighting_range)
-                separate_losses = learning_strategy.loss_function(base_model, batch, representations)
+                losses = learning_strategy.loss_function(base_model, batch, representations)
 
-                if separate_losses is None:
+                if losses is None:
                     continue
 
                 types_one_hot = batch.variant_type_one_hot()
+
+                # TODO: labeled_to_unlabeled ratio should be recalculated based on the weighting of labeled data
+                # TODO: we need a parameter to control the relative weight of unlabeled loss to labeled loss
+                # TODO: (this is also an issue in the ArtifactModel)
                 # for each variant in the batch, the ratio of artifacts to non-artifacts of its type in the training data
                 non_artifact_weights = torch.sum(artifact_to_non_artifact_ratios * types_one_hot, dim=1)
+                labeled_weights = batch.labels + (1 - batch.labels) * non_artifact_weights
+                weights = (batch.is_labeled_mask * labeled_weights) + (1 - batch.is_labeled_mask) * labeled_to_unlabeled_ratio
 
-                if batch.is_labeled():
-                    weights = batch.labels + (1 - batch.labels) * non_artifact_weights
-                    separate_losses = weights * separate_losses
+                loss_metrics.record_losses(losses.detach(), batch, weights)
 
-                    loss_metrics.record_losses(separate_losses.detach(), batch, weights)
+                loss = torch.sum(weights * losses)
 
-                    classification_logits = classifier_on_top.forward(representations.detach()).reshape(batch.size())
-                    separate_classification_losses = weights * classifier_bce(classification_logits, batch.labels)
-                    classification_loss = torch.sum(separate_classification_losses)
-                    classifier_metrics.record_losses(separate_classification_losses.detach(), batch, weights)
-
-                    if epoch_type == utils.Epoch.TRAIN:
-                        utils.backpropagate(classifier_optimizer, classification_loss)
-
-                    loss = torch.sum(separate_losses)
-                    loss_metrics.record_losses(separate_losses.detach(), batch, weights)
-                else:
-                    loss = torch.sum(separate_losses)
-                    loss_metrics.record_losses(separate_losses.detach(), batch, weights)
+                classification_logits = classifier_on_top.forward(representations.detach()).reshape(batch.size())
+                classification_losses = classifier_bce(classification_logits, batch.labels)
+                classification_loss = torch.sum(batch.is_labeled_mask * weights * classification_losses)
+                classifier_metrics.record_losses(classification_losses.detach(), batch, batch.is_labeled_mask * weights)
 
                 if epoch_type == utils.Epoch.TRAIN:
-                    # batch size might be different from requested if not enough data at a particular alt/ref count
-                    # batch_weight = batch.size() / training_params.batch_size
                     utils.backpropagate(train_optimizer, loss)
+                    utils.backpropagate(classifier_optimizer, classification_loss)
 
             # done with one epoch type -- training or validation -- for this epoch
             loss_metrics.write_to_summary_writer(epoch_type, epoch, summary_writer)

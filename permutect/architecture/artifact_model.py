@@ -224,6 +224,7 @@ class ArtifactModel(nn.Module):
                         non_artifact_weights = torch.sum(artifact_to_non_artifact_ratios * types_one_hot, dim=1)
 
                     # TODO: labeled_to_unlabeled ratio should be recalculated based on the weighting of labeled data
+                    # TODO: we need a parameter to control the relative weight of unlabeled loss to labeled loss
                     # maintain the interpretation of the logits as a likelihood ratio by weighting to effectively
                     # achieve a balanced data set eg equal prior between artifact and non-artifact
                     # for artifacts, weight is 1; for non-artifacts it's artifact to nonartifact ratio
@@ -235,7 +236,7 @@ class ArtifactModel(nn.Module):
                     calibrated_cross_entropies = bce(logits, batch.labels)
                     labeled_losses = batch.is_labeled_mask * (uncalibrated_cross_entropies + calibrated_cross_entropies) / 2
 
-                    # unlabeled loss: entropy regularization e use the uncalibrated logits because otherwise entropy
+                    # unlabeled loss: entropy regularization. We use the uncalibrated logits because otherwise entropy
                     # regularization simply biases calibration to be overconfident.
                     probabilities = torch.sigmoid(precalibrated_logits)
                     entropies = torch.nn.functional.binary_cross_entropy_with_logits(precalibrated_logits, probabilities, reduction='none')
@@ -245,15 +246,13 @@ class ArtifactModel(nn.Module):
                     losses = (labeled_losses + unlabeled_losses) * weights
                     loss = torch.sum(losses)
 
-                    # TODO: we need a parameter to control the relative weight of unlabeled loss to labeled loss
-                    # TODO: this interacts with the artifact / non-artifact weighting of labeled data!!!
-
                     loss_metrics.record_losses(calibrated_cross_entropies.detach(), batch, weights * batch.is_labeled_mask)
                     uncalibrated_loss_metrics.record_losses(uncalibrated_cross_entropies.detach(), batch, weights * batch.is_labeled_mask)
                     uncalibrated_loss_metrics.record_losses(entropies.detach(), batch, weights * (1 - batch.is_labeled_mask))
 
-                    # calibration epochs freeze the model up to calibration, so the unlabeled loss is irrelevant
-                    if epoch_type == utils.Epoch.TRAIN and not (is_calibration_epoch and not batch.is_labeled()):
+                    # calibration epochs freeze the model up to calibration, so I wonder if a purely unlabeled batch
+                    # would cause lack of gradient problems. . .
+                    if epoch_type == utils.Epoch.TRAIN:
                         utils.backpropagate(train_optimizer, loss)
 
                 # done with one epoch type -- training or validation -- for this epoch
@@ -309,7 +308,7 @@ class ArtifactModel(nn.Module):
         for epoch_type in epoch_types:
             assert epoch_type == Epoch.TRAIN or epoch_type == Epoch.VALID  # not doing TEST here
             loader = train_loader if epoch_type == Epoch.TRAIN else valid_loader
-            pbar = tqdm(enumerate(filter(lambda bat: bat.is_labeled(), loader)), mininterval=60)
+            pbar = tqdm(enumerate(loader), mininterval=60)
             for n, batch in pbar:
 
                 # these are the same weights used in training to effectively balance the data between artifact and
@@ -322,9 +321,11 @@ class ArtifactModel(nn.Module):
                 pred = logits.detach()
                 correct = ((pred > 0) == (batch.labels > 0.5)).tolist()
 
-                for variant_type, predicted_logit, label, correct_call, alt_count, datum, weight in zip(
-                        batch.variant_types(), pred.tolist(), batch.labels.tolist(), correct,
+                for variant_type, predicted_logit, label, is_labeled, correct_call, alt_count, datum, weight in zip(
+                        batch.variant_types(), pred.tolist(), batch.labels.tolist(), batch.is_labeled_mask.tolist(), correct,
                         batch.alt_counts, batch.original_data, weights.tolist()):
+                    if is_labeled < 0.5:    # we only evaluate labeled data
+                        continue
                     evaluation_metrics.record_call(epoch_type, variant_type, predicted_logit, label, correct_call, alt_count, weight)
                     if report_worst and not correct_call:
                         rounded_count = round_up_to_nearest_three(alt_count)
@@ -369,17 +370,23 @@ class ArtifactModel(nn.Module):
             ref_alt_seq_metrics = EmbeddingMetrics()
 
             # now go over just the validation data and generate feature vectors / metadata for tensorboard projectors (UMAP)
-            pbar = tqdm(enumerate(filter(lambda bat: bat.is_labeled(), valid_loader)), mininterval=60)
+            pbar = tqdm(enumerate(valid_loader), mininterval=60)
 
             for n, batch in pbar:
                 logits, _ = self.forward(batch)
                 pred = logits.detach()
                 correct = ((pred > 0) == (batch.labels > 0.5)).tolist()
 
+                label_strings = [("artifact" if label > 0.5 else "non-artifact") if is_labeled > 0.5 else "unlabeled"
+                                 for (label, is_labeled) in zip(batch.labels.tolist(), batch.is_labeled_mask.tolist())]
+
+                correct_strings = [str(correctness) if is_labeled > 0.5 else "-1"
+                                 for (correctness, is_labeled) in zip(correct, batch.is_labeled_mask.tolist())]
+
                 for (metrics, embedding) in [(embedding_metrics, batch.get_representations_2d().detach()),
                                               (ref_alt_seq_metrics, batch.get_ref_alt_seq_embeddings_2d().detach())]:
-                    metrics.label_metadata.extend(["artifact" if x > 0.5 else "non-artifact" for x in batch.labels.tolist()])
-                    metrics.correct_metadata.extend([str(val) for val in correct])
+                    metrics.label_metadata.extend(label_strings)
+                    metrics.correct_metadata.extend(correct_strings)
                     metrics.type_metadata.extend([Variation(idx).name for idx in batch.variant_types()])
                     metrics.truncated_count_metadata.extend([str(round_up_to_nearest_three(min(MAX_COUNT, alt_count))) for alt_count in batch.alt_counts])
                     metrics.representations.append(embedding)
