@@ -74,17 +74,18 @@ class ArtifactDataset(Dataset):
     def all_folds(self):
         return list(range(self.num_folds))
 
-    def make_data_loader(self, folds_to_use: List[int], batch_size: int, pin_memory=False, num_workers: int = 0):
-        sampler = SemiSupervisedRepresentationBatchSampler(self, batch_size, folds_to_use)
+    def make_data_loader(self, folds_to_use: List[int], batch_size: int, pin_memory=False, num_workers: int = 0, labeled_only: bool = False):
+        sampler = SemiSupervisedArtifactBatchSampler(self, batch_size, folds_to_use, labeled_only)
         return DataLoader(dataset=self, batch_sampler=sampler, collate_fn=ArtifactBatch, pin_memory=pin_memory, num_workers=num_workers)
 
 
 # make RepresentationReadSetBatches that are all supervised or all unsupervised -- ref and alt counts may be disparate
-class SemiSupervisedRepresentationBatchSampler(Sampler):
-    def __init__(self, dataset: ArtifactDataset, batch_size, folds_to_use: List[int]):
+class SemiSupervisedArtifactBatchSampler(Sampler):
+    def __init__(self, dataset: ArtifactDataset, batch_size, folds_to_use: List[int], labeled_only: bool = False):
         # combine the index lists of all relevant folds
         self.labeled_indices = []
         self.unlabeled_indices = []
+        self.labeled_only = labeled_only
         for fold in folds_to_use:
             self.labeled_indices.extend(dataset.labeled_indices[fold])
             self.unlabeled_indices.extend(dataset.unlabeled_indices[fold])
@@ -95,7 +96,7 @@ class SemiSupervisedRepresentationBatchSampler(Sampler):
 
     def __iter__(self):
         batches = []    # list of lists of indices -- each sublist is a batch
-        for index_list in (self.labeled_indices, self.unlabeled_indices):
+        for index_list in [self.labeled_indices] if self.labeled_only else [self.labeled_indices, self.unlabeled_indices]:
             random.shuffle(index_list)
             batches.extend(chunk(index_list, self.batch_size))
         random.shuffle(batches)
