@@ -79,26 +79,24 @@ class ArtifactDataset(Dataset):
         return DataLoader(dataset=self, batch_sampler=sampler, collate_fn=ArtifactBatch, pin_memory=pin_memory, num_workers=num_workers)
 
 
-# make RepresentationReadSetBatches that are all supervised or all unsupervised -- ref and alt counts may be disparate
+# make ArtifactBatches that mix different ref, alt counts, labeled, unlabeled
+# with an option to emit only labeled data
 class SemiSupervisedArtifactBatchSampler(Sampler):
     def __init__(self, dataset: ArtifactDataset, batch_size, folds_to_use: List[int], labeled_only: bool = False):
         # combine the index lists of all relevant folds
-        self.labeled_indices = []
-        self.unlabeled_indices = []
-        self.labeled_only = labeled_only
+        self.indices_to_use = []
+
         for fold in folds_to_use:
-            self.labeled_indices.extend(dataset.labeled_indices[fold])
-            self.unlabeled_indices.extend(dataset.unlabeled_indices[fold])
+            self.indices_to_use.extend(dataset.labeled_indices[fold])
+            if not labeled_only:
+                self.indices_to_use.extend(dataset.unlabeled_indices[fold])
 
         self.batch_size = batch_size
-        self.num_batches = sum(math.ceil(len(indices) // self.batch_size) for indices in
-                               (self.labeled_indices, self.unlabeled_indices))
+        self.num_batches = sum(math.ceil(len(self.indices_to_use) // self.batch_size))
 
     def __iter__(self):
-        batches = []    # list of lists of indices -- each sublist is a batch
-        for index_list in [self.labeled_indices] if self.labeled_only else [self.labeled_indices, self.unlabeled_indices]:
-            random.shuffle(index_list)
-            batches.extend(chunk(index_list, self.batch_size))
+        random.shuffle(self.indices_to_use)
+        batches = chunk(self.indices_to_use, self.batch_size)   # list of lists of indices -- each sublist is a batch
         random.shuffle(batches)
 
         return iter(batches)
