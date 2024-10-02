@@ -146,29 +146,28 @@ def chunk(lis, chunk_size):
     return [lis[i:i + chunk_size] for i in range(0, len(lis), chunk_size)]
 
 
-# make batches that are all supervised or all unsupervised, and have a single value for ref, alt counts within  batches
+# make batches that have a single value for ref, alt counts within  batches.  Labeled and unlabeled data are mixed.
 # the artifact model handles weighting the losses to compensate for class imbalance between supervised and unsupervised
 # thus the sampler is not responsible for balancing the data
 class SemiSupervisedBatchSampler(Sampler):
     def __init__(self, dataset: BaseDataset, batch_size, folds_to_use: List[int]):
         # combine the index maps of all relevant folds
-        self.labeled_indices_by_count = defaultdict(list)
-        self.unlabeled_indices_by_count = defaultdict(list)
+        self.indices_by_count = defaultdict(list)
+
         for fold in folds_to_use:
             new_labeled = dataset.labeled_indices_by_count[fold]
             new_unlabeled = dataset.unlabeled_indices_by_count[fold]
             for count, indices in new_labeled.items():
-                self.labeled_indices_by_count[count].extend(indices)
+                self.indices_by_count[count].extend(indices)
             for count, indices in new_unlabeled.items():
-                self.unlabeled_indices_by_count[count].extend(indices)
+                self.indices_by_count[count].extend(indices)
 
         self.batch_size = batch_size
-        self.num_batches = sum(math.ceil(len(indices) // self.batch_size) for indices in
-                            chain(self.labeled_indices_by_count.values(), self.unlabeled_indices_by_count.values()))
+        self.num_batches = sum(math.ceil(len(indices) // self.batch_size) for indices in self.indices_by_count.values())
 
     def __iter__(self):
         batches = []    # list of lists of indices -- each sublist is a batch
-        for index_list in chain(self.labeled_indices_by_count.values(), self.unlabeled_indices_by_count.values()):
+        for index_list in self.indices_by_count.values():
             random.shuffle(index_list)
             batches.extend(chunk(index_list, self.batch_size))
         random.shuffle(batches)
