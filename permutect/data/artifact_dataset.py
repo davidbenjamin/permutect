@@ -92,7 +92,7 @@ class SemiSupervisedArtifactBatchSampler(Sampler):
                 self.indices_to_use.extend(dataset.unlabeled_indices[fold])
 
         self.batch_size = batch_size
-        self.num_batches = sum(math.ceil(len(self.indices_to_use) // self.batch_size))
+        self.num_batches = math.ceil(len(self.indices_to_use) // self.batch_size)
 
     def __iter__(self):
         random.shuffle(self.indices_to_use)
