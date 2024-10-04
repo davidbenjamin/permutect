@@ -61,7 +61,9 @@ class BaseDataset(Dataset):
         self.unlabeled_indices_by_count = [defaultdict(list) for _ in range(num_folds)]
         self.artifact_totals = np.zeros(len(utils.Variation))  # 1D tensor
         self.non_artifact_totals = np.zeros(len(utils.Variation))  # 1D tensor
+        self.unlabeled_totals = np.zeros(len(utils.Variation))  # 1D tensor
 
+        self.unlabeled_totals_by_count = defaultdict(lambda: np.zeros(len(utils.Variation)))  # 1D tensor for each count
         self.artifact_totals_by_count = defaultdict(lambda: np.zeros(len(utils.Variation)))  # 1D tensor for each count
         self.non_artifact_totals_by_count = defaultdict(lambda: np.zeros(len(utils.Variation)))  # 1D tensor for each count
 
@@ -74,14 +76,16 @@ class BaseDataset(Dataset):
             counts = (len(datum.reads_2d) - datum.alt_count, datum.alt_count)
             (self.unlabeled_indices_by_count if datum.label == Label.UNLABELED else self.labeled_indices_by_count)[fold][counts].append(n)
 
+            one_hot = datum.variant_type_one_hot()
             if datum.label == Label.ARTIFACT:
-                one_hot = datum.variant_type_one_hot()
                 self.artifact_totals += one_hot
                 self.artifact_totals_by_count[datum.alt_count] += one_hot
             elif datum.label != Label.UNLABELED:
-                one_hot = datum.variant_type_one_hot()
                 self.non_artifact_totals += one_hot
                 self.non_artifact_totals_by_count[datum.alt_count] += one_hot
+            elif datum.label == Label.UNLABELED:
+                self.unlabeled_totals += one_hot
+                self.unlabeled_totals_by_count[datum.alt_count] += one_hot
 
         self.num_read_features = self[0].get_reads_2d().shape[1]
         self.num_info_features = len(self[0].get_info_tensor_1d())
