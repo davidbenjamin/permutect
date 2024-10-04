@@ -15,7 +15,7 @@ from torch.utils.data.sampler import Sampler
 from mmap_ninja.ragged import RaggedMmap
 from permutect import utils
 from permutect.data.base_datum import BaseDatum, BaseBatch, load_list_of_base_data, BaseDatum1DStuff
-from permutect.utils import Label
+from permutect.utils import Label, MutableInt
 
 TENSORS_PER_BASE_DATUM = 2  # 1) 2D reads (ref and alt), 1) 1D concatenated stuff
 
@@ -65,7 +65,11 @@ class BaseDataset(Dataset):
         self.artifact_totals_by_count = defaultdict(lambda: np.zeros(len(utils.Variation)))  # 1D tensor for each count
         self.non_artifact_totals_by_count = defaultdict(lambda: np.zeros(len(utils.Variation)))  # 1D tensor for each count
 
+        self.counts_by_source = defaultdict(lambda: MutableInt()) # amount of data for each source (which is an integer key)
+
         for n, datum in enumerate(self):
+            self.counts_by_source[datum.source].increment()
+            
             fold = n % num_folds
             counts = (len(datum.reads_2d) - datum.alt_count, datum.alt_count)
             (self.unlabeled_indices_by_count if datum.label == Label.UNLABELED else self.labeled_indices_by_count)[fold][counts].append(n)
