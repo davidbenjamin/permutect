@@ -15,7 +15,7 @@ from permutect.data.base_dataset import BaseDataset, chunk
 # of RepresentationReadSets
 class ArtifactDataset(Dataset):
     def __init__(self, base_dataset: BaseDataset, base_model: BaseModel, folds_to_use: List[int] = None):
-
+        self.counts_by_source = base_dataset.counts_by_source
         self.artifact_totals = base_dataset.artifact_totals
         self.non_artifact_totals = base_dataset.non_artifact_totals
         self.artifact_totals_by_count = base_dataset.artifact_totals_by_count

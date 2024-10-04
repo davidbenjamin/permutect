@@ -69,7 +69,7 @@ class BaseDataset(Dataset):
 
         for n, datum in enumerate(self):
             self.counts_by_source[datum.source].increment()
-            
+
             fold = n % num_folds
             counts = (len(datum.reads_2d) - datum.alt_count, datum.alt_count)
             (self.unlabeled_indices_by_count if datum.label == Label.UNLABELED else self.labeled_indices_by_count)[fold][counts].append(n)
