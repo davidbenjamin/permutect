@@ -24,6 +24,12 @@ TARFILE_TO_RAM_RATIO = 4
 
 ALL_COUNTS_SENTINEL = -1
 
+WEIGHT_PSEUDOCOUNT = 10
+
+
+def ratio_with_pseudocount(a, b):
+    return (a + WEIGHT_PSEUDOCOUNT) / (b + WEIGHT_PSEUDOCOUNT)
+
 
 class BaseDataset(Dataset):
     def __init__(self, data_in_ram: Iterable[BaseDatum] = None, data_tarfile=None, num_folds: int = 1):
@@ -80,6 +86,24 @@ class BaseDataset(Dataset):
             one_hot = datum.variant_type_one_hot()
             self.totals[ALL_COUNTS_SENTINEL][datum.label] += one_hot
             self.totals[datum.alt_count][datum.label] += one_hot
+
+        # compute weights to balance loss even for unbalanced data
+        # recall count == -1 is a sentinel value for aggregated totals over all alt counts
+        self.weights = defaultdict(lambda: {label: np.zeros(len(utils.Variation)) for label in Label})
+        for count in self.totals.keys():
+            # eg: if there are 1000 artifact and 10 non-artifact SNVs, the ratio is 100, and artifacts get a weight of 1/sqrt(100) = 1/10
+            # while non-artifacts get a weight of 10 -- hence the effective count of each is 1000/10 = 10*10 = 100
+            art_to_nonart_ratios = ratio_with_pseudocount(self.totals[count][Label.ARTIFACT], self.totals[count][Label.VARIANT])
+            self.weights[count][Label.VARIANT] = np.sqrt(art_to_nonart_ratios)
+            self.weights[count][Label.ARTIFACT] = 1 / np.sqrt(art_to_nonart_ratios)
+
+            effective_labeled_counts = self.totals[count][Label.ARTIFACT] * self.weights[count][Label.ARTIFACT] + \
+                                       self.totals[count][Label.VARIANT] * self.weights[count][Label.VARIANT]
+
+            # unlabeled data are weighted down to have at most the same total weight as labeled data
+            # example, 1000 unlabeled SNVs and 100 labeled SNVs -- unlabeled weight is 100/1000 = 1/10
+            # example, 10 unlabeled and 100 labeled -- unlabeled weight is 1
+            self.weights[count][Label.UNLABELED] = np.clip(effective_labeled_counts / self.totals[count][Label.UNLABELED], max=1)
 
         self.num_read_features = self[0].get_reads_2d().shape[1]
         self.num_info_features = len(self[0].get_info_tensor_1d())
