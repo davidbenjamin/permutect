@@ -502,16 +502,9 @@ def learn_base_model(base_model: BaseModel, dataset: BaseDataset, learning_metho
                 if losses is None:
                     continue
 
-                # -1 is the sentinel value for aggregation over all counts
                 # TODO: maybe this should be done by count?
                 # TODO: we need a parameter to control the relative weight of unlabeled loss to labeled loss
-                types_one_hot = batch.variant_type_one_hot()
-                artifact_weights = torch.sum(dataset.weights[-1][Label.ARTIFACT] * types_one_hot, dim=1)
-                non_artifact_weights = torch.sum(dataset.weights[-1][Label.VARIANT] * types_one_hot, dim=1)
-                unlabeled_weights = torch.sum(dataset.weights[-1][Label.UNLABELED] * types_one_hot, dim=1)
-
-                weights = batch.is_labeled_mask * (batch.labels * artifact_weights + (1 - batch.labels) * non_artifact_weights) + \
-                          (1 - batch.is_labeled_mask) * unlabeled_weights
+                weights = calculate_batch_weights(batch, dataset, by_count=False)
 
                 loss_metrics.record_losses(losses.detach(), batch, weights)
                 loss = torch.sum(weights * losses)

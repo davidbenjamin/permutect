@@ -15,6 +15,7 @@ from tqdm.autonotebook import trange, tqdm
 from itertools import chain
 from matplotlib import pyplot as plt
 
+from permutect.architecture.base_model import calculate_batch_weights
 from permutect.architecture.mlp import MLP
 from permutect.architecture.monotonic import MonoDense
 from permutect.data.base_datum import ArtifactBatch, DEFAULT_GPU_FLOAT, DEFAULT_CPU_FLOAT
@@ -207,20 +208,10 @@ class ArtifactModel(nn.Module):
                 pbar = tqdm(enumerate(loader), mininterval=60)
                 for n, batch in pbar:
                     logits, precalibrated_logits = self.forward(batch)
-                    types_one_hot = batch.variant_type_one_hot()
 
-                    # TODO: code duplication with calculation of weights in base model learning
-                    # -1 is the sentinel value for aggregation over all counts
                     # TODO: maybe this should be done by count for all epochs?
                     # TODO: we need a parameter to control the relative weight of unlabeled loss to labeled loss
-                    alt_counts_for_weights = batch.alt_counts if is_calibration_epoch else -1
-                    types_one_hot = batch.variant_type_one_hot()
-                    artifact_weights = torch.sum(dataset.weights[alt_counts_for_weights][Label.ARTIFACT] * types_one_hot, dim=1)
-                    non_artifact_weights = torch.sum(dataset.weights[alt_counts_for_weights][Label.VARIANT] * types_one_hot, dim=1)
-                    unlabeled_weights = torch.sum(dataset.weights[alt_counts_for_weights][Label.UNLABELED] * types_one_hot, dim=1)
-
-                    weights = batch.is_labeled_mask * (batch.labels * artifact_weights + (1 - batch.labels) * non_artifact_weights) + \
-                              (1 - batch.is_labeled_mask) * unlabeled_weights
+                    weights = calculate_batch_weights(batch, dataset, by_count=is_calibration_epoch)
 
                     uncalibrated_cross_entropies = bce(precalibrated_logits, batch.labels)
                     calibrated_cross_entropies = bce(logits, batch.labels)
@@ -292,7 +283,6 @@ class ArtifactModel(nn.Module):
         # the keys are tuples of (true label -- 1 for variant, 0 for artifact; rounded alt count)
         worst_offenders_by_truth_and_alt_count = defaultdict(lambda: PriorityQueue(WORST_OFFENDERS_QUEUE_SIZE))
 
-        artifact_to_non_artifact_ratios = torch.from_numpy(dataset.artifact_to_non_artifact_ratios())
         evaluation_metrics = EvaluationMetrics()
         epoch_types = [Epoch.TRAIN, Epoch.VALID]
         for epoch_type in epoch_types:
@@ -301,11 +291,10 @@ class ArtifactModel(nn.Module):
             pbar = tqdm(enumerate(loader), mininterval=60)
             for n, batch in pbar:
 
-                # these are the same weights used in training to effectively balance the data between artifact and
-                # non-artifact for each variant type
-                types_one_hot = batch.variant_type_one_hot()
-                non_artifact_weights = torch.sum(artifact_to_non_artifact_ratios * types_one_hot, dim=1)
-                weights = batch.labels + (1 - batch.labels) * non_artifact_weights
+                # these are the same weights used in training
+                # TODO: maybe this should be done by count?
+                # TODO: we need a parameter to control the relative weight of unlabeled loss to labeled loss
+                weights = calculate_batch_weights(batch, dataset, by_count=False)
 
                 logits, _ = self.forward(batch)
                 pred = logits.detach()

@@ -36,7 +36,6 @@ class ArtifactDataset(Dataset):
         self.num_base_features = base_model.output_dimension()
         self.num_ref_alt_features = base_model.ref_alt_seq_embedding_dimension()
 
-
         index = 0
 
         loader = base_dataset.make_data_loader(base_dataset.all_folds() if folds_to_use is None else folds_to_use, batch_size=256)
@@ -59,17 +58,6 @@ class ArtifactDataset(Dataset):
 
     def __getitem__(self, index):
         return self.artifact_data[index]
-
-    def artifact_to_non_artifact_ratios(self):
-        return self.artifact_totals / self.non_artifact_totals
-
-    def artifact_to_non_artifact_ratios_by_count(self, count: int):
-        # giving each a regularizing pseudocount of 1 -- not sure if this is a wise idea
-        return (self.artifact_totals_by_count[count] + 1) / (self.non_artifact_totals_by_count[count] + 1)
-
-    def total_labeled_and_unlabeled(self):
-        total_labeled = np.sum(self.artifact_totals + self.non_artifact_totals)
-        return total_labeled, len(self) - total_labeled
 
     # it is often convenient to arbitrarily use the last fold for validation
     def last_fold_only(self):
