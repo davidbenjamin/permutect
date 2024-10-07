@@ -22,6 +22,8 @@ TENSORS_PER_BASE_DATUM = 2  # 1) 2D reads (ref and alt), 1) 1D concatenated stuf
 # tarfiles on disk take up about 4x as much as the dataset on RAM
 TARFILE_TO_RAM_RATIO = 4
 
+ALL_COUNTS_SENTINEL = -1
+
 
 class BaseDataset(Dataset):
     def __init__(self, data_in_ram: Iterable[BaseDatum] = None, data_tarfile=None, num_folds: int = 1):
@@ -59,13 +61,12 @@ class BaseDataset(Dataset):
         # this is used in the batch sampler to make same-shape batches
         self.labeled_indices_by_count = [defaultdict(list) for _ in range(num_folds)]
         self.unlabeled_indices_by_count = [defaultdict(list) for _ in range(num_folds)]
-        self.artifact_totals = np.zeros(len(utils.Variation))  # 1D tensor
-        self.non_artifact_totals = np.zeros(len(utils.Variation))  # 1D tensor
-        self.unlabeled_totals = np.zeros(len(utils.Variation))  # 1D tensor
 
-        self.unlabeled_totals_by_count = defaultdict(lambda: np.zeros(len(utils.Variation)))  # 1D tensor for each count
-        self.artifact_totals_by_count = defaultdict(lambda: np.zeros(len(utils.Variation)))  # 1D tensor for each count
-        self.non_artifact_totals_by_count = defaultdict(lambda: np.zeros(len(utils.Variation)))  # 1D tensor for each count
+        # totals by count, then by label -- ARTIFACT, VARIANT, UNLABELED, then by count variant type
+        # variant type is done as a 1D np array parallel to the one-hot encoding of variant type
+        # we use a sentinel count value of -1 to denote aggregation over all counts
+        # eg totals[4][Label.ARTIFACT] = [2,4,6,8,10] means there are 2 artifact SNVs with alt count 4
+        self.totals = defaultdict(lambda: {label: np.zeros(len(utils.Variation)) for label in Label})
 
         self.counts_by_source = defaultdict(lambda: MutableInt()) # amount of data for each source (which is an integer key)
 
@@ -77,15 +78,8 @@ class BaseDataset(Dataset):
             (self.unlabeled_indices_by_count if datum.label == Label.UNLABELED else self.labeled_indices_by_count)[fold][counts].append(n)
 
             one_hot = datum.variant_type_one_hot()
-            if datum.label == Label.ARTIFACT:
-                self.artifact_totals += one_hot
-                self.artifact_totals_by_count[datum.alt_count] += one_hot
-            elif datum.label != Label.UNLABELED:
-                self.non_artifact_totals += one_hot
-                self.non_artifact_totals_by_count[datum.alt_count] += one_hot
-            elif datum.label == Label.UNLABELED:
-                self.unlabeled_totals += one_hot
-                self.unlabeled_totals_by_count[datum.alt_count] += one_hot
+            self.totals[ALL_COUNTS_SENTINEL][datum.label] += one_hot
+            self.totals[datum.alt_count][datum.label] += one_hot
 
         self.num_read_features = self[0].get_reads_2d().shape[1]
         self.num_info_features = len(self[0].get_info_tensor_1d())
@@ -104,12 +98,14 @@ class BaseDataset(Dataset):
         else:
             return self._data[index]
 
+    # TODO: is this still needed?
     def artifact_to_non_artifact_ratios(self):
-        return self.artifact_totals / self.non_artifact_totals
+        return self.totals[ALL_COUNTS_SENTINEL][Label.ARTIFACT] / self.totals[ALL_COUNTS_SENTINEL][Label.VARIANT]
 
+    # TODO: is this still needed?
     def total_labeled_and_unlabeled(self):
-        total_labeled = np.sum(self.artifact_totals + self.non_artifact_totals)
-        return total_labeled, len(self) - total_labeled
+        total_labeled = np.sum(self.totals[ALL_COUNTS_SENTINEL][Label.ARTIFACT] + self.totals[ALL_COUNTS_SENTINEL][Label.VARIANT])
+        return total_labeled, np.sum(self.totals[ALL_COUNTS_SENTINEL][Label.UNLABELED])
 
     # it is often convenient to arbitrarily use the last fold for validation
     def last_fold_only(self):

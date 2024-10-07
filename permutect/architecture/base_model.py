@@ -14,14 +14,14 @@ from permutect.architecture.dna_sequence_convolution import DNASequenceConvoluti
 from permutect.architecture.gated_mlp import GatedMLP, GatedRefAltMLP
 from permutect.architecture.mlp import MLP
 from permutect.data.base_datum import BaseBatch, DEFAULT_GPU_FLOAT, DEFAULT_CPU_FLOAT
-from permutect.data.base_dataset import BaseDataset
+from permutect.data.base_dataset import BaseDataset, ALL_COUNTS_SENTINEL
 from permutect.metrics.evaluation_metrics import LossMetrics, EmbeddingMetrics, round_up_to_nearest_three, MAX_COUNT
 from permutect.parameters import BaseModelParameters, TrainingParameters
 
 
 # group rows into consecutive chunks to yield a 3D tensor, average over dim=1 to get
 # 2D tensor of sums within each chunk
-from permutect.utils import Variation
+from permutect.utils import Variation, Label
 
 
 def sums_over_chunks(tensor2d: torch.Tensor, chunk_size: int):
@@ -432,17 +432,16 @@ def learn_base_model(base_model: BaseModel, dataset: BaseDataset, learning_metho
     # balance training by weighting the loss function
     # if total unlabeled is less than total labeled, we do not compensate, since labeled data are more informative
     total_labeled, total_unlabeled = dataset.total_labeled_and_unlabeled()
-    artifact_to_non_artifact_ratios = torch.from_numpy(dataset.artifact_to_non_artifact_ratios()).to(
-        device=base_model._device, dtype=base_model._dtype)
+
     labeled_to_unlabeled_ratio = 1 if total_unlabeled < total_labeled else total_labeled / total_unlabeled
 
-    print(f"Training data contains {int(total_labeled)} labeled examples and {int(total_unlabeled)} unlabeled examples")
     print(f"Memory usage percent: {psutil.virtual_memory().percent:.1f}")
 
     for variation_type in utils.Variation:
         idx = variation_type.value
-        print(f"For variation type {variation_type.name}, there are {int(dataset.artifact_totals[idx].item())} \
-            labeled artifact examples and {int(dataset.non_artifact_totals[idx].item())} labeled non-artifact examples")
+        print(f"For variation type {variation_type.name}, there are {int(dataset.totals[ALL_COUNTS_SENTINEL][Label.ARTIFACT][idx].item())} \
+            artifacts, {int(dataset.totals[ALL_COUNTS_SENTINEL][Label.VARIANT][idx].item())} \
+            non-artifacts, and {int(dataset.totals[ALL_COUNTS_SENTINEL][Label.UNLABELED][idx].item())} unlabeled data.")
 
     # TODO: use Python's match syntax, but this requires updating Python version in the docker
     # TODO: hidden_top_layers are hard-coded!
@@ -504,6 +503,8 @@ def learn_base_model(base_model: BaseModel, dataset: BaseDataset, learning_metho
                 # for each variant in the batch, the ratio of artifacts to non-artifacts of its type in the training data
                 non_artifact_weights = torch.sum(artifact_to_non_artifact_ratios * types_one_hot, dim=1)
                 labeled_weights = batch.labels + (1 - batch.labels) * non_artifact_weights
+
+                # TODO: use the weights computed in base dataset!!!!
                 weights = (batch.is_labeled_mask * labeled_weights) + (1 - batch.is_labeled_mask) * labeled_to_unlabeled_ratio
 
                 loss_metrics.record_losses(losses.detach(), batch, weights)
