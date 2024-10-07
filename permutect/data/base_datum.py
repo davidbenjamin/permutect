@@ -543,6 +543,7 @@ class BaseBatch:
         self._original_list = data
         self.ref_count = len(data[0].reads_2d) - data[0].alt_count
         self.alt_count = data[0].alt_count
+        self.alt_counts = IntTensor([data[0].alt_count for _ in data])
 
         # for datum in data:
         #    assert (datum.label() != Label.UNLABELED) == self.labeled, "Batch may not mix labeled and unlabeled"

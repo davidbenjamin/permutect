@@ -122,15 +122,6 @@ class BaseDataset(Dataset):
         else:
             return self._data[index]
 
-    # TODO: is this still needed?
-    def artifact_to_non_artifact_ratios(self):
-        return self.totals[ALL_COUNTS_SENTINEL][Label.ARTIFACT] / self.totals[ALL_COUNTS_SENTINEL][Label.VARIANT]
-
-    # TODO: is this still needed?
-    def total_labeled_and_unlabeled(self):
-        total_labeled = np.sum(self.totals[ALL_COUNTS_SENTINEL][Label.ARTIFACT] + self.totals[ALL_COUNTS_SENTINEL][Label.VARIANT])
-        return total_labeled, np.sum(self.totals[ALL_COUNTS_SENTINEL][Label.UNLABELED])
-
     # it is often convenient to arbitrarily use the last fold for validation
     def last_fold_only(self):
         return [self.num_folds - 1]  # use the last fold for validation

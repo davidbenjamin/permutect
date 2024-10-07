@@ -5,6 +5,7 @@ from typing import List
 
 import psutil
 import torch
+import numpy as np
 from torch.utils.tensorboard import SummaryWriter
 from torch.nn.parameter import Parameter
 from tqdm.autonotebook import trange, tqdm
@@ -27,6 +28,21 @@ from permutect.utils import Variation, Label
 def sums_over_chunks(tensor2d: torch.Tensor, chunk_size: int):
     assert len(tensor2d) % chunk_size == 0
     return torch.sum(tensor2d.reshape([len(tensor2d) // chunk_size, chunk_size, -1]), dim=1)
+
+
+# note: this works for both BaseBatch/BaseDataset AND ArtifactBatch/ArtifactDataset
+# if by_count is True, each count is weighted separately for balanced loss within that count
+def calculate_batch_weights(batch, dataset, by_count: bool):
+    # -1 is the sentinel value for aggregation over all counts
+    # TODO: maybe this should be done by count?
+    # TODO: we need a parameter to control the relative weight of unlabeled loss to labeled loss
+    types_one_hot = batch.variant_type_one_hot()
+    weights_by_label_and_type = {label: (np.vstack([dataset.weights[count][label] for count in batch.alt_counts]) if \
+        by_count else dataset.weights[-1][label]) for label in Label}
+    weights_by_label = {label: torch.sum(weights_by_label_and_type[label] * types_one_hot, dim=1) for label in Label}
+    weights = batch.is_labeled_mask * (batch.labels * weights_by_label[Label.ARTIFACT] + (1 - batch.labels) * weights_by_label[Label.VARIANT]) + \
+              (1 - batch.is_labeled_mask) * weights_by_label[Label.UNLABELED]
+    return weights
 
 
 class LearningMethod(Enum):
@@ -429,16 +445,9 @@ class BaseModelMARSLoss(torch.nn.Module, BaseModelLearningStrategy):
 # to measure quality, especially in unsupervised training when the loss metric isn't directly related to accuracy or cross-entropy
 def learn_base_model(base_model: BaseModel, dataset: BaseDataset, learning_method: LearningMethod, training_params: TrainingParameters,
                      summary_writer: SummaryWriter, validation_fold: int = None):
-    # balance training by weighting the loss function
-    # if total unlabeled is less than total labeled, we do not compensate, since labeled data are more informative
-    total_labeled, total_unlabeled = dataset.total_labeled_and_unlabeled()
-
-    labeled_to_unlabeled_ratio = 1 if total_unlabeled < total_labeled else total_labeled / total_unlabeled
-
     print(f"Memory usage percent: {psutil.virtual_memory().percent:.1f}")
 
-    for variation_type in utils.Variation:
-        idx = variation_type.value
+    for idx, variation_type in enumerate(utils.Variation):
         print(f"For variation type {variation_type.name}, there are {int(dataset.totals[ALL_COUNTS_SENTINEL][Label.ARTIFACT][idx].item())} \
             artifacts, {int(dataset.totals[ALL_COUNTS_SENTINEL][Label.VARIANT][idx].item())} \
             non-artifacts, and {int(dataset.totals[ALL_COUNTS_SENTINEL][Label.UNLABELED][idx].item())} unlabeled data.")
@@ -476,8 +485,6 @@ def learn_base_model(base_model: BaseModel, dataset: BaseDataset, learning_metho
     train_loader = dataset.make_data_loader(dataset.all_but_one_fold(validation_fold_to_use), training_params.batch_size, base_model._device.type == 'cuda', training_params.num_workers)
     valid_loader = dataset.make_data_loader([validation_fold_to_use], training_params.batch_size, base_model._device.type == 'cuda', training_params.num_workers)
 
-    artifact_to_non_artifact_ratios = torch.from_numpy(dataset.artifact_to_non_artifact_ratios()).to(base_model._device)
-
     for epoch in trange(1, training_params.num_epochs + 1, desc="Epoch"):
         print(f"Start of epoch {epoch}, memory usage percent: {psutil.virtual_memory().percent:.1f}")
         for epoch_type in (utils.Epoch.TRAIN, utils.Epoch.VALID):
@@ -495,20 +502,18 @@ def learn_base_model(base_model: BaseModel, dataset: BaseDataset, learning_metho
                 if losses is None:
                     continue
 
-                types_one_hot = batch.variant_type_one_hot()
-
-                # TODO: labeled_to_unlabeled ratio should be recalculated based on the weighting of labeled data
+                # -1 is the sentinel value for aggregation over all counts
+                # TODO: maybe this should be done by count?
                 # TODO: we need a parameter to control the relative weight of unlabeled loss to labeled loss
-                # TODO: (this is also an issue in the ArtifactModel)
-                # for each variant in the batch, the ratio of artifacts to non-artifacts of its type in the training data
-                non_artifact_weights = torch.sum(artifact_to_non_artifact_ratios * types_one_hot, dim=1)
-                labeled_weights = batch.labels + (1 - batch.labels) * non_artifact_weights
+                types_one_hot = batch.variant_type_one_hot()
+                artifact_weights = torch.sum(dataset.weights[-1][Label.ARTIFACT] * types_one_hot, dim=1)
+                non_artifact_weights = torch.sum(dataset.weights[-1][Label.VARIANT] * types_one_hot, dim=1)
+                unlabeled_weights = torch.sum(dataset.weights[-1][Label.UNLABELED] * types_one_hot, dim=1)
 
-                # TODO: use the weights computed in base dataset!!!!
-                weights = (batch.is_labeled_mask * labeled_weights) + (1 - batch.is_labeled_mask) * labeled_to_unlabeled_ratio
+                weights = batch.is_labeled_mask * (batch.labels * artifact_weights + (1 - batch.labels) * non_artifact_weights) + \
+                          (1 - batch.is_labeled_mask) * unlabeled_weights
 
                 loss_metrics.record_losses(losses.detach(), batch, weights)
-
                 loss = torch.sum(weights * losses)
 
                 classification_logits = classifier_on_top.forward(representations.detach()).reshape(batch.size())

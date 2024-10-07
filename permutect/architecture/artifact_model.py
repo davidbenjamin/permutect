@@ -177,17 +177,10 @@ class ArtifactModel(nn.Module):
         train_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
             train_optimizer, factor=0.2, patience=3, threshold=0.001, min_lr=(training_params.learning_rate / 100),verbose=True)
 
-        artifact_to_non_artifact_ratios = torch.from_numpy(dataset.artifact_to_non_artifact_ratios()).to(self._device)
-
-        # balance training by weighting the loss function
-        # if total unlabeled is less than total labeled, we do not compensate, since labeled data are more informative
-        total_labeled, total_unlabeled = dataset.total_labeled_and_unlabeled()
-        labeled_to_unlabeled_ratio = 1 if total_unlabeled < total_labeled else total_labeled / total_unlabeled
-
-        print(f"Training data contains {total_labeled:.0f} labeled examples and {total_unlabeled:.0f} unlabeled examples")
-        for variation_type in utils.Variation:
-            idx = variation_type.value
-            print(f"For variation type {variation_type.name} there are {int(dataset.artifact_totals[idx].item())} labeled artifact examples and {int(dataset.non_artifact_totals[idx].item())} labeled non-artifact examples")
+        for idx, variation_type in enumerate(utils.Variation):
+            print(f"For variation type {variation_type.name}, there are {int(dataset.totals[-1][Label.ARTIFACT][idx].item())} \
+                artifacts, {int(dataset.totals[-1][Label.VARIANT][idx].item())} \
+                non-artifacts, and {int(dataset.totals[-1][Label.UNLABELED][idx].item())} unlabeled data.")
 
         validation_fold_to_use = (dataset.num_folds - 1) if validation_fold is None else validation_fold
         train_loader = dataset.make_data_loader(dataset.all_but_one_fold(validation_fold_to_use), training_params.batch_size, self._device.type == 'cuda', training_params.num_workers)
@@ -216,21 +209,18 @@ class ArtifactModel(nn.Module):
                     logits, precalibrated_logits = self.forward(batch)
                     types_one_hot = batch.variant_type_one_hot()
 
-                    # if it's a calibration epoch, get count- and variant type-dependent artifact ratio; otherwise it depends only on type
-                    if is_calibration_epoch:
-                        ratios = [dataset.artifact_to_non_artifact_ratios_by_count(alt_count)[var_type] for alt_count, var_type in zip(batch.alt_counts, batch.variant_types())]
-                        non_artifact_weights = torch.FloatTensor(ratios)
-                    else:
-                        non_artifact_weights = torch.sum(artifact_to_non_artifact_ratios * types_one_hot, dim=1)
-
-                    # TODO: labeled_to_unlabeled ratio should be recalculated based on the weighting of labeled data
+                    # TODO: code duplication with calculation of weights in base model learning
+                    # -1 is the sentinel value for aggregation over all counts
+                    # TODO: maybe this should be done by count for all epochs?
                     # TODO: we need a parameter to control the relative weight of unlabeled loss to labeled loss
-                    # maintain the interpretation of the logits as a likelihood ratio by weighting to effectively
-                    # achieve a balanced data set eg equal prior between artifact and non-artifact
-                    # for artifacts, weight is 1; for non-artifacts it's artifact to nonartifact ratio
-                    # for unlabeled data, weight is labeled_to_unlabeled_ratio
-                    labeled_weights = batch.labels + (1 - batch.labels) * non_artifact_weights
-                    weights = (batch.is_labeled_mask * labeled_weights) + (1 - batch.is_labeled_mask) * labeled_to_unlabeled_ratio
+                    alt_counts_for_weights = batch.alt_counts if is_calibration_epoch else -1
+                    types_one_hot = batch.variant_type_one_hot()
+                    artifact_weights = torch.sum(dataset.weights[alt_counts_for_weights][Label.ARTIFACT] * types_one_hot, dim=1)
+                    non_artifact_weights = torch.sum(dataset.weights[alt_counts_for_weights][Label.VARIANT] * types_one_hot, dim=1)
+                    unlabeled_weights = torch.sum(dataset.weights[alt_counts_for_weights][Label.UNLABELED] * types_one_hot, dim=1)
+
+                    weights = batch.is_labeled_mask * (batch.labels * artifact_weights + (1 - batch.labels) * non_artifact_weights) + \
+                              (1 - batch.is_labeled_mask) * unlabeled_weights
 
                     uncalibrated_cross_entropies = bce(precalibrated_logits, batch.labels)
                     calibrated_cross_entropies = bce(logits, batch.labels)
