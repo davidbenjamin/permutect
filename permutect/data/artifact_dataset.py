@@ -11,6 +11,8 @@ from permutect.data.base_datum import ArtifactDatum, ArtifactBatch
 from permutect.data.base_dataset import BaseDataset, chunk
 
 
+WEIGHT_PSEUDOCOUNT = 10
+
 # given a ReadSetDataset, apply a BaseModel to get an ArtifactDataset (in RAM, maybe implement memory map later)
 # of RepresentationReadSets
 class ArtifactDataset(Dataset):
@@ -28,6 +30,24 @@ class ArtifactDataset(Dataset):
         self.unlabeled_indices = [[] for _ in range(self.num_folds)]    # ditto
         self.num_base_features = base_model.output_dimension()
         self.num_ref_alt_features = base_model.ref_alt_seq_embedding_dimension()
+
+        # count == -1 is a sentinel value for aggregated counts, not by
+        for count in range(-1, max(self.non_artifact_totals_by_count.keys()) + 1):
+
+        # we can do the above for each variant type, or stratify further by alt count as well
+        art_to_non_art_ratios_by_type = (self.artifact_totals + WEIGHT_PSEUDOCOUNT) / (self.non_artifact_totals + WEIGHT_PSEUDOCOUNT)
+
+        # eg: if there are 1000 artifact and 10 non-artifact SNVs, the ratio is 100, and artifacts get a weight of 1/sqrt(100) = 1/10
+        # while non-artifacts get a weight of 10 -- hence the effective count of each is 1000/10 = 10*10 = 100
+        self.non_art_weights_by_type = np.sqrt(art_to_non_art_ratios_by_type)
+        self.art_weights_by_type = 1 / self.non_art_weights_by_type
+
+        total_effective_labeled_by_type = self.artifact_totals * self.art_weights_by_type + self.non_artifact_totals * self.non_art_weights_by_type
+
+        # unlabeled data are weighted down to have at most the same total weight as labeled data
+        # example, 1000 unlabeled SNVs and 100 labeled SNVs -- unlabeled weight is 100/1000 = 1/10
+        # example, 10 unlabeled and 100 labeled -- unlabeled weight is 1
+        self.unlabeled_weights_by_type = np.clip((total_effective_labeled_by_type + WEIGHT_PSEUDOCOUNT) / (self.unlabeled_totals + WEIGHT_PSEUDOCOUNT), max=1)
 
         index = 0
 
