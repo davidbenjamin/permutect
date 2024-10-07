@@ -11,23 +11,13 @@ from permutect.data.base_datum import ArtifactDatum, ArtifactBatch
 from permutect.data.base_dataset import BaseDataset, chunk
 
 
-
-
 # given a ReadSetDataset, apply a BaseModel to get an ArtifactDataset (in RAM, maybe implement memory map later)
 # of RepresentationReadSets
 class ArtifactDataset(Dataset):
     def __init__(self, base_dataset: BaseDataset, base_model: BaseModel, folds_to_use: List[int] = None):
         self.counts_by_source = base_dataset.counts_by_source
-
         self.totals = base_dataset.totals
         self.weights = base_dataset.weights
-
-        self.artifact_totals = base_dataset.artifact_totals
-        self.unlabeled_totals = base_dataset.unlabeled_totals
-        self.non_artifact_totals = base_dataset.non_artifact_totals
-        self.unlabeled_totals_by_count = base_dataset.unlabeled_totals_by_count
-        self.artifact_totals_by_count = base_dataset.artifact_totals_by_count
-        self.non_artifact_totals_by_count = base_dataset.non_artifact_totals_by_count
 
         self.artifact_data = []
         self.num_folds = base_dataset.num_folds

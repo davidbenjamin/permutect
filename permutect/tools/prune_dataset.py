@@ -22,6 +22,7 @@ from permutect.parameters import ArtifactModelParameters, parse_artifact_model_p
     add_artifact_model_params_to_parser, add_training_params_to_parser
 from permutect.data.base_dataset import BaseDataset
 from permutect.tools.train_model import TrainingParameters, parse_training_params
+from permutect.utils import Label
 
 NUM_FOLDS = 3
 
@@ -143,7 +144,9 @@ def generate_pruned_data_for_all_folds(base_dataset: BaseDataset, base_model: Ba
         # learn an artifact model with the pruning data held out
         artifact_dataset = ArtifactDataset(base_dataset, base_model, base_dataset.all_but_one_fold(pruning_fold))
 
-        label_art_frac = np.sum(artifact_dataset.artifact_totals) / np.sum(artifact_dataset.artifact_totals + artifact_dataset.non_artifact_totals)
+        # sum is over variant types
+        label_art_frac = np.sum(artifact_dataset.totals[-1][Label.ARTIFACT]) / np.sum(artifact_dataset.totals[-1][Label.ARTIFACT] +
+                                                                        artifact_dataset.totals[-1][Label.VARIANT])
 
         # learn pruning thresholds on the held-out data
         pruning_artifact_dataset = ArtifactDataset(base_dataset, base_model, [pruning_fold])
@@ -152,6 +155,7 @@ def generate_pruned_data_for_all_folds(base_dataset: BaseDataset, base_model: Ba
         model = ArtifactModel(params=params, num_base_features=artifact_dataset.num_base_features, num_ref_alt_features=base_model.ref_alt_seq_embedding_dimension(), device=device).float()
         model.learn(artifact_dataset, training_params, summary_writer=summary_writer)
 
+        # TODO: maybe this should be done by variant type and/or count
         art_threshold, nonart_threshold = calculate_pruning_thresholds(labeled_only_pruning_loader, model, label_art_frac, training_params)
 
         # unlike when learning thresholds, we load labeled and unlabeled data here
