@@ -504,7 +504,7 @@ def learn_base_model(base_model: BaseModel, dataset: BaseDataset, learning_metho
 
                 # TODO: maybe this should be done by count?
                 # TODO: we need a parameter to control the relative weight of unlabeled loss to labeled loss
-                weights = calculate_batch_weights(batch, dataset, by_count=False)
+                weights = calculate_batch_weights(batch, dataset, by_count=True)
 
                 loss_metrics.record_losses(losses.detach(), batch, weights)
                 loss = torch.sum(weights * losses)

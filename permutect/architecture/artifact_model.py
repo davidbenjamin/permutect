@@ -294,7 +294,7 @@ class ArtifactModel(nn.Module):
                 # these are the same weights used in training
                 # TODO: maybe this should be done by count?
                 # TODO: we need a parameter to control the relative weight of unlabeled loss to labeled loss
-                weights = calculate_batch_weights(batch, dataset, by_count=False)
+                weights = calculate_batch_weights(batch, dataset, by_count=True)
 
                 logits, _ = self.forward(batch)
                 pred = logits.detach()
