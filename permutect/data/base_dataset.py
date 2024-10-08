@@ -103,7 +103,7 @@ class BaseDataset(Dataset):
             # unlabeled data are weighted down to have at most the same total weight as labeled data
             # example, 1000 unlabeled SNVs and 100 labeled SNVs -- unlabeled weight is 100/1000 = 1/10
             # example, 10 unlabeled and 100 labeled -- unlabeled weight is 1
-            self.weights[count][Label.UNLABELED] = np.clip(effective_labeled_counts / self.totals[count][Label.UNLABELED], max=1)
+            self.weights[count][Label.UNLABELED] = np.clip(effective_labeled_counts / self.totals[count][Label.UNLABELED], 0,1)
 
         self.num_read_features = self[0].get_reads_2d().shape[1]
         self.num_info_features = len(self[0].get_info_tensor_1d())
