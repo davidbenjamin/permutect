@@ -39,7 +39,7 @@ def calculate_batch_weights(batch, dataset, by_count: bool):
     types_one_hot = batch.variant_type_one_hot()
     weights_by_label_and_type = {label: (np.vstack([dataset.weights[count][label] for count in batch.alt_counts]) if \
         by_count else dataset.weights[-1][label]) for label in Label}
-    weights_by_label = {label: torch.sum(weights_by_label_and_type[label] * types_one_hot, dim=1) for label in Label}
+    weights_by_label = {label: torch.sum(torch.from_numpy(weights_by_label_and_type[label]) * types_one_hot, dim=1) for label in Label}
     weights = batch.is_labeled_mask * (batch.labels * weights_by_label[Label.ARTIFACT] + (1 - batch.labels) * weights_by_label[Label.VARIANT]) + \
               (1 - batch.is_labeled_mask) * weights_by_label[Label.UNLABELED]
     return weights
