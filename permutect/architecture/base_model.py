@@ -37,7 +37,7 @@ def calculate_batch_weights(batch, dataset, by_count: bool):
     # TODO: maybe this should be done by count?
     # TODO: we need a parameter to control the relative weight of unlabeled loss to labeled loss
     types_one_hot = batch.variant_type_one_hot()
-    weights_by_label_and_type = {label: (np.vstack([dataset.weights[count][label] for count in batch.alt_counts]) if \
+    weights_by_label_and_type = {label: (np.vstack([dataset.weights[count][label] for count in batch.alt_counts.tolist()]) if \
         by_count else dataset.weights[-1][label]) for label in Label}
     weights_by_label = {label: torch.sum(torch.from_numpy(weights_by_label_and_type[label]) * types_one_hot, dim=1) for label in Label}
     weights = batch.is_labeled_mask * (batch.labels * weights_by_label[Label.ARTIFACT] + (1 - batch.labels) * weights_by_label[Label.VARIANT]) + \
