@@ -105,6 +105,9 @@ class BaseDataset(Dataset):
             # example, 10 unlabeled and 100 labeled -- unlabeled weight is 1
             self.weights[count][Label.UNLABELED] = np.clip(effective_labeled_counts / self.totals[count][Label.UNLABELED], 0,1)
 
+        print(f"weights are {self.weights}")
+        print(f"totals are {self.totals}")
+
         self.num_read_features = self[0].get_reads_2d().shape[1]
         self.num_info_features = len(self[0].get_info_tensor_1d())
         self.ref_sequence_length = len(self[0].get_ref_sequence_1d())
