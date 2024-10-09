@@ -15,12 +15,20 @@ from torch.utils.data.sampler import Sampler
 from mmap_ninja.ragged import RaggedMmap
 from permutect import utils
 from permutect.data.base_datum import BaseDatum, BaseBatch, load_list_of_base_data, BaseDatum1DStuff
-from permutect.utils import Label
+from permutect.utils import Label, MutableInt
 
 TENSORS_PER_BASE_DATUM = 2  # 1) 2D reads (ref and alt), 1) 1D concatenated stuff
 
 # tarfiles on disk take up about 4x as much as the dataset on RAM
 TARFILE_TO_RAM_RATIO = 4
+
+ALL_COUNTS_SENTINEL = -1
+
+WEIGHT_PSEUDOCOUNT = 10
+
+
+def ratio_with_pseudocount(a, b):
+    return (a + WEIGHT_PSEUDOCOUNT) / (b + WEIGHT_PSEUDOCOUNT)
 
 
 class BaseDataset(Dataset):
@@ -59,25 +67,43 @@ class BaseDataset(Dataset):
         # this is used in the batch sampler to make same-shape batches
         self.labeled_indices_by_count = [defaultdict(list) for _ in range(num_folds)]
         self.unlabeled_indices_by_count = [defaultdict(list) for _ in range(num_folds)]
-        self.artifact_totals = np.zeros(len(utils.Variation))  # 1D tensor
-        self.non_artifact_totals = np.zeros(len(utils.Variation))  # 1D tensor
 
-        self.artifact_totals_by_count = defaultdict(lambda: np.zeros(len(utils.Variation)))  # 1D tensor for each count
-        self.non_artifact_totals_by_count = defaultdict(lambda: np.zeros(len(utils.Variation)))  # 1D tensor for each count
+        # totals by count, then by label -- ARTIFACT, VARIANT, UNLABELED, then by count variant type
+        # variant type is done as a 1D np array parallel to the one-hot encoding of variant type
+        # we use a sentinel count value of -1 to denote aggregation over all counts
+        # eg totals[4][Label.ARTIFACT] = [2,4,6,8,10] means there are 2 artifact SNVs with alt count 4
+        self.totals = defaultdict(lambda: {label: np.zeros(len(utils.Variation)) for label in Label})
+
+        self.counts_by_source = defaultdict(lambda: MutableInt()) # amount of data for each source (which is an integer key)
 
         for n, datum in enumerate(self):
+            self.counts_by_source[datum.source].increment()
+
             fold = n % num_folds
             counts = (len(datum.reads_2d) - datum.alt_count, datum.alt_count)
             (self.unlabeled_indices_by_count if datum.label == Label.UNLABELED else self.labeled_indices_by_count)[fold][counts].append(n)
 
-            if datum.label == Label.ARTIFACT:
-                one_hot = datum.variant_type_one_hot()
-                self.artifact_totals += one_hot
-                self.artifact_totals_by_count[datum.alt_count] += one_hot
-            elif datum.label != Label.UNLABELED:
-                one_hot = datum.variant_type_one_hot()
-                self.non_artifact_totals += one_hot
-                self.non_artifact_totals_by_count[datum.alt_count] += one_hot
+            one_hot = datum.variant_type_one_hot()
+            self.totals[ALL_COUNTS_SENTINEL][datum.label] += one_hot
+            self.totals[datum.alt_count][datum.label] += one_hot
+
+        # compute weights to balance loss even for unbalanced data
+        # recall count == -1 is a sentinel value for aggregated totals over all alt counts
+        self.weights = defaultdict(lambda: {label: np.zeros(len(utils.Variation)) for label in Label})
+        for count in self.totals.keys():
+            # eg: if there are 1000 artifact and 10 non-artifact SNVs, the ratio is 100, and artifacts get a weight of 1/sqrt(100) = 1/10
+            # while non-artifacts get a weight of 10 -- hence the effective count of each is 1000/10 = 10*10 = 100
+            art_to_nonart_ratios = ratio_with_pseudocount(self.totals[count][Label.ARTIFACT], self.totals[count][Label.VARIANT])
+            self.weights[count][Label.VARIANT] = np.sqrt(art_to_nonart_ratios)
+            self.weights[count][Label.ARTIFACT] = 1 / np.sqrt(art_to_nonart_ratios)
+
+            effective_labeled_counts = self.totals[count][Label.ARTIFACT] * self.weights[count][Label.ARTIFACT] + \
+                                       self.totals[count][Label.VARIANT] * self.weights[count][Label.VARIANT]
+
+            # unlabeled data are weighted down to have at most the same total weight as labeled data
+            # example, 1000 unlabeled SNVs and 100 labeled SNVs -- unlabeled weight is 100/1000 = 1/10
+            # example, 10 unlabeled and 100 labeled -- unlabeled weight is 1
+            self.weights[count][Label.UNLABELED] = np.clip(effective_labeled_counts / self.totals[count][Label.UNLABELED], 0,1)
 
         self.num_read_features = self[0].get_reads_2d().shape[1]
         self.num_info_features = len(self[0].get_info_tensor_1d())
@@ -92,16 +118,9 @@ class BaseDataset(Dataset):
             other_stuff = BaseDatum1DStuff.from_np_array(self._data[bottom_index+1])
 
             return BaseDatum(reads_2d=self._data[bottom_index], ref_sequence_1d=None, alt_count=None, info_array_1d=None, label=None,
-                              variant=None, counts_and_seq_lks=None, other_stuff_override=other_stuff)
+                              source=None, variant=None, counts_and_seq_lks=None, other_stuff_override=other_stuff)
         else:
             return self._data[index]
-
-    def artifact_to_non_artifact_ratios(self):
-        return self.artifact_totals / self.non_artifact_totals
-
-    def total_labeled_and_unlabeled(self):
-        total_labeled = np.sum(self.artifact_totals + self.non_artifact_totals)
-        return total_labeled, len(self) - total_labeled
 
     # it is often convenient to arbitrarily use the last fold for validation
     def last_fold_only(self):
@@ -146,29 +165,28 @@ def chunk(lis, chunk_size):
     return [lis[i:i + chunk_size] for i in range(0, len(lis), chunk_size)]
 
 
-# make batches that are all supervised or all unsupervised, and have a single value for ref, alt counts within  batches
+# make batches that have a single value for ref, alt counts within  batches.  Labeled and unlabeled data are mixed.
 # the artifact model handles weighting the losses to compensate for class imbalance between supervised and unsupervised
 # thus the sampler is not responsible for balancing the data
 class SemiSupervisedBatchSampler(Sampler):
     def __init__(self, dataset: BaseDataset, batch_size, folds_to_use: List[int]):
         # combine the index maps of all relevant folds
-        self.labeled_indices_by_count = defaultdict(list)
-        self.unlabeled_indices_by_count = defaultdict(list)
+        self.indices_by_count = defaultdict(list)
+
         for fold in folds_to_use:
             new_labeled = dataset.labeled_indices_by_count[fold]
             new_unlabeled = dataset.unlabeled_indices_by_count[fold]
             for count, indices in new_labeled.items():
-                self.labeled_indices_by_count[count].extend(indices)
+                self.indices_by_count[count].extend(indices)
             for count, indices in new_unlabeled.items():
-                self.unlabeled_indices_by_count[count].extend(indices)
+                self.indices_by_count[count].extend(indices)
 
         self.batch_size = batch_size
-        self.num_batches = sum(math.ceil(len(indices) // self.batch_size) for indices in
-                            chain(self.labeled_indices_by_count.values(), self.unlabeled_indices_by_count.values()))
+        self.num_batches = sum(math.ceil(len(indices) // self.batch_size) for indices in self.indices_by_count.values())
 
     def __iter__(self):
         batches = []    # list of lists of indices -- each sublist is a batch
-        for index_list in chain(self.labeled_indices_by_count.values(), self.unlabeled_indices_by_count.values()):
+        for index_list in self.indices_by_count.values():
             random.shuffle(index_list)
             batches.extend(chunk(index_list, self.batch_size))
         random.shuffle(batches)

@@ -25,8 +25,9 @@ def test_base_batch():
 
     gatk_info_tensors = [torch.rand(num_gatk_info_features) for _ in range(size)]
     labels = [Label.ARTIFACT, Label.VARIANT, Label.ARTIFACT]
+    sources = [0,0,0]
 
-    data = [BaseDatum.from_gatk(ref_sequence_strings[n], variant_types[n], ref_tensors[n], alt_tensors[n], gatk_info_tensors[n], labels[n]) for n in range(size)]
+    data = [BaseDatum.from_gatk(ref_sequence_strings[n], variant_types[n], ref_tensors[n], alt_tensors[n], gatk_info_tensors[n], labels[n], sources[n]) for n in range(size)]
 
     batch = permutect.data.base_datum.BaseBatch(data)
 
@@ -37,7 +38,6 @@ def test_base_batch():
                            [[0,1,1],[0,0,0],[0,0,0],[1,0,0]]
                            ])
                        )
-    assert batch.is_labeled()
     assert batch.size() == 3
 
     assert batch.get_reads_2d().shape[0] == sum(ref_counts) + sum(alt_counts)

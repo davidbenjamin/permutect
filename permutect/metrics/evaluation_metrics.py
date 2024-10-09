@@ -89,40 +89,34 @@ class LossMetrics:
             if not loss.is_empty():
                 summary_writer.add_scalar(prefix + epoch_type.name + "/Labeled Loss/By Type/" + var_type.name, loss.get(), epoch)
 
+    # record the losses (indexed by batch dimension) by type and count, as well as the total loss not stratified by type and count
+    # input losses are NOT weighted, but when recorded they are multiplied by weights if given
+    # losses are divided into labeled and unlabeled
     # TODO: put type hint batch: ReadSetBatch | RepresentationReadSetBatch once docker update
-    # if weights is not None, total_loss has *already* been weighted and summed
-    def record_total_batch_loss(self, total_loss: float, batch, weights=None):
-        effective_count = batch.size() if weights is None else torch.sum(weights).item()
-        if batch.is_labeled():
-            self.labeled_loss.record_sum(total_loss, effective_count)
-        else:
-            self.unlabeled_loss.record_sum(total_loss, effective_count)
+    def record_losses(self, losses: torch.Tensor, batch, weights):
+        # handle total loss
+        labeled_weights, unlabeled_weights = batch.is_labeled_mask * weights, (1 - batch.is_labeled_mask) * weights
+        self.labeled_loss.record_with_weights(losses, labeled_weights)
+        self.unlabeled_loss.record_with_weights(losses, unlabeled_weights)
 
-    # record the losses by type
-    # TODO: put type hint batch: ReadSetBatch | RepresentationReadSetBatch once docker update
-    # if weights is not None, losses have *already* been weighted
-    def record_losses_by_type_and_count(self, losses: torch.Tensor, batch, weights=None):
-        if batch.is_labeled():
-            # by type
-            types_one_hot = batch.variant_type_one_hot().detach()
-            weighted_types_one_hot = types_one_hot if weights is None else weights[:,None]*types_one_hot
-            counts_by_type = torch.sum(weighted_types_one_hot, dim=0)
-            total_loss_by_type = torch.sum(losses[:, None] * types_one_hot, dim=0)
-            variant_types = list(Variation)
-            for variant_type_idx in range(len(Variation)):
-                count_for_type = counts_by_type[variant_type_idx].item()
-                loss_for_type = total_loss_by_type[variant_type_idx].item()
-                self.labeled_loss_by_type[variant_types[variant_type_idx]].record_sum(loss_for_type, count_for_type)
+        # Note that we currently do not track unlabeled loss by type or by count
+        # by type
+        types_one_hot = batch.variant_type_one_hot().detach()
+        is_labeled_mask = batch.is_labeled_mask
 
-            # by count
-            if isinstance(batch, BaseBatch):
-                if batch.alt_count <= MAX_COUNT:
-                    self.labeled_loss_by_count[multiple_of_three_bin_index(batch.alt_count)].record_sum(torch.sum(losses), batch.size(), weights)
-            elif isinstance(batch, ArtifactBatch):
-                weight_list = (torch.ones_like(losses) if weights is None else weights).tolist()
-                for loss, alt_count, weight in zip(losses.tolist(), batch.alt_counts.tolist(), weight_list):
-                    if alt_count <= MAX_COUNT:
-                        self.labeled_loss_by_count[multiple_of_three_bin_index(alt_count)].record(loss, weight)
+        # weight for losses is product of 1) the weights 2) the is_labeled mask, 3) the variant type mask
+        for var_type_idx, var_type in enumerate(Variation):
+            variant_type_mask = types_one_hot[:, var_type_idx]  # 1 if this type, 0 otherwise
+            self.labeled_loss_by_type[var_type].record_with_weights(losses, weights * is_labeled_mask * variant_type_mask)
+
+        # by count
+        if isinstance(batch, BaseBatch):
+            if batch.alt_count <= MAX_COUNT:
+                self.labeled_loss_by_count[multiple_of_three_bin_index(batch.alt_count)].record_with_weights(losses, weights * is_labeled_mask)
+        elif isinstance(batch, ArtifactBatch):
+            for loss, alt_count, weight, is_labeled in zip(losses.tolist(), batch.alt_counts.tolist(), weights.tolist(), batch.is_labeled_mask.tolist()):
+                if alt_count <= MAX_COUNT:
+                    self.labeled_loss_by_count[multiple_of_three_bin_index(alt_count)].record(loss, weight * is_labeled)
 
 
 # predictions_and_labels is list of (predicted logit, actual label) tuples
@@ -160,9 +154,9 @@ class EvaluationMetricsForOneEpochType:
     # the predicted logit is the logit corresponding to the predicted probability that call in question is an artifact / error
     def record_call(self, variant_type: Variation, predicted_logit: float, label: float, correct_call, alt_count: int, weight: float = 1.0):
         count_bin_index = multiple_of_three_bin_index(min(MAX_COUNT, alt_count))
-        self.acc_vs_cnt[variant_type][Call.SOMATIC if label < 0.5 else Call.ARTIFACT][count_bin_index].record(weight*correct_call, weight)
-        self.acc_vs_logit[variant_type][count_bin_index][logit_to_bin(predicted_logit)].record(weight*correct_call, weight)
-        self.acc_vs_logit_all_counts[variant_type][logit_to_bin(predicted_logit)].record(weight*correct_call, weight)
+        self.acc_vs_cnt[variant_type][Call.SOMATIC if label < 0.5 else Call.ARTIFACT][count_bin_index].record(correct_call, weight)
+        self.acc_vs_logit[variant_type][count_bin_index][logit_to_bin(predicted_logit)].record(correct_call, weight)
+        self.acc_vs_logit_all_counts[variant_type][logit_to_bin(predicted_logit)].record(correct_call, weight)
 
         self.roc_data[variant_type].append((predicted_logit, label))
         self.roc_data_by_cnt[variant_type][count_bin_index].append((predicted_logit, label))

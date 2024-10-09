@@ -5,6 +5,7 @@ from typing import List
 
 import psutil
 import torch
+import numpy as np
 from torch.utils.tensorboard import SummaryWriter
 from torch.nn.parameter import Parameter
 from tqdm.autonotebook import trange, tqdm
@@ -14,19 +15,34 @@ from permutect.architecture.dna_sequence_convolution import DNASequenceConvoluti
 from permutect.architecture.gated_mlp import GatedMLP, GatedRefAltMLP
 from permutect.architecture.mlp import MLP
 from permutect.data.base_datum import BaseBatch, DEFAULT_GPU_FLOAT, DEFAULT_CPU_FLOAT
-from permutect.data.base_dataset import BaseDataset
+from permutect.data.base_dataset import BaseDataset, ALL_COUNTS_SENTINEL
 from permutect.metrics.evaluation_metrics import LossMetrics, EmbeddingMetrics, round_up_to_nearest_three, MAX_COUNT
 from permutect.parameters import BaseModelParameters, TrainingParameters
 
 
 # group rows into consecutive chunks to yield a 3D tensor, average over dim=1 to get
 # 2D tensor of sums within each chunk
-from permutect.utils import Variation
+from permutect.utils import Variation, Label
 
 
 def sums_over_chunks(tensor2d: torch.Tensor, chunk_size: int):
     assert len(tensor2d) % chunk_size == 0
     return torch.sum(tensor2d.reshape([len(tensor2d) // chunk_size, chunk_size, -1]), dim=1)
+
+
+# note: this works for both BaseBatch/BaseDataset AND ArtifactBatch/ArtifactDataset
+# if by_count is True, each count is weighted separately for balanced loss within that count
+def calculate_batch_weights(batch, dataset, by_count: bool):
+    # -1 is the sentinel value for aggregation over all counts
+    # TODO: maybe this should be done by count?
+    # TODO: we need a parameter to control the relative weight of unlabeled loss to labeled loss
+    types_one_hot = batch.variant_type_one_hot()
+    weights_by_label_and_type = {label: (np.vstack([dataset.weights[count][label] for count in batch.alt_counts.tolist()]) if \
+        by_count else dataset.weights[-1][label]) for label in Label}
+    weights_by_label = {label: torch.sum(torch.from_numpy(weights_by_label_and_type[label]) * types_one_hot, dim=1) for label in Label}
+    weights = batch.is_labeled_mask * (batch.labels * weights_by_label[Label.ARTIFACT] + (1 - batch.labels) * weights_by_label[Label.VARIANT]) + \
+              (1 - batch.is_labeled_mask) * weights_by_label[Label.UNLABELED]
+    return weights
 
 
 class LearningMethod(Enum):
@@ -206,11 +222,8 @@ class BaseModelLearningStrategy(ABC):
 
 
 class BaseModelSemiSupervisedLoss(torch.nn.Module, BaseModelLearningStrategy):
-    def __init__(self, input_dim: int, hidden_top_layers: List[int], params: BaseModelParameters,
-                 artifact_to_non_artifact_log_prior_ratios, labeled_to_unlabeled_ratio):
+    def __init__(self, input_dim: int, hidden_top_layers: List[int], params: BaseModelParameters):
         super(BaseModelSemiSupervisedLoss, self).__init__()
-        self.artifact_to_non_artifact_log_prior_ratios = artifact_to_non_artifact_log_prior_ratios
-        self.labeled_to_unlabeled_ratio = labeled_to_unlabeled_ratio
 
         self.bce = torch.nn.BCEWithLogitsLoss(reduction='none')  # no reduction because we may want to first multiply by weights for unbalanced data
 
@@ -220,19 +233,12 @@ class BaseModelSemiSupervisedLoss(torch.nn.Module, BaseModelLearningStrategy):
     def loss_function(self, base_model: BaseModel, base_batch: BaseBatch, base_model_representations: torch.Tensor):
         logits = self.logit_predictor.forward(base_model_representations).reshape((base_batch.size()))
 
-        types_one_hot = base_batch.variant_type_one_hot()
-        log_prior_ratios = torch.sum(self.artifact_to_non_artifact_log_prior_ratios * types_one_hot, dim=1)
-        posterior_logits = logits + log_prior_ratios
+        # base batch always has labels, but for unlabeled elements these labels are meaningless and is_labeled_mask is zero
+        cross_entropies = self.bce(logits, base_batch.labels)
+        probabilities = torch.sigmoid(logits)
+        entropies = self.bce(logits, probabilities)
 
-        if base_batch.is_labeled():
-            return self.bce(posterior_logits, base_batch.labels)
-        else:
-            # unlabeled loss: entropy regularization
-            posterior_probabilities = torch.sigmoid(posterior_logits)
-            entropies = self.bce(posterior_logits, posterior_probabilities)
-
-            # TODO: we need a parameter to control the relative weight of unlabeled loss to labeled loss
-            return entropies * self.labeled_to_unlabeled_ratio
+        return base_batch.is_labeled_mask * cross_entropies + (1 - base_batch.is_labeled_mask) * entropies
 
     # I don't like implicit forward!!
     def forward(self):
@@ -382,7 +388,7 @@ class BaseModelDeepSADLoss(torch.nn.Module, BaseModelLearningStrategy):
         # labels are 1 for artifact, 0 otherwise.  We convert to +1 if normal, -1 if artifact
         # DeepSAD assumes most unlabeled data are normal and so the unlabeled loss is identical to the normal loss, that is,
         # squared Euclidean distance from the centroid
-        signs = (1 - 2 * base_batch.labels) if base_batch.is_labeled() else torch.ones(base_batch.size())
+        signs = (1 - 2 * base_batch.labels) * base_batch.is_labeled_mask + 1 * (1 - base_batch.is_labeled_mask)
 
         # distance squared for normal and unlabeled, inverse distance squared for artifact
         return dist_squared ** signs
@@ -417,8 +423,9 @@ class BaseModelMARSLoss(torch.nn.Module, BaseModelLearningStrategy):
         min_dist_squared_b = torch.min(dist_squared_bc, dim=-1).values
 
         # closest centroid with correct label is labeled, otherwise just the closest centroid
-        embedding_centroid_losses_b = (base_batch.labels * artifact_dist_squared_b + (1 - base_batch.labels) * normal_dist_squared_b) \
-            if base_batch.is_labeled() else min_dist_squared_b
+        labeled_losses_b = (base_batch.labels * artifact_dist_squared_b + (1 - base_batch.labels) * normal_dist_squared_b)
+        unlabeled_losses_b = min_dist_squared_b
+        embedding_centroid_losses_b =  base_batch.is_labeled_mask * labeled_losses_b + (1 - base_batch.is_labeled_mask) * unlabeled_losses_b
 
         # average distance between centroids
         centroid_seps_cce = torch.unsqueeze(self.centroids_ce, dim=0) - torch.unsqueeze(self.centroids_ce, dim=1)
@@ -438,29 +445,17 @@ class BaseModelMARSLoss(torch.nn.Module, BaseModelLearningStrategy):
 # to measure quality, especially in unsupervised training when the loss metric isn't directly related to accuracy or cross-entropy
 def learn_base_model(base_model: BaseModel, dataset: BaseDataset, learning_method: LearningMethod, training_params: TrainingParameters,
                      summary_writer: SummaryWriter, validation_fold: int = None):
-    # balance training by weighting the loss function
-    # if total unlabeled is less than total labeled, we do not compensate, since labeled data are more informative
-    total_labeled, total_unlabeled = dataset.total_labeled_and_unlabeled()
-    labeled_to_unlabeled_ratio = 1 if total_unlabeled < total_labeled else total_labeled / total_unlabeled
-
-    print(f"Training data contains {int(total_labeled)} labeled examples and {int(total_unlabeled)} unlabeled examples")
     print(f"Memory usage percent: {psutil.virtual_memory().percent:.1f}")
 
-    for variation_type in utils.Variation:
-        idx = variation_type.value
-        print(f"For variation type {variation_type.name}, there are {int(dataset.artifact_totals[idx].item())} \
-            labeled artifact examples and {int(dataset.non_artifact_totals[idx].item())} labeled non-artifact examples")
+    for idx, variation_type in enumerate(utils.Variation):
+        print(f"For variation type {variation_type.name}, there are {int(dataset.totals[ALL_COUNTS_SENTINEL][Label.ARTIFACT][idx].item())} \
+            artifacts, {int(dataset.totals[ALL_COUNTS_SENTINEL][Label.VARIANT][idx].item())} \
+            non-artifacts, and {int(dataset.totals[ALL_COUNTS_SENTINEL][Label.UNLABELED][idx].item())} unlabeled data.")
 
     # TODO: use Python's match syntax, but this requires updating Python version in the docker
     # TODO: hidden_top_layers are hard-coded!
     if learning_method == LearningMethod.SUPERVISED or learning_method == LearningMethod.SEMISUPERVISED:
-        artifact_to_non_artifact_ratios = torch.from_numpy(dataset.artifact_to_non_artifact_ratios()).to(
-                device=base_model._device, dtype=base_model._dtype)
-        artifact_to_non_artifact_log_prior_ratios = torch.log(artifact_to_non_artifact_ratios)
-
-        learning_strategy = BaseModelSemiSupervisedLoss(input_dim=base_model.output_dimension(), hidden_top_layers=[30,-1,-1,-1,10],
-                                                            params=base_model._params, artifact_to_non_artifact_log_prior_ratios=artifact_to_non_artifact_log_prior_ratios,
-                                                            labeled_to_unlabeled_ratio=labeled_to_unlabeled_ratio)
+        learning_strategy = BaseModelSemiSupervisedLoss(input_dim=base_model.output_dimension(), hidden_top_layers=[30,-1,-1,-1,10], params=base_model._params)
     elif learning_method == LearningMethod.MASK_PREDICTION:
         learning_strategy = BaseModelMaskPredictionLoss(num_read_features=dataset.num_read_features,
                                                         base_model_output_dim=base_model.output_dimension(), hidden_top_layers=[10,10,10], params=base_model._params)
@@ -490,8 +485,6 @@ def learn_base_model(base_model: BaseModel, dataset: BaseDataset, learning_metho
     train_loader = dataset.make_data_loader(dataset.all_but_one_fold(validation_fold_to_use), training_params.batch_size, base_model._device.type == 'cuda', training_params.num_workers)
     valid_loader = dataset.make_data_loader([validation_fold_to_use], training_params.batch_size, base_model._device.type == 'cuda', training_params.num_workers)
 
-    artifact_to_non_artifact_ratios = torch.from_numpy(dataset.artifact_to_non_artifact_ratios()).to(base_model._device)
-
     for epoch in trange(1, training_params.num_epochs + 1, desc="Epoch"):
         print(f"Start of epoch {epoch}, memory usage percent: {psutil.virtual_memory().percent:.1f}")
         for epoch_type in (utils.Epoch.TRAIN, utils.Epoch.VALID):
@@ -504,40 +497,26 @@ def learn_base_model(base_model: BaseModel, dataset: BaseDataset, learning_metho
             for n, batch in pbar:
                 # unused output is the embedding of ref and alt alleles with context
                 representations, _ = base_model.calculate_representations(batch, weight_range=base_model._params.reweighting_range)
-                separate_losses = learning_strategy.loss_function(base_model, batch, representations)
+                losses = learning_strategy.loss_function(base_model, batch, representations)
 
-                if separate_losses is None:
+                if losses is None:
                     continue
 
-                types_one_hot = batch.variant_type_one_hot()
-                # for each variant in the batch, the ratio of artifacts to non-artifacts of its type in the training data
-                non_artifact_weights = torch.sum(artifact_to_non_artifact_ratios * types_one_hot, dim=1)
+                # TODO: maybe this should be done by count?
+                # TODO: we need a parameter to control the relative weight of unlabeled loss to labeled loss
+                weights = calculate_batch_weights(batch, dataset, by_count=True)
 
-                if batch.is_labeled():
-                    weights = batch.labels + (1 - batch.labels) * non_artifact_weights
-                    separate_losses = weights * separate_losses
+                loss_metrics.record_losses(losses.detach(), batch, weights)
+                loss = torch.sum(weights * losses)
 
-                    loss_metrics.record_losses_by_type_and_count(separate_losses.detach(), batch)
-
-                    classification_logits = classifier_on_top.forward(representations.detach()).reshape(batch.size())
-                    separate_classification_losses = weights * classifier_bce(classification_logits, batch.labels)
-                    classification_loss = torch.sum(separate_classification_losses)
-                    classifier_metrics.record_total_batch_loss(classification_loss.detach(), batch, weights)
-                    classifier_metrics.record_losses_by_type_and_count(separate_classification_losses.detach(), batch)
-
-                    if epoch_type == utils.Epoch.TRAIN:
-                        utils.backpropagate(classifier_optimizer, classification_loss)
-
-                    loss = torch.sum(separate_losses)
-                    loss_metrics.record_total_batch_loss(loss.detach(), batch, weights)
-                else:
-                    loss = torch.sum(separate_losses)
-                    loss_metrics.record_total_batch_loss(loss.detach(), batch)
+                classification_logits = classifier_on_top.forward(representations.detach()).reshape(batch.size())
+                classification_losses = classifier_bce(classification_logits, batch.labels)
+                classification_loss = torch.sum(batch.is_labeled_mask * weights * classification_losses)
+                classifier_metrics.record_losses(classification_losses.detach(), batch, batch.is_labeled_mask * weights)
 
                 if epoch_type == utils.Epoch.TRAIN:
-                    # batch size might be different from requested if not enough data at a particular alt/ref count
-                    # batch_weight = batch.size() / training_params.batch_size
                     utils.backpropagate(train_optimizer, loss)
+                    utils.backpropagate(classifier_optimizer, classification_loss)
 
             # done with one epoch type -- training or validation -- for this epoch
             loss_metrics.write_to_summary_writer(epoch_type, epoch, summary_writer)
@@ -562,12 +541,12 @@ def record_embeddings(base_model: BaseModel, loader, summary_writer: SummaryWrit
     embedding_metrics = EmbeddingMetrics()
     ref_alt_seq_metrics = EmbeddingMetrics()
 
-    pbar = tqdm(enumerate(filter(lambda bat: bat.is_labeled(), loader)), mininterval=60)
+    pbar = tqdm(enumerate(loader), mininterval=60)
     for n, batch in pbar:
         representations, ref_alt_seq_embeddings = base_model.calculate_representations(batch, weight_range=base_model._params.reweighting_range)
 
-        labels = ["artifact" if x > 0.5 else "non-artifact" for x in batch.labels.tolist()] if batch.is_labeled() else \
-            (["unlabeled"] * batch.size())
+        labels = [("artifact" if label > 0.5 else "non-artifact") if is_labeled > 0.5 else "unlabeled" for (label, is_labeled) in
+                  zip(batch.labels.tolist(), batch.is_labeled_mask.tolist())]
         for (metrics, embeddings) in [(embedding_metrics, representations), (ref_alt_seq_metrics, ref_alt_seq_embeddings)]:
             metrics.label_metadata.extend(labels)
             metrics.correct_metadata.extend(["unknown"] * batch.size())

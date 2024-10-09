@@ -22,11 +22,13 @@ from permutect.parameters import ArtifactModelParameters, parse_artifact_model_p
     add_artifact_model_params_to_parser, add_training_params_to_parser
 from permutect.data.base_dataset import BaseDataset
 from permutect.tools.train_model import TrainingParameters, parse_training_params
+from permutect.utils import Label
 
 NUM_FOLDS = 3
 
 
-def calculate_pruning_thresholds(pruning_loader, artifact_model: ArtifactModel, label_art_frac: float, training_params: TrainingParameters) -> List[int]:
+# labeled only pruning loader must be constructed with options to emit batches of all-labeled data
+def calculate_pruning_thresholds(labeled_only_pruning_loader, artifact_model: ArtifactModel, label_art_frac: float, training_params: TrainingParameters) -> List[int]:
     for fold in range(NUM_FOLDS):
         average_artifact_confidence, average_nonartifact_confidence = utils.StreamingAverage(), utils.StreamingAverage()
         # TODO: eventually this should all be segregated by variant type and maybe also alt count
@@ -34,7 +36,7 @@ def calculate_pruning_thresholds(pruning_loader, artifact_model: ArtifactModel, 
         # the 0th/1st element is a list of predicted probabilities that data labeled as non-artifact/artifact are actually non-artifact/artifact
         probs_of_agreeing_with_label = [[],[]]
         print("calculating average confidence and gathering predicted probabilities")
-        pbar = tqdm(enumerate(filter(lambda bat: bat.is_labeled(), pruning_loader)), mininterval=60)
+        pbar = tqdm(enumerate(labeled_only_pruning_loader), mininterval=60)
         for n, batch in pbar:
             # TODO: should we use likelihoods as in evaluation or posteriors as in training???
             # TODO: does it even matter??
@@ -57,7 +59,7 @@ def calculate_pruning_thresholds(pruning_loader, artifact_model: ArtifactModel, 
         confusion = [[0, 0], [0, 0]]
         art_conf_threshold = average_artifact_confidence.get()
         nonart_conf_threshold = average_nonartifact_confidence.get()
-        pbar = tqdm(enumerate(filter(lambda bat: bat.is_labeled(), pruning_loader)), mininterval=60)
+        pbar = tqdm(enumerate(labeled_only_pruning_loader), mininterval=60)
         for n, batch in pbar:
             predicted_artifact_logits, _ = artifact_model.forward(batch)
             predicted_artifact_probs = torch.sigmoid(predicted_artifact_logits.detach())
@@ -107,18 +109,21 @@ def calculate_pruning_thresholds(pruning_loader, artifact_model: ArtifactModel, 
 def generated_pruned_data_for_fold(art_threshold: float, nonart_threshold: float, pruning_base_data_loader,
                                    base_model: BaseModel, artifact_model: ArtifactModel) -> List[int]:
     print("pruning the dataset")
-    pbar = tqdm(enumerate(filter(lambda bat: bat.is_labeled(), pruning_base_data_loader)), mininterval=60)
+    pbar = tqdm(enumerate(pruning_base_data_loader), mininterval=60)
     for n, base_batch in pbar:
         # apply the representation model AND the artifact model to go from the original read set to artifact logits
         representation, ref_alt_seq_embeddings = base_model.calculate_representations(base_batch)
 
-        rrs_batch = ArtifactBatch([ArtifactDatum(rs, rep, ref_alt_emb) for rs, rep, ref_alt_emb in zip(base_batch.original_list(), representation.detach(), ref_alt_seq_embeddings.detach())])
-        art_logits, _ = artifact_model.forward(rrs_batch)
+        artifact_batch = ArtifactBatch([ArtifactDatum(rs, rep, ref_alt_emb) for rs, rep, ref_alt_emb in zip(base_batch.original_list(), representation.detach(), ref_alt_seq_embeddings.detach())])
+        art_logits, _ = artifact_model.forward(artifact_batch)
         art_probs = torch.sigmoid(art_logits.detach())
         art_label_mask = (base_batch.labels > 0.5)
+        is_labeled_mask = (base_batch.is_labeled_mask > 0.5)
 
-        for art_prob, labeled_as_art, datum in zip(art_probs.tolist(), art_label_mask.tolist(), base_batch.original_list()):
-            if (labeled_as_art and art_prob < art_threshold) or ((not labeled_as_art) and (1-art_prob) < nonart_threshold):
+        for art_prob, labeled_as_art, datum, is_labeled in zip(art_probs.tolist(), art_label_mask.tolist(), base_batch.original_list(), is_labeled_mask.tolist()):
+            if not is_labeled:
+                yield datum
+            elif (labeled_as_art and art_prob < art_threshold) or ((not labeled_as_art) and (1-art_prob) < nonart_threshold):
                  # TODO: process failing data, perhaps add option to output a pruned dataset? or flip labels?
                 pass
             else:
@@ -139,17 +144,21 @@ def generate_pruned_data_for_all_folds(base_dataset: BaseDataset, base_model: Ba
         # learn an artifact model with the pruning data held out
         artifact_dataset = ArtifactDataset(base_dataset, base_model, base_dataset.all_but_one_fold(pruning_fold))
 
-        label_art_frac = np.sum(artifact_dataset.artifact_totals) / np.sum(artifact_dataset.artifact_totals + artifact_dataset.non_artifact_totals)
+        # sum is over variant types
+        label_art_frac = np.sum(artifact_dataset.totals[-1][Label.ARTIFACT]) / np.sum(artifact_dataset.totals[-1][Label.ARTIFACT] +
+                                                                        artifact_dataset.totals[-1][Label.VARIANT])
 
         # learn pruning thresholds on the held-out data
         pruning_artifact_dataset = ArtifactDataset(base_dataset, base_model, [pruning_fold])
-        pruning_loader = pruning_artifact_dataset.make_data_loader(pruning_artifact_dataset.all_folds(),
-            training_params.batch_size, use_gpu, training_params.num_workers)
+        labeled_only_pruning_loader = pruning_artifact_dataset.make_data_loader(pruning_artifact_dataset.all_folds(),
+            training_params.batch_size, use_gpu, training_params.num_workers, labeled_only=True)
         model = ArtifactModel(params=params, num_base_features=artifact_dataset.num_base_features, num_ref_alt_features=base_model.ref_alt_seq_embedding_dimension(), device=device).float()
         model.learn(artifact_dataset, training_params, summary_writer=summary_writer)
 
-        art_threshold, nonart_threshold = calculate_pruning_thresholds(pruning_loader, model, label_art_frac, training_params)
+        # TODO: maybe this should be done by variant type and/or count
+        art_threshold, nonart_threshold = calculate_pruning_thresholds(labeled_only_pruning_loader, model, label_art_frac, training_params)
 
+        # unlike when learning thresholds, we load labeled and unlabeled data here
         pruning_base_data_loader = base_dataset.make_data_loader([pruning_fold], training_params.batch_size, use_gpu, training_params.num_epochs)
         for passing_base_datum in generated_pruned_data_for_fold(art_threshold, nonart_threshold, pruning_base_data_loader, base_model, model):
             yield passing_base_datum

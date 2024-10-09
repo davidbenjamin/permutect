@@ -246,13 +246,19 @@ class TensorSizes:
 
 
 class BaseDatum1DStuff:
-    NUM_ELEMENTS_AFTER_INFO = 1 + Variant.LENGTH + CountsAndSeqLks.LENGTH   # 1 for the label
+    NUM_ELEMENTS_AFTER_INFO = 2 + Variant.LENGTH + CountsAndSeqLks.LENGTH   # 1 for the label, 1 for the source (integer)
 
-    def __init__(self, tensor_sizes: TensorSizes, ref_sequence_1d: np.ndarray, info_array_1d: np.ndarray, label: Label,
+    # 1st four elements are tensor sizes: ref count, alt count, ref seq length, info length
+    # next is ref sequence as 1D array
+    # next is info 1D array
+    # label, source (each a single int)
+    # Variant (Variant.LENGTH elements)
+    # CountsAndSeqLks (CountsAndSeqLks.LENGTH elements)
+    def __init__(self, tensor_sizes: TensorSizes, ref_sequence_1d: np.ndarray, info_array_1d: np.ndarray, label: Label, source: int,
                  variant: Variant, counts_and_seq_lks: CountsAndSeqLks, array_override: np.ndarray = None):
         if array_override is None:
             # note: Label is an IntEnum so we can treat label as an integer
-            self.array = np.hstack((tensor_sizes.to_np_array(), ref_sequence_1d, info_array_1d, np.array([label]),
+            self.array = np.hstack((tensor_sizes.to_np_array(), ref_sequence_1d, info_array_1d, np.array([label, source]),
                                 variant.to_np_array(), counts_and_seq_lks.to_np_array()))
         else:
             self.array = array_override
@@ -294,14 +300,20 @@ class BaseDatum1DStuff:
     def set_label(self, label: Label):
         self.array[-self.__class__.NUM_ELEMENTS_AFTER_INFO] = label
 
+    def get_source(self):
+        return self.array[-self.__class__.NUM_ELEMENTS_AFTER_INFO + 1]
+
+    def set_source(self, source: int):
+        self.array[-self.__class__.NUM_ELEMENTS_AFTER_INFO + 1] = source
+
     def variant_type_one_hot(self):
         return self.get_info_1d()[-len(Variation):]
 
     def get_variant(self):
-        return Variant.from_np_array(self.array[-self.__class__.NUM_ELEMENTS_AFTER_INFO + 1:-CountsAndSeqLks.LENGTH])
+        return Variant.from_np_array(self.array[-self.__class__.NUM_ELEMENTS_AFTER_INFO + 2:-CountsAndSeqLks.LENGTH])
 
     def get_variant_array(self):
-        return self.array[-self.__class__.NUM_ELEMENTS_AFTER_INFO + 1:-CountsAndSeqLks.LENGTH]
+        return self.array[-self.__class__.NUM_ELEMENTS_AFTER_INFO + 2:-CountsAndSeqLks.LENGTH]
 
     def get_counts_and_seq_lks(self):
         return CountsAndSeqLks.from_np_array(self.array[-CountsAndSeqLks.LENGTH:])
@@ -314,14 +326,14 @@ class BaseDatum1DStuff:
 
     @classmethod
     def from_np_array(cls, np_array: np.ndarray):
-        return cls(tensor_sizes=None, ref_sequence_1d=None, info_array_1d=None, label=None,
+        return cls(tensor_sizes=None, ref_sequence_1d=None, info_array_1d=None, label=None, source=None,
                    variant=None, counts_and_seq_lks=None, array_override=np_array)
 
 
 class ArtifactDatum1DStuff:
-    # 3 for ref count, alt count, label, len(Variation) for one-hot variant type
-    NUM_ELEMENTS = 3 + Variant.LENGTH + CountsAndSeqLks.LENGTH + len(Variation)
-    VARIANT_END_POS = 3 + Variant.LENGTH
+    # 4 for ref count, alt count, label, source; len(Variation) for one-hot variant type
+    NUM_ELEMENTS = 4 + Variant.LENGTH + CountsAndSeqLks.LENGTH + len(Variation)
+    VARIANT_END_POS = 4 + Variant.LENGTH
     COUNTS_AND_SEQ_LKS_END_POS = VARIANT_END_POS + CountsAndSeqLks.LENGTH
 
     def __init__(self, base_datum_1d_stuff: BaseDatum1DStuff, array_override: np.ndarray = None):
@@ -332,7 +344,8 @@ class ArtifactDatum1DStuff:
             self.array[0] = base_datum_1d_stuff.array[0]    # ref count
             self.array[1] = base_datum_1d_stuff.array[1]    # alt count
             self.array[2] = base_datum_1d_stuff.get_label()
-            self.array[3:self.__class__.VARIANT_END_POS] = base_datum_1d_stuff.get_variant_array()
+            self.array[3] = base_datum_1d_stuff.get_source()
+            self.array[4:self.__class__.VARIANT_END_POS] = base_datum_1d_stuff.get_variant_array()
             self.array[self.__class__.VARIANT_END_POS:self.__class__.COUNTS_AND_SEQ_LKS_END_POS] = base_datum_1d_stuff.get_counts_and_seq_lks_array()
             self.array[self.__class__.COUNTS_AND_SEQ_LKS_END_POS:] = base_datum_1d_stuff.variant_type_one_hot()
         else:
@@ -350,8 +363,11 @@ class ArtifactDatum1DStuff:
     def get_label(self):
         return self.array[2]
 
+    def get_source(self):
+        return self.array[3]
+
     def get_variant(self) -> Variant:
-        return Variant.from_np_array(self.array[3:self.__class__.VARIANT_END_POS])
+        return Variant.from_np_array(self.array[4:self.__class__.VARIANT_END_POS])
 
     def get_counts_and_seq_lks(self) -> CountsAndSeqLks:
         return CountsAndSeqLks.from_np_array(self.array[self.__class__.VARIANT_END_POS:self.__class__.COUNTS_AND_SEQ_LKS_END_POS])
@@ -375,7 +391,7 @@ class BaseDatum:
     :param label        an object of the Label enum artifact, non-artifact, unlabeled
     """
     def __init__(self, reads_2d: np.ndarray, ref_sequence_1d: np.ndarray, alt_count: int,  info_array_1d: np.ndarray, label: Label,
-                 variant: Variant, counts_and_seq_lks: CountsAndSeqLks, other_stuff_override: BaseDatum1DStuff = None):
+                 source: int, variant: Variant, counts_and_seq_lks: CountsAndSeqLks, other_stuff_override: BaseDatum1DStuff = None):
         # Note: if changing any of the data fields below, make sure to modify the size_in_bytes() method below accordingly!
 
         self.reads_2d = reads_2d
@@ -383,13 +399,15 @@ class BaseDatum:
         if other_stuff_override is None:
             self.alt_count = alt_count
             self.label = label
+            self.source = source
             tensor_sizes = TensorSizes(ref_count=len(reads_2d) - alt_count, alt_count=alt_count,
                                        ref_sequence_length=len(ref_sequence_1d), info_tensor_length=len(info_array_1d))
-            self.other_stuff = BaseDatum1DStuff(tensor_sizes, ref_sequence_1d, info_array_1d, label, variant, counts_and_seq_lks)
+            self.other_stuff = BaseDatum1DStuff(tensor_sizes, ref_sequence_1d, info_array_1d, label, source, variant, counts_and_seq_lks)
         else:
             self.other_stuff = other_stuff_override
             self.alt_count = other_stuff_override.get_alt_count()
             self.label = other_stuff_override.get_label()
+            self.source = other_stuff_override.get_source()
         self.set_dtype(np.float16)
 
     def set_dtype(self, dtype):
@@ -399,12 +417,12 @@ class BaseDatum:
     # gatk_info tensor comes from GATK and does not include one-hot encoding of variant type
     @classmethod
     def from_gatk(cls, ref_sequence_string: str, variant_type: Variation, ref_tensor: np.ndarray, alt_tensor: np.ndarray,
-                 gatk_info_tensor: np.ndarray, label: Label, variant: Variant, counts_and_seq_lks: CountsAndSeqLks = None):
+                 gatk_info_tensor: np.ndarray, label: Label, source: int, variant: Variant, counts_and_seq_lks: CountsAndSeqLks = None):
         read_tensor = np.vstack([ref_tensor, alt_tensor]) if ref_tensor is not None else alt_tensor
         alt_count = len(alt_tensor)
         str_info = get_str_info_array(ref_sequence_string, variant)
         info_tensor = np.hstack([gatk_info_tensor, str_info, variant_type.one_hot_tensor().astype(DEFAULT_NUMPY_FLOAT)])
-        result = cls(read_tensor, make_1d_sequence_tensor(ref_sequence_string), alt_count, info_tensor, label, variant, counts_and_seq_lks)
+        result = cls(read_tensor, make_1d_sequence_tensor(ref_sequence_string), alt_count, info_tensor, label, source, variant, counts_and_seq_lks)
         result.set_dtype(np.float16)
         return result
 
@@ -423,6 +441,10 @@ class BaseDatum:
     def set_label(self, label: Label):
         self.label = label
         self.other_stuff.set_label(label)
+
+    def set_source(self, source: int):
+        self.source = source
+        self.other_stuff.set_source(source)
 
     def get_ref_reads_2d(self) -> np.ndarray:
         return self.reads_2d[:-self.alt_count]
@@ -494,7 +516,7 @@ def load_list_of_base_data(file) -> List[BaseDatum]:
     :return:
     """
     read_tensors, other_stuffs = torch.load(file)
-    return [BaseDatum(reads_2d=reads, ref_sequence_1d=None, alt_count=None, info_array_1d=None, label=None,
+    return [BaseDatum(reads_2d=reads, ref_sequence_1d=None, alt_count=None, info_array_1d=None, label=None, source=None,
                       variant=None, counts_and_seq_lks=None, other_stuff_override=BaseDatum1DStuff.from_np_array(other_stuff)) for reads, other_stuff in
             zip(read_tensors, other_stuffs)]
 
@@ -519,9 +541,9 @@ class BaseBatch:
 
     def __init__(self, data: List[BaseDatum]):
         self._original_list = data
-        self.labeled = data[0].label != Label.UNLABELED
         self.ref_count = len(data[0].reads_2d) - data[0].alt_count
         self.alt_count = data[0].alt_count
+        self.alt_counts = IntTensor([data[0].alt_count for _ in data])
 
         # for datum in data:
         #    assert (datum.label() != Label.UNLABELED) == self.labeled, "Batch may not mix labeled and unlabeled"
@@ -541,7 +563,12 @@ class BaseBatch:
         self.info_2d = torch.from_numpy(np.vstack([base_datum.get_info_tensor_1d() for base_datum in data]))
 
         # TODO: get this from the other_stuff_1d tensor
-        self.labels = FloatTensor([1.0 if item.label == Label.ARTIFACT else 0.0 for item in data]) if self.labeled else None
+        # labels are 1 for artifact, 0 for non-artifact
+        # also 0 for UNLABELED but that value should NEVER be used if we apply the is_labeled_mask properly
+        self.labels = FloatTensor([1.0 if item.label == Label.ARTIFACT else 0.0 for item in data])
+        self.is_labeled_mask = FloatTensor([0.0 if item.label == Label.UNLABELED else 1.0 for item in data])
+
+        self.sources = IntTensor([item.source for item in data])
         self._size = len(data)
 
     # pin memory for all tensors that are sent to the GPU
@@ -550,6 +577,8 @@ class BaseBatch:
         self.reads_2d = self.reads_2d.pin_memory()
         self.info_2d = self.info_2d.pin_memory()
         self.labels = self.labels.pin_memory()
+        self.is_labeled_mask = self.is_labeled_mask.pin_memory()
+        self.sources = self.sources.pin_memory()
         return self
 
     def original_list(self):
@@ -563,9 +592,6 @@ class BaseBatch:
 
     def get_ref_sequences_2d(self) -> Tensor:
         return self.ref_sequences_2d
-
-    def is_labeled(self) -> bool:
-        return self.labeled
 
     def size(self) -> int:
         return self._size
@@ -603,6 +629,9 @@ class ArtifactDatum:
     def get_label(self):
         return self.other_stuff.get_label()
 
+    def get_source(self):
+        return self.other_stuff.get_source()
+
     def size_in_bytes(self):
         return self.representation.nbytes + self.other_stuff.nbytes
 
@@ -619,11 +648,12 @@ class ArtifactDatum:
 class ArtifactBatch:
     def __init__(self, data: List[ArtifactDatum]):
         self.original_data = data
-        self.labeled = data[0].get_label() != Label.UNLABELED
 
         self.representations_2d = torch.vstack([item.representation for item in data])
         self.ref_alt_seq_embeddings_2d = torch.vstack([item.ref_alt_seq_embedding for item in data])
-        self.labels = FloatTensor([1.0 if item.get_label() == Label.ARTIFACT else 0.0 for item in data]) if self.labeled else None
+        self.labels = FloatTensor([1.0 if item.get_label() == Label.ARTIFACT else 0.0 for item in data])
+        self.is_labeled_mask = FloatTensor([0.0 if item.get_label() == Label.UNLABELED else 1.0 for item in data])
+        self.sources = IntTensor([item.get_source() for item in data])
         self.ref_counts = IntTensor([int(item.get_ref_count()) for item in data])
         self.alt_counts = IntTensor([int(item.get_alt_count()) for item in data])
         self._size = len(data)
@@ -635,6 +665,8 @@ class ArtifactBatch:
         self.representations_2d = self.representations_2d.pin_memory()
         self.ref_alt_seq_embeddings_2d = self.ref_alt_seq_embeddings_2d.pin_memory()
         self.labels = self.labels.pin_memory()
+        self.is_labeled_mask = self.is_labeled_mask.pin_memory()
+        self.sources = self.sources.pin_memory()
         self.ref_counts = self.ref_counts.pin_memory()
         self.alt_counts = self.alt_counts.pin_memory()
         self._variant_type_one_hot = self._variant_type_one_hot.pin_memory()
@@ -645,9 +677,6 @@ class ArtifactBatch:
 
     def get_ref_alt_seq_embeddings_2d(self) -> Tensor:
         return self.ref_alt_seq_embeddings_2d
-
-    def is_labeled(self) -> bool:
-        return self.labeled
 
     def size(self) -> int:
         return self._size

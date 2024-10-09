@@ -5,6 +5,8 @@ workflow PreprocessPermutect {
     input {
         File training_dataset
         Int chunk_size
+        Int? source_label
+
         String permutect_docker
         Int? preemptible
         Int? max_retries
@@ -16,7 +18,8 @@ workflow PreprocessPermutect {
             permutect_docker = permutect_docker,
             preemptible = preemptible,
             max_retries = max_retries,
-            chunk_size = chunk_size
+            chunk_size = chunk_size,
+            source_label = source_label
     }
 
     output {
@@ -29,6 +32,7 @@ task Preprocess {
     input {
         File training_dataset
         Int chunk_size
+        Int? source_label
 
         String permutect_docker
         Int? preemptible
@@ -46,7 +50,7 @@ task Preprocess {
     command <<<
         set -e
 
-        preprocess_dataset --training_datasets ~{training_dataset} --chunk_size ~{chunk_size} --output train.tar
+        preprocess_dataset --training_datasets ~{training_dataset} --chunk_size ~{chunk_size} ~{"--sources " + source_label} --output train.tar
     >>>
 
     runtime {

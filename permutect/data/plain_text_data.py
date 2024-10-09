@@ -30,6 +30,8 @@ GTCCTGGACACGCTGTTGGCC
 -11.327
 -0.000
 """
+from typing import List
+
 import numpy as np
 import psutil
 from sklearn.preprocessing import QuantileTransformer
@@ -75,7 +77,7 @@ def round_down_alt(n: int):
     return ALT_ROUNDING[min(len(ALT_ROUNDING) - 1, n)]
 
 
-def read_data(dataset_file, round_down: bool = True, only_artifacts: bool = False):
+def read_data(dataset_file, round_down: bool = True, only_artifacts: bool = False, source: int=0):
     """
     generator that yields data from a plain text dataset file.
     """
@@ -119,10 +121,13 @@ def read_data(dataset_file, round_down: bool = True, only_artifacts: bool = Fals
                 variant = Variant(contig, position, ref_allele, alt_allele)
                 counts_and_seq_lks = CountsAndSeqLks(depth, alt_count, normal_depth, normal_alt_count, seq_error_log_lk, normal_seq_error_log_lk)
                 yield BaseDatum.from_gatk(ref_sequence_string, Variation.get_type(ref_allele, alt_allele), ref_tensor,
-                                          alt_tensor, gatk_info_tensor, label, variant, counts_and_seq_lks)
+                                          alt_tensor, gatk_info_tensor, label, source, variant, counts_and_seq_lks)
 
 
-def generate_normalized_data(dataset_files, max_bytes_per_chunk: int):
+# if sources is None, source is set to zero
+# if List is length-1, that's the source for all files
+# otherwise each file has its own source int
+def generate_normalized_data(dataset_files, max_bytes_per_chunk: int, sources: List[int]=None):
     """
     given text dataset files, generate normalized lists of read sets that fit in memory
 
@@ -131,13 +136,14 @@ def generate_normalized_data(dataset_files, max_bytes_per_chunk: int):
     :param max_bytes_per_chunk:
     :return:
     """
-    for dataset_file in dataset_files:
+    for n, dataset_file in enumerate(dataset_files):
         buffer, bytes_in_buffer = [], 0
         read_quantile_transform = QuantileTransformer(n_quantiles=100, output_distribution='normal')
         info_quantile_transform = QuantileTransformer(n_quantiles=100, output_distribution='normal')
 
         num_buffers_filled = 0
-        for base_datum in read_data(dataset_file):
+        source = 0 if sources is None else (sources[0] if len(sources) == 1 else sources[n])
+        for base_datum in read_data(dataset_file, source=source):
             buffer.append(base_datum)
             bytes_in_buffer += base_datum.size_in_bytes()
             if bytes_in_buffer > max_bytes_per_chunk:
