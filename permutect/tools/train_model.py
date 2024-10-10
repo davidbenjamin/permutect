@@ -109,7 +109,7 @@ def main_without_parsing(args):
         summary_writer.add_figure("Artifact AF Spectra", art_spectra_fig)
 
     summary_writer.close()
-    model.save(getattr(args, constants.OUTPUT_NAME), artifact_log_priors, artifact_spectra)
+    model.save_with_base_model(base_model, getattr(args, constants.OUTPUT_NAME), artifact_log_priors, artifact_spectra)
 
 
 def main():

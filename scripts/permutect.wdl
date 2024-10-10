@@ -5,7 +5,6 @@ import "https://api.firecloud.org/ga4gh/v1/tools/davidben:mutect2/versions/15/pl
 workflow Permutect {
     input {
         File permutect_model
-        File base_model
 
         File? intervals
         File? masks
@@ -100,7 +99,6 @@ workflow Permutect {
             mutect2_vcf = IndexAfterSplitting.vcf,
             mutect2_vcf_idx = IndexAfterSplitting.vcf_index,
             permutect_model = permutect_model,
-            base_model = base_model,
             test_dataset = select_first([Mutect2.m3_dataset]),
             contigs_table = Mutect2.permutect_contigs_table,
             maf_segments = Mutect2.maf_segments,
@@ -133,7 +131,6 @@ workflow Permutect {
 task PermutectFiltering {
     input {
         File permutect_model
-        File base_model
         File test_dataset
         File contigs_table
         File mutect2_vcf
@@ -167,7 +164,6 @@ task PermutectFiltering {
 
         filter_variants --input ~{mutect2_vcf} --test_dataset ~{test_dataset} \
             --permutect_model ~{permutect_model} \
-            --base_model ~{base_model} \
             --contigs_table ~{contigs_table} \
             --output permutect-filtered.vcf \
             --tensorboard_dir tensorboard \

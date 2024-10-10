@@ -7,7 +7,6 @@ from permutect.tools import filter_variants
 
 def test_filtering_on_dream1_chr20():
     # Inputs
-    base_model = '/Users/davidben/mutect3/permutect/integration-tests/singular-10-Mb/base-model.pt'
     artifact_model = '/Users/davidben/mutect3/permutect/integration-tests/singular-10-Mb/artifact-model.pt'
 
     mutect2_vcf = '/Users/davidben/mutect3/permutect/integration-tests/dream1-chr20/mutect2_chr20.vcf'
@@ -22,7 +21,6 @@ def test_filtering_on_dream1_chr20():
     filtering_args = Namespace()
     setattr(filtering_args, constants.INPUT_NAME, mutect2_vcf)
     setattr(filtering_args, constants.TEST_DATASET_NAME, filtering_dataset)
-    setattr(filtering_args, constants.BASE_MODEL_NAME, base_model)
     setattr(filtering_args, constants.M3_MODEL_NAME, artifact_model)
     setattr(filtering_args, constants.OUTPUT_NAME, permutect_vcf.name)
     setattr(filtering_args, constants.TENSORBOARD_DIR_NAME, tensorboard_dir.name)
