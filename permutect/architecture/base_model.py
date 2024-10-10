@@ -184,32 +184,37 @@ class BaseModel(torch.nn.Module):
 
         return result_ve, ref_seq_embeddings_ve # ref seq embeddings are useful later
 
+    def make_dict_for_saving(self, prefix: str = ""):
+        return {(prefix + constants.STATE_DICT_NAME): self.state_dict(),
+                (prefix + constants.HYPERPARAMS_NAME): self._params,
+                (prefix + constants.NUM_READ_FEATURES_NAME): self.read_embedding.input_dimension(),
+                (prefix + constants.NUM_INFO_FEATURES_NAME): self.info_embedding.input_dimension(),
+                (prefix + constants.REF_SEQUENCE_LENGTH_NAME): self.ref_sequence_length()}
+
     def save(self, path):
-        torch.save({
-            constants.STATE_DICT_NAME: self.state_dict(),
-            constants.HYPERPARAMS_NAME: self._params,
-            constants.NUM_READ_FEATURES_NAME: self.read_embedding.input_dimension(),
-            constants.NUM_INFO_FEATURES_NAME: self.info_embedding.input_dimension(),
-            constants.REF_SEQUENCE_LENGTH_NAME: self.ref_sequence_length()
-        }, path)
+        torch.save(self.make_dict_for_saving(), path)
 
 
-def load_base_model(path, device: torch.device = utils.gpu_if_available()) -> BaseModel:
-    saved = torch.load(path)
-    hyperparams = saved[constants.HYPERPARAMS_NAME]
-    num_read_features = saved[constants.NUM_READ_FEATURES_NAME]
-    num_info_features = saved[constants.NUM_INFO_FEATURES_NAME]
-    ref_sequence_length = saved[constants.REF_SEQUENCE_LENGTH_NAME]
+def base_model_from_saved_dict(saved, prefix: str = "", device: torch.device = utils.gpu_if_available()):
+    hyperparams = saved[prefix + constants.HYPERPARAMS_NAME]
+    num_read_features = saved[prefix + constants.NUM_READ_FEATURES_NAME]
+    num_info_features = saved[prefix + constants.NUM_INFO_FEATURES_NAME]
+    ref_sequence_length = saved[prefix + constants.REF_SEQUENCE_LENGTH_NAME]
 
     model = BaseModel(hyperparams, num_read_features=num_read_features, num_info_features=num_info_features,
                       ref_sequence_length=ref_sequence_length, device=device)
-    model.load_state_dict(saved[constants.STATE_DICT_NAME])
+    model.load_state_dict(saved[prefix + constants.STATE_DICT_NAME])
 
     # in case the state dict had the wrong dtype for the device we're on now eg base model was pretrained on GPU
     # and we're now on CPU
     model.to(model._dtype)
 
     return model
+
+
+def load_base_model(path, prefix: str = "", device: torch.device = utils.gpu_if_available()) -> BaseModel:
+    saved = torch.load(path)
+    return base_model_from_saved_dict(saved, prefix, device)
 
 
 # outputs a 1D tensor of losses over the batch.  We assume it needs the representations of the batch data from the base

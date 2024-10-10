@@ -15,7 +15,7 @@ from tqdm.autonotebook import trange, tqdm
 from itertools import chain
 from matplotlib import pyplot as plt
 
-from permutect.architecture.base_model import calculate_batch_weights
+from permutect.architecture.base_model import calculate_batch_weights, BaseModel, base_model_from_saved_dict
 from permutect.architecture.mlp import MLP
 from permutect.architecture.monotonic import MonoDense
 from permutect.data.base_datum import ArtifactBatch, DEFAULT_GPU_FLOAT, DEFAULT_CPU_FLOAT
@@ -374,27 +374,44 @@ class ArtifactModel(nn.Module):
 
         # done collecting data
 
-    def save(self, path, artifact_log_priors, artifact_spectra):
-        torch.save({
-            constants.STATE_DICT_NAME: self.state_dict(),
-            constants.NUM_BASE_FEATURES_NAME: self.num_base_features,
-            constants.NUM_REF_ALT_FEATURES_NAME: self.num_ref_alt_features,
-            constants.HYPERPARAMS_NAME: self.params,
-            constants.ARTIFACT_LOG_PRIORS_NAME: artifact_log_priors,
-            constants.ARTIFACT_SPECTRA_STATE_DICT_NAME: artifact_spectra.state_dict()
-        }, path)
+    def make_dict_for_saving(self, artifact_log_priors, artifact_spectra, prefix: str = "artifact"):
+        return {(prefix + constants.STATE_DICT_NAME): self.state_dict(),
+                (prefix + constants.NUM_BASE_FEATURES_NAME): self.num_base_features,
+                (prefix + constants.NUM_REF_ALT_FEATURES_NAME): self.num_ref_alt_features,
+                (prefix + constants.HYPERPARAMS_NAME): self.params,
+                (prefix + constants.ARTIFACT_LOG_PRIORS_NAME): artifact_log_priors,
+                (prefix + constants.ARTIFACT_SPECTRA_STATE_DICT_NAME): artifact_spectra.state_dict()}
+
+    def save(self, path, artifact_log_priors, artifact_spectra, prefix: str = "artifact"):
+        torch.save(self.make_dict_for_saving(artifact_log_priors, artifact_spectra, prefix), path)
+
+    def save_with_base_model(self, base_model: BaseModel, path, artifact_log_priors, artifact_spectra):
+        artifact_dict = self.make_dict_for_saving(artifact_log_priors, artifact_spectra, prefix="artifact")
+        base_dict = base_model.make_dict_for_saving(prefix="base")
+        torch.save({**artifact_dict, **base_dict}, path)
+
+
+def artifact_model_from_saved_dict(saved, prefix: str = "artifact"):
+    model_params = saved[prefix + constants.HYPERPARAMS_NAME]
+    num_base_features = saved[prefix + constants.NUM_BASE_FEATURES_NAME]
+    num_ref_alt_features = saved[prefix + constants.NUM_REF_ALT_FEATURES_NAME]
+    model = ArtifactModel(model_params, num_base_features, num_ref_alt_features)
+    model.load_state_dict(saved[prefix + constants.STATE_DICT_NAME])
+
+    artifact_log_priors = saved[prefix + constants.ARTIFACT_LOG_PRIORS_NAME]  # possibly None
+    artifact_spectra_state_dict = saved[prefix + constants.ARTIFACT_SPECTRA_STATE_DICT_NAME]  # possibly None
+    return model, artifact_log_priors, artifact_spectra_state_dict
 
 
 # log artifact priors and artifact spectra may be None
-def load_artifact_model(path) -> ArtifactModel:
+def load_artifact_model(path,  prefix: str = "artifact") -> ArtifactModel:
     saved = torch.load(path)
-    model_params = saved[constants.HYPERPARAMS_NAME]
-    num_base_features = saved[constants.NUM_BASE_FEATURES_NAME]
-    num_ref_alt_features = saved[constants.NUM_REF_ALT_FEATURES_NAME]
-    model = ArtifactModel(model_params, num_base_features, num_ref_alt_features)
-    model.load_state_dict(saved[constants.STATE_DICT_NAME])
+    return artifact_model_from_saved_dict(saved, prefix)
 
-    artifact_log_priors = saved[constants.ARTIFACT_LOG_PRIORS_NAME]     # possibly None
-    artifact_spectra_state_dict = saved[constants.ARTIFACT_SPECTRA_STATE_DICT_NAME]     #possibly None
-    return model, artifact_log_priors, artifact_spectra_state_dict
+
+def load_base_model_and_artifact_model(path) -> ArtifactModel:
+    saved = torch.load(path)
+    base_model = base_model_from_saved_dict(saved, prefix="base")
+    artifact_model, artifact_log_priors, artifact_spectra = artifact_model_from_saved_dict(saved, prefix="artifact")
+    return base_model, artifact_model, artifact_log_priors, artifact_spectra
 
