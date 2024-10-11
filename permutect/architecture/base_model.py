@@ -478,7 +478,7 @@ def learn_base_model(base_model: BaseModel, dataset: BaseDataset, learning_metho
     # adversarial loss to learn features that forget the alt count
     alt_count_gradient_reversal = GradientReversal(alpha=0.01)  #initialize as barely active
     alt_count_predictor = MLP([base_model.output_dimension()] + [30, -1, -1, -1, 1]).to(device=base_model._device, dtype=base_model._dtype)
-    alt_count_mse = torch.nn.MSELoss(reduction='none')
+    alt_count_loss_func = torch.nn.L1Loss(reduction='none')
     alt_count_adversarial_metrics = LossMetrics(base_model._device)
 
     train_optimizer = torch.optim.AdamW(chain(base_model.parameters(), learning_strategy.parameters()),
@@ -524,7 +524,7 @@ def learn_base_model(base_model: BaseModel, dataset: BaseDataset, learning_metho
                 # try to forget alt count, while parameters after the representation try to minimize it, i.e. they try
                 # to achieve the adversarial task
                 alt_count_pred = alt_count_predictor.forward(alt_count_gradient_reversal(representations)).squeeze()
-                alt_count_losses = alt_count_mse(alt_count_pred, batch.alt_counts.float())
+                alt_count_losses = alt_count_loss_func(alt_count_pred, batch.alt_counts.float())
 
                 alt_count_adversarial_metrics.record_losses(alt_count_losses.detach(), batch, weights=torch.ones_like(alt_count_losses))
 
