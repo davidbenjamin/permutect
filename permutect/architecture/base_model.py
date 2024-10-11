@@ -549,6 +549,7 @@ def learn_base_model(base_model: BaseModel, dataset: BaseDataset, learning_metho
 
             print(f"Labeled base model loss for {epoch_type.name} epoch {epoch}: {loss_metrics.get_labeled_loss():.3f}")
             print(f"Labeled auxiliary classifier loss for {epoch_type.name} epoch {epoch}: {classifier_metrics.get_labeled_loss():.3f}")
+            print(f"Alt count adversarial loss for {epoch_type.name} epoch {epoch}: {alt_count_adversarial_metrics.get_labeled_loss():.3f}")
         print(f"End of epoch {epoch}, memory usage percent: {psutil.virtual_memory().percent:.1f}")
         # done with training and validation for this epoch
         # note that we have not learned the AF spectrum yet
