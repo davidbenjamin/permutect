@@ -524,7 +524,7 @@ def learn_base_model(base_model: BaseModel, dataset: BaseDataset, learning_metho
                 # try to forget alt count, while parameters after the representation try to minimize it, i.e. they try
                 # to achieve the adversarial task
                 alt_count_pred = alt_count_predictor.forward(alt_count_gradient_reversal(representations)).squeeze()
-                alt_count_losses = alt_count_mse(alt_count_pred, batch.alt_counts)
+                alt_count_losses = alt_count_mse(alt_count_pred, batch.alt_counts.float())
 
                 alt_count_adversarial_metrics.record_losses(alt_count_losses.detach(), batch, weights=torch.ones_like(alt_count_losses))
 
