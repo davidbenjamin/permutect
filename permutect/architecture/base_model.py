@@ -481,7 +481,7 @@ def learn_base_model(base_model: BaseModel, dataset: BaseDataset, learning_metho
     alt_count_loss_func = torch.nn.L1Loss(reduction='none')
     alt_count_adversarial_metrics = LossMetrics(base_model._device)
 
-    train_optimizer = torch.optim.AdamW(chain(base_model.parameters(), learning_strategy.parameters()),
+    train_optimizer = torch.optim.AdamW(chain(base_model.parameters(), learning_strategy.parameters(), alt_count_gradient_reversal.parameters(), alt_count_predictor.parameters()),
                                         lr=training_params.learning_rate, weight_decay=training_params.weight_decay)
     # train scheduler needs to be given the thing that's supposed to decrease at the end of each epoch
     train_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
