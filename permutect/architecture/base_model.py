@@ -1,3 +1,4 @@
+import math
 from abc import ABC, abstractmethod
 from enum import Enum
 from itertools import chain
@@ -481,7 +482,7 @@ def learn_base_model(base_model: BaseModel, dataset: BaseDataset, learning_metho
     alt_count_loss_func = torch.nn.L1Loss(reduction='none')
     alt_count_adversarial_metrics = LossMetrics(base_model._device)
 
-    train_optimizer = torch.optim.AdamW(chain(base_model.parameters(), learning_strategy.parameters(), alt_count_gradient_reversal.parameters(), alt_count_predictor.parameters()),
+    train_optimizer = torch.optim.AdamW(chain(base_model.parameters(), learning_strategy.parameters(), alt_count_predictor.parameters()),
                                         lr=training_params.learning_rate, weight_decay=training_params.weight_decay)
     # train scheduler needs to be given the thing that's supposed to decrease at the end of each epoch
     train_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
@@ -498,7 +499,9 @@ def learn_base_model(base_model: BaseModel, dataset: BaseDataset, learning_metho
     valid_loader = dataset.make_data_loader([validation_fold_to_use], training_params.batch_size, base_model._device.type == 'cuda', training_params.num_workers)
 
     for epoch in trange(1, training_params.num_epochs + 1, desc="Epoch"):
-        alt_count_gradient_reversal.set_alpha((epoch / training_params.num_epochs)) # alpha increases linearly
+        p = epoch - 1
+        new_alpha = (2/(1 + math.exp(-0.1*p))) - 1
+        alt_count_gradient_reversal.set_alpha(new_alpha) # alpha increases linearly
         print(f"Start of epoch {epoch}, memory usage percent: {psutil.virtual_memory().percent:.1f}")
         for epoch_type in (utils.Epoch.TRAIN, utils.Epoch.VALID):
             base_model.set_epoch_type(epoch_type)
@@ -523,8 +526,8 @@ def learn_base_model(base_model: BaseModel, dataset: BaseDataset, learning_metho
                 # gradient reversal means parameters before the representation try to maximize alt count prediction loss, i.e. features
                 # try to forget alt count, while parameters after the representation try to minimize it, i.e. they try
                 # to achieve the adversarial task
-                alt_count_pred = alt_count_predictor.forward(alt_count_gradient_reversal(representations)).squeeze()
-                alt_count_losses = alt_count_loss_func(alt_count_pred, batch.alt_counts.float())
+                alt_count_pred = torch.sigmoid(alt_count_predictor.forward(alt_count_gradient_reversal(representations)).squeeze())
+                alt_count_losses = alt_count_loss_func(alt_count_pred, batch.alt_counts.float()/20)
 
                 alt_count_adversarial_metrics.record_losses(alt_count_losses.detach(), batch, weights=torch.ones_like(alt_count_losses))
 
@@ -536,7 +539,7 @@ def learn_base_model(base_model: BaseModel, dataset: BaseDataset, learning_metho
                 classifier_metrics.record_losses(classification_losses.detach(), batch, batch.is_labeled_mask * weights)
 
                 # STUPID DEBUG STUFF
-                if n < 10:
+                if n == 2:
                     print(f"actual alt counts {batch.alt_counts.tolist()}")
                     print(f"alt count predictions: {alt_count_pred.detach().tolist()}")
                     print(f"alt count losses {alt_count_losses.detach().tolist()}")
