@@ -535,6 +535,18 @@ def learn_base_model(base_model: BaseModel, dataset: BaseDataset, learning_metho
                 classification_loss = torch.sum(batch.is_labeled_mask * weights * classification_losses)
                 classifier_metrics.record_losses(classification_losses.detach(), batch, batch.is_labeled_mask * weights)
 
+                # STUPID DEBUG STUFF
+                if n < 10:
+                    print(f"actual alt counts {batch.alt_counts.tolist()}")
+                    print(f"alt count predictions: {alt_count_pred.detach().tolist()}")
+                    print(f"alt count losses {alt_count_losses.detach().tolist()}")
+                    print(f"weights {weights.tolist()}")
+                    print(f"semisupervised losses {losses.detach().tolist()}")
+                    print(f"classification logits {classification_logits.detach().tolist()}")
+                    print(f"classification losses {classification_losses.detach().tolist()}")
+
+                # DONE DEBUG
+
                 if epoch_type == utils.Epoch.TRAIN:
                     utils.backpropagate(train_optimizer, loss)
                     utils.backpropagate(classifier_optimizer, classification_loss)
