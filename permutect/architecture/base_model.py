@@ -1,3 +1,4 @@
+import math
 from abc import ABC, abstractmethod
 from enum import Enum
 from itertools import chain
@@ -13,6 +14,7 @@ from tqdm.autonotebook import trange, tqdm
 from permutect import utils, constants
 from permutect.architecture.dna_sequence_convolution import DNASequenceConvolution
 from permutect.architecture.gated_mlp import GatedMLP, GatedRefAltMLP
+from permutect.architecture.gradient_reversal.module import GradientReversal
 from permutect.architecture.mlp import MLP
 from permutect.data.base_datum import BaseBatch, DEFAULT_GPU_FLOAT, DEFAULT_CPU_FLOAT
 from permutect.data.base_dataset import BaseDataset, ALL_COUNTS_SENTINEL
@@ -474,7 +476,13 @@ def learn_base_model(base_model: BaseModel, dataset: BaseDataset, learning_metho
         raise Exception("not implemented yet")
     learning_strategy.to(device=base_model._device, dtype=base_model._dtype)
 
-    train_optimizer = torch.optim.AdamW(chain(base_model.parameters(), learning_strategy.parameters()),
+    # adversarial loss to learn features that forget the alt count
+    alt_count_gradient_reversal = GradientReversal(alpha=0.01)  #initialize as barely active
+    alt_count_predictor = MLP([base_model.output_dimension()] + [30, -1, -1, -1, 1]).to(device=base_model._device, dtype=base_model._dtype)
+    alt_count_loss_func = torch.nn.MSELoss(reduction='none')
+    alt_count_adversarial_metrics = LossMetrics(base_model._device)
+
+    train_optimizer = torch.optim.AdamW(chain(base_model.parameters(), learning_strategy.parameters(), alt_count_predictor.parameters()),
                                         lr=training_params.learning_rate, weight_decay=training_params.weight_decay)
     # train scheduler needs to be given the thing that's supposed to decrease at the end of each epoch
     train_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
@@ -491,6 +499,9 @@ def learn_base_model(base_model: BaseModel, dataset: BaseDataset, learning_metho
     valid_loader = dataset.make_data_loader([validation_fold_to_use], training_params.batch_size, base_model._device.type == 'cuda', training_params.num_workers)
 
     for epoch in trange(1, training_params.num_epochs + 1, desc="Epoch"):
+        p = epoch - 1
+        new_alpha = (2/(1 + math.exp(-0.1*p))) - 1
+        alt_count_gradient_reversal.set_alpha(new_alpha) # alpha increases linearly
         print(f"Start of epoch {epoch}, memory usage percent: {psutil.virtual_memory().percent:.1f}")
         for epoch_type in (utils.Epoch.TRAIN, utils.Epoch.VALID):
             base_model.set_epoch_type(epoch_type)
@@ -507,17 +518,37 @@ def learn_base_model(base_model: BaseModel, dataset: BaseDataset, learning_metho
                 if losses is None:
                     continue
 
-                # TODO: maybe this should be done by count?
                 # TODO: we need a parameter to control the relative weight of unlabeled loss to labeled loss
                 weights = calculate_batch_weights(batch, dataset, by_count=True)
 
                 loss_metrics.record_losses(losses.detach(), batch, weights)
-                loss = torch.sum(weights * losses)
+
+                # gradient reversal means parameters before the representation try to maximize alt count prediction loss, i.e. features
+                # try to forget alt count, while parameters after the representation try to minimize it, i.e. they try
+                # to achieve the adversarial task
+                alt_count_pred = torch.sigmoid(alt_count_predictor.forward(alt_count_gradient_reversal(representations)).squeeze())
+                alt_count_losses = alt_count_loss_func(alt_count_pred, batch.alt_counts.float()/20)
+
+                alt_count_adversarial_metrics.record_losses(alt_count_losses.detach(), batch, weights=torch.ones_like(alt_count_losses))
+
+                loss = torch.sum((weights * losses) + alt_count_losses)
 
                 classification_logits = classifier_on_top.forward(representations.detach()).reshape(batch.size())
                 classification_losses = classifier_bce(classification_logits, batch.labels)
                 classification_loss = torch.sum(batch.is_labeled_mask * weights * classification_losses)
                 classifier_metrics.record_losses(classification_losses.detach(), batch, batch.is_labeled_mask * weights)
+
+                # STUPID DEBUG STUFF
+                if n == 2:
+                    print(f"actual alt counts {batch.alt_counts.tolist()}")
+                    print(f"alt count predictions: {alt_count_pred.detach().tolist()}")
+                    print(f"alt count losses {alt_count_losses.detach().tolist()}")
+                    print(f"weights {weights.tolist()}")
+                    print(f"semisupervised losses {losses.detach().tolist()}")
+                    print(f"classification logits {classification_logits.detach().tolist()}")
+                    print(f"classification losses {classification_losses.detach().tolist()}")
+
+                # DONE DEBUG
 
                 if epoch_type == utils.Epoch.TRAIN:
                     utils.backpropagate(train_optimizer, loss)
@@ -526,12 +557,14 @@ def learn_base_model(base_model: BaseModel, dataset: BaseDataset, learning_metho
             # done with one epoch type -- training or validation -- for this epoch
             loss_metrics.write_to_summary_writer(epoch_type, epoch, summary_writer)
             classifier_metrics.write_to_summary_writer(epoch_type, epoch, summary_writer, prefix="auxiliary-classifier-")
+            alt_count_adversarial_metrics.write_to_summary_writer(epoch_type, epoch, summary_writer, prefix="alt-count-adversarial-predictor")
 
             if epoch_type == utils.Epoch.TRAIN:
                 train_scheduler.step(loss_metrics.get_labeled_loss())
 
             print(f"Labeled base model loss for {epoch_type.name} epoch {epoch}: {loss_metrics.get_labeled_loss():.3f}")
             print(f"Labeled auxiliary classifier loss for {epoch_type.name} epoch {epoch}: {classifier_metrics.get_labeled_loss():.3f}")
+            print(f"Alt count adversarial loss for {epoch_type.name} epoch {epoch}: {alt_count_adversarial_metrics.get_labeled_loss():.3f}")
         print(f"End of epoch {epoch}, memory usage percent: {psutil.virtual_memory().percent:.1f}")
         # done with training and validation for this epoch
         # note that we have not learned the AF spectrum yet

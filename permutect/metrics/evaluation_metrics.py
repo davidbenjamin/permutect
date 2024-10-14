@@ -386,7 +386,7 @@ class EmbeddingMetrics:
             idx = np.random.choice(len(all_metadata), size=min(NUM_DATA_FOR_TENSORBOARD_PROJECTION, len(all_metadata)), replace=False)
 
         summary_writer.add_embedding(torch.vstack(self.representations)[idx],
-                                     metadata=[all_metadata[n] for n in idx],
+                                     metadata=[all_metadata[round(n)] for n in idx.tolist()],
                                      metadata_header=["Labels", "Correctness", "Types", "Counts"],
                                      tag=prefix+"embedding", global_step=epoch)
 
@@ -396,7 +396,7 @@ class EmbeddingMetrics:
             indices = [n for n, type_name in enumerate(self.type_metadata) if type_name == variant_name]
             indices = sample_indices_for_tensorboard(indices)
             summary_writer.add_embedding(torch.vstack(self.representations)[indices],
-                                         metadata=[all_metadata[n] for n in indices],
+                                         metadata=[all_metadata[round(n)] for n in indices.tolist()],
                                          metadata_header=["Labels", "Correctness", "Types", "Counts"],
                                          tag=prefix+"embedding for variant type " + variant_name, global_step=epoch)
 
@@ -407,7 +407,7 @@ class EmbeddingMetrics:
             indices = sample_indices_for_tensorboard(indices)
             if len(indices) > 0:
                 summary_writer.add_embedding(torch.vstack(self.representations)[indices],
-                                        metadata=[all_metadata[n] for n in indices],
+                                        metadata=[all_metadata[round(n)] for n in indices.tolist()],
                                         metadata_header=["Labels", "Correctness", "Types", "Counts"],
                                         tag=prefix+"embedding for alt count " + str(count), global_step=epoch)
 
