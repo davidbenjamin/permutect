@@ -245,6 +245,9 @@ class ArtifactModel(nn.Module):
                         # to achieve the adversarial task of distinguishing sources
                         source_prediction_logits = source_classifier.forward(source_gradient_reversal(features))
                         source_prediction_targets = batch.sources.to(device=self._device, dtype=self._dtype)
+                        source_prediction_losses = ce(source_prediction_logits, source_prediction_targets)
+                    else:
+                        source_prediction_losses = torch.zeros_like(logits)
 
                     # TODO: maybe this should be done by count for all epochs?
                     # TODO: we need a parameter to control the relative weight of unlabeled loss to labeled loss
