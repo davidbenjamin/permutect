@@ -40,7 +40,7 @@ def calculate_pruning_thresholds(labeled_only_pruning_loader, artifact_model: Ar
         for n, batch in pbar:
             # TODO: should we use likelihoods as in evaluation or posteriors as in training???
             # TODO: does it even matter??
-            art_logits, _ = artifact_model.forward(batch)
+            art_logits, _, _ = artifact_model.forward(batch)
             art_probs = torch.sigmoid(art_logits.detach())
 
             art_label_mask = (batch.labels > 0.5)
@@ -61,7 +61,7 @@ def calculate_pruning_thresholds(labeled_only_pruning_loader, artifact_model: Ar
         nonart_conf_threshold = average_nonartifact_confidence.get()
         pbar = tqdm(enumerate(labeled_only_pruning_loader), mininterval=60)
         for n, batch in pbar:
-            predicted_artifact_logits, _ = artifact_model.forward(batch)
+            predicted_artifact_logits, _, _ = artifact_model.forward(batch)
             predicted_artifact_probs = torch.sigmoid(predicted_artifact_logits.detach())
 
             conf_art_mask = predicted_artifact_probs >= art_conf_threshold
@@ -115,7 +115,7 @@ def generated_pruned_data_for_fold(art_threshold: float, nonart_threshold: float
         representation, ref_alt_seq_embeddings = base_model.calculate_representations(base_batch)
 
         artifact_batch = ArtifactBatch([ArtifactDatum(rs, rep, ref_alt_emb) for rs, rep, ref_alt_emb in zip(base_batch.original_list(), representation.detach(), ref_alt_seq_embeddings.detach())])
-        art_logits, _ = artifact_model.forward(artifact_batch)
+        art_logits, _, _ = artifact_model.forward(artifact_batch)
         art_probs = torch.sigmoid(art_logits.detach())
         art_label_mask = (base_batch.labels > 0.5)
         is_labeled_mask = (base_batch.is_labeled_mask > 0.5)

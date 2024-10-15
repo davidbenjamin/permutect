@@ -175,7 +175,7 @@ class ArtifactModel(nn.Module):
         for n, _ in enumerate(Variation):
             mask = one_hot_types_2d[:, n]
             calibrated_logits += mask * self.calibration[n].forward(uncalibrated_logits, batch.ref_counts, batch.alt_counts)
-        return calibrated_logits, uncalibrated_logits
+        return calibrated_logits, uncalibrated_logits, features
 
     def learn(self, dataset: ArtifactDataset, training_params: TrainingParameters, summary_writer: SummaryWriter, validation_fold: int = None, epochs_per_evaluation: int = None):
         bce = nn.BCEWithLogitsLoss(reduction='none')  # no reduction because we may want to first multiply by weights for unbalanced data
@@ -218,7 +218,7 @@ class ArtifactModel(nn.Module):
                 loader = train_loader if epoch_type == utils.Epoch.TRAIN else valid_loader
                 pbar = tqdm(enumerate(loader), mininterval=60)
                 for n, batch in pbar:
-                    logits, precalibrated_logits = self.forward(batch)
+                    logits, precalibrated_logits, features = self.forward(batch)
 
                     # TODO: maybe this should be done by count for all epochs?
                     # TODO: we need a parameter to control the relative weight of unlabeled loss to labeled loss
@@ -307,7 +307,7 @@ class ArtifactModel(nn.Module):
                 # TODO: we need a parameter to control the relative weight of unlabeled loss to labeled loss
                 weights = calculate_batch_weights(batch, dataset, by_count=True)
 
-                logits, _ = self.forward(batch)
+                logits, _, _ = self.forward(batch)
                 pred = logits.detach()
                 correct = ((pred > 0) == (batch.labels > 0.5)).tolist()
 
@@ -363,7 +363,7 @@ class ArtifactModel(nn.Module):
             pbar = tqdm(enumerate(valid_loader), mininterval=60)
 
             for n, batch in pbar:
-                logits, _ = self.forward(batch)
+                logits, _, _ = self.forward(batch)
                 pred = logits.detach()
                 correct = ((pred > 0) == (batch.labels > 0.5)).tolist()
 

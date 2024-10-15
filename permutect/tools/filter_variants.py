@@ -216,7 +216,7 @@ def make_posterior_data_loader(dataset_file, input_vcf, contig_index_to_name_map
         print("creating posterior data for this chunk...")
         pbar = tqdm(enumerate(artifact_loader), mininterval=60)
         for n, artifact_batch in pbar:
-            artifact_logits, _ = artifact_model.forward(batch=artifact_batch)
+            artifact_logits, _, _ = artifact_model.forward(batch=artifact_batch)
 
             labels = [(Label.ARTIFACT if label > 0.5 else Label.VARIANT) if is_labeled > 0.5 else Label.UNLABELED for (label, is_labeled) in zip(artifact_batch.labels, artifact_batch.is_labeled_mask)]
 
