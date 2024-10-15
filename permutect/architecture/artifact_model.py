@@ -178,6 +178,12 @@ class ArtifactModel(nn.Module):
         train_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
             train_optimizer, factor=0.2, patience=3, threshold=0.001, min_lr=(training_params.learning_rate / 100),verbose=True)
 
+        num_sources = len(dataset.counts_by_source.keys())
+        if num_sources == 1:
+            print("Training data come from a single cource (this could be multiple files with the same source annotation applied in preprocessing)")
+        else:
+            print(f"Training data come from multiple sources, with counts {dataset.counts_by_source}.")
+
         for idx, variation_type in enumerate(utils.Variation):
             print(f"For variation type {variation_type.name}, there are {int(dataset.totals[-1][Label.ARTIFACT][idx].item())} \
                 artifacts, {int(dataset.totals[-1][Label.VARIANT][idx].item())} \
