@@ -1,4 +1,5 @@
 # bug before PyTorch 1.7.1 that warns when constructing ParameterList
+import math
 import warnings
 from collections import defaultdict
 from typing import List
@@ -16,6 +17,7 @@ from itertools import chain
 from matplotlib import pyplot as plt
 
 from permutect.architecture.base_model import calculate_batch_weights, BaseModel, base_model_from_saved_dict
+from permutect.architecture.gradient_reversal.module import GradientReversal
 from permutect.architecture.mlp import MLP
 from permutect.architecture.monotonic import MonoDense
 from permutect.data.base_datum import ArtifactBatch, DEFAULT_GPU_FLOAT, DEFAULT_CPU_FLOAT
@@ -179,15 +181,27 @@ class ArtifactModel(nn.Module):
 
     def learn(self, dataset: ArtifactDataset, training_params: TrainingParameters, summary_writer: SummaryWriter, validation_fold: int = None, epochs_per_evaluation: int = None):
         bce = nn.BCEWithLogitsLoss(reduction='none')  # no reduction because we may want to first multiply by weights for unbalanced data
-        train_optimizer = torch.optim.AdamW(self.training_parameters(), lr=training_params.learning_rate, weight_decay=training_params.weight_decay)
-        train_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
-            train_optimizer, factor=0.2, patience=3, threshold=0.001, min_lr=(training_params.learning_rate / 100),verbose=True)
+        # cross entropy (with logit inputs) loss for adversarial source classification task
+        ce = nn.CrossEntropyLoss(reduction='none')
 
         num_sources = len(dataset.counts_by_source.keys())
         if num_sources == 1:
             print("Training data come from a single source (this could be multiple files with the same source annotation applied in preprocessing)")
         else:
+            sources_list = list(dataset.counts_by_source.keys())
+            sources_list.sort()
+            assert sources_list[0] == 0, "There is no source 0"
+            assert sources_list[-1] == num_sources - 1, f"sources should be 0, 1, 2. . . without gaps, but sources are {sources_list}."
+
             print(f"Training data come from multiple sources, with counts {dataset.counts_by_source}.")
+        source_classifier = MLP([self.feature_layers.output_dimension()] + [-1, -1, num_sources],
+                                    batch_normalize=self.params.batch_normalize, dropout_p=self.params.dropout_p)
+        source_gradient_reversal = GradientReversal(alpha=0.01)  # initialize as barely active
+
+        train_optimizer = torch.optim.AdamW(chain(self.training_parameters(), source_classifier.parameters()), lr=training_params.learning_rate,
+                                            weight_decay=training_params.weight_decay)
+        train_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(train_optimizer, factor=0.2, patience=3,
+            threshold=0.001, min_lr=(training_params.learning_rate / 100), verbose=True)
 
         for idx, variation_type in enumerate(utils.Variation):
             print(f"For variation type {variation_type.name}, there are {int(dataset.totals[-1][Label.ARTIFACT][idx].item())} \
@@ -205,6 +219,10 @@ class ArtifactModel(nn.Module):
             print(f"Epoch {epoch}, memory usage percent: {psutil.virtual_memory().percent:.1f}")
             is_calibration_epoch = epoch > training_params.num_epochs
 
+            p = epoch - 1
+            new_alpha = (2 / (1 + math.exp(-0.1 * p))) - 1
+            source_gradient_reversal.set_alpha(new_alpha)
+
             for epoch_type in [utils.Epoch.TRAIN, utils.Epoch.VALID]:
                 self.set_epoch_type(epoch_type)
                 # in calibration epoch, freeze the model except for calibration
@@ -219,6 +237,14 @@ class ArtifactModel(nn.Module):
                 pbar = tqdm(enumerate(loader), mininterval=60)
                 for n, batch in pbar:
                     logits, precalibrated_logits, features = self.forward(batch)
+
+                    # one-hot prediction of sources
+                    if num_sources > 1:
+                        # gradient reversal means parameters before the features try to maximize source prediction loss, i.e. features
+                        # try to forget the source, while parameters after the features try to minimize it, i.e. they try
+                        # to achieve the adversarial task of distinguishing sources
+                        source_prediction_logits = source_classifier.forward(source_gradient_reversal(features))
+                        source_prediction_targets = batch.sources.to(device=self._device, dtype=self._dtype)
 
                     # TODO: maybe this should be done by count for all epochs?
                     # TODO: we need a parameter to control the relative weight of unlabeled loss to labeled loss
