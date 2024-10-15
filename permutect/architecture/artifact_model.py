@@ -137,8 +137,12 @@ class ArtifactModel(nn.Module):
         self.num_ref_alt_features = num_ref_alt_features
         self.params = params
 
+        # feature layers before the domain adaptation source classifier splits from the artifact classifier
+        self.feature_layers = MLP([num_base_features] + params.aggregation_layers, batch_normalize=params.batch_normalize, dropout_p=params.dropout_p)
+
+        # TODO: artifact classifier hidden layers are hard-coded!!!
         # The [1] is for the output logit
-        self.aggregation = MLP([num_base_features] + params.aggregation_layers + [1], batch_normalize=params.batch_normalize, dropout_p=params.dropout_p)
+        self.artifact_classifier = MLP([self.feature_layers.output_dimension()] + [-1, -1, 1], batch_normalize=params.batch_normalize, dropout_p=params.dropout_p)
 
         # one Calibration module for each variant type; that is, calibration depends on both count and type
         self.calibration = nn.ModuleList([Calibration(params.calibration_layers) for variant_type in Variation])
@@ -146,7 +150,7 @@ class ArtifactModel(nn.Module):
         self.to(device=self._device, dtype=self._dtype)
 
     def training_parameters(self):
-        return chain(self.aggregation.parameters(), self.calibration.parameters())
+        return chain(self.feature_layers.parameters(), self.artifact_classifier.parameters(), self.calibration.parameters())
 
     def calibration_parameters(self):
         return self.calibration.parameters()
@@ -164,13 +168,14 @@ class ArtifactModel(nn.Module):
 
     # returns 1D tensor of length batch_size of log odds ratio (logits) between artifact and non-artifact
     def forward(self, batch: ArtifactBatch):
-        precalibrated_logits = self.aggregation.forward(batch.get_representations_2d().to(device=self._device, dtype=self._dtype)).reshape(batch.size())
-        calibrated_logits = torch.zeros_like(precalibrated_logits)
+        features = self.feature_layers.forward(batch.get_representations_2d().to(device=self._device, dtype=self._dtype))
+        uncalibrated_logits = self.artifact_classifier.forward(features).reshape(batch.size())
+        calibrated_logits = torch.zeros_like(uncalibrated_logits)
         one_hot_types_2d = batch.variant_type_one_hot().to(device=self._device, dtype=self._dtype)
         for n, _ in enumerate(Variation):
             mask = one_hot_types_2d[:, n]
-            calibrated_logits += mask * self.calibration[n].forward(precalibrated_logits, batch.ref_counts, batch.alt_counts)
-        return calibrated_logits, precalibrated_logits
+            calibrated_logits += mask * self.calibration[n].forward(uncalibrated_logits, batch.ref_counts, batch.alt_counts)
+        return calibrated_logits, uncalibrated_logits
 
     def learn(self, dataset: ArtifactDataset, training_params: TrainingParameters, summary_writer: SummaryWriter, validation_fold: int = None, epochs_per_evaluation: int = None):
         bce = nn.BCEWithLogitsLoss(reduction='none')  # no reduction because we may want to first multiply by weights for unbalanced data
@@ -180,7 +185,7 @@ class ArtifactModel(nn.Module):
 
         num_sources = len(dataset.counts_by_source.keys())
         if num_sources == 1:
-            print("Training data come from a single cource (this could be multiple files with the same source annotation applied in preprocessing)")
+            print("Training data come from a single source (this could be multiple files with the same source annotation applied in preprocessing)")
         else:
             print(f"Training data come from multiple sources, with counts {dataset.counts_by_source}.")
 
