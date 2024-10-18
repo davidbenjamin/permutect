@@ -18,15 +18,20 @@ from permutect.utils import Label
 class EditType(Enum):
     UNLABEL_ARTIFACTS = "unlabel_artifacts"
     UNLABEL_VARIANTS = "unlabel_variants"
+    UNLABEL_EVERYTHING = "unlabel_everything"
     REMOVE_ARTIFACTS = "remove_artifacts"
     REMOVE_VARIANTS = "remove_variants"
     KEEP_EVERYTHING = "keep_everything"
 
 
 # generates BaseDatum(s) from the original dataset that *pass* the pruning thresholds
-def generate_edited_data(base_datasets, edit_type: str):
+def generate_edited_data(base_datasets, edit_type: str, source: int):
     pbar = tqdm(enumerate(torch.utils.data.ConcatDataset(base_datasets)), mininterval=60)
+
     for n, base_datum in pbar:
+        if source is not None:
+            base_datum.set_source(source)
+
         if edit_type == EditType.UNLABEL_ARTIFACTS.value:
             if base_datum.label == Label.ARTIFACT:
                 base_datum.set_label(Label.UNLABELED)
@@ -34,6 +39,9 @@ def generate_edited_data(base_datasets, edit_type: str):
         elif edit_type == EditType.UNLABEL_VARIANTS.value:
             if base_datum.label == Label.VARIANT:
                 base_datum.set_label(Label.UNLABELED)
+            yield base_datum
+        elif edit_type == EditType.UNLABEL_EVERYTHING.value:
+            base_datum.set_label(Label.UNLABELED)
             yield base_datum
         elif edit_type == EditType.REMOVE_ARTIFACTS.value:
             if base_datum.label != Label.ARTIFACT:
@@ -85,6 +93,7 @@ def parse_arguments():
                         help='size in bytes of output binary data files')
     parser.add_argument('--' + constants.DATASET_EDIT_TYPE_NAME, type=str, required=True,
                         help='how to modify the dataset')
+    parser.add_argument('--' + constants.SOURCE_NAME, type=int, required=False, help='new source integer to apply')
 
     # input / output
     parser.add_argument('--' + constants.TRAIN_TAR_NAME, nargs='+', type=str, required=True,
@@ -99,10 +108,11 @@ def main_without_parsing(args):
     output_tarfile = getattr(args, constants.OUTPUT_NAME)
     chunk_size = getattr(args, constants.CHUNK_SIZE_NAME)
     edit_type = getattr(args, constants.DATASET_EDIT_TYPE_NAME)
+    new_source = getattr(args, constants.SOURCE_NAME)
     base_datasets = map(lambda original_tarfile: BaseDataset(data_tarfile=original_tarfile), original_tarfiles)
 
     # generate ReadSets
-    output_data_generator = generate_edited_data(base_datasets, edit_type)
+    output_data_generator = generate_edited_data(base_datasets, edit_type, source)
 
     # generate List[ReadSet]s
     output_data_buffer_generator = generate_output_data_buffers(output_data_generator, chunk_size)
