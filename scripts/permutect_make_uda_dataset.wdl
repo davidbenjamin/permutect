@@ -40,7 +40,7 @@ workflow PermutectUDADataset {
     call EditDataset as Merge {
         input:
             train_tar = [EditSource.output_tarfile, EditTarget.output_tarfile],
-            edit_type = "KEEP_EVERYTHING",
+            edit_type = "keep_everything",
             chunk_size = chunk_size,
             permutect_docker = permutect_docker
     }
