@@ -77,7 +77,7 @@ task EditDataset {
         edit_dataset \
             --train_tar ~{sep=' ' train_tar} \
             --chunk_size ~{chunk_size} \
-            {" --source " + new_source} \
+            ~{" --source " + new_source} \
             --dataset_edit ~{edit_type} \
             --output edited.tar \
             ~{extra_args}
