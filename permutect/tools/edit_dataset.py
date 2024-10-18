@@ -112,7 +112,7 @@ def main_without_parsing(args):
     base_datasets = map(lambda original_tarfile: BaseDataset(data_tarfile=original_tarfile), original_tarfiles)
 
     # generate ReadSets
-    output_data_generator = generate_edited_data(base_datasets, edit_type, source)
+    output_data_generator = generate_edited_data(base_datasets, edit_type, new_source)
 
     # generate List[ReadSet]s
     output_data_buffer_generator = generate_output_data_buffers(output_data_generator, chunk_size)
