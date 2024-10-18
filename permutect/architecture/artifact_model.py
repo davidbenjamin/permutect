@@ -231,6 +231,7 @@ class ArtifactModel(nn.Module):
                     utils.unfreeze(self.calibration_parameters())  # unfreeze calibration but everything else stays frozen
 
                 loss_metrics = LossMetrics(self._device)    # based on calibrated logits
+                source_prediction_loss_metrics = LossMetrics(self._device)  # based on calibrated logits
                 uncalibrated_loss_metrics = LossMetrics(self._device)  # based on uncalibrated logits
 
                 loader = train_loader if epoch_type == utils.Epoch.TRAIN else valid_loader
@@ -264,12 +265,13 @@ class ArtifactModel(nn.Module):
                     unlabeled_losses = (1 - batch.is_labeled_mask) * entropies
 
                     # these losses include weights and take labeled vs unlabeled into account
-                    losses = (labeled_losses + unlabeled_losses) * weights
+                    losses = (labeled_losses + unlabeled_losses) * weights + source_prediction_losses
                     loss = torch.sum(losses)
 
                     loss_metrics.record_losses(calibrated_cross_entropies.detach(), batch, weights * batch.is_labeled_mask)
                     uncalibrated_loss_metrics.record_losses(uncalibrated_cross_entropies.detach(), batch, weights * batch.is_labeled_mask)
                     uncalibrated_loss_metrics.record_losses(entropies.detach(), batch, weights * (1 - batch.is_labeled_mask))
+                    source_prediction_loss_metrics.record_losses(source_prediction_losses.detach(), batch, weights=torch.ones_like(logits))
 
                     # calibration epochs freeze the model up to calibration, so I wonder if a purely unlabeled batch
                     # would cause lack of gradient problems. . .
@@ -278,6 +280,7 @@ class ArtifactModel(nn.Module):
 
                 # done with one epoch type -- training or validation -- for this epoch
                 loss_metrics.write_to_summary_writer(epoch_type, epoch, summary_writer)
+                source_prediction_loss_metrics.write_to_summary_writer(epoch_type, epoch, summary_writer, prefix="source prediction")
                 uncalibrated_loss_metrics.write_to_summary_writer(epoch_type, epoch, summary_writer, prefix="uncalibrated")
                 if epoch_type == utils.Epoch.TRAIN:
                     train_scheduler.step(loss_metrics.get_labeled_loss())
