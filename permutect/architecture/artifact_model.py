@@ -245,7 +245,7 @@ class ArtifactModel(nn.Module):
                         # try to forget the source, while parameters after the features try to minimize it, i.e. they try
                         # to achieve the adversarial task of distinguishing sources
                         source_prediction_logits = source_classifier.forward(source_gradient_reversal(features))
-                        source_prediction_targets = batch.sources.to(device=self._device, dtype=self._dtype)
+                        source_prediction_targets = batch.sources.to(device=self._device).long()
                         source_prediction_losses = ce(source_prediction_logits, source_prediction_targets)
                     else:
                         source_prediction_losses = torch.zeros_like(logits)
