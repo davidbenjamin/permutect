@@ -286,6 +286,10 @@ class ArtifactModel(nn.Module):
                     train_scheduler.step(loss_metrics.get_labeled_loss())
 
                 print(f"Labeled loss for {epoch_type.name} epoch {epoch}: {loss_metrics.get_labeled_loss():.3f}")
+                print(f"Unlabeled loss for {epoch_type.name} epoch {epoch}: {loss_metrics.get_unlabeled_loss():.3f}")
+                if num_sources > 1:
+                    print(f"Adversarial source prediction loss on labeled data for {epoch_type.name} epoch {epoch}: {source_prediction_loss_metrics.get_labeled_loss():.3f}")
+                    print(f"Adversarial source prediction loss on unlabeled data for {epoch_type.name} epoch {epoch}: {source_prediction_loss_metrics.get_unlabeled_loss():.3f}")
             # done with training and validation for this epoch
             is_last = (epoch == last_epoch)
             if (epochs_per_evaluation is not None and epoch % epochs_per_evaluation == 0) or is_last:
