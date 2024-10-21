@@ -505,12 +505,14 @@ def learn_base_model(base_model: BaseModel, dataset: BaseDataset, learning_metho
         print(f"Start of epoch {epoch}, memory usage percent: {psutil.virtual_memory().percent:.1f}")
         for epoch_type in (utils.Epoch.TRAIN, utils.Epoch.VALID):
             base_model.set_epoch_type(epoch_type)
-
             loss_metrics = LossMetrics(base_model._device)
 
             loader = train_loader if epoch_type == utils.Epoch.TRAIN else valid_loader
             pbar = tqdm(enumerate(loader), mininterval=60)
-            for n, batch in pbar:
+            for n, batch_cpu in pbar:
+
+                batch = batch_cpu.copy(base_model._device)
+
                 # unused output is the embedding of ref and alt alleles with context
                 representations, _ = base_model.calculate_representations(batch, weight_range=base_model._params.reweighting_range)
                 losses = learning_strategy.loss_function(base_model, batch, representations)
@@ -519,7 +521,8 @@ def learn_base_model(base_model: BaseModel, dataset: BaseDataset, learning_metho
                     continue
 
                 # TODO: we need a parameter to control the relative weight of unlabeled loss to labeled loss
-                weights = calculate_batch_weights(batch, dataset, by_count=True)
+                weights = calculate_batch_weights(batch_cpu, dataset, by_count=True)
+                weights = weights.to(device=base_model._device, dtype=base_model._dtype)
 
                 loss_metrics.record_losses(losses.detach(), batch, weights)
 
@@ -527,7 +530,7 @@ def learn_base_model(base_model: BaseModel, dataset: BaseDataset, learning_metho
                 # try to forget alt count, while parameters after the representation try to minimize it, i.e. they try
                 # to achieve the adversarial task
                 alt_count_pred = torch.sigmoid(alt_count_predictor.forward(alt_count_gradient_reversal(representations)).squeeze())
-                alt_count_losses = alt_count_loss_func(alt_count_pred, batch.alt_counts.float()/20)
+                alt_count_losses = alt_count_loss_func(alt_count_pred, batch.alt_counts.to(dtype=alt_count_pred.dtype)/20)
 
                 alt_count_adversarial_metrics.record_losses(alt_count_losses.detach(), batch, weights=torch.ones_like(alt_count_losses))
 
@@ -579,7 +582,7 @@ def record_embeddings(base_model: BaseModel, loader, summary_writer: SummaryWrit
     embedding_metrics = EmbeddingMetrics()
     ref_alt_seq_metrics = EmbeddingMetrics()
 
-    pbar = tqdm(enumerate(loader), mininterval=60)
+    pbar = tqdm(enumerate(loader)) #, mininterval=60)
     for n, batch in pbar:
         representations, ref_alt_seq_embeddings = base_model.calculate_representations(batch, weight_range=base_model._params.reweighting_range)
 

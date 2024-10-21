@@ -1,6 +1,6 @@
 import enum
 import numpy as np
-import cyvcf2
+#import cyvcf2
 import tarfile
 import os
 import torch
@@ -42,8 +42,14 @@ class MutableInt:
         self.value = value
 
 
-def gpu_if_available() -> torch.device:
-    return torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+def gpu_if_available(exploit_mps=False) -> torch.device:
+    if torch.cuda.is_available():
+        d = 'cuda'
+    elif torch.mps.is_available() and exploit_mps:
+        d = 'mps'
+    else:
+        d = 'cpu'
+    return torch.device(d)
 
 
 def downsample_tensor(tensor2d: np.ndarray, new_length: int):
@@ -218,7 +224,7 @@ def backpropagate(optimizer: torch.optim.Optimizer, loss: torch.Tensor):
     optimizer.step()
 
 
-def find_variant_type(v: cyvcf2.Variant):
+def find_variant_type(v): #v: cyvcf2.Variant
     alt = v.ALT[0]  # TODO: we're assuming biallelic
     ref = v.REF
     return Variation.get_type(ref, alt)
