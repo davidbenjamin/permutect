@@ -16,8 +16,7 @@ from tqdm.autonotebook import trange, tqdm
 from itertools import chain
 from matplotlib import pyplot as plt
 
-from permutect.architecture.base_model import calculate_batch_weights, BaseModel, base_model_from_saved_dict, \
-    calculate_batch_source_weights
+from permutect.architecture.base_model import calculate_batch_weights, BaseModel, base_model_from_saved_dict, calculate_batch_source_weights
 from permutect.architecture.gradient_reversal.module import GradientReversal
 from permutect.architecture.mlp import MLP
 from permutect.architecture.monotonic import MonoDense
