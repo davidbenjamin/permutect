@@ -16,7 +16,8 @@ from tqdm.autonotebook import trange, tqdm
 from itertools import chain
 from matplotlib import pyplot as plt
 
-from permutect.architecture.base_model import calculate_batch_weights, BaseModel, base_model_from_saved_dict
+from permutect.architecture.base_model import calculate_batch_weights, BaseModel, base_model_from_saved_dict, \
+    calculate_batch_source_weights
 from permutect.architecture.gradient_reversal.module import GradientReversal
 from permutect.architecture.mlp import MLP
 from permutect.architecture.monotonic import MonoDense
@@ -248,8 +249,10 @@ class ArtifactModel(nn.Module):
                         source_prediction_probs = torch.nn.functional.softmax(source_prediction_logits, dim=-1)
                         source_prediction_targets = torch.nn.functional.one_hot(batch.sources.to(device=self._device).long(), num_sources)
                         source_prediction_losses = torch.sum(torch.square(source_prediction_probs - source_prediction_targets), dim=-1)
+                        source_prediction_weights = calculate_batch_source_weights(batch, dataset, by_count=is_calibration_epoch)
                     else:
                         source_prediction_losses = torch.zeros_like(logits)
+                        source_prediction_weights = torch.zeros_like(logits)
 
                     # TODO: maybe this should be done by count for all epochs?
                     # TODO: we need a parameter to control the relative weight of unlabeled loss to labeled loss
@@ -266,13 +269,13 @@ class ArtifactModel(nn.Module):
                     unlabeled_losses = (1 - batch.is_labeled_mask) * entropies
 
                     # these losses include weights and take labeled vs unlabeled into account
-                    losses = (labeled_losses + unlabeled_losses) * weights + source_prediction_losses
+                    losses = (labeled_losses + unlabeled_losses) * weights + (source_prediction_losses * source_prediction_weights)
                     loss = torch.sum(losses)
 
                     loss_metrics.record_losses(calibrated_cross_entropies.detach(), batch, weights * batch.is_labeled_mask)
                     uncalibrated_loss_metrics.record_losses(uncalibrated_cross_entropies.detach(), batch, weights * batch.is_labeled_mask)
                     uncalibrated_loss_metrics.record_losses(entropies.detach(), batch, weights * (1 - batch.is_labeled_mask))
-                    source_prediction_loss_metrics.record_losses(source_prediction_losses.detach(), batch, weights=torch.ones_like(logits))
+                    source_prediction_loss_metrics.record_losses(source_prediction_losses.detach(), batch, source_prediction_weights)
 
                     # calibration epochs freeze the model up to calibration, so I wonder if a purely unlabeled batch
                     # would cause lack of gradient problems. . .

@@ -36,7 +36,6 @@ def sums_over_chunks(tensor2d: torch.Tensor, chunk_size: int):
 # if by_count is True, each count is weighted separately for balanced loss within that count
 def calculate_batch_weights(batch, dataset, by_count: bool):
     # -1 is the sentinel value for aggregation over all counts
-    # TODO: maybe this should be done by count?
     # TODO: we need a parameter to control the relative weight of unlabeled loss to labeled loss
     types_one_hot = batch.variant_type_one_hot()
     weights_by_label_and_type = {label: (np.vstack([dataset.weights[count][label] for count in batch.alt_counts.tolist()]) if \
@@ -45,6 +44,17 @@ def calculate_batch_weights(batch, dataset, by_count: bool):
     weights = batch.is_labeled_mask * (batch.labels * weights_by_label[Label.ARTIFACT] + (1 - batch.labels) * weights_by_label[Label.VARIANT]) + \
               (1 - batch.is_labeled_mask) * weights_by_label[Label.UNLABELED]
     return weights
+
+
+# note: this works for both BaseBatch/BaseDataset AND ArtifactBatch/ArtifactDataset
+# if by_count is True, each count is weighted separately for balanced loss within that count
+def calculate_batch_source_weights(batch, dataset, by_count: bool):
+    # -1 is the sentinel value for aggregation over all counts
+    types_one_hot = batch.variant_type_one_hot()
+    weights_by_type = np.vstack([dataset.weights[count if by_count else -1][source] for count, source in zip(batch.alt_counts.tolist(), batch.sources.tolist())])
+    source_weights = torch.sum(torch.from_numpy(weights_by_type) * types_one_hot, dim=1)
+
+    return source_weights
 
 
 class LearningMethod(Enum):
