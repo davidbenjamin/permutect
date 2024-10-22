@@ -256,7 +256,7 @@ class ArtifactModel(nn.Module):
 
                     # TODO: maybe this should be done by count for all epochs?
                     # TODO: we need a parameter to control the relative weight of unlabeled loss to labeled loss
-                    weights = calculate_batch_weights(batch, dataset, by_count=is_calibration_epoch)
+                    weights = calculate_batch_weights(batch, dataset, by_count=True)
 
                     uncalibrated_cross_entropies = bce(precalibrated_logits, batch.labels)
                     calibrated_cross_entropies = bce(logits, batch.labels)
