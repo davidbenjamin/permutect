@@ -10,7 +10,8 @@ from typing import List
 from permutect.utils import Variation, Label, trim_alleles_on_right
 
 DEFAULT_NUMPY_FLOAT = np.float16
-DEFAULT_GPU_FLOAT = torch.float16
+
+DEFAULT_GPU_FLOAT = torch.float32
 DEFAULT_CPU_FLOAT = torch.float32
 
 # base strings longer than this when encoding data

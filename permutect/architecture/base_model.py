@@ -508,9 +508,8 @@ def learn_base_model(base_model: BaseModel, dataset: BaseDataset, learning_metho
             loss_metrics = LossMetrics(base_model._device)
 
             loader = train_loader if epoch_type == utils.Epoch.TRAIN else valid_loader
-            pbar = tqdm(enumerate(loader), mininterval=60)
+            pbar = tqdm(enumerate(loader)) #, mininterval=60)
             for n, batch_cpu in pbar:
-
                 batch = batch_cpu.copy(base_model._device)
 
                 # unused output is the embedding of ref and alt alleles with context
@@ -530,7 +529,8 @@ def learn_base_model(base_model: BaseModel, dataset: BaseDataset, learning_metho
                 # try to forget alt count, while parameters after the representation try to minimize it, i.e. they try
                 # to achieve the adversarial task
                 alt_count_pred = torch.sigmoid(alt_count_predictor.forward(alt_count_gradient_reversal(representations)).squeeze())
-                alt_count_losses = alt_count_loss_func(alt_count_pred, batch.alt_counts.to(dtype=alt_count_pred.dtype)/20)
+                alt_count_target = batch.alt_counts.to(dtype=alt_count_pred.dtype)/20
+                alt_count_losses = alt_count_loss_func(alt_count_pred, alt_count_target)
 
                 alt_count_adversarial_metrics.record_losses(alt_count_losses.detach(), batch, weights=torch.ones_like(alt_count_losses))
 
