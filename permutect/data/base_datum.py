@@ -10,7 +10,6 @@ from typing import List
 from permutect.utils import Variation, Label, trim_alleles_on_right
 
 DEFAULT_NUMPY_FLOAT = np.float16
-
 DEFAULT_GPU_FLOAT = torch.float32
 DEFAULT_CPU_FLOAT = torch.float32
 
@@ -583,7 +582,8 @@ class BaseBatch:
         self.sources = self.sources.pin_memory()
         return self
 
-    def copy(self, device):
+    def copy_to(self, device):
+        # For all non-tensor attributes, shallow copy is sufficient
         new_datum = copy.copy(self)
         new_datum.ref_sequences_2d = self.ref_sequences_2d.to(device)
         new_datum.reads_2d = self.reads_2d.to(device)

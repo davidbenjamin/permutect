@@ -452,7 +452,6 @@ class BaseModelMARSLoss(torch.nn.Module, BaseModelLearningStrategy):
 # to measure quality, especially in unsupervised training when the loss metric isn't directly related to accuracy or cross-entropy
 def learn_base_model(base_model: BaseModel, dataset: BaseDataset, learning_method: LearningMethod, training_params: TrainingParameters,
                      summary_writer: SummaryWriter, validation_fold: int = None):
-
     print(f"Memory usage percent: {psutil.virtual_memory().percent:.1f}")
     print(f"Is CUDA available? {torch.cuda.is_available()}")
 
@@ -512,7 +511,7 @@ def learn_base_model(base_model: BaseModel, dataset: BaseDataset, learning_metho
             loader = train_loader if epoch_type == utils.Epoch.TRAIN else valid_loader
             pbar = tqdm(enumerate(loader)) #, mininterval=60)
             for n, batch_cpu in pbar:
-                batch = batch_cpu.copy(base_model._device)
+                batch = batch_cpu.copy_to(base_model._device)
 
                 # unused output is the embedding of ref and alt alleles with context
                 representations, _ = base_model.calculate_representations(batch, weight_range=base_model._params.reweighting_range)
@@ -584,7 +583,7 @@ def record_embeddings(base_model: BaseModel, loader, summary_writer: SummaryWrit
     embedding_metrics = EmbeddingMetrics()
     ref_alt_seq_metrics = EmbeddingMetrics()
 
-    pbar = tqdm(enumerate(loader)) #, mininterval=60)
+    pbar = tqdm(enumerate(loader), mininterval=60)
     for n, batch in pbar:
         representations, ref_alt_seq_embeddings = base_model.calculate_representations(batch, weight_range=base_model._params.reweighting_range)
 
