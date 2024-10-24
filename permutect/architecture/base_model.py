@@ -584,8 +584,12 @@ def record_embeddings(base_model: BaseModel, loader, summary_writer: SummaryWrit
     ref_alt_seq_metrics = EmbeddingMetrics()
 
     pbar = tqdm(enumerate(loader), mininterval=60)
-    for n, batch in pbar:
+    for n, batch_cpu in pbar:
+        batch = batch_cpu.copy_to(base_model._device)
         representations, ref_alt_seq_embeddings = base_model.calculate_representations(batch, weight_range=base_model._params.reweighting_range)
+
+        representations = representations.cpu()
+        ref_alt_seq_embeddings = ref_alt_seq_embeddings.cpu()
 
         labels = [("artifact" if label > 0.5 else "non-artifact") if is_labeled > 0.5 else "unlabeled" for (label, is_labeled) in
                   zip(batch.labels.tolist(), batch.is_labeled_mask.tolist())]
