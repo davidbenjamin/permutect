@@ -509,7 +509,7 @@ def learn_base_model(base_model: BaseModel, dataset: BaseDataset, learning_metho
             loss_metrics = LossMetrics(base_model._device)
 
             loader = train_loader if epoch_type == utils.Epoch.TRAIN else valid_loader
-            pbar = tqdm(enumerate(loader)) #, mininterval=60)
+            pbar = tqdm(enumerate(loader), mininterval=60)
             for n, batch_cpu in pbar:
                 batch = batch_cpu.copy_to(base_model._device)
 
