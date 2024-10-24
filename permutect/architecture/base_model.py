@@ -2,6 +2,7 @@ import math
 from abc import ABC, abstractmethod
 from enum import Enum
 from itertools import chain
+import time
 from typing import List
 
 import psutil
@@ -503,6 +504,7 @@ def learn_base_model(base_model: BaseModel, dataset: BaseDataset, learning_metho
         p = epoch - 1
         new_alpha = (2/(1 + math.exp(-0.1*p))) - 1
         alt_count_gradient_reversal.set_alpha(new_alpha) # alpha increases linearly
+        start_epoch = time.time()
         print(f"Start of epoch {epoch}, memory usage percent: {psutil.virtual_memory().percent:.1f}")
         for epoch_type in (utils.Epoch.TRAIN, utils.Epoch.VALID):
             base_model.set_epoch_type(epoch_type)
@@ -569,7 +571,7 @@ def learn_base_model(base_model: BaseModel, dataset: BaseDataset, learning_metho
             print(f"Labeled base model loss for {epoch_type.name} epoch {epoch}: {loss_metrics.get_labeled_loss():.3f}")
             print(f"Labeled auxiliary classifier loss for {epoch_type.name} epoch {epoch}: {classifier_metrics.get_labeled_loss():.3f}")
             print(f"Alt count adversarial loss for {epoch_type.name} epoch {epoch}: {alt_count_adversarial_metrics.get_labeled_loss():.3f}")
-        print(f"End of epoch {epoch}, memory usage percent: {psutil.virtual_memory().percent:.1f}")
+        print(f"End of epoch {epoch}, memory usage percent: {psutil.virtual_memory().percent:.1f}, time elapsed(s): {time.time() - start_epoch:.2f}")
         # done with training and validation for this epoch
         # note that we have not learned the AF spectrum yet
     # done with training
