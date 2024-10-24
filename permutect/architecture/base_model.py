@@ -155,9 +155,9 @@ class BaseModel(torch.nn.Module):
         ref_count, alt_count = batch.ref_count, batch.alt_count
         total_ref, total_alt = ref_count * batch.size(), alt_count * batch.size()
 
-        read_embeddings_re = self.read_embedding.forward(batch.get_reads_2d().to(device=self._device, dtype=self._dtype))
-        info_embeddings_ve = self.info_embedding.forward(batch.get_info_2d().to(device=self._device, dtype=self._dtype))
-        ref_seq_embeddings_ve = self.ref_seq_cnn(batch.get_ref_sequences_2d().to(device=self._device, dtype=self._dtype))
+        read_embeddings_re = self.read_embedding.forward(batch.get_reads_2d().to(dtype=self._dtype))
+        info_embeddings_ve = self.info_embedding.forward(batch.get_info_2d().to(dtype=self._dtype))
+        ref_seq_embeddings_ve = self.ref_seq_cnn(batch.get_ref_sequences_2d().to(dtype=self._dtype))
         info_and_seq_ve = torch.hstack((info_embeddings_ve, ref_seq_embeddings_ve))
         info_and_seq_re = torch.vstack((torch.repeat_interleave(info_and_seq_ve, ref_count, dim=0),
                                        torch.repeat_interleave(info_and_seq_ve, alt_count, dim=0)))
