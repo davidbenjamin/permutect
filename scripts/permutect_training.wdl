@@ -139,7 +139,7 @@ task TrainPermutectGPU {
         cpu: select_first([cpu, 1])
         gpuType: "nvidia-tesla-p4"
         gpuCount: select_first([gpu_count, 1])
-        nvidiaDriverVersion: "525.147.05"
+        nvidiaDriverVersion: "535.183.01"
         zones : ["us-central1-a", "us-central1-b", "us-central1-c"]
     }
 
