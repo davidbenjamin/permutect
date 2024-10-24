@@ -37,16 +37,6 @@ def main_without_parsing(args):
     summary_writer.close()
     model.save(getattr(args, constants.OUTPUT_NAME))
 
-
-def main():
-    args = parse_arguments()
-    main_without_parsing(args)
-
-
-if __name__ == '__main__':
-    main()
-
-
 def parse_arguments():
     parser = argparse.ArgumentParser(description='train the Permutect read set representation model')
     add_base_model_params_to_parser(parser)
@@ -60,3 +50,11 @@ def parse_arguments():
                         help='output tensorboard directory')
 
     return parser.parse_args()
+
+def main():
+    args = parse_arguments()
+    main_without_parsing(args)
+
+
+if __name__ == '__main__':
+    main()
