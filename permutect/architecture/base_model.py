@@ -513,16 +513,16 @@ def learn_base_model(base_model: BaseModel, dataset: BaseDataset, learning_metho
             for n, batch_cpu in pbar:
                 batch = batch_cpu.copy_to(base_model._device)
 
+                # TODO: we need a parameter to control the relative weight of unlabeled loss to labeled loss
+                weights = calculate_batch_weights(batch_cpu, dataset, by_count=True)
+                weights = weights.to(device=base_model._device, dtype=base_model._dtype)
+
                 # unused output is the embedding of ref and alt alleles with context
                 representations, _ = base_model.calculate_representations(batch, weight_range=base_model._params.reweighting_range)
                 losses = learning_strategy.loss_function(base_model, batch, representations)
 
                 if losses is None:
                     continue
-
-                # TODO: we need a parameter to control the relative weight of unlabeled loss to labeled loss
-                weights = calculate_batch_weights(batch_cpu, dataset, by_count=True)
-                weights = weights.to(device=base_model._device, dtype=base_model._dtype)
 
                 loss_metrics.record_losses(losses.detach(), batch, weights)
 
