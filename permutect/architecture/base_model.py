@@ -2,6 +2,7 @@ import math
 from abc import ABC, abstractmethod
 from enum import Enum
 from itertools import chain
+import time
 from typing import List
 
 import psutil
@@ -165,9 +166,9 @@ class BaseModel(torch.nn.Module):
         ref_count, alt_count = batch.ref_count, batch.alt_count
         total_ref, total_alt = ref_count * batch.size(), alt_count * batch.size()
 
-        read_embeddings_re = self.read_embedding.forward(batch.get_reads_2d().to(device=self._device, dtype=self._dtype))
-        info_embeddings_ve = self.info_embedding.forward(batch.get_info_2d().to(device=self._device, dtype=self._dtype))
-        ref_seq_embeddings_ve = self.ref_seq_cnn(batch.get_ref_sequences_2d().to(device=self._device, dtype=self._dtype))
+        read_embeddings_re = self.read_embedding.forward(batch.get_reads_2d().to(dtype=self._dtype))
+        info_embeddings_ve = self.info_embedding.forward(batch.get_info_2d().to(dtype=self._dtype))
+        ref_seq_embeddings_ve = self.ref_seq_cnn(batch.get_ref_sequences_2d().to(dtype=self._dtype))
         info_and_seq_ve = torch.hstack((info_embeddings_ve, ref_seq_embeddings_ve))
         info_and_seq_re = torch.vstack((torch.repeat_interleave(info_and_seq_ve, ref_count, dim=0),
                                        torch.repeat_interleave(info_and_seq_ve, alt_count, dim=0)))
@@ -463,6 +464,7 @@ class BaseModelMARSLoss(torch.nn.Module, BaseModelLearningStrategy):
 def learn_base_model(base_model: BaseModel, dataset: BaseDataset, learning_method: LearningMethod, training_params: TrainingParameters,
                      summary_writer: SummaryWriter, validation_fold: int = None):
     print(f"Memory usage percent: {psutil.virtual_memory().percent:.1f}")
+    print(f"Is CUDA available? {torch.cuda.is_available()}")
 
     for idx, variation_type in enumerate(utils.Variation):
         print(f"For variation type {variation_type.name}, there are {int(dataset.totals[ALL_COUNTS_SENTINEL][Label.ARTIFACT][idx].item())} \
@@ -512,15 +514,21 @@ def learn_base_model(base_model: BaseModel, dataset: BaseDataset, learning_metho
         p = epoch - 1
         new_alpha = (2/(1 + math.exp(-0.1*p))) - 1
         alt_count_gradient_reversal.set_alpha(new_alpha) # alpha increases linearly
+        start_epoch = time.time()
         print(f"Start of epoch {epoch}, memory usage percent: {psutil.virtual_memory().percent:.1f}")
         for epoch_type in (utils.Epoch.TRAIN, utils.Epoch.VALID):
             base_model.set_epoch_type(epoch_type)
-
             loss_metrics = LossMetrics(base_model._device)
 
             loader = train_loader if epoch_type == utils.Epoch.TRAIN else valid_loader
             pbar = tqdm(enumerate(loader), mininterval=60)
-            for n, batch in pbar:
+            for n, batch_cpu in pbar:
+                batch = batch_cpu.copy_to(base_model._device)
+
+                # TODO: we need a parameter to control the relative weight of unlabeled loss to labeled loss
+                weights = calculate_batch_weights(batch_cpu, dataset, by_count=True)
+                weights = weights.to(device=base_model._device, dtype=base_model._dtype)
+
                 # unused output is the embedding of ref and alt alleles with context
                 representations, _ = base_model.calculate_representations(batch, weight_range=base_model._params.reweighting_range)
                 losses = learning_strategy.loss_function(base_model, batch, representations)
@@ -528,16 +536,14 @@ def learn_base_model(base_model: BaseModel, dataset: BaseDataset, learning_metho
                 if losses is None:
                     continue
 
-                # TODO: we need a parameter to control the relative weight of unlabeled loss to labeled loss
-                weights = calculate_batch_weights(batch, dataset, by_count=True)
-
                 loss_metrics.record_losses(losses.detach(), batch, weights)
 
                 # gradient reversal means parameters before the representation try to maximize alt count prediction loss, i.e. features
                 # try to forget alt count, while parameters after the representation try to minimize it, i.e. they try
                 # to achieve the adversarial task
                 alt_count_pred = torch.sigmoid(alt_count_predictor.forward(alt_count_gradient_reversal(representations)).squeeze())
-                alt_count_losses = alt_count_loss_func(alt_count_pred, batch.alt_counts.float()/20)
+                alt_count_target = batch.alt_counts.to(dtype=alt_count_pred.dtype)/20
+                alt_count_losses = alt_count_loss_func(alt_count_pred, alt_count_target)
 
                 alt_count_adversarial_metrics.record_losses(alt_count_losses.detach(), batch, weights=torch.ones_like(alt_count_losses))
 
@@ -563,7 +569,7 @@ def learn_base_model(base_model: BaseModel, dataset: BaseDataset, learning_metho
             print(f"Labeled base model loss for {epoch_type.name} epoch {epoch}: {loss_metrics.get_labeled_loss():.3f}")
             print(f"Labeled auxiliary classifier loss for {epoch_type.name} epoch {epoch}: {classifier_metrics.get_labeled_loss():.3f}")
             print(f"Alt count adversarial loss for {epoch_type.name} epoch {epoch}: {alt_count_adversarial_metrics.get_labeled_loss():.3f}")
-        print(f"End of epoch {epoch}, memory usage percent: {psutil.virtual_memory().percent:.1f}")
+        print(f"End of epoch {epoch}, memory usage percent: {psutil.virtual_memory().percent:.1f}, time elapsed(s): {time.time() - start_epoch:.2f}")
         # done with training and validation for this epoch
         # note that we have not learned the AF spectrum yet
     # done with training
@@ -578,8 +584,12 @@ def record_embeddings(base_model: BaseModel, loader, summary_writer: SummaryWrit
     ref_alt_seq_metrics = EmbeddingMetrics()
 
     pbar = tqdm(enumerate(loader), mininterval=60)
-    for n, batch in pbar:
+    for n, batch_cpu in pbar:
+        batch = batch_cpu.copy_to(base_model._device)
         representations, ref_alt_seq_embeddings = base_model.calculate_representations(batch, weight_range=base_model._params.reweighting_range)
+
+        representations = representations.cpu()
+        ref_alt_seq_embeddings = ref_alt_seq_embeddings.cpu()
 
         labels = [("artifact" if label > 0.5 else "non-artifact") if is_labeled > 0.5 else "unlabeled" for (label, is_labeled) in
                   zip(batch.labels.tolist(), batch.is_labeled_mask.tolist())]

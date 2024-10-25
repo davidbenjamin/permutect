@@ -45,8 +45,14 @@ class MutableInt:
         self.value = value
 
 
-def gpu_if_available() -> torch.device:
-    return torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+def gpu_if_available(exploit_mps=False) -> torch.device:
+    if torch.cuda.is_available():
+        d = 'cuda'
+    elif exploit_mps and torch.mps.is_available():
+        d = 'mps'
+    else:
+        d = 'cpu'
+    return torch.device(d)
 
 
 def downsample_tensor(tensor2d: np.ndarray, new_length: int):
