@@ -10,6 +10,7 @@ NUM_BASE_FEATURES_NAME = 'num_base_features'
 NUM_REF_ALT_FEATURES_NAME = 'num_ref_alt_features'
 
 SOURCES_NAME = 'sources'
+SOURCE_NAME = 'source'
 
 INPUT_NAME = 'input'
 OUTPUT_NAME = 'output'

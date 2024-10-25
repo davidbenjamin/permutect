@@ -5,6 +5,7 @@ workflow EditDataset {
     input {
         File train_tar
         Int chunk_size
+        Int? new_source
         String edit_type
         String? extra_args
 
@@ -16,6 +17,7 @@ workflow EditDataset {
             train_tar = train_tar,
             permutect_docker = permutect_docker,
             chunk_size = chunk_size,
+            new_source = new_source,
             edit_type = edit_type,
             extra_args = extra_args
     }
@@ -29,6 +31,7 @@ task EditDataset {
     input {
         File train_tar
         Int chunk_size
+        Int? new_source
         String edit_type
         String? extra_args
 
@@ -51,6 +54,7 @@ task EditDataset {
         edit_dataset \
             --train_tar ~{train_tar} \
             --chunk_size ~{chunk_size} \
+            {" --source " + new_source} \
             --dataset_edit ~{edit_type} \
             --output edited_dataset.tar \
             ~{extra_args}

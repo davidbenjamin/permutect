@@ -17,7 +17,9 @@ class ArtifactDataset(Dataset):
     def __init__(self, base_dataset: BaseDataset, base_model: BaseModel, folds_to_use: List[int] = None):
         self.counts_by_source = base_dataset.counts_by_source
         self.totals = base_dataset.totals
+        self.source_totals = base_dataset.source_totals
         self.weights = base_dataset.weights
+        self.source_weights = base_dataset.source_weights
 
         self.artifact_data = []
         self.num_folds = base_dataset.num_folds

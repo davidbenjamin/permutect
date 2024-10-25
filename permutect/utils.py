@@ -25,6 +25,9 @@ class MutableInt:
     def __init__(self, value:int = 0):
         self.value = value
 
+    def __str__(self):
+        return str(self.value)
+
     def increment(self, amount: int = 1):
         self.value += amount
 
