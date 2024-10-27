@@ -68,11 +68,17 @@ class BaseDataset(Dataset):
         self.labeled_indices_by_count = [defaultdict(list) for _ in range(num_folds)]
         self.unlabeled_indices_by_count = [defaultdict(list) for _ in range(num_folds)]
 
-        # totals by count, then by label -- ARTIFACT, VARIANT, UNLABELED, then by count variant type
+        # totals by count, then by label -- ARTIFACT, VARIANT, UNLABELED, then by variant type
         # variant type is done as a 1D np array parallel to the one-hot encoding of variant type
         # we use a sentinel count value of -1 to denote aggregation over all counts
         # eg totals[4][Label.ARTIFACT] = [2,4,6,8,10] means there are 2 artifact SNVs with alt count 4
         self.totals = defaultdict(lambda: {label: np.zeros(len(utils.Variation)) for label in Label})
+
+        # totals by count, then by source (integer) then by variant type
+        # basically same as above but with source instead of label.  Since we don't know a priori how
+        # many sources there are, we use a default dict
+        # outer default dict is count, inner is source
+        self.source_totals = defaultdict(lambda: defaultdict(lambda: np.zeros(len(utils.Variation))))
 
         self.counts_by_source = defaultdict(lambda: MutableInt()) # amount of data for each source (which is an integer key)
 
@@ -86,10 +92,17 @@ class BaseDataset(Dataset):
             one_hot = datum.variant_type_one_hot()
             self.totals[ALL_COUNTS_SENTINEL][datum.label] += one_hot
             self.totals[datum.alt_count][datum.label] += one_hot
+            self.source_totals[ALL_COUNTS_SENTINEL][datum.source] += one_hot
+            self.source_totals[datum.alt_count][datum.source] += one_hot
 
         # compute weights to balance loss even for unbalanced data
         # recall count == -1 is a sentinel value for aggregated totals over all alt counts
         self.weights = defaultdict(lambda: {label: np.zeros(len(utils.Variation)) for label in Label})
+
+        # similar but indexed by count, then source, then variant type
+        self.source_weights = defaultdict(lambda: defaultdict(lambda: np.zeros(len(utils.Variation))))
+
+        sources = self.source_totals[-1].keys()
         for count in self.totals.keys():
             # eg: if there are 1000 artifact and 10 non-artifact SNVs, the ratio is 100, and artifacts get a weight of 1/sqrt(100) = 1/10
             # while non-artifacts get a weight of 10 -- hence the effective count of each is 1000/10 = 10*10 = 100
@@ -104,6 +117,19 @@ class BaseDataset(Dataset):
             # example, 1000 unlabeled SNVs and 100 labeled SNVs -- unlabeled weight is 100/1000 = 1/10
             # example, 10 unlabeled and 100 labeled -- unlabeled weight is 1
             self.weights[count][Label.UNLABELED] = np.clip(effective_labeled_counts / self.totals[count][Label.UNLABELED], 0,1)
+
+            # by variant type, for this count
+            totals_over_sources = np.sum([self.source_totals[count][source] for source in sources])
+            for source in sources:
+                np.sum([self.source_weights[count][source] for source in sources])
+                self.source_weights[count][source] = np.sqrt(totals_over_sources / self.source_weights[count][source])
+
+            # normalize source prediction weights to have same total effective count.  Note that this is modulated
+            # downstream by set_alpha on the gradient reversal layer applied before source prediction
+            effective_source_counts = np.sum([self.source_totals[count][source] * self.source_weights[count][source] for source in sources])
+            source_weight_normalization = effective_labeled_counts / effective_source_counts
+            for source in sources:
+                self.source_weights[count][source] = self.source_weights[count][source] * source_weight_normalization
 
         self.num_read_features = self[0].get_reads_2d().shape[1]
         self.num_info_features = len(self[0].get_info_tensor_1d())

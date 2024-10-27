@@ -594,7 +594,6 @@ class BaseBatch:
         new_datum.alt_counts = self.alt_counts.to(device, non_blocking=non_blocking)
         return new_datum
 
-
     def original_list(self):
         return self._original_list
 
