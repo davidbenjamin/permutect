@@ -597,7 +597,7 @@ def record_embeddings(base_model: BaseModel, loader, summary_writer: SummaryWrit
 
     pbar = tqdm(enumerate(loader), mininterval=60)
     for n, batch_cpu in pbar:
-        batch = batch_cpu.copy_to(base_model._device)
+        batch = batch_cpu.copy_to(base_model._device, non_blocking=base_model._device.type=='cuda')
         representations, ref_alt_seq_embeddings = base_model.calculate_representations(batch, weight_range=base_model._params.reweighting_range)
 
         representations = representations.cpu()
