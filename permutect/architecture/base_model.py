@@ -494,7 +494,10 @@ def learn_base_model(base_model: BaseModel, dataset: BaseDataset, learning_metho
     classifier_on_top = MLP([base_model.output_dimension()] + [30, -1, -1, -1, 10] + [1])\
         .to(device=base_model._device, dtype=base_model._dtype)
     classifier_bce = torch.nn.BCEWithLogitsLoss(reduction='none')
-    classifier_optimizer = torch.optim.AdamW(classifier_on_top.parameters(), lr=training_params.learning_rate, weight_decay=training_params.weight_decay)
+    classifier_optimizer = torch.optim.AdamW(classifier_on_top.parameters(),
+                                             lr=training_params.learning_rate,
+                                             weight_decay=training_params.weight_decay,
+                                             fused=True)
     classifier_metrics = LossMetrics(base_model._device)
 
     validation_fold_to_use = (dataset.num_folds - 1) if validation_fold is None else validation_fold
