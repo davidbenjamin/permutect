@@ -270,7 +270,7 @@ class BaseDatum1DStuff:
     def set_dtype(self, dtype):
         self.array = self.array.astype(dtype)
 
-    def get_alt_count(self):
+    def get_alt_count(self) -> int:
         return round(self.array[1])
 
     def get_ref_seq_1d(self):
@@ -301,8 +301,8 @@ class BaseDatum1DStuff:
     def set_label(self, label: Label):
         self.array[-self.__class__.NUM_ELEMENTS_AFTER_INFO] = label
 
-    def get_source(self):
-        return self.array[-self.__class__.NUM_ELEMENTS_AFTER_INFO + 1]
+    def get_source(self) -> int:
+        return round(self.array[-self.__class__.NUM_ELEMENTS_AFTER_INFO + 1])
 
     def set_source(self, source: int):
         self.array[-self.__class__.NUM_ELEMENTS_AFTER_INFO + 1] = source
