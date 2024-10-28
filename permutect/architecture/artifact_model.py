@@ -355,7 +355,8 @@ class ArtifactModel(nn.Module):
             assert epoch_type == Epoch.TRAIN or epoch_type == Epoch.VALID  # not doing TEST here
             loader = train_loader if epoch_type == Epoch.TRAIN else valid_loader
             pbar = tqdm(enumerate(loader), mininterval=60)
-            for n, batch in pbar:
+            for n, batch_cpu in pbar:
+                batch = batch_cpu.copy_to(self._device, non_blocking=self._device.type == 'cuda')
 
                 # these are the same weights used in training
                 # TODO: maybe this should be done by count?
