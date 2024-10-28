@@ -204,8 +204,9 @@ class ArtifactModel(nn.Module):
         source_gradient_reversal = GradientReversal(alpha=0.01)  # initialize as barely active
         source_gradient_reversal.to(device=self._device, dtype=self._dtype)
 
+        # TODO: fused = is_cuda?
         train_optimizer = torch.optim.AdamW(chain(self.training_parameters(), source_classifier.parameters()), lr=training_params.learning_rate,
-                                            weight_decay=training_params.weight_decay, fused=True)
+                                            weight_decay=training_params.weight_decay)
         train_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(train_optimizer, factor=0.2, patience=3,
             threshold=0.001, min_lr=(training_params.learning_rate / 100), verbose=True)
 
