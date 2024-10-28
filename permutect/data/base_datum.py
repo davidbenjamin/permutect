@@ -685,19 +685,19 @@ class ArtifactBatch:
         self._variant_type_one_hot = self._variant_type_one_hot.pin_memory()
         return self
 
-    def copy_to(self, device, non_blocking):
+    def copy_to(self, device, dtype, non_blocking):
         # For all non-tensor attributes, shallow copy is sufficient
         new_batch = copy.copy(self)
 
-        new_batch.representations_2d = self.representations_2d.to(device, non_blocking=non_blocking)
-        new_batch.ref_alt_seq_embeddings_2d = self.ref_alt_seq_embeddings_2d.to(device, non_blocking=non_blocking)
-        new_batch.labels = self.labels.to(device, non_blocking=non_blocking)
-        new_batch.is_labeled_mask = self.is_labeled_mask.to(device, non_blocking=non_blocking)
-        new_batch.sources = self.sources.to(device, non_blocking=non_blocking)
-        new_batch.ref_counts = self.ref_counts.to(device, non_blocking=non_blocking)
-        new_batch.alt_counts = self.alt_counts.to(device, non_blocking=non_blocking)
-        new_batch._variant_type_one_hot = self._variant_type_one_hot.to(device, non_blocking=non_blocking)
-        
+        new_batch.representations_2d = self.representations_2d.to(device=device, dtype=dtype, non_blocking=non_blocking)
+        new_batch.ref_alt_seq_embeddings_2d = self.ref_alt_seq_embeddings_2d.to(device, dtype=dtype, non_blocking=non_blocking)
+        new_batch.labels = self.labels.to(device, dtype=dtype, non_blocking=non_blocking)
+        new_batch.is_labeled_mask = self.is_labeled_mask.to(device, dtype=dtype, non_blocking=non_blocking)
+        new_batch.sources = self.sources.to(device, dtype=dtype, non_blocking=non_blocking)
+        new_batch.ref_counts = self.ref_counts.to(device, dtype=dtype, non_blocking=non_blocking)
+        new_batch.alt_counts = self.alt_counts.to(device, dtype=dtype, non_blocking=non_blocking)
+        new_batch._variant_type_one_hot = self._variant_type_one_hot.to(device, dtype=dtype, non_blocking=non_blocking)
+
         return new_batch
 
     def get_representations_2d(self) -> Tensor:

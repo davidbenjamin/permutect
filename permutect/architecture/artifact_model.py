@@ -241,7 +241,7 @@ class ArtifactModel(nn.Module):
                 loader_iter = iter(loader)
 
                 next_batch_cpu = next(loader_iter)
-                next_batch = next_batch_cpu.copy_to(self._device, non_blocking=is_cuda)
+                next_batch = next_batch_cpu.copy_to(self._device, self._dtype, non_blocking=is_cuda)
 
                 pbar = tqdm(range(len(loader)), mininterval=60)
                 for n in pbar:
@@ -251,7 +251,7 @@ class ArtifactModel(nn.Module):
 
                     # Optimization: Asynchronously send the next batch to the device while the model does work
                     next_batch_cpu = next(loader_iter)
-                    next_batch = next_batch_cpu.copy_to(self._device, non_blocking=is_cuda)
+                    next_batch = next_batch_cpu.copy_to(self._device, self._dtype, non_blocking=is_cuda)
 
                     logits, precalibrated_logits, features = self.forward(batch)
 
@@ -356,7 +356,7 @@ class ArtifactModel(nn.Module):
             loader = train_loader if epoch_type == Epoch.TRAIN else valid_loader
             pbar = tqdm(enumerate(loader), mininterval=60)
             for n, batch_cpu in pbar:
-                batch = batch_cpu.copy_to(self._device, non_blocking=self._device.type == 'cuda')
+                batch = batch_cpu.copy_to(self._device, self._dtype, non_blocking=self._device.type == 'cuda')
 
                 # these are the same weights used in training
                 # TODO: maybe this should be done by count?
