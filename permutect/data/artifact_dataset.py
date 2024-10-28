@@ -33,9 +33,10 @@ class ArtifactDataset(Dataset):
         loader = base_dataset.make_data_loader(base_dataset.all_folds() if folds_to_use is None else folds_to_use, batch_size=256)
         print("making artifact dataset from base dataset")
         pbar = tqdm(enumerate(loader), mininterval=60)
-        for n, base_batch in pbar:
+        for n, base_batch_cpu in pbar:
+            base_batch = base_batch_cpu.copy_to(base_model._device, non_blocking=base_model._device.type == 'cuda')
             representations, ref_alt_seq_embeddings = base_model.calculate_representations(base_batch)
-            for representation, ref_alt_emb, base_datum in zip(representations.detach(), ref_alt_seq_embeddings.detach(), base_batch.original_list()):
+            for representation, ref_alt_emb, base_datum in zip(representations.detach().cpu(), ref_alt_seq_embeddings.detach().cpu(), base_batch_cpu.original_list()):
                 artifact_datum = ArtifactDatum(base_datum, representation.detach(), ref_alt_emb)
                 self.artifact_data.append(artifact_datum)
                 fold = index % self.num_folds
