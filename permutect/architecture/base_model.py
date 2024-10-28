@@ -53,7 +53,7 @@ def calculate_batch_source_weights(batch, dataset, by_count: bool):
     # -1 is the sentinel value for aggregation over all counts
     types_one_hot = batch.variant_type_one_hot()
     weights_by_type = np.vstack([dataset.weights[count if by_count else -1][source] for count, source in zip(batch.alt_counts.tolist(), batch.sources.tolist())])
-    source_weights = torch.sum(torch.from_numpy(weights_by_type) * types_one_hot, dim=1)
+    source_weights = torch.sum(torch.from_numpy(weights_by_type).to(device=types_one_hot.device) * types_one_hot, dim=1)
 
     return source_weights
 
