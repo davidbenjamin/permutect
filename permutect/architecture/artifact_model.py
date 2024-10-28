@@ -79,11 +79,12 @@ class Calibration(nn.Module):
         self.max_alt_count_for_adjustment = 20
         # after training we comopute one final calibration adjustment, which depends on alt count
         # the nth element is the adjustment for alt count n
-        # note that this is NOT a parameter!!!! It is *set* but not learned!!
-        self.final_adjustments = torch.zeros(self.max_alt_count_for_adjustment + 1)
+        # note that this is NOT a learnable parameter!!!! It is *set* but not learned!!
+        self.final_adjustments = nn.Parameter(torch.zeros(self.max_alt_count_for_adjustment + 1), requires_grad=False)
 
     def set_adjustments(self, adjustments):
-        self.final_adjustments = adjustments
+        current_device, current_dtype = self.final_adjustments.device, self.final_adjustments.dtype
+        self.final_adjustments = adjustments.to(device=current_device, dtype=current_dtype)
         self.max_alt_count_for_adjustment = len(adjustments) - 1
 
     def calibrated_logits(self, logits_b: Tensor, ref_counts_b: Tensor, alt_counts_b: Tensor):
