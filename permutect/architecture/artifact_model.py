@@ -363,17 +363,20 @@ class ArtifactModel(nn.Module):
                 batch = batch_cpu.copy_to(self._device, self._dtype, non_blocking=self._device.type == 'cuda')
 
                 # these are the same weights used in training
-                # TODO: maybe this should be done by count?
                 # TODO: we need a parameter to control the relative weight of unlabeled loss to labeled loss
-                weights = calculate_batch_weights(batch, dataset, by_count=True)
+                weights = calculate_batch_weights(batch_cpu, dataset, by_count=True)
+                weights = weights.to(dtype=self._dtype)     # not sent to GPU!
 
                 logits, _, _ = self.forward(batch)
-                pred = logits.detach()
-                correct = ((pred > 0) == (batch.labels > 0.5)).tolist()
+                # logits are calculated on the GPU (when available), so we must detach AND send back to CPU (if applicable)
+                pred = logits.detach().cpu()
+
+                # note that for metrics we use batch_cpu
+                correct = ((pred > 0) == (batch_cpu.labels > 0.5)).tolist()
 
                 for variant_type, predicted_logit, label, is_labeled, correct_call, alt_count, datum, weight in zip(
-                        batch.variant_types(), pred.tolist(), batch.labels.tolist(), batch.is_labeled_mask.tolist(), correct,
-                        batch.alt_counts, batch.original_data, weights.tolist()):
+                        batch_cpu.variant_types(), pred.tolist(), batch_cpu.labels.tolist(), batch_cpu.is_labeled_mask.tolist(), correct,
+                        batch_cpu.alt_counts, batch_cpu.original_data, weights.tolist()):
                     if is_labeled < 0.5:    # we only evaluate labeled data
                         continue
                     evaluation_metrics.record_call(epoch_type, variant_type, predicted_logit, label, correct_call, alt_count, weight)
@@ -422,23 +425,24 @@ class ArtifactModel(nn.Module):
             # now go over just the validation data and generate feature vectors / metadata for tensorboard projectors (UMAP)
             pbar = tqdm(enumerate(valid_loader), mininterval=60)
 
-            for n, batch in pbar:
+            for n, batch_cpu in pbar:
+                batch = batch_cpu.copy_to(self._device, self._dtype, non_blocking=self._device.type == 'cuda')
                 logits, _, _ = self.forward(batch)
-                pred = logits.detach()
-                correct = ((pred > 0) == (batch.labels > 0.5)).tolist()
+                pred = logits.detach().cpu()
+                correct = ((pred > 0) == (batch_cpu.labels > 0.5)).tolist()
 
                 label_strings = [("artifact" if label > 0.5 else "non-artifact") if is_labeled > 0.5 else "unlabeled"
-                                 for (label, is_labeled) in zip(batch.labels.tolist(), batch.is_labeled_mask.tolist())]
+                                 for (label, is_labeled) in zip(batch_cpu.labels.tolist(), batch_cpu.is_labeled_mask.tolist())]
 
                 correct_strings = [str(correctness) if is_labeled > 0.5 else "-1"
-                                 for (correctness, is_labeled) in zip(correct, batch.is_labeled_mask.tolist())]
+                                 for (correctness, is_labeled) in zip(correct, batch_cpu.is_labeled_mask.tolist())]
 
-                for (metrics, embedding) in [(embedding_metrics, batch.get_representations_2d().detach()),
-                                              (ref_alt_seq_metrics, batch.get_ref_alt_seq_embeddings_2d().detach())]:
+                for (metrics, embedding) in [(embedding_metrics, batch_cpu.get_representations_2d().detach()),
+                                              (ref_alt_seq_metrics, batch_cpu.get_ref_alt_seq_embeddings_2d().detach())]:
                     metrics.label_metadata.extend(label_strings)
                     metrics.correct_metadata.extend(correct_strings)
-                    metrics.type_metadata.extend([Variation(idx).name for idx in batch.variant_types()])
-                    metrics.truncated_count_metadata.extend([str(round_up_to_nearest_three(min(MAX_COUNT, alt_count))) for alt_count in batch.alt_counts])
+                    metrics.type_metadata.extend([Variation(idx).name for idx in batch_cpu.variant_types()])
+                    metrics.truncated_count_metadata.extend([str(round_up_to_nearest_three(min(MAX_COUNT, alt_count))) for alt_count in batch_cpu.alt_counts])
                     metrics.representations.append(embedding)
             embedding_metrics.output_to_summary_writer(summary_writer, epoch=epoch)
             ref_alt_seq_metrics.output_to_summary_writer(summary_writer, prefix="ref alt seq ", epoch=epoch)
