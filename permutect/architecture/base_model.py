@@ -464,7 +464,8 @@ class BaseModelMARSLoss(torch.nn.Module, BaseModelLearningStrategy):
 def learn_base_model(base_model: BaseModel, dataset: BaseDataset, learning_method: LearningMethod, training_params: TrainingParameters,
                      summary_writer: SummaryWriter, validation_fold: int = None):
     print(f"Memory usage percent: {psutil.virtual_memory().percent:.1f}")
-    print(f"Is CUDA available? {torch.cuda.is_available()}")
+    is_cuda = base_model._device.type == 'cuda'
+    print(f"Is CUDA available? {is_cuda}")
 
     for idx, variation_type in enumerate(utils.Variation):
         print(f"For variation type {variation_type.name}, there are {int(dataset.totals[ALL_COUNTS_SENTINEL][Label.ARTIFACT][idx].item())} \
@@ -503,12 +504,15 @@ def learn_base_model(base_model: BaseModel, dataset: BaseDataset, learning_metho
     classifier_on_top = MLP([base_model.output_dimension()] + [30, -1, -1, -1, 10] + [1])\
         .to(device=base_model._device, dtype=base_model._dtype)
     classifier_bce = torch.nn.BCEWithLogitsLoss(reduction='none')
-    classifier_optimizer = torch.optim.AdamW(classifier_on_top.parameters(), lr=training_params.learning_rate, weight_decay=training_params.weight_decay)
+    classifier_optimizer = torch.optim.AdamW(classifier_on_top.parameters(),
+                                             lr=training_params.learning_rate,
+                                             weight_decay=training_params.weight_decay,
+                                             fused=True)
     classifier_metrics = LossMetrics(base_model._device)
 
     validation_fold_to_use = (dataset.num_folds - 1) if validation_fold is None else validation_fold
-    train_loader = dataset.make_data_loader(dataset.all_but_one_fold(validation_fold_to_use), training_params.batch_size, base_model._device.type == 'cuda', training_params.num_workers)
-    valid_loader = dataset.make_data_loader([validation_fold_to_use], training_params.batch_size, base_model._device.type == 'cuda', training_params.num_workers)
+    train_loader = dataset.make_data_loader(dataset.all_but_one_fold(validation_fold_to_use), training_params.batch_size, is_cuda, training_params.num_workers)
+    valid_loader = dataset.make_data_loader([validation_fold_to_use], training_params.batch_size, is_cuda, training_params.num_workers)
 
     for epoch in trange(1, training_params.num_epochs + 1, desc="Epoch"):
         p = epoch - 1
@@ -521,9 +525,19 @@ def learn_base_model(base_model: BaseModel, dataset: BaseDataset, learning_metho
             loss_metrics = LossMetrics(base_model._device)
 
             loader = train_loader if epoch_type == utils.Epoch.TRAIN else valid_loader
-            pbar = tqdm(enumerate(loader), mininterval=60)
-            for n, batch_cpu in pbar:
-                batch = batch_cpu.copy_to(base_model._device)
+            loader_iter = iter(loader)
+
+            next_batch_cpu = next(loader_iter)
+            next_batch = next_batch_cpu.copy_to(base_model._device, non_blocking=is_cuda)
+
+            pbar = tqdm(range(len(loader)), mininterval=60)
+            for n in pbar:
+                batch_cpu = next_batch_cpu
+                batch = next_batch
+
+                # Optimization: Asynchronously send the next batch to the device while the model does work
+                next_batch_cpu = next(loader_iter)
+                next_batch = next_batch_cpu.copy_to(base_model._device, non_blocking=is_cuda)
 
                 # TODO: we need a parameter to control the relative weight of unlabeled loss to labeled loss
                 weights = calculate_batch_weights(batch_cpu, dataset, by_count=True)
@@ -585,7 +599,7 @@ def record_embeddings(base_model: BaseModel, loader, summary_writer: SummaryWrit
 
     pbar = tqdm(enumerate(loader), mininterval=60)
     for n, batch_cpu in pbar:
-        batch = batch_cpu.copy_to(base_model._device)
+        batch = batch_cpu.copy_to(base_model._device, non_blocking=base_model._device.type=='cuda')
         representations, ref_alt_seq_embeddings = base_model.calculate_representations(batch, weight_range=base_model._params.reweighting_range)
 
         representations = representations.cpu()

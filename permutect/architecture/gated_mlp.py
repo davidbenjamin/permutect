@@ -119,7 +119,7 @@ class SpacialGatingUnit(nn.Module):
         z1_brd, z2_brd = torch.chunk(z_brd, 2, dim=-1)
         z2_brd = self.norm(z2_brd)
 
-        z2_brd = 1 + self.alpha * z2_brd + torch.mean(z2_brd, dim=1)[:, None, :]
+        z2_brd = 1 + self.alpha * z2_brd + torch.mean(z2_brd, dim=1, keepdim=True)
 
         # $Z_1 \odot f_{W,b}(Z_2)$
         return z1_brd * z2_brd
@@ -216,8 +216,8 @@ class SpacialGatingUnitRefAlt(nn.Module):
         z2_ref_brd = self.norm(z2_ref_brd)
         z2_alt_brd = self.norm(z2_alt_brd)
 
-        ref_mean_field_brd = torch.mean(z2_ref_brd, dim=1)[:, None, :]
-        alt_mean_field_brd = torch.mean(z2_alt_brd, dim=1)[:, None, :]
+        ref_mean_field_brd = torch.mean(z2_ref_brd, dim=1, keepdim=True)
+        alt_mean_field_brd = torch.mean(z2_alt_brd, dim=1, keepdim=True)
 
         # same as above except now there is an additional term for the ref mean field influence on alt
         # maybe later also let alt mean field influence ref

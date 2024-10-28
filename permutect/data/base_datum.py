@@ -582,18 +582,17 @@ class BaseBatch:
         self.sources = self.sources.pin_memory()
         return self
 
-    def copy_to(self, device):
+    def copy_to(self, device, non_blocking):
         # For all non-tensor attributes, shallow copy is sufficient
         new_datum = copy.copy(self)
-        new_datum.ref_sequences_2d = self.ref_sequences_2d.to(device)
-        new_datum.reads_2d = self.reads_2d.to(device)
-        new_datum.info_2d = self.info_2d.to(device)
-        new_datum.labels = self.labels.to(device)
-        new_datum.is_labeled_mask = self.is_labeled_mask.to(device)
-        new_datum.sources = self.sources.to(device)
-        new_datum.alt_counts = self.alt_counts.to(device)
+        new_datum.ref_sequences_2d = self.ref_sequences_2d.to(device, non_blocking=non_blocking)
+        new_datum.reads_2d = self.reads_2d.to(device, non_blocking=non_blocking)
+        new_datum.info_2d = self.info_2d.to(device, non_blocking=non_blocking)
+        new_datum.labels = self.labels.to(device, non_blocking=non_blocking)
+        new_datum.is_labeled_mask = self.is_labeled_mask.to(device, non_blocking=non_blocking)
+        new_datum.sources = self.sources.to(device, non_blocking=non_blocking)
+        new_datum.alt_counts = self.alt_counts.to(device, non_blocking=non_blocking)
         return new_datum
-
 
     def original_list(self):
         return self._original_list
