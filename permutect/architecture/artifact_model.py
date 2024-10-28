@@ -214,6 +214,9 @@ class ArtifactModel(nn.Module):
         valid_loader = dataset.make_data_loader([validation_fold_to_use], training_params.batch_size, self._device.type == 'cuda', training_params.num_workers)
         print(f"Validation loader created, memory usage percent: {psutil.virtual_memory().percent:.1f}")
 
+        is_cuda = self._device.type == 'cuda'
+        print(f"Is CUDA available? {is_cuda}")
+
         first_epoch, last_epoch = 1, training_params.num_epochs + training_params.num_calibration_epochs
         for epoch in trange(1, last_epoch + 1, desc="Epoch"):
             print(f"Epoch {epoch}, memory usage percent: {psutil.virtual_memory().percent:.1f}")
