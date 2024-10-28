@@ -217,8 +217,6 @@ class ArtifactModel(nn.Module):
         valid_loader = dataset.make_data_loader([validation_fold_to_use], training_params.batch_size, is_cuda, training_params.num_workers)
         print(f"Validation loader created, memory usage percent: {psutil.virtual_memory().percent:.1f}")
 
-
-
         first_epoch, last_epoch = 1, training_params.num_epochs + training_params.num_calibration_epochs
         for epoch in trange(1, last_epoch + 1, desc="Epoch"):
             print(f"Epoch {epoch}, memory usage percent: {psutil.virtual_memory().percent:.1f}")
@@ -240,8 +238,21 @@ class ArtifactModel(nn.Module):
                 uncalibrated_loss_metrics = LossMetrics(self._device)  # based on uncalibrated logits
 
                 loader = train_loader if epoch_type == utils.Epoch.TRAIN else valid_loader
-                pbar = tqdm(enumerate(loader), mininterval=60)
-                for n, batch in pbar:
+                loader_iter = iter(loader)
+
+                next_batch_cpu = next(loader_iter)
+                next_batch = next_batch_cpu.copy_to(self._device, non_blocking=is_cuda)
+
+                pbar = tqdm(range(len(loader)), mininterval=60)
+                for n in pbar:
+                    # forward and backward pass on batch, which is the last iteration's prefetched "next_batch"
+                    batch_cpu = next_batch_cpu
+                    batch = next_batch
+
+                    # Optimization: Asynchronously send the next batch to the device while the model does work
+                    next_batch_cpu = next(loader_iter)
+                    next_batch = next_batch_cpu.copy_to(self._device, non_blocking=is_cuda)
+
                     logits, precalibrated_logits, features = self.forward(batch)
 
                     # one-hot prediction of sources
