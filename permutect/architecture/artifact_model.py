@@ -170,10 +170,11 @@ class ArtifactModel(nn.Module):
 
     # returns 1D tensor of length batch_size of log odds ratio (logits) between artifact and non-artifact
     def forward(self, batch: ArtifactBatch):
-        features = self.feature_layers.forward(batch.get_representations_2d().to(device=self._device, dtype=self._dtype))
+        # batch has already gotten cppy_to(self._device, self._dtype)
+        features = self.feature_layers.forward(batch.get_representations_2d())
         uncalibrated_logits = self.artifact_classifier.forward(features).reshape(batch.size())
         calibrated_logits = torch.zeros_like(uncalibrated_logits)
-        one_hot_types_2d = batch.variant_type_one_hot().to(device=self._device, dtype=self._dtype)
+        one_hot_types_2d = batch.variant_type_one_hot()
         for n, _ in enumerate(Variation):
             mask = one_hot_types_2d[:, n]
             calibrated_logits += mask * self.calibration[n].forward(uncalibrated_logits, batch.ref_counts, batch.alt_counts)
@@ -262,7 +263,7 @@ class ArtifactModel(nn.Module):
                         # to achieve the adversarial task of distinguishing sources
                         source_prediction_logits = source_classifier.forward(source_gradient_reversal(features))
                         source_prediction_probs = torch.nn.functional.softmax(source_prediction_logits, dim=-1)
-                        source_prediction_targets = torch.nn.functional.one_hot(batch.sources.to(device=self._device).long(), num_sources)
+                        source_prediction_targets = torch.nn.functional.one_hot(batch.sources.long(), num_sources)
                         source_prediction_losses = torch.sum(torch.square(source_prediction_probs - source_prediction_targets), dim=-1)
                         source_prediction_weights = calculate_batch_source_weights(batch, dataset, by_count=is_calibration_epoch)
                     else:
