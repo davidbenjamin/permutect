@@ -1,5 +1,6 @@
 # bug before PyTorch 1.7.1 that warns when constructing ParameterList
 import math
+import time
 import warnings
 from collections import defaultdict
 from typing import List
@@ -220,6 +221,7 @@ class ArtifactModel(nn.Module):
 
         first_epoch, last_epoch = 1, training_params.num_epochs + training_params.num_calibration_epochs
         for epoch in trange(1, last_epoch + 1, desc="Epoch"):
+            start_of_epoch = time.time()
             print(f"Epoch {epoch}, memory usage percent: {psutil.virtual_memory().percent:.1f}")
             is_calibration_epoch = epoch > training_params.num_epochs
 
@@ -270,9 +272,9 @@ class ArtifactModel(nn.Module):
                         source_prediction_losses = torch.zeros_like(logits)
                         source_prediction_weights = torch.zeros_like(logits)
 
-                    # TODO: maybe this should be done by count for all epochs?
                     # TODO: we need a parameter to control the relative weight of unlabeled loss to labeled loss
-                    weights = calculate_batch_weights(batch, dataset, by_count=True)
+                    weights = calculate_batch_weights(batch_cpu, dataset, by_count=True)
+                    weights = weights.to(device=self._device, dtype=self._dtype)
 
                     uncalibrated_cross_entropies = bce(precalibrated_logits, batch.labels)
                     calibrated_cross_entropies = bce(logits, batch.labels)
