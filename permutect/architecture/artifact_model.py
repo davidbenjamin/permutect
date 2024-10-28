@@ -65,8 +65,10 @@ class Calibration(nn.Module):
         ref_center_spacing = 5
 
         # centers of Gaussian comb featurizations
-        self.alt_centers = torch.arange(start=1, end=20, step=center_spacing)
-        self.ref_centers = torch.arange(start=1, end=20, step=ref_center_spacing)
+        # note: even though they aren't learned and requires_grad is False, we still wrap them in nn.Parameter
+        # so that they can be sent to GPU recursively when the grandparent ArtifactModel is
+        self.alt_centers = nn.Parameter(torch.arange(start=1, end=20, step=center_spacing), requires_grad=False)
+        self.ref_centers = nn.Parameter(torch.arange(start=1, end=20, step=ref_center_spacing), requires_grad=False)
 
         # increasing in the 1st feature, logits
         # logit is one feature, then the Gaussian comb for alt and ref counts is the other
