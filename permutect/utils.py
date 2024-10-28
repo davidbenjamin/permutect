@@ -136,7 +136,8 @@ def freeze(parameters):
 
 def unfreeze(parameters):
     for parameter in parameters:
-        parameter.requires_grad = True
+        if parameter.dtype.is_floating_point:   # an integer parameter isn't trainable by gradient descent
+            parameter.requires_grad = True
 
 
 def f_score(tp, fp, total_true):
