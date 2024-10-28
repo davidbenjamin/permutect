@@ -32,6 +32,10 @@ class ArtifactDataset(Dataset):
 
         loader = base_dataset.make_data_loader(base_dataset.all_folds() if folds_to_use is None else folds_to_use, batch_size=256)
         print("making artifact dataset from base dataset")
+
+        is_cuda = base_model._device.type == 'cuda'
+        print(f"Is base model using CUDA? {is_cuda}")
+
         pbar = tqdm(enumerate(loader), mininterval=60)
         for n, base_batch_cpu in pbar:
             base_batch = base_batch_cpu.copy_to(base_model._device, non_blocking=base_model._device.type == 'cuda')
