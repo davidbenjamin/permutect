@@ -633,17 +633,17 @@ class ArtifactDatum:
         self.representation = self.representation.to(torch.float16)
         self.other_stuff.set_dtype(dtype)
 
-    def get_ref_count(self):
+    def get_ref_count(self) -> int:
         return self.other_stuff.get_ref_count()
 
-    def get_alt_count(self):
+    def get_alt_count(self) -> int:
         return self.other_stuff.get_alt_count()
 
     def get_label(self):
         return self.other_stuff.get_label()
 
-    def get_source(self):
-        return self.other_stuff.get_source()
+    def get_source(self) -> int:
+        return round(self.other_stuff.get_source())
 
     def size_in_bytes(self):
         return self.representation.nbytes + self.other_stuff.nbytes
