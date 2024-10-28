@@ -584,15 +584,15 @@ class BaseBatch:
 
     def copy_to(self, device, non_blocking):
         # For all non-tensor attributes, shallow copy is sufficient
-        new_datum = copy.copy(self)
-        new_datum.ref_sequences_2d = self.ref_sequences_2d.to(device, non_blocking=non_blocking)
-        new_datum.reads_2d = self.reads_2d.to(device, non_blocking=non_blocking)
-        new_datum.info_2d = self.info_2d.to(device, non_blocking=non_blocking)
-        new_datum.labels = self.labels.to(device, non_blocking=non_blocking)
-        new_datum.is_labeled_mask = self.is_labeled_mask.to(device, non_blocking=non_blocking)
-        new_datum.sources = self.sources.to(device, non_blocking=non_blocking)
-        new_datum.alt_counts = self.alt_counts.to(device, non_blocking=non_blocking)
-        return new_datum
+        new_batch = copy.copy(self)
+        new_batch.ref_sequences_2d = self.ref_sequences_2d.to(device, non_blocking=non_blocking)
+        new_batch.reads_2d = self.reads_2d.to(device, non_blocking=non_blocking)
+        new_batch.info_2d = self.info_2d.to(device, non_blocking=non_blocking)
+        new_batch.labels = self.labels.to(device, non_blocking=non_blocking)
+        new_batch.is_labeled_mask = self.is_labeled_mask.to(device, non_blocking=non_blocking)
+        new_batch.sources = self.sources.to(device, non_blocking=non_blocking)
+        new_batch.alt_counts = self.alt_counts.to(device, non_blocking=non_blocking)
+        return new_batch
 
     def original_list(self):
         return self._original_list
@@ -684,6 +684,21 @@ class ArtifactBatch:
         self.alt_counts = self.alt_counts.pin_memory()
         self._variant_type_one_hot = self._variant_type_one_hot.pin_memory()
         return self
+
+    def copy_to(self, device, non_blocking):
+        # For all non-tensor attributes, shallow copy is sufficient
+        new_batch = copy.copy(self)
+
+        new_batch.representations_2d = self.representations_2d.to(device, non_blocking=non_blocking)
+        new_batch.ref_alt_seq_embeddings_2d = self.ref_alt_seq_embeddings_2d.to(device, non_blocking=non_blocking)
+        new_batch.labels = self.labels.to(device, non_blocking=non_blocking)
+        new_batch.is_labeled_mask = self.is_labeled_mask.to(device, non_blocking=non_blocking)
+        new_batch.sources = self.sources.to(device, non_blocking=non_blocking)
+        new_batch.ref_counts = self.ref_counts.to(device, non_blocking=non_blocking)
+        new_batch.alt_counts = self.alt_counts.to(device, non_blocking=non_blocking)
+        new_batch._variant_type_one_hot = self._variant_type_one_hot.to(device, non_blocking=non_blocking)
+        
+        return new_batch
 
     def get_representations_2d(self) -> Tensor:
         return self.representations_2d
