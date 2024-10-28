@@ -198,7 +198,9 @@ class ArtifactModel(nn.Module):
             print(f"Training data come from multiple sources, with counts {dataset.counts_by_source}.")
         source_classifier = MLP([self.feature_layers.output_dimension()] + [-1, -1, num_sources],
                                     batch_normalize=self.params.batch_normalize, dropout_p=self.params.dropout_p)
+        source_classifier.to(device=self._device, dtype=self._dtype)
         source_gradient_reversal = GradientReversal(alpha=0.01)  # initialize as barely active
+        source_gradient_reversal.to(device=self._device, dtype=self._dtype)
 
         train_optimizer = torch.optim.AdamW(chain(self.training_parameters(), source_classifier.parameters()), lr=training_params.learning_rate,
                                             weight_decay=training_params.weight_decay, fused=True)
