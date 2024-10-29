@@ -61,16 +61,16 @@ class LossMetrics:
     def __init__(self, device):
         self._device = device
 
-        self.labeled_loss = StreamingAverage(device=self._device)
-        self.unlabeled_loss = StreamingAverage(device=self._device)
+        self.labeled_loss = StreamingAverage()
+        self.unlabeled_loss = StreamingAverage()
 
-        self.labeled_loss_by_type = {variant_type: StreamingAverage(device=self._device) for variant_type in Variation}
-        self.labeled_loss_by_count = {bin_idx: StreamingAverage(device=self._device) for bin_idx in range(NUM_COUNT_BINS)}
+        self.labeled_loss_by_type = {variant_type: StreamingAverage() for variant_type in Variation}
+        self.labeled_loss_by_count = {bin_idx: StreamingAverage() for bin_idx in range(NUM_COUNT_BINS)}
 
-    def get_labeled_loss(self):
+    def get_labeled_loss(self) -> float:
         return self.labeled_loss.get()
 
-    def get_unlabeled_loss(self):
+    def get_unlabeled_loss(self) -> float:
         return self.unlabeled_loss.get()
 
     def write_to_summary_writer(self, epoch_type: Epoch, epoch: int, summary_writer: SummaryWriter, prefix: str = ""):
@@ -96,12 +96,13 @@ class LossMetrics:
     def record_losses(self, losses: torch.Tensor, batch, weights):
         # handle total loss
         labeled_weights, unlabeled_weights = batch.is_labeled_mask * weights, (1 - batch.is_labeled_mask) * weights
+
         self.labeled_loss.record_with_weights(losses, labeled_weights)
         self.unlabeled_loss.record_with_weights(losses, unlabeled_weights)
 
         # Note that we currently do not track unlabeled loss by type or by count
         # by type
-        types_one_hot = batch.variant_type_one_hot().detach()
+        types_one_hot = batch.variant_type_one_hot()
         is_labeled_mask = batch.is_labeled_mask
 
         # weight for losses is product of 1) the weights 2) the is_labeled mask, 3) the variant type mask
@@ -113,6 +114,7 @@ class LossMetrics:
         if isinstance(batch, BaseBatch):
             if batch.alt_count <= MAX_COUNT:
                 self.labeled_loss_by_count[multiple_of_three_bin_index(batch.alt_count)].record_with_weights(losses, weights * is_labeled_mask)
+        # TODO: if losses, batch, weights are on GPU I bet all this tolist() could be a serious bottleneck!
         elif isinstance(batch, ArtifactBatch):
             for loss, alt_count, weight, is_labeled in zip(losses.tolist(), batch.alt_counts.tolist(), weights.tolist(), batch.is_labeled_mask.tolist()):
                 if alt_count <= MAX_COUNT:

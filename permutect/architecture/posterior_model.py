@@ -241,7 +241,7 @@ class PosteriorModel(torch.nn.Module):
 
                 utils.backpropagate(optimizer, loss)
 
-                epoch_loss.record_sum(batch.size() * loss.detach(), batch.size())
+                epoch_loss.record_sum(batch.size() * loss.detach().item(), batch.size())
 
             if summary_writer is not None:
                 summary_writer.add_scalar("spectrum negative log evidence", epoch_loss.get(), epoch)

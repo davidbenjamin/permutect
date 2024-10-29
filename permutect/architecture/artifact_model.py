@@ -278,8 +278,8 @@ class ArtifactModel(nn.Module):
                         source_prediction_weights = calculate_batch_source_weights(batch_cpu, dataset, by_count=is_calibration_epoch)
                         source_prediction_weights = source_prediction_weights.to(device=self._device, dtype=self._dtype)
                     else:
-                        source_prediction_losses = torch.zeros_like(logits)
-                        source_prediction_weights = torch.zeros_like(logits)
+                        source_prediction_losses = torch.zeros_like(logits, device=self._device)
+                        source_prediction_weights = torch.zeros_like(logits, device=self._device)
 
                     # TODO: we need a parameter to control the relative weight of unlabeled loss to labeled loss
                     weights = calculate_batch_weights(batch_cpu, dataset, by_count=True)
@@ -299,6 +299,8 @@ class ArtifactModel(nn.Module):
                     losses = (labeled_losses + unlabeled_losses) * weights + (source_prediction_losses * source_prediction_weights)
                     loss = torch.sum(losses)
 
+                    # at this point, losses, weights are on GPU (if available), while metrics are on CPU
+                    # if we have done things right, this is okay and record_losses handles GPU <--> CPU efficiently
                     loss_metrics.record_losses(calibrated_cross_entropies.detach(), batch, weights * batch.is_labeled_mask)
                     uncalibrated_loss_metrics.record_losses(uncalibrated_cross_entropies.detach(), batch, weights * batch.is_labeled_mask)
                     uncalibrated_loss_metrics.record_losses(entropies.detach(), batch, weights * (1 - batch.is_labeled_mask))
