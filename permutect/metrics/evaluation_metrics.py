@@ -65,9 +65,7 @@ class PosteriorResult:
 
 # keep track of losses during training of artifact model
 class LossMetrics:
-    def __init__(self, device):
-        self._device = device
-
+    def __init__(self):
         self.labeled_loss = StreamingAverage()
         self.unlabeled_loss = StreamingAverage()
 

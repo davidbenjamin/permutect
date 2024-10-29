@@ -82,7 +82,7 @@ class Calibration(nn.Module):
         # note that this is NOT a learnable parameter!!!! It is *set* but not learned!!
         self.final_adjustments = nn.Parameter(torch.zeros(self.max_alt_count_for_adjustment + 1), requires_grad=False)
 
-    def set_adjustments(self, adjustments):
+    def set_adjustments(self, adjustments: torch.Tensor):
         current_device, current_dtype = self.final_adjustments.device, self.final_adjustments.dtype
         self.final_adjustments = adjustments.to(device=current_device, dtype=current_dtype)
         self.max_alt_count_for_adjustment = len(adjustments) - 1
@@ -276,14 +276,14 @@ class ArtifactModel(nn.Module):
 
                         # TODO: always by count?
                         source_prediction_weights = calculate_batch_source_weights(batch_cpu, dataset, by_count=is_calibration_epoch)
-                        source_prediction_weights = source_prediction_weights.to(device=self._device, dtype=self._dtype)
+                        source_prediction_weights = source_prediction_weights.to(device=self._device, dtype=self._dtype, non_blocking=True)
                     else:
                         source_prediction_losses = torch.zeros_like(logits, device=self._device)
                         source_prediction_weights = torch.zeros_like(logits, device=self._device)
 
                     # TODO: we need a parameter to control the relative weight of unlabeled loss to labeled loss
                     weights = calculate_batch_weights(batch_cpu, dataset, by_count=True)
-                    weights = weights.to(device=self._device, dtype=self._dtype)
+                    weights = weights.to(device=self._device, dtype=self._dtype, non_blocking=True)
 
                     uncalibrated_cross_entropies = bce(precalibrated_logits, batch.labels)
                     calibrated_cross_entropies = bce(logits, batch.labels)
