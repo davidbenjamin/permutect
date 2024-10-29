@@ -273,7 +273,10 @@ class ArtifactModel(nn.Module):
                         source_prediction_probs = torch.nn.functional.softmax(source_prediction_logits, dim=-1)
                         source_prediction_targets = torch.nn.functional.one_hot(batch.sources.long(), num_sources)
                         source_prediction_losses = torch.sum(torch.square(source_prediction_probs - source_prediction_targets), dim=-1)
-                        source_prediction_weights = calculate_batch_source_weights(batch, dataset, by_count=is_calibration_epoch)
+
+                        # TODO: always by count?
+                        source_prediction_weights = calculate_batch_source_weights(batch_cpu, dataset, by_count=is_calibration_epoch)
+                        source_prediction_weights = source_prediction_weights.to(device=self._device, dtype=self._dtype)
                     else:
                         source_prediction_losses = torch.zeros_like(logits)
                         source_prediction_weights = torch.zeros_like(logits)
