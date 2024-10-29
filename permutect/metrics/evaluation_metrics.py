@@ -110,22 +110,20 @@ class LossMetrics:
         # Note that we currently do not track unlabeled loss by type or by count
         # by type
         types_one_hot = batch.variant_type_one_hot()
-        is_labeled_mask = batch.is_labeled_mask
-        weights_with_labeled_mask = weights * is_labeled_mask
 
         # weight for losses is product of 1) the weights 2) the is_labeled mask, 3) the variant type mask
         for var_type_idx, var_type in enumerate(Variation):
             variant_type_mask = types_one_hot[:, var_type_idx]  # 1 if this type, 0 otherwise
-            self.labeled_loss_by_type[var_type].record_with_weights(losses, weights_with_labeled_mask * variant_type_mask)
+            self.labeled_loss_by_type[var_type].record_with_weights(losses, labeled_weights * variant_type_mask)
 
         # by count
         if isinstance(batch, BaseBatch):
             if batch.alt_count <= MAX_COUNT:
-                self.labeled_loss_by_count[multiple_of_three_bin_index(batch.alt_count)].record_with_weights(losses, weights_with_labeled_mask)
+                self.labeled_loss_by_count[multiple_of_three_bin_index(batch.alt_count)].record_with_weights(losses, labeled_weights)
         elif isinstance(batch, ArtifactBatch):
             for count_bin_index in range(NUM_COUNT_BINS):
                 count_bin_mask = make_count_bin_mask(count_bin_index)
-                self.labeled_loss_by_count[count_bin_index].record_with_weights(losses, weights_with_labeled_mask * count_bin_mask)
+                self.labeled_loss_by_count[count_bin_index].record_with_weights(losses, labeled_weights * count_bin_mask)
 
 
 # predictions_and_labels is list of (predicted logit, actual label) tuples
