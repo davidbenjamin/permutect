@@ -242,9 +242,9 @@ class ArtifactModel(nn.Module):
                     utils.freeze(self.parameters())
                     utils.unfreeze(self.calibration_parameters())  # unfreeze calibration but everything else stays frozen
 
-                loss_metrics = LossMetrics(self._device)    # based on calibrated logits
-                source_prediction_loss_metrics = LossMetrics(self._device)  # based on calibrated logits
-                uncalibrated_loss_metrics = LossMetrics(self._device)  # based on uncalibrated logits
+                loss_metrics = LossMetrics()    # based on calibrated logits
+                source_prediction_loss_metrics = LossMetrics()  # based on calibrated logits
+                uncalibrated_loss_metrics = LossMetrics()  # based on uncalibrated logits
 
                 loader = train_loader if epoch_type == utils.Epoch.TRAIN else valid_loader
                 loader_iter = iter(loader)

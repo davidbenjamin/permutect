@@ -493,7 +493,7 @@ def learn_base_model(base_model: BaseModel, dataset: BaseDataset, learning_metho
     alt_count_gradient_reversal = GradientReversal(alpha=0.01)  #initialize as barely active
     alt_count_predictor = MLP([base_model.output_dimension()] + [30, -1, -1, -1, 1]).to(device=base_model._device, dtype=base_model._dtype)
     alt_count_loss_func = torch.nn.MSELoss(reduction='none')
-    alt_count_adversarial_metrics = LossMetrics(base_model._device)
+    alt_count_adversarial_metrics = LossMetrics()
 
     # TODO: fused = is_cuda?
     train_optimizer = torch.optim.AdamW(chain(base_model.parameters(), learning_strategy.parameters(), alt_count_predictor.parameters()),
@@ -511,7 +511,7 @@ def learn_base_model(base_model: BaseModel, dataset: BaseDataset, learning_metho
                                              lr=training_params.learning_rate,
                                              weight_decay=training_params.weight_decay,
                                              fused=True)
-    classifier_metrics = LossMetrics(base_model._device)
+    classifier_metrics = LossMetrics()
 
     validation_fold_to_use = (dataset.num_folds - 1) if validation_fold is None else validation_fold
     train_loader = dataset.make_data_loader(dataset.all_but_one_fold(validation_fold_to_use), training_params.batch_size, is_cuda, training_params.num_workers)
@@ -525,7 +525,7 @@ def learn_base_model(base_model: BaseModel, dataset: BaseDataset, learning_metho
         print(f"Start of epoch {epoch}, memory usage percent: {psutil.virtual_memory().percent:.1f}")
         for epoch_type in (utils.Epoch.TRAIN, utils.Epoch.VALID):
             base_model.set_epoch_type(epoch_type)
-            loss_metrics = LossMetrics(base_model._device)
+            loss_metrics = LossMetrics()
 
             loader = train_loader if epoch_type == utils.Epoch.TRAIN else valid_loader
             loader_iter = iter(loader)
