@@ -174,10 +174,10 @@ class ArtifactModel(nn.Module):
 
     # returns 1D tensor of length batch_size of log odds ratio (logits) between artifact and non-artifact
     def forward(self, batch: ArtifactBatch):
-        # batch has already gotten cppy_to(self._device, self._dtype)
+        # batch has already gotten copy_to(self._device, self._dtype)
         features = self.feature_layers.forward(batch.get_representations_2d())
         uncalibrated_logits = self.artifact_classifier.forward(features).reshape(batch.size())
-        calibrated_logits = torch.zeros_like(uncalibrated_logits)
+        calibrated_logits = torch.zeros_like(uncalibrated_logits, device=self._device)
         one_hot_types_2d = batch.variant_type_one_hot()
         for n, _ in enumerate(Variation):
             mask = one_hot_types_2d[:, n]
