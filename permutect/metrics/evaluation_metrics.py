@@ -40,6 +40,13 @@ def bin_center(bin_idx):
 NUM_COUNT_BINS = round_up_to_nearest_three(MAX_COUNT) // 3    # zero is not a bin
 
 
+def make_count_bin_mask(bin_index: int, counts: torch.Tensor):
+    assert bin_index < NUM_COUNT_BINS
+    count_bin_bottom = 3*bin_index + 1
+    count_bin_top = 3*bin_index + 3
+    return (count_bin_bottom <= counts) * (counts <= count_bin_top)
+
+
 # simple container class for holding results of the posterior model and other things that get output to the VCF and
 # tensorboard analysis
 class PosteriorResult:
@@ -92,8 +99,8 @@ class LossMetrics:
     # record the losses (indexed by batch dimension) by type and count, as well as the total loss not stratified by type and count
     # input losses are NOT weighted, but when recorded they are multiplied by weights if given
     # losses are divided into labeled and unlabeled
-    # TODO: put type hint batch: ReadSetBatch | RepresentationReadSetBatch once docker update
-    def record_losses(self, losses: torch.Tensor, batch, weights):
+    # TODO: put type hint batch: BaseBatch | ArtifactBatch once docker update
+    def record_losses(self, losses: torch.Tensor, batch, weights: torch.Tensor):
         # handle total loss
         labeled_weights, unlabeled_weights = batch.is_labeled_mask * weights, (1 - batch.is_labeled_mask) * weights
 
@@ -104,21 +111,21 @@ class LossMetrics:
         # by type
         types_one_hot = batch.variant_type_one_hot()
         is_labeled_mask = batch.is_labeled_mask
+        weights_with_labeled_mask = weights * is_labeled_mask
 
         # weight for losses is product of 1) the weights 2) the is_labeled mask, 3) the variant type mask
         for var_type_idx, var_type in enumerate(Variation):
             variant_type_mask = types_one_hot[:, var_type_idx]  # 1 if this type, 0 otherwise
-            self.labeled_loss_by_type[var_type].record_with_weights(losses, weights * is_labeled_mask * variant_type_mask)
+            self.labeled_loss_by_type[var_type].record_with_weights(losses, weights_with_labeled_mask * variant_type_mask)
 
         # by count
         if isinstance(batch, BaseBatch):
             if batch.alt_count <= MAX_COUNT:
-                self.labeled_loss_by_count[multiple_of_three_bin_index(batch.alt_count)].record_with_weights(losses, weights * is_labeled_mask)
-        # TODO: if losses, batch, weights are on GPU I bet all this tolist() could be a serious bottleneck!
+                self.labeled_loss_by_count[multiple_of_three_bin_index(batch.alt_count)].record_with_weights(losses, weights_with_labeled_mask)
         elif isinstance(batch, ArtifactBatch):
-            for loss, alt_count, weight, is_labeled in zip(losses.tolist(), batch.alt_counts.tolist(), weights.tolist(), batch.is_labeled_mask.tolist()):
-                if alt_count <= MAX_COUNT:
-                    self.labeled_loss_by_count[multiple_of_three_bin_index(alt_count)].record(loss, weight * is_labeled)
+            for count_bin_index in range(NUM_COUNT_BINS):
+                count_bin_mask = make_count_bin_mask(count_bin_index)
+                self.labeled_loss_by_count[count_bin_index].record_with_weights(losses, weights_with_labeled_mask * count_bin_mask)
 
 
 # predictions_and_labels is list of (predicted logit, actual label) tuples
