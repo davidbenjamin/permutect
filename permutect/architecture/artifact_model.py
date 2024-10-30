@@ -84,7 +84,10 @@ class Calibration(nn.Module):
 
     def set_adjustments(self, adjustments: torch.Tensor):
         current_device, current_dtype = self.final_adjustments.device, self.final_adjustments.dtype
-        self.final_adjustments = nn.Parameter(adjustments.to(device=current_device, dtype=current_dtype), requires_grad=False)
+        clipped_adjustments = adjustments[:len(self.final_adjustments)]
+        padding_needed = len(self.final_adjustments) - len(clipped_adjustments)
+        padded_adjustments = torch.hstack((clipped_adjustments, clipped_adjustments[-1] * torch.ones(padding_needed))) if padding_needed else clipped_adjustments
+        self.final_adjustments = nn.Parameter(padded_adjustments.to(device=current_device, dtype=current_dtype), requires_grad=False)
         self.max_alt_count_for_adjustment = len(adjustments) - 1
 
     def calibrated_logits(self, logits_b: Tensor, ref_counts_b: Tensor, alt_counts_b: Tensor):
