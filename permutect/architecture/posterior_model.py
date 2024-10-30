@@ -154,7 +154,7 @@ class PosteriorModel(torch.nn.Module):
         flat_prior_spectra_log_likelihoods = -torch.log(depths + 1)
         somatic_spectrum_log_likelihoods = self.somatic_spectrum.forward(depths, alt_counts)
         tumor_artifact_spectrum_log_likelihood = self.artifact_spectra.forward(batch.variant_type_one_hot(), depths, alt_counts)
-        spectra_log_likelihoods = torch.zeros_like(log_priors).to(device=self._device, dtype=self._dtype)
+        spectra_log_likelihoods = torch.zeros_like(log_priors, device=self._device, dtype=self._dtype)
 
         # essentially, this corrects the TLOD from M2, computed with a flat prior, to account for the precises somatic spectrum
         spectra_log_likelihoods[:, Call.SOMATIC] = somatic_spectrum_log_likelihoods - flat_prior_spectra_log_likelihoods
@@ -221,7 +221,8 @@ class PosteriorModel(torch.nn.Module):
             epoch_loss = utils.StreamingAverage()
 
             pbar = tqdm(enumerate(posterior_loader), mininterval=10)
-            for n, batch in pbar:
+            for n, batch_cpu in pbar:
+                batch = batch_cpu.copy_to(self._device, self._dtype, non_blocking=self._device.type == 'cuda')
                 relative_posteriors = self.log_relative_posteriors(batch)
                 log_evidence = torch.logsumexp(relative_posteriors, dim=1)
 
@@ -234,7 +235,7 @@ class PosteriorModel(torch.nn.Module):
                 # a missing non-INSERTION etc
                 # we use a germline allele frequency of 0.001 for the missing sites but it doesn't really matter
                 for variant_type in Variation:
-                    log_priors = torch.nn.functional.log_softmax(self.make_unnormalized_priors(torch.from_numpy(variant_type.one_hot_tensor()).to(device=self._device, dtype=self._dtype).unsqueeze(dim=0), torch.Tensor([0.001])), dim=1)
+                    log_priors = torch.nn.functional.log_softmax(self.make_unnormalized_priors(torch.from_numpy(variant_type.one_hot_tensor()).to(device=self._device, dtype=self._dtype).unsqueeze(dim=0), torch.Tensor([0.001], device=self._device)), dim=1)
                     log_seq_error_prior = log_priors.squeeze()[Call.SEQ_ERROR]
                     missing_loss = -ignored_to_non_ignored_ratio * log_seq_error_prior  
                     loss += missing_loss
