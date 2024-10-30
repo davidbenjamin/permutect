@@ -226,7 +226,7 @@ def base_model_from_saved_dict(saved, prefix: str = "", device: torch.device = u
 
 
 def load_base_model(path, prefix: str = "", device: torch.device = utils.gpu_if_available()) -> BaseModel:
-    saved = torch.load(path)
+    saved = torch.load(path, map_location=device)
     return base_model_from_saved_dict(saved, prefix, device)
 
 

@@ -491,13 +491,13 @@ def artifact_model_from_saved_dict(saved, prefix: str = "artifact"):
 
 
 # log artifact priors and artifact spectra may be None
-def load_artifact_model(path,  prefix: str = "artifact") -> ArtifactModel:
-    saved = torch.load(path)
+def load_artifact_model(path,  device, prefix: str = "artifact") -> ArtifactModel:
+    saved = torch.load(path, map_location=device)
     return artifact_model_from_saved_dict(saved, prefix)
 
 
-def load_base_model_and_artifact_model(path) -> ArtifactModel:
-    saved = torch.load(path)
+def load_base_model_and_artifact_model(path, device) -> ArtifactModel:
+    saved = torch.load(path, map_location=device)
     base_model = base_model_from_saved_dict(saved, prefix="base")
     artifact_model, artifact_log_priors, artifact_spectra = artifact_model_from_saved_dict(saved, prefix="artifact")
     return base_model, artifact_model, artifact_log_priors, artifact_spectra

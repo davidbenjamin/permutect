@@ -3,7 +3,7 @@ from argparse import Namespace
 import torch
 
 from tensorboard.backend.event_processing.event_accumulator import EventAccumulator
-from permutect import constants
+from permutect import constants, utils
 from permutect.tools import train_model
 from permutect.architecture.artifact_model import load_artifact_model
 
@@ -47,11 +47,12 @@ def test_train_model():
     events = EventAccumulator(training_tensorboard_dir.name)
     events.Reload()
 
-    loaded_artifact_model, artifact_log_priors, artifact_spectra_state_dict = load_artifact_model(saved_artifact_model)
+    device = utils.gpu_if_available()
+    loaded_artifact_model, artifact_log_priors, artifact_spectra_state_dict = load_artifact_model(saved_artifact_model, device=device)
     assert artifact_log_priors is not None
     assert artifact_spectra_state_dict is not None
 
-    saved = torch.load(saved_artifact_model)
+    saved = torch.load(saved_artifact_model, device=device)
     assert constants.ARTIFACT_LOG_PRIORS_NAME in saved
     assert constants.ARTIFACT_SPECTRA_STATE_DICT_NAME in saved
 

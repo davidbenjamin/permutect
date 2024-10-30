@@ -10,10 +10,10 @@ from intervaltree import IntervalTree
 from torch.utils.tensorboard import SummaryWriter
 from tqdm.autonotebook import tqdm
 
-from permutect import constants
-from permutect.architecture.artifact_model import ArtifactModel, load_artifact_model, load_base_model_and_artifact_model
+from permutect import constants, utils
+from permutect.architecture.artifact_model import ArtifactModel, load_base_model_and_artifact_model
 from permutect.architecture.posterior_model import PosteriorModel
-from permutect.architecture.base_model import BaseModel, load_base_model
+from permutect.architecture.base_model import BaseModel
 from permutect.data import base_dataset, plain_text_data, base_datum
 from permutect.data.posterior import PosteriorDataset, PosteriorDatum
 from permutect.data.artifact_dataset import ArtifactDataset
@@ -161,8 +161,9 @@ def make_filtered_vcf(saved_artifact_model_path, initial_log_variant_prior: floa
             contig, index = line.split()
             contig_index_to_name_map[int(index)] = contig
 
+    device = utils.gpu_if_available()
     base_model, artifact_model, artifact_log_priors, artifact_spectra_state_dict = \
-        load_base_model_and_artifact_model(saved_artifact_model_path)
+        load_base_model_and_artifact_model(saved_artifact_model_path, device=device)
 
     posterior_model = PosteriorModel(initial_log_variant_prior, initial_log_artifact_prior, no_germline_mode=no_germline_mode, num_base_features=artifact_model.num_base_features)
     posterior_data_loader = make_posterior_data_loader(test_dataset_file, input_vcf, contig_index_to_name_map,
