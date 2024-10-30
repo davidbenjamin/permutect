@@ -117,7 +117,7 @@ class Calibration(nn.Module):
         for row_idx, alt_count in enumerate(alt_counts):
             for col_idx, ref_count in enumerate(ref_counts):
                 calibrated = self.forward(logits, ref_count * torch.ones_like(logits, device=device, dtype=dtype), alt_count * torch.ones_like(logits, device=device, dtype=dtype))
-                plotting.simple_plot_on_axis(cal_axes[row_idx, col_idx], [(logits.detach(), calibrated.detach(), "")], None, None)
+                plotting.simple_plot_on_axis(cal_axes[row_idx, col_idx], [(logits.detach().cpu(), calibrated.detach().cpu(), "")], None, None)
 
         plotting.tidy_subplots(cal_fig, cal_axes, x_label="alt count", y_label="ref count",
                                row_labels=[str(n) for n in ref_counts], column_labels=[str(n) for n in alt_counts])
