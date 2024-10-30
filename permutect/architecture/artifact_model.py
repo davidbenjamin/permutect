@@ -77,7 +77,7 @@ class Calibration(nn.Module):
         self.is_turned_on = True
 
         self.max_alt_count_for_adjustment = 20
-        # after training we comopute one final calibration adjustment, which depends on alt count
+        # after training we compute one final calibration adjustment, which depends on alt count
         # the nth element is the adjustment for alt count n
         # note that this is NOT a learnable parameter!!!! It is *set* but not learned!!
         self.final_adjustments = nn.Parameter(torch.zeros(self.max_alt_count_for_adjustment + 1), requires_grad=False)
