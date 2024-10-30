@@ -107,15 +107,16 @@ class Calibration(nn.Module):
         return self.calibrated_logits(logits, ref_counts, alt_counts)
 
     def plot_calibration(self):
+        device, dtype = self.final_adjustments.device, self.final_adjustments.dtype
         alt_counts = [1, 3, 5, 10, 15, 20]
         ref_counts = [1, 3, 5, 10, 15, 20]
-        logits = torch.range(-10, 10, 0.1)
+        logits = torch.range(-10, 10, 0.1, device=device, dtype=dtype)
         cal_fig,cal_axes = plt.subplots(len(alt_counts), len(ref_counts), sharex='all', sharey='all',
                                         squeeze=False, figsize=(10, 6), dpi=100)
 
         for row_idx, alt_count in enumerate(alt_counts):
             for col_idx, ref_count in enumerate(ref_counts):
-                calibrated = self.forward(logits, ref_count * torch.ones_like(logits), alt_count * torch.ones_like(logits))
+                calibrated = self.forward(logits, ref_count * torch.ones_like(logits, device=device, dtype=dtype), alt_count * torch.ones_like(logits, device=device, dtype=dtype))
                 plotting.simple_plot_on_axis(cal_axes[row_idx, col_idx], [(logits.detach(), calibrated.detach(), "")], None, None)
 
         plotting.tidy_subplots(cal_fig, cal_axes, x_label="alt count", y_label="ref count",
