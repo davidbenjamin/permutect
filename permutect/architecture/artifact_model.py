@@ -84,7 +84,7 @@ class Calibration(nn.Module):
 
     def set_adjustments(self, adjustments: torch.Tensor):
         current_device, current_dtype = self.final_adjustments.device, self.final_adjustments.dtype
-        self.final_adjustments = adjustments.to(device=current_device, dtype=current_dtype)
+        self.final_adjustments = nn.Parameter(adjustments.to(device=current_device, dtype=current_dtype), requires_grad=False)
         self.max_alt_count_for_adjustment = len(adjustments) - 1
 
     def calibrated_logits(self, logits_b: Tensor, ref_counts_b: Tensor, alt_counts_b: Tensor):
