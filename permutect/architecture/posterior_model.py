@@ -21,9 +21,8 @@ from permutect.metrics.evaluation_metrics import MAX_COUNT, NUM_COUNT_BINS, mult
 
 # TODO: write unit test asserting that this comes out to zero when counts are zero
 # given germline, the probability of these particular reads being alt
-def germline_log_likelihood(afs, mafs, alt_counts, depths):
+def germline_log_likelihood(afs, mafs, alt_counts, depths, het_beta=None):
     HOM_ALPHA, HOM_BETA = torch.tensor([98.0], device=depths.device), torch.tensor([2.0], device=depths.device)
-
     het_probs = 2 * afs * (1 - afs)
     hom_probs = afs * afs
     het_proportion = het_probs / (het_probs + hom_probs)
@@ -37,8 +36,10 @@ def germline_log_likelihood(afs, mafs, alt_counts, depths):
 
     combinatorial_term = torch.lgamma(depths + 1) - torch.lgamma(alt_counts + 1) - torch.lgamma(ref_counts + 1)
     # the following should both be 1D tensors of length batch size
-    alt_minor_ll = combinatorial_term + log_half_het_prop + alt_counts * log_mafs + ref_counts * log_1m_mafs
-    alt_major_ll = combinatorial_term + log_half_het_prop + ref_counts * log_mafs + alt_counts * log_1m_mafs
+    alt_minor_binomial = combinatorial_term + alt_counts * log_mafs + ref_counts * log_1m_mafs
+    alt_major_binomial = combinatorial_term + log_half_het_prop + ref_counts * log_mafs + alt_counts * log_1m_mafs
+    alt_minor_ll = log_half_het_prop + (alt_minor_binomial if het_beta is None else utils.beta_binomial(depths, alt_counts, het_beta, het_beta))
+    alt_major_ll = log_half_het_prop + (alt_major_binomial if het_beta is None else utils.beta_binomial(depths, alt_counts, het_beta, het_beta))
     hom_ll = torch.log(hom_proportion) + utils.beta_binomial(depths, alt_counts, HOM_ALPHA, HOM_BETA)
 
     return torch.logsumexp(torch.vstack((alt_minor_ll, alt_major_ll, hom_ll)), dim=0)
@@ -72,13 +73,14 @@ class PosteriorModel(torch.nn.Module):
     """
 
     """
-    def __init__(self, variant_log_prior: float, artifact_log_prior: float, num_base_features: int, no_germline_mode: bool = False, device=utils.gpu_if_available()):
+    def __init__(self, variant_log_prior: float, artifact_log_prior: float, num_base_features: int, no_germline_mode: bool = False, device=utils.gpu_if_available(), het_beta: float = None):
         super(PosteriorModel, self).__init__()
 
         self._device = device
         self._dtype = DEFAULT_GPU_FLOAT if device != torch.device("cpu") else DEFAULT_CPU_FLOAT
         self.no_germline_mode = no_germline_mode
         self.num_base_features = num_base_features
+        self.het_beta = het_beta
 
         # TODO introduce parameters class so that num_components is not hard-coded
         self.somatic_spectrum = SomaticSpectrum(num_components=5)
@@ -180,11 +182,11 @@ class PosteriorModel(torch.nn.Module):
             torch.logical_not(no_alt_in_normal_mask) * self.normal_artifact_spectra.forward(types, normal_depths, normal_alt_counts)
 
         afs = batch.get_allele_frequencies()
-        spectra_log_likelihoods[:, Call.GERMLINE] = germline_log_likelihood(afs, batch.get_mafs(), alt_counts, depths) - flat_prior_spectra_log_likelihoods
+        spectra_log_likelihoods[:, Call.GERMLINE] = germline_log_likelihood(afs, batch.get_mafs(), alt_counts, depths, self.het_beta) - flat_prior_spectra_log_likelihoods
 
         # it is correct not to subtract the flat prior likelihood from the normal term because this is an absolute likelihood, not
         # relative to seq error as the M2 TLOD is defined
-        normal_log_likelihoods[:, Call.GERMLINE] = germline_log_likelihood(afs, batch.get_normal_mafs(), normal_alt_counts, normal_depths)
+        normal_log_likelihoods[:, Call.GERMLINE] = germline_log_likelihood(afs, batch.get_normal_mafs(), normal_alt_counts, normal_depths, self.het_beta)
 
         log_posteriors = log_priors + spectra_log_likelihoods + normal_log_likelihoods
         log_posteriors[:, Call.ARTIFACT] += batch.get_artifact_logits()
