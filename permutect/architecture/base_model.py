@@ -53,7 +53,7 @@ def calculate_batch_source_weights(batch, dataset, by_count: bool):
     # -1 is the sentinel value for aggregation over all counts
     types_one_hot = batch.variant_type_one_hot()
     weights_by_type = np.vstack([dataset.weights[count if by_count else -1][source] for count, source in zip(batch.alt_counts.tolist(), batch.sources.tolist())])
-    source_weights = torch.sum(torch.from_numpy(weights_by_type) * types_one_hot, dim=1)
+    source_weights = torch.sum(torch.from_numpy(weights_by_type).to(device=types_one_hot.device) * types_one_hot, dim=1)
 
     return source_weights
 
@@ -226,7 +226,7 @@ def base_model_from_saved_dict(saved, prefix: str = "", device: torch.device = u
 
 
 def load_base_model(path, prefix: str = "", device: torch.device = utils.gpu_if_available()) -> BaseModel:
-    saved = torch.load(path)
+    saved = torch.load(path, map_location=device)
     return base_model_from_saved_dict(saved, prefix, device)
 
 
@@ -493,8 +493,9 @@ def learn_base_model(base_model: BaseModel, dataset: BaseDataset, learning_metho
     alt_count_gradient_reversal = GradientReversal(alpha=0.01)  #initialize as barely active
     alt_count_predictor = MLP([base_model.output_dimension()] + [30, -1, -1, -1, 1]).to(device=base_model._device, dtype=base_model._dtype)
     alt_count_loss_func = torch.nn.MSELoss(reduction='none')
-    alt_count_adversarial_metrics = LossMetrics(base_model._device)
+    alt_count_adversarial_metrics = LossMetrics()
 
+    # TODO: fused = is_cuda?
     train_optimizer = torch.optim.AdamW(chain(base_model.parameters(), learning_strategy.parameters(), alt_count_predictor.parameters()),
                                         lr=training_params.learning_rate, weight_decay=training_params.weight_decay)
     # train scheduler needs to be given the thing that's supposed to decrease at the end of each epoch
@@ -504,11 +505,13 @@ def learn_base_model(base_model: BaseModel, dataset: BaseDataset, learning_metho
     classifier_on_top = MLP([base_model.output_dimension()] + [30, -1, -1, -1, 10] + [1])\
         .to(device=base_model._device, dtype=base_model._dtype)
     classifier_bce = torch.nn.BCEWithLogitsLoss(reduction='none')
+
+    # TODO: fused = is_cuda?
     classifier_optimizer = torch.optim.AdamW(classifier_on_top.parameters(),
                                              lr=training_params.learning_rate,
                                              weight_decay=training_params.weight_decay,
                                              fused=True)
-    classifier_metrics = LossMetrics(base_model._device)
+    classifier_metrics = LossMetrics()
 
     validation_fold_to_use = (dataset.num_folds - 1) if validation_fold is None else validation_fold
     train_loader = dataset.make_data_loader(dataset.all_but_one_fold(validation_fold_to_use), training_params.batch_size, is_cuda, training_params.num_workers)
@@ -522,7 +525,7 @@ def learn_base_model(base_model: BaseModel, dataset: BaseDataset, learning_metho
         print(f"Start of epoch {epoch}, memory usage percent: {psutil.virtual_memory().percent:.1f}")
         for epoch_type in (utils.Epoch.TRAIN, utils.Epoch.VALID):
             base_model.set_epoch_type(epoch_type)
-            loss_metrics = LossMetrics(base_model._device)
+            loss_metrics = LossMetrics()
 
             loader = train_loader if epoch_type == utils.Epoch.TRAIN else valid_loader
             loader_iter = iter(loader)
@@ -541,7 +544,7 @@ def learn_base_model(base_model: BaseModel, dataset: BaseDataset, learning_metho
 
                 # TODO: we need a parameter to control the relative weight of unlabeled loss to labeled loss
                 weights = calculate_batch_weights(batch_cpu, dataset, by_count=True)
-                weights = weights.to(device=base_model._device, dtype=base_model._dtype)
+                weights = weights.to(device=base_model._device, dtype=base_model._dtype, non_blocking=True)
 
                 # unused output is the embedding of ref and alt alleles with context
                 representations, _ = base_model.calculate_representations(batch, weight_range=base_model._params.reweighting_range)

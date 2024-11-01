@@ -1,5 +1,6 @@
 # bug before PyTorch 1.7.1 that warns when constructing ParameterList
 import math
+import time
 import warnings
 from collections import defaultdict
 from typing import List
@@ -64,8 +65,10 @@ class Calibration(nn.Module):
         ref_center_spacing = 5
 
         # centers of Gaussian comb featurizations
-        self.alt_centers = torch.arange(start=1, end=20, step=center_spacing)
-        self.ref_centers = torch.arange(start=1, end=20, step=ref_center_spacing)
+        # note: even though they aren't learned and requires_grad is False, we still wrap them in nn.Parameter
+        # so that they can be sent to GPU recursively when the grandparent ArtifactModel is
+        self.alt_centers = nn.Parameter(torch.arange(start=1, end=20, step=center_spacing), requires_grad=False)
+        self.ref_centers = nn.Parameter(torch.arange(start=1, end=20, step=ref_center_spacing), requires_grad=False)
 
         # increasing in the 1st feature, logits
         # logit is one feature, then the Gaussian comb for alt and ref counts is the other
@@ -74,13 +77,17 @@ class Calibration(nn.Module):
         self.is_turned_on = True
 
         self.max_alt_count_for_adjustment = 20
-        # after training we comopute one final calibration adjustment, which depends on alt count
+        # after training we compute one final calibration adjustment, which depends on alt count
         # the nth element is the adjustment for alt count n
-        # note that this is NOT a parameter!!!! It is *set* but not learned!!
-        self.final_adjustments = torch.zeros(self.max_alt_count_for_adjustment + 1)
+        # note that this is NOT a learnable parameter!!!! It is *set* but not learned!!
+        self.final_adjustments = nn.Parameter(torch.zeros(self.max_alt_count_for_adjustment + 1), requires_grad=False)
 
-    def set_adjustments(self, adjustments):
-        self.final_adjustments = adjustments
+    def set_adjustments(self, adjustments: torch.Tensor):
+        current_device, current_dtype = self.final_adjustments.device, self.final_adjustments.dtype
+        clipped_adjustments = adjustments[:len(self.final_adjustments)]
+        padding_needed = len(self.final_adjustments) - len(clipped_adjustments)
+        padded_adjustments = torch.hstack((clipped_adjustments, clipped_adjustments[-1] * torch.ones(padding_needed))) if padding_needed else clipped_adjustments
+        self.final_adjustments = nn.Parameter(padded_adjustments.to(device=current_device, dtype=current_dtype), requires_grad=False)
         self.max_alt_count_for_adjustment = len(adjustments) - 1
 
     def calibrated_logits(self, logits_b: Tensor, ref_counts_b: Tensor, alt_counts_b: Tensor):
@@ -103,16 +110,17 @@ class Calibration(nn.Module):
         return self.calibrated_logits(logits, ref_counts, alt_counts)
 
     def plot_calibration(self):
+        device, dtype = self.final_adjustments.device, self.final_adjustments.dtype
         alt_counts = [1, 3, 5, 10, 15, 20]
         ref_counts = [1, 3, 5, 10, 15, 20]
-        logits = torch.range(-10, 10, 0.1)
+        logits = torch.range(-10, 10, 0.1, device=device, dtype=dtype)
         cal_fig,cal_axes = plt.subplots(len(alt_counts), len(ref_counts), sharex='all', sharey='all',
                                         squeeze=False, figsize=(10, 6), dpi=100)
 
         for row_idx, alt_count in enumerate(alt_counts):
             for col_idx, ref_count in enumerate(ref_counts):
-                calibrated = self.forward(logits, ref_count * torch.ones_like(logits), alt_count * torch.ones_like(logits))
-                plotting.simple_plot_on_axis(cal_axes[row_idx, col_idx], [(logits.detach(), calibrated.detach(), "")], None, None)
+                calibrated = self.forward(logits, ref_count * torch.ones_like(logits, device=device, dtype=dtype), alt_count * torch.ones_like(logits, device=device, dtype=dtype))
+                plotting.simple_plot_on_axis(cal_axes[row_idx, col_idx], [(logits.detach().cpu(), calibrated.detach().cpu(), "")], None, None)
 
         plotting.tidy_subplots(cal_fig, cal_axes, x_label="alt count", y_label="ref count",
                                row_labels=[str(n) for n in ref_counts], column_labels=[str(n) for n in alt_counts])
@@ -170,10 +178,11 @@ class ArtifactModel(nn.Module):
 
     # returns 1D tensor of length batch_size of log odds ratio (logits) between artifact and non-artifact
     def forward(self, batch: ArtifactBatch):
-        features = self.feature_layers.forward(batch.get_representations_2d().to(device=self._device, dtype=self._dtype))
+        # batch has already gotten copy_to(self._device, self._dtype)
+        features = self.feature_layers.forward(batch.get_representations_2d())
         uncalibrated_logits = self.artifact_classifier.forward(features).reshape(batch.size())
-        calibrated_logits = torch.zeros_like(uncalibrated_logits)
-        one_hot_types_2d = batch.variant_type_one_hot().to(device=self._device, dtype=self._dtype)
+        calibrated_logits = torch.zeros_like(uncalibrated_logits, device=self._device)
+        one_hot_types_2d = batch.variant_type_one_hot()
         for n, _ in enumerate(Variation):
             mask = one_hot_types_2d[:, n]
             calibrated_logits += mask * self.calibration[n].forward(uncalibrated_logits, batch.ref_counts, batch.alt_counts)
@@ -196,8 +205,11 @@ class ArtifactModel(nn.Module):
             print(f"Training data come from multiple sources, with counts {dataset.counts_by_source}.")
         source_classifier = MLP([self.feature_layers.output_dimension()] + [-1, -1, num_sources],
                                     batch_normalize=self.params.batch_normalize, dropout_p=self.params.dropout_p)
+        source_classifier.to(device=self._device, dtype=self._dtype)
         source_gradient_reversal = GradientReversal(alpha=0.01)  # initialize as barely active
+        source_gradient_reversal.to(device=self._device, dtype=self._dtype)
 
+        # TODO: fused = is_cuda?
         train_optimizer = torch.optim.AdamW(chain(self.training_parameters(), source_classifier.parameters()), lr=training_params.learning_rate,
                                             weight_decay=training_params.weight_decay)
         train_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(train_optimizer, factor=0.2, patience=3,
@@ -208,14 +220,18 @@ class ArtifactModel(nn.Module):
                 artifacts, {int(dataset.totals[-1][Label.VARIANT][idx].item())} \
                 non-artifacts, and {int(dataset.totals[-1][Label.UNLABELED][idx].item())} unlabeled data.")
 
+        is_cuda = self._device.type == 'cuda'
+        print(f"Is CUDA available? {is_cuda}")
+
         validation_fold_to_use = (dataset.num_folds - 1) if validation_fold is None else validation_fold
-        train_loader = dataset.make_data_loader(dataset.all_but_one_fold(validation_fold_to_use), training_params.batch_size, self._device.type == 'cuda', training_params.num_workers)
+        train_loader = dataset.make_data_loader(dataset.all_but_one_fold(validation_fold_to_use), training_params.batch_size, is_cuda, training_params.num_workers)
         print(f"Train loader created, memory usage percent: {psutil.virtual_memory().percent:.1f}")
-        valid_loader = dataset.make_data_loader([validation_fold_to_use], training_params.batch_size, self._device.type == 'cuda', training_params.num_workers)
+        valid_loader = dataset.make_data_loader([validation_fold_to_use], training_params.batch_size, is_cuda, training_params.num_workers)
         print(f"Validation loader created, memory usage percent: {psutil.virtual_memory().percent:.1f}")
 
         first_epoch, last_epoch = 1, training_params.num_epochs + training_params.num_calibration_epochs
         for epoch in trange(1, last_epoch + 1, desc="Epoch"):
+            start_of_epoch = time.time()
             print(f"Epoch {epoch}, memory usage percent: {psutil.virtual_memory().percent:.1f}")
             is_calibration_epoch = epoch > training_params.num_epochs
 
@@ -230,13 +246,26 @@ class ArtifactModel(nn.Module):
                     utils.freeze(self.parameters())
                     utils.unfreeze(self.calibration_parameters())  # unfreeze calibration but everything else stays frozen
 
-                loss_metrics = LossMetrics(self._device)    # based on calibrated logits
-                source_prediction_loss_metrics = LossMetrics(self._device)  # based on calibrated logits
-                uncalibrated_loss_metrics = LossMetrics(self._device)  # based on uncalibrated logits
+                loss_metrics = LossMetrics()    # based on calibrated logits
+                source_prediction_loss_metrics = LossMetrics()  # based on calibrated logits
+                uncalibrated_loss_metrics = LossMetrics()  # based on uncalibrated logits
 
                 loader = train_loader if epoch_type == utils.Epoch.TRAIN else valid_loader
-                pbar = tqdm(enumerate(loader), mininterval=60)
-                for n, batch in pbar:
+                loader_iter = iter(loader)
+
+                next_batch_cpu = next(loader_iter)
+                next_batch = next_batch_cpu.copy_to(self._device, self._dtype, non_blocking=is_cuda)
+
+                pbar = tqdm(range(len(loader)), mininterval=60)
+                for n in pbar:
+                    # forward and backward pass on batch, which is the last iteration's prefetched "next_batch"
+                    batch_cpu = next_batch_cpu
+                    batch = next_batch
+
+                    # Optimization: Asynchronously send the next batch to the device while the model does work
+                    next_batch_cpu = next(loader_iter)
+                    next_batch = next_batch_cpu.copy_to(self._device, self._dtype, non_blocking=is_cuda)
+
                     logits, precalibrated_logits, features = self.forward(batch)
 
                     # one-hot prediction of sources
@@ -246,16 +275,19 @@ class ArtifactModel(nn.Module):
                         # to achieve the adversarial task of distinguishing sources
                         source_prediction_logits = source_classifier.forward(source_gradient_reversal(features))
                         source_prediction_probs = torch.nn.functional.softmax(source_prediction_logits, dim=-1)
-                        source_prediction_targets = torch.nn.functional.one_hot(batch.sources.to(device=self._device).long(), num_sources)
+                        source_prediction_targets = torch.nn.functional.one_hot(batch.sources.long(), num_sources)
                         source_prediction_losses = torch.sum(torch.square(source_prediction_probs - source_prediction_targets), dim=-1)
-                        source_prediction_weights = calculate_batch_source_weights(batch, dataset, by_count=is_calibration_epoch)
-                    else:
-                        source_prediction_losses = torch.zeros_like(logits)
-                        source_prediction_weights = torch.zeros_like(logits)
 
-                    # TODO: maybe this should be done by count for all epochs?
+                        # TODO: always by count?
+                        source_prediction_weights = calculate_batch_source_weights(batch_cpu, dataset, by_count=is_calibration_epoch)
+                        source_prediction_weights = source_prediction_weights.to(device=self._device, dtype=self._dtype, non_blocking=True)
+                    else:
+                        source_prediction_losses = torch.zeros_like(logits, device=self._device)
+                        source_prediction_weights = torch.zeros_like(logits, device=self._device)
+
                     # TODO: we need a parameter to control the relative weight of unlabeled loss to labeled loss
-                    weights = calculate_batch_weights(batch, dataset, by_count=True)
+                    weights = calculate_batch_weights(batch_cpu, dataset, by_count=True)
+                    weights = weights.to(device=self._device, dtype=self._dtype, non_blocking=True)
 
                     uncalibrated_cross_entropies = bce(precalibrated_logits, batch.labels)
                     calibrated_cross_entropies = bce(logits, batch.labels)
@@ -271,6 +303,8 @@ class ArtifactModel(nn.Module):
                     losses = (labeled_losses + unlabeled_losses) * weights + (source_prediction_losses * source_prediction_weights)
                     loss = torch.sum(losses)
 
+                    # at this point, losses, weights are on GPU (if available), while metrics are on CPU
+                    # if we have done things right, this is okay and record_losses handles GPU <--> CPU efficiently
                     loss_metrics.record_losses(calibrated_cross_entropies.detach(), batch, weights * batch.is_labeled_mask)
                     uncalibrated_loss_metrics.record_losses(uncalibrated_cross_entropies.detach(), batch, weights * batch.is_labeled_mask)
                     uncalibrated_loss_metrics.record_losses(entropies.detach(), batch, weights * (1 - batch.is_labeled_mask))
@@ -294,6 +328,7 @@ class ArtifactModel(nn.Module):
                     print(f"Adversarial source prediction loss on labeled data for {epoch_type.name} epoch {epoch}: {source_prediction_loss_metrics.get_labeled_loss():.3f}")
                     print(f"Adversarial source prediction loss on unlabeled data for {epoch_type.name} epoch {epoch}: {source_prediction_loss_metrics.get_unlabeled_loss():.3f}")
             # done with training and validation for this epoch
+            print(f"End of epoch {epoch}, memory usage percent: {psutil.virtual_memory().percent:.1f}, time elapsed(s): {time.time() - start_of_epoch:.2f}")
             is_last = (epoch == last_epoch)
             if (epochs_per_evaluation is not None and epoch % epochs_per_evaluation == 0) or is_last:
                 self.evaluate_model(epoch, dataset, train_loader, valid_loader, summary_writer, collect_embeddings=False, report_worst=False)
@@ -339,20 +374,24 @@ class ArtifactModel(nn.Module):
             assert epoch_type == Epoch.TRAIN or epoch_type == Epoch.VALID  # not doing TEST here
             loader = train_loader if epoch_type == Epoch.TRAIN else valid_loader
             pbar = tqdm(enumerate(loader), mininterval=60)
-            for n, batch in pbar:
+            for n, batch_cpu in pbar:
+                batch = batch_cpu.copy_to(self._device, self._dtype, non_blocking=self._device.type == 'cuda')
 
                 # these are the same weights used in training
-                # TODO: maybe this should be done by count?
                 # TODO: we need a parameter to control the relative weight of unlabeled loss to labeled loss
-                weights = calculate_batch_weights(batch, dataset, by_count=True)
+                weights = calculate_batch_weights(batch_cpu, dataset, by_count=True)
+                weights = weights.to(dtype=self._dtype)     # not sent to GPU!
 
                 logits, _, _ = self.forward(batch)
-                pred = logits.detach()
-                correct = ((pred > 0) == (batch.labels > 0.5)).tolist()
+                # logits are calculated on the GPU (when available), so we must detach AND send back to CPU (if applicable)
+                pred = logits.detach().cpu()
+
+                # note that for metrics we use batch_cpu
+                correct = ((pred > 0) == (batch_cpu.labels > 0.5)).tolist()
 
                 for variant_type, predicted_logit, label, is_labeled, correct_call, alt_count, datum, weight in zip(
-                        batch.variant_types(), pred.tolist(), batch.labels.tolist(), batch.is_labeled_mask.tolist(), correct,
-                        batch.alt_counts, batch.original_data, weights.tolist()):
+                        batch_cpu.variant_types(), pred.tolist(), batch_cpu.labels.tolist(), batch_cpu.is_labeled_mask.tolist(), correct,
+                        batch_cpu.alt_counts, batch_cpu.original_data, weights.tolist()):
                     if is_labeled < 0.5:    # we only evaluate labeled data
                         continue
                     evaluation_metrics.record_call(epoch_type, variant_type, predicted_logit, label, correct_call, alt_count, weight)
@@ -401,23 +440,24 @@ class ArtifactModel(nn.Module):
             # now go over just the validation data and generate feature vectors / metadata for tensorboard projectors (UMAP)
             pbar = tqdm(enumerate(valid_loader), mininterval=60)
 
-            for n, batch in pbar:
+            for n, batch_cpu in pbar:
+                batch = batch_cpu.copy_to(self._device, self._dtype, non_blocking=self._device.type == 'cuda')
                 logits, _, _ = self.forward(batch)
-                pred = logits.detach()
-                correct = ((pred > 0) == (batch.labels > 0.5)).tolist()
+                pred = logits.detach().cpu()
+                correct = ((pred > 0) == (batch_cpu.labels > 0.5)).tolist()
 
                 label_strings = [("artifact" if label > 0.5 else "non-artifact") if is_labeled > 0.5 else "unlabeled"
-                                 for (label, is_labeled) in zip(batch.labels.tolist(), batch.is_labeled_mask.tolist())]
+                                 for (label, is_labeled) in zip(batch_cpu.labels.tolist(), batch_cpu.is_labeled_mask.tolist())]
 
                 correct_strings = [str(correctness) if is_labeled > 0.5 else "-1"
-                                 for (correctness, is_labeled) in zip(correct, batch.is_labeled_mask.tolist())]
+                                 for (correctness, is_labeled) in zip(correct, batch_cpu.is_labeled_mask.tolist())]
 
-                for (metrics, embedding) in [(embedding_metrics, batch.get_representations_2d().detach()),
-                                              (ref_alt_seq_metrics, batch.get_ref_alt_seq_embeddings_2d().detach())]:
+                for (metrics, embedding) in [(embedding_metrics, batch_cpu.get_representations_2d().detach()),
+                                              (ref_alt_seq_metrics, batch_cpu.get_ref_alt_seq_embeddings_2d().detach())]:
                     metrics.label_metadata.extend(label_strings)
                     metrics.correct_metadata.extend(correct_strings)
-                    metrics.type_metadata.extend([Variation(idx).name for idx in batch.variant_types()])
-                    metrics.truncated_count_metadata.extend([str(round_up_to_nearest_three(min(MAX_COUNT, alt_count))) for alt_count in batch.alt_counts])
+                    metrics.type_metadata.extend([Variation(idx).name for idx in batch_cpu.variant_types()])
+                    metrics.truncated_count_metadata.extend([str(round_up_to_nearest_three(min(MAX_COUNT, alt_count))) for alt_count in batch_cpu.alt_counts])
                     metrics.representations.append(embedding)
             embedding_metrics.output_to_summary_writer(summary_writer, epoch=epoch)
             ref_alt_seq_metrics.output_to_summary_writer(summary_writer, prefix="ref alt seq ", epoch=epoch)
@@ -454,13 +494,13 @@ def artifact_model_from_saved_dict(saved, prefix: str = "artifact"):
 
 
 # log artifact priors and artifact spectra may be None
-def load_artifact_model(path,  prefix: str = "artifact") -> ArtifactModel:
-    saved = torch.load(path)
+def load_artifact_model(path,  device, prefix: str = "artifact") -> ArtifactModel:
+    saved = torch.load(path, map_location=device)
     return artifact_model_from_saved_dict(saved, prefix)
 
 
-def load_base_model_and_artifact_model(path) -> ArtifactModel:
-    saved = torch.load(path)
+def load_base_model_and_artifact_model(path, device) -> ArtifactModel:
+    saved = torch.load(path, map_location=device)
     base_model = base_model_from_saved_dict(saved, prefix="base")
     artifact_model, artifact_log_priors, artifact_spectra = artifact_model_from_saved_dict(saved, prefix="artifact")
     return base_model, artifact_model, artifact_log_priors, artifact_spectra

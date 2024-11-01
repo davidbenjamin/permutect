@@ -1,3 +1,4 @@
+import copy
 import random
 import math
 from typing import List, Iterable
@@ -84,6 +85,17 @@ class PosteriorBatch:
         self.int_tensor = self.int_tensor.pin_memory()
         self.float_tensor = self.float_tensor.pin_memory()
         return self
+
+    # dtype is just for floats!!! Better not convert the int tensor to a float accidentally!
+    def copy_to(self, device, dtype, non_blocking):
+        # For all non-tensor attributes, shallow copy is sufficient
+        new_batch = copy.copy(self)
+
+        new_batch.embeddings = self.embeddings.to(device=device, dtype=dtype, non_blocking=non_blocking)
+        new_batch.int_tensor = self.int_tensor.to(device=device, non_blocking=non_blocking)
+        new_batch.float_tensor = self.float_tensor.to(device=device, dtype=dtype, non_blocking=non_blocking)
+
+        return new_batch
 
     def get_variant_types(self) -> torch.Tensor:
         return self.int_tensor[:, PosteriorDatum.VAR_TYPE]
