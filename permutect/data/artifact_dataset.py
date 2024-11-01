@@ -12,6 +12,16 @@ from permutect.data.base_datum import ArtifactDatum, ArtifactBatch
 from permutect.data.base_dataset import BaseDataset, chunk
 
 
+class _ListDataset(Dataset):
+    def __init__(self, data_list):
+        self.data = data_list
+
+    def __len__(self):
+        return len(self.data)
+
+    def __getitem__(self, idx):
+        return self.data[idx]
+
 # given a ReadSetDataset, apply a BaseModel to get an ArtifactDataset (in RAM, maybe implement memory map later)
 # of RepresentationReadSets
 class ArtifactDataset(Dataset):
@@ -73,7 +83,8 @@ class ArtifactDataset(Dataset):
 
     def make_data_loader(self, folds_to_use: List[int], batch_size: int, pin_memory=False, num_workers: int = 0, labeled_only: bool = False):
         sampler = SemiSupervisedArtifactBatchSampler(self, batch_size, folds_to_use, labeled_only)
-        return DataLoader(dataset=self, batch_sampler=sampler, collate_fn=ArtifactBatch, pin_memory=pin_memory, num_workers=num_workers)
+        wrapped_dset = _ListDataset(self.artifact_data)
+        return DataLoader(dataset=wrapped_dset, batch_sampler=sampler, collate_fn=ArtifactBatch, pin_memory=pin_memory, num_workers=num_workers)
 
 
 # make ArtifactBatches that mix different ref, alt counts, labeled, unlabeled

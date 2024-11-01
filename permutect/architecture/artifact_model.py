@@ -224,7 +224,10 @@ class ArtifactModel(nn.Module):
         print(f"Is CUDA available? {is_cuda}")
 
         validation_fold_to_use = (dataset.num_folds - 1) if validation_fold is None else validation_fold
-        train_loader = dataset.make_data_loader(dataset.all_but_one_fold(validation_fold_to_use), training_params.batch_size, is_cuda, training_params.num_workers)
+        train_loader = dataset.make_data_loader(dataset.all_but_one_fold(validation_fold_to_use),
+                                                training_params.batch_size,
+                                                is_cuda,
+                                                training_params.num_workers)
         print(f"Train loader created, memory usage percent: {psutil.virtual_memory().percent:.1f}")
         valid_loader = dataset.make_data_loader([validation_fold_to_use], training_params.batch_size, is_cuda, training_params.num_workers)
         print(f"Validation loader created, memory usage percent: {psutil.virtual_memory().percent:.1f}")
@@ -256,7 +259,7 @@ class ArtifactModel(nn.Module):
                 next_batch_cpu = next(loader_iter)
                 next_batch = next_batch_cpu.copy_to(self._device, self._dtype, non_blocking=is_cuda)
 
-                pbar = tqdm(range(len(loader)), mininterval=60)
+                pbar = tqdm(range(len(loader)), mininterval=1)
                 for n in pbar:
                     # forward and backward pass on batch, which is the last iteration's prefetched "next_batch"
                     batch_cpu = next_batch_cpu
