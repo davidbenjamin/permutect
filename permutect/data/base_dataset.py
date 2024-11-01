@@ -135,6 +135,16 @@ class BaseDataset(Dataset):
         self.num_info_features = len(self[0].get_info_tensor_1d())
         self.ref_sequence_length = len(self[0].get_ref_sequence_1d())
 
+        # To avoid pickling issues in certain environments, convert populated defaultdicts to dicts
+        self.counts_by_source = dict(self.counts_by_source)
+        self.weights = dict(self.weights)
+        self.totals = dict(self.totals)
+        self.source_totals = {k: dict(v) for k, v in self.source_totals.items()}
+        self.source_weights = {k: dict(v) for k, v in self.source_weights.items()}
+        self.labeled_indices_by_count = [dict(l) for l in self.labeled_indices_by_count]
+        self.unlabeled_indices_by_count = [dict(l) for l in self.unlabeled_indices_by_count]
+
+
     def __len__(self):
         return len(self._data) // TENSORS_PER_BASE_DATUM if self._memory_map_mode else len(self._data)
 
