@@ -1,4 +1,5 @@
 import math
+import multiprocessing
 import random
 from typing import List
 from tqdm.autonotebook import tqdm
@@ -29,14 +30,15 @@ class ArtifactDataset(Dataset):
         self.num_ref_alt_features = base_model.ref_alt_seq_embedding_dimension()
 
         index = 0
-
-        loader = base_dataset.make_data_loader(base_dataset.all_folds() if folds_to_use is None else folds_to_use, batch_size=256)
+        loader = base_dataset.make_data_loader(base_dataset.all_folds() if folds_to_use is None else folds_to_use,
+                                               batch_size=4096,
+                                               num_workers=multiprocessing.cpu_count()//2)
         print("making artifact dataset from base dataset")
 
         is_cuda = base_model._device.type == 'cuda'
         print(f"Is base model using CUDA? {is_cuda}")
 
-        pbar = tqdm(enumerate(loader), mininterval=60)
+        pbar = tqdm(enumerate(loader), mininterval=1)
         for n, base_batch_cpu in pbar:
             base_batch = base_batch_cpu.copy_to(base_model._device, non_blocking=base_model._device.type == 'cuda')
             representations, ref_alt_seq_embeddings = base_model.calculate_representations(base_batch)
