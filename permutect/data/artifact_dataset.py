@@ -1,9 +1,10 @@
 import math
 import random
 from typing import List
-from tqdm.autonotebook import tqdm
 
 import numpy as np
+import torch
+from tqdm.autonotebook import tqdm
 from torch.utils.data import Dataset, DataLoader, Sampler
 
 from permutect.architecture.base_model import BaseModel
@@ -14,7 +15,11 @@ from permutect.data.base_dataset import BaseDataset, chunk
 # given a ReadSetDataset, apply a BaseModel to get an ArtifactDataset (in RAM, maybe implement memory map later)
 # of RepresentationReadSets
 class ArtifactDataset(Dataset):
-    def __init__(self, base_dataset: BaseDataset, base_model: BaseModel, folds_to_use: List[int] = None):
+    def __init__(self, base_dataset: BaseDataset,
+                 base_model: BaseModel,
+                 folds_to_use: List[int] = None,
+                 base_loader_num_workers=0,
+                 base_loader_batch_size=4096):
         self.counts_by_source = base_dataset.counts_by_source
         self.totals = base_dataset.totals
         self.source_totals = base_dataset.source_totals
@@ -30,7 +35,9 @@ class ArtifactDataset(Dataset):
 
         index = 0
 
-        loader = base_dataset.make_data_loader(base_dataset.all_folds() if folds_to_use is None else folds_to_use, batch_size=256)
+        loader = base_dataset.make_data_loader(base_dataset.all_folds() if folds_to_use is None else folds_to_use,
+                                               batch_size=base_loader_batch_size,
+                                               num_workers=base_loader_num_workers)
         print("making artifact dataset from base dataset")
 
         is_cuda = base_model._device.type == 'cuda'
@@ -38,8 +45,9 @@ class ArtifactDataset(Dataset):
 
         pbar = tqdm(enumerate(loader), mininterval=60)
         for n, base_batch_cpu in pbar:
-            base_batch = base_batch_cpu.copy_to(base_model._device, non_blocking=base_model._device.type == 'cuda')
-            representations, ref_alt_seq_embeddings = base_model.calculate_representations(base_batch)
+            base_batch = base_batch_cpu.copy_to(base_model._device, non_blocking=is_cuda)
+            with torch.inference_mode():
+                representations, ref_alt_seq_embeddings = base_model.calculate_representations(base_batch)
             for representation, ref_alt_emb, base_datum in zip(representations.detach().cpu(), ref_alt_seq_embeddings.detach().cpu(), base_batch_cpu.original_list()):
                 artifact_datum = ArtifactDatum(base_datum, representation.detach(), ref_alt_emb)
                 self.artifact_data.append(artifact_datum)
