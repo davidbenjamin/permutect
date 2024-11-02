@@ -389,9 +389,9 @@ class ArtifactModel(nn.Module):
                 # note that for metrics we use batch_cpu
                 correct = ((pred > 0) == (batch_cpu.labels > 0.5)).tolist()
 
-                for variant_type, predicted_logit, label, is_labeled, correct_call, alt_count, datum, weight in zip(
+                for variant_type, predicted_logit, label, is_labeled, correct_call, alt_count, variant, weight in zip(
                         batch_cpu.variant_types(), pred.tolist(), batch_cpu.labels.tolist(), batch_cpu.is_labeled_mask.tolist(), correct,
-                        batch_cpu.alt_counts, batch_cpu.original_data, weights.tolist()):
+                        batch_cpu.alt_counts, batch_cpu.original_variants, weights.tolist()):
                     if is_labeled < 0.5:    # we only evaluate labeled data
                         continue
                     evaluation_metrics.record_call(epoch_type, variant_type, predicted_logit, label, correct_call, alt_count, weight)
@@ -408,7 +408,6 @@ class ArtifactModel(nn.Module):
                             pqueue.get()  # discards the least confident bad call
 
                         if not pqueue.full():  # if space was cleared or if it wasn't full already
-                            variant = datum.get_other_stuff_1d().get_variant()
                             pqueue.put((confidence, str(variant.contig) + ":" + str(
                                 variant.position) + ':' + variant.ref + "->" + variant.alt))
             # done with this epoch type
