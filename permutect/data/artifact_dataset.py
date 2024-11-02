@@ -2,7 +2,6 @@ import math
 import random
 from typing import List
 
-import numpy as np
 import torch
 from tqdm.autonotebook import tqdm
 from torch.utils.data import Dataset, DataLoader, Sampler
@@ -19,7 +18,7 @@ class ArtifactDataset(Dataset):
                  base_model: BaseModel,
                  folds_to_use: List[int] = None,
                  base_loader_num_workers=0,
-                 base_loader_batch_size=4096):
+                 base_loader_batch_size=8192):
         self.counts_by_source = base_dataset.counts_by_source
         self.totals = base_dataset.totals
         self.source_totals = base_dataset.source_totals
