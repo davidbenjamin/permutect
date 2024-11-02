@@ -660,7 +660,10 @@ class ArtifactDatum:
 
 class ArtifactBatch:
     def __init__(self, data: List[ArtifactDatum]):
-        self.original_data = data
+
+        #self.original_data = data
+        self.original_variants = [d.get_other_stuff_1d().get_variant() for d in data]
+        self.original_counts_and_seq_lks = [d.get_other_stuff_1d().get_counts_and_seq_lks() for d in data]
 
         self.representations_2d = torch.vstack([item.representation for item in data])
         self.ref_alt_seq_embeddings_2d = torch.vstack([item.ref_alt_seq_embedding for item in data])
