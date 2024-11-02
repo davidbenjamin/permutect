@@ -224,9 +224,12 @@ class ArtifactModel(nn.Module):
         print(f"Is CUDA available? {is_cuda}")
 
         validation_fold_to_use = (dataset.num_folds - 1) if validation_fold is None else validation_fold
-        train_loader = dataset.make_data_loader(dataset.all_but_one_fold(validation_fold_to_use), training_params.batch_size, is_cuda, training_params.num_workers)
+        def create_train_loader(batch_size):
+            return dataset.make_data_loader(dataset.all_but_one_fold(validation_fold_to_use), batch_size, is_cuda, training_params.num_workers)
+        train_loader = create_train_loader(training_params.batch_size)
+        train_loader_inference_only = create_train_loader(training_params.inference_batch_size)
         print(f"Train loader created, memory usage percent: {psutil.virtual_memory().percent:.1f}")
-        valid_loader = dataset.make_data_loader([validation_fold_to_use], training_params.batch_size, is_cuda, training_params.num_workers)
+        valid_loader = dataset.make_data_loader([validation_fold_to_use], training_params.inference_batch_size, is_cuda, training_params.num_workers)
         print(f"Validation loader created, memory usage percent: {psutil.virtual_memory().percent:.1f}")
 
         first_epoch, last_epoch = 1, training_params.num_epochs + training_params.num_calibration_epochs
@@ -331,11 +334,11 @@ class ArtifactModel(nn.Module):
             print(f"End of epoch {epoch}, memory usage percent: {psutil.virtual_memory().percent:.1f}, time elapsed(s): {time.time() - start_of_epoch:.2f}")
             is_last = (epoch == last_epoch)
             if (epochs_per_evaluation is not None and epoch % epochs_per_evaluation == 0) or is_last:
-                self.evaluate_model(epoch, dataset, train_loader, valid_loader, summary_writer, collect_embeddings=False, report_worst=False)
+                self.evaluate_model(epoch, dataset, train_loader_inference_only, valid_loader, summary_writer, collect_embeddings=False, report_worst=False)
             if is_last:
                 # collect data in order to do final calibration
                 print("collecting data for final calibration")
-                evaluation_metrics, _ = self.collect_evaluation_data(dataset, train_loader, valid_loader, report_worst=False)
+                evaluation_metrics, _ = self.collect_evaluation_data(dataset, train_loader_inference_only, valid_loader, report_worst=False)
 
                 logit_adjustments_by_var_type_and_count_bin = evaluation_metrics.metrics[Epoch.VALID].calculate_logit_adjustments(use_harmonic_mean=False)
                 print("here are the logit adjustments:")
@@ -354,7 +357,7 @@ class ArtifactModel(nn.Module):
 
                 # consider this an extra post-postprocessing/final calibration epoch, hence epoch+1
                 print("doing one final evaluation after the last logit adjustment")
-                self.evaluate_model(epoch + 1, dataset, train_loader, valid_loader, summary_writer, collect_embeddings=True, report_worst=True)
+                self.evaluate_model(epoch + 1, dataset, train_loader_inference_only, valid_loader, summary_writer, collect_embeddings=True, report_worst=True)
 
             # note that we have not learned the AF spectrum yet
         # done with training
@@ -364,6 +367,7 @@ class ArtifactModel(nn.Module):
         valid_loader = dataset.make_data_loader(dataset.last_fold_only(), batch_size, self._device.type == 'cuda', num_workers)
         self.evaluate_model(None, dataset, train_loader, valid_loader, summary_writer, collect_embeddings=True, report_worst=True)
 
+    @torch.inference_mode()
     def collect_evaluation_data(self, dataset: ArtifactDataset, train_loader, valid_loader, report_worst: bool):
         # the keys are tuples of (true label -- 1 for variant, 0 for artifact; rounded alt count)
         worst_offenders_by_truth_and_alt_count = defaultdict(lambda: PriorityQueue(WORST_OFFENDERS_QUEUE_SIZE))
@@ -414,6 +418,7 @@ class ArtifactModel(nn.Module):
         # done collecting data
         return evaluation_metrics, worst_offenders_by_truth_and_alt_count
 
+    @torch.inference_mode()
     def evaluate_model(self, epoch: int, dataset: ArtifactDataset, train_loader, valid_loader, summary_writer: SummaryWriter,
                                       collect_embeddings: bool = False, report_worst: bool = False):
 

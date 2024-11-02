@@ -84,13 +84,15 @@ def add_base_model_params_to_parser(parser):
 # common parameters for training models
 class TrainingParameters:
     def __init__(self, batch_size: int, num_epochs: int, learning_rate: float = 0.001,
-                 weight_decay: float = 0.01, num_workers: int = 0, num_calibration_epochs: int = 0):
+                 weight_decay: float = 0.01, num_workers: int = 0, num_calibration_epochs: int = 0,
+                 inference_batch_size: int = 8192):
         self.batch_size = batch_size
         self.num_epochs = num_epochs
         self.learning_rate = learning_rate
         self.weight_decay = weight_decay
         self.num_workers = num_workers
         self.num_calibration_epochs = num_calibration_epochs
+        self.inference_batch_size = inference_batch_size
 
 
 def parse_training_params(args) -> TrainingParameters:
@@ -100,7 +102,8 @@ def parse_training_params(args) -> TrainingParameters:
     num_epochs = getattr(args, constants.NUM_EPOCHS_NAME)
     num_calibration_epochs = getattr(args, constants.NUM_CALIBRATION_EPOCHS_NAME)
     num_workers = getattr(args, constants.NUM_WORKERS_NAME)
-    return TrainingParameters(batch_size, num_epochs, learning_rate, weight_decay, num_workers, num_calibration_epochs)
+    inference_batch_size = getattr(args, constants.INFERENCE_BATCH_SIZE_NAME)
+    return TrainingParameters(batch_size, num_epochs, learning_rate, weight_decay, num_workers, num_calibration_epochs, inference_batch_size)
 
 
 def add_training_params_to_parser(parser):
@@ -117,6 +120,8 @@ def add_training_params_to_parser(parser):
                         help='number of epochs for primary training loop')
     parser.add_argument('--' + constants.NUM_CALIBRATION_EPOCHS_NAME, type=int, default=0, required=False,
                         help='number of calibration-only epochs')
+    parser.add_argument('--' + constants.INFERENCE_BATCH_SIZE_NAME, type=int, default=8192, required=False,
+                        help='batch size when performing model inference (not training)')
 
 
 class ArtifactModelParameters:

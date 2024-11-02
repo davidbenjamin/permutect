@@ -97,7 +97,10 @@ def main_without_parsing(args):
     print(f"Memory usage percent before creating BaseDataset: {psutil.virtual_memory().percent:.1f}")
     base_dataset = BaseDataset(data_tarfile=getattr(args, constants.TRAIN_TAR_NAME), num_folds=10)
     print(f"Memory usage percent before creating ArtifactDataset: {psutil.virtual_memory().percent:.1f}")
-    artifact_dataset = ArtifactDataset(base_dataset, base_model, base_loader_num_workers=training_params.num_workers)
+    artifact_dataset = ArtifactDataset(base_dataset,
+                                       base_model,
+                                       base_loader_num_workers=training_params.num_workers,
+                                       base_loader_batch_size=training_params.inference_batch_size)
     print(f"Memory usage percent after creating ArtifactDataset: {psutil.virtual_memory().percent:.1f}")
 
     model = train_artifact_model(hyperparams=params, training_params=training_params, summary_writer=summary_writer, dataset=artifact_dataset)
