@@ -76,9 +76,18 @@ class ArtifactDataset(Dataset):
     def all_folds(self):
         return list(range(self.num_folds))
 
-    def make_data_loader(self, folds_to_use: List[int], batch_size: int, pin_memory=False, num_workers: int = 0, labeled_only: bool = False):
+    def make_data_loader(self,
+                         folds_to_use: List[int],
+                         batch_size: int,
+                         pin_memory=False,
+                         num_workers: int = 0,
+                         labeled_only: bool = False,
+                         return_sampler=False):
         sampler = SemiSupervisedArtifactBatchSampler(self, batch_size, folds_to_use, labeled_only)
-        return DataLoader(dataset=self, batch_sampler=sampler, collate_fn=ArtifactBatch, pin_memory=pin_memory, num_workers=num_workers)
+        loader = DataLoader(dataset=self, batch_sampler=sampler, collate_fn=ArtifactBatch, pin_memory=pin_memory, num_workers=num_workers)
+        if return_sampler:
+            return loader,sampler
+        return loader
 
 
 # make ArtifactBatches that mix different ref, alt counts, labeled, unlabeled
@@ -106,3 +115,6 @@ class SemiSupervisedArtifactBatchSampler(Sampler):
     def __len__(self):
         return self.num_batches
 
+    def reset_batch_size(self, batch_size):
+        self.batch_size = batch_size
+        self.num_batches = math.ceil(len(self.indices_to_use) // self.batch_size)

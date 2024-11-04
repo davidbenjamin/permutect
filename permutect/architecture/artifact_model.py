@@ -224,7 +224,7 @@ class ArtifactModel(nn.Module):
         print(f"Is CUDA available? {is_cuda}")
 
         validation_fold_to_use = (dataset.num_folds - 1) if validation_fold is None else validation_fold
-        train_loader = dataset.make_data_loader(dataset.all_but_one_fold(validation_fold_to_use), training_params.batch_size, is_cuda, training_params.num_workers)
+        train_loader, train_sampler = dataset.make_data_loader(dataset.all_but_one_fold(validation_fold_to_use), training_params.batch_size, is_cuda, training_params.num_workers, return_sampler=True)
         print(f"Train loader created, memory usage percent: {psutil.virtual_memory().percent:.1f}")
         valid_loader = dataset.make_data_loader([validation_fold_to_use], training_params.inference_batch_size, is_cuda, training_params.num_workers)
         print(f"Validation loader created, memory usage percent: {psutil.virtual_memory().percent:.1f}")
@@ -239,6 +239,9 @@ class ArtifactModel(nn.Module):
             new_alpha = (2 / (1 + math.exp(-0.1 * p))) - 1
             source_gradient_reversal.set_alpha(new_alpha)
 
+            # Use different batch sizes on training dataset for learning / evaluation
+            train_sampler.reset_batch_size(training_params.batch_size)
+
             for epoch_type in [utils.Epoch.TRAIN, utils.Epoch.VALID]:
                 self.set_epoch_type(epoch_type)
                 # in calibration epoch, freeze the model except for calibration
@@ -251,6 +254,7 @@ class ArtifactModel(nn.Module):
                 uncalibrated_loss_metrics = LossMetrics()  # based on uncalibrated logits
 
                 loader = train_loader if epoch_type == utils.Epoch.TRAIN else valid_loader
+
                 loader_iter = iter(loader)
 
                 next_batch_cpu = next(loader_iter)
@@ -330,6 +334,8 @@ class ArtifactModel(nn.Module):
             # done with training and validation for this epoch
             print(f"End of epoch {epoch}, memory usage percent: {psutil.virtual_memory().percent:.1f}, time elapsed(s): {time.time() - start_of_epoch:.2f}")
             is_last = (epoch == last_epoch)
+            train_sampler.reset_batch_size(training_params.inference_batch_size)
+
             if (epochs_per_evaluation is not None and epoch % epochs_per_evaluation == 0) or is_last:
                 print(f"performing evaluation on epoch {epoch}")
                 self.evaluate_model(epoch, dataset, train_loader, valid_loader, summary_writer, collect_embeddings=False, report_worst=False)
