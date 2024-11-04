@@ -222,8 +222,8 @@ def make_posterior_data_loader(dataset_file, input_vcf, contig_index_to_name_map
 
             labels = [(Label.ARTIFACT if label > 0.5 else Label.VARIANT) if is_labeled > 0.5 else Label.UNLABELED for (label, is_labeled) in zip(artifact_batch.labels, artifact_batch.get_is_labeled_mask())]
 
-            for variant,counts_and_seq_lks, logit, label, embedding in zip(artifact_batch.original_variants,
-                                                               artifact_batch.original_counts_and_seq_lks,
+            for variant,counts_and_seq_lks, logit, label, embedding in zip(artifact_batch_cpu.get_variants(),
+                                                               artifact_batch_cpu.get_counts_and_seq_lks(),
                                                                artifact_logits.detach().tolist(),
                                                                labels,
                                                                artifact_batch.get_representations_2d().cpu()):

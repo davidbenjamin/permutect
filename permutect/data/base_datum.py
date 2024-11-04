@@ -367,8 +367,14 @@ class ArtifactDatum1DStuff:
     def get_source(self):
         return self.array[3]
 
+    def get_variant_array(self) -> np.ndarray:
+        return self.array[4:self.__class__.VARIANT_END_POS]
+
     def get_variant(self) -> Variant:
         return Variant.from_np_array(self.array[4:self.__class__.VARIANT_END_POS])
+
+    def get_counts_and_seq_lks_array(self) -> np.ndarray:
+        return self.array[self.__class__.VARIANT_END_POS:self.__class__.COUNTS_AND_SEQ_LKS_END_POS]
 
     def get_counts_and_seq_lks(self) -> CountsAndSeqLks:
         return CountsAndSeqLks.from_np_array(self.array[self.__class__.VARIANT_END_POS:self.__class__.COUNTS_AND_SEQ_LKS_END_POS])
@@ -376,7 +382,7 @@ class ArtifactDatum1DStuff:
     def variant_type_one_hot(self):
         return self.array[self.__class__.COUNTS_AND_SEQ_LKS_END_POS:]
 
-    def to_np_array(self):
+    def to_np_array(self) -> np.ndarray:
         return self.array
 
     @classmethod
@@ -665,9 +671,9 @@ class ArtifactDatum:
 
 class ArtifactBatch:
     def __init__(self, data: List[ArtifactDatum]):
-
-        self.original_variants = [d.get_other_stuff_1d().get_variant() for d in data]
-        self.original_counts_and_seq_lks = [d.get_other_stuff_1d().get_counts_and_seq_lks() for d in data]
+        # note: these numpy arrays are not used in training and are never sent to the GPU
+        self.variants_array = np.vstack((d.get_other_stuff_1d().get_variant_array() for d in data))
+        self.counts_and_seq_lks_array = np.vstack((d.get_other_stuff_1d().get_counts_and_seq_lks_array() for d in data))
 
         self.representations_2d = torch.vstack([item.representation for item in data])
         self.labels = FloatTensor([1.0 if item.get_label() == Label.ARTIFACT else 0.0 for item in data])
@@ -681,6 +687,12 @@ class ArtifactBatch:
         self._size = len(data)
 
         self._variant_type_one_hot = torch.from_numpy(np.vstack([item.variant_type_one_hot() for item in data]))
+
+    def get_variants(self) -> List[Variant]:
+        return [Variant.from_np_array(var_array_1d) for var_array_1d in self.variants_array]
+
+    def get_counts_and_seq_lks(self) -> List[CountsAndSeqLks]:
+        return [CountsAndSeqLks.from_np_array(var_array_1d) for var_array_1d in self.counts_and_seq_lks_array]
 
     def get_sources(self) -> IntTensor:
         return self.int_tensor[0]
@@ -704,6 +716,7 @@ class ArtifactBatch:
 
     def copy_to(self, device, dtype, non_blocking):
         # For all non-tensor attributes, shallow copy is sufficient
+        # note that variants_array and counts_and_seq_lks_array are not used in training and are never sent to GPU
         new_batch = copy.copy(self)
 
         new_batch.representations_2d = self.representations_2d.to(device=device, dtype=dtype, non_blocking=non_blocking)

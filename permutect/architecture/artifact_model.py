@@ -393,7 +393,7 @@ class ArtifactModel(nn.Module):
 
                 for variant_type, predicted_logit, label, is_labeled, correct_call, alt_count, variant, weight in zip(
                         batch_cpu.variant_types(), pred.tolist(), batch_cpu.labels.tolist(), batch_cpu.get_is_labeled_mask().tolist(), correct,
-                        batch_cpu.get_alt_counts(), batch_cpu.original_variants, weights.tolist()):
+                        batch_cpu.get_alt_counts(), batch_cpu.get_variants(), weights.tolist()):
                     if is_labeled < 0.5:    # we only evaluate labeled data
                         continue
                     evaluation_metrics.record_call(epoch_type, variant_type, predicted_logit, label, correct_call, alt_count, weight)
