@@ -437,7 +437,6 @@ class ArtifactModel(nn.Module):
 
         if collect_embeddings:
             embedding_metrics = EmbeddingMetrics()
-            ref_alt_seq_metrics = EmbeddingMetrics()
 
             # now go over just the validation data and generate feature vectors / metadata for tensorboard projectors (UMAP)
             pbar = tqdm(enumerate(valid_loader), mininterval=60)
@@ -454,16 +453,13 @@ class ArtifactModel(nn.Module):
                 correct_strings = [str(correctness) if is_labeled > 0.5 else "-1"
                                  for (correctness, is_labeled) in zip(correct, batch_cpu.is_labeled_mask.tolist())]
 
-                for (metrics, embedding) in [(embedding_metrics, batch_cpu.get_representations_2d().detach()),
-                                              (ref_alt_seq_metrics, batch_cpu.get_ref_alt_seq_embeddings_2d().detach())]:
+                for (metrics, embedding) in [(embedding_metrics, batch_cpu.get_representations_2d().detach())]:
                     metrics.label_metadata.extend(label_strings)
                     metrics.correct_metadata.extend(correct_strings)
                     metrics.type_metadata.extend([Variation(idx).name for idx in batch_cpu.variant_types()])
                     metrics.truncated_count_metadata.extend([str(round_up_to_nearest_three(min(MAX_COUNT, alt_count))) for alt_count in batch_cpu.alt_counts])
                     metrics.representations.append(embedding)
             embedding_metrics.output_to_summary_writer(summary_writer, epoch=epoch)
-            ref_alt_seq_metrics.output_to_summary_writer(summary_writer, prefix="ref alt seq ", epoch=epoch)
-
         # done collecting data
 
     def make_dict_for_saving(self, artifact_log_priors, artifact_spectra, prefix: str = "artifact"):

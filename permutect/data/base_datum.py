@@ -621,11 +621,10 @@ class BaseBatch:
 class ArtifactDatum:
     """
     """
-    def __init__(self, base_datum: BaseDatum, representation: Tensor, ref_alt_seq_embedding: Tensor):
+    def __init__(self, base_datum: BaseDatum, representation: Tensor):
         # Note: if changing any of the data fields below, make sure to modify the size_in_bytes() method below accordingly!
         assert representation.dim() == 1
         self.representation = representation
-        self.ref_alt_seq_embedding = ref_alt_seq_embedding
         self.other_stuff = ArtifactDatum1DStuff(base_datum.get_other_stuff_1d())
         self.set_dtype(np.float16)
 
@@ -665,7 +664,6 @@ class ArtifactBatch:
         self.original_counts_and_seq_lks = [d.get_other_stuff_1d().get_counts_and_seq_lks() for d in data]
 
         self.representations_2d = torch.vstack([item.representation for item in data])
-        self.ref_alt_seq_embeddings_2d = torch.vstack([item.ref_alt_seq_embedding for item in data])
         self.labels = FloatTensor([1.0 if item.get_label() == Label.ARTIFACT else 0.0 for item in data])
         self.is_labeled_mask = FloatTensor([0.0 if item.get_label() == Label.UNLABELED else 1.0 for item in data])
         self.sources = IntTensor([item.get_source() for item in data])
@@ -678,7 +676,6 @@ class ArtifactBatch:
     # pin memory for all tensors that are sent to the GPU
     def pin_memory(self):
         self.representations_2d = self.representations_2d.pin_memory()
-        self.ref_alt_seq_embeddings_2d = self.ref_alt_seq_embeddings_2d.pin_memory()
         self.labels = self.labels.pin_memory()
         self.is_labeled_mask = self.is_labeled_mask.pin_memory()
         self.sources = self.sources.pin_memory()
@@ -692,7 +689,6 @@ class ArtifactBatch:
         new_batch = copy.copy(self)
 
         new_batch.representations_2d = self.representations_2d.to(device=device, dtype=dtype, non_blocking=non_blocking)
-        new_batch.ref_alt_seq_embeddings_2d = self.ref_alt_seq_embeddings_2d.to(device, dtype=dtype, non_blocking=non_blocking)
         new_batch.labels = self.labels.to(device, dtype=dtype, non_blocking=non_blocking)
         new_batch.is_labeled_mask = self.is_labeled_mask.to(device, dtype=dtype, non_blocking=non_blocking)
         new_batch.sources = self.sources.to(device, dtype=dtype, non_blocking=non_blocking)
@@ -704,9 +700,6 @@ class ArtifactBatch:
 
     def get_representations_2d(self) -> Tensor:
         return self.representations_2d
-
-    def get_ref_alt_seq_embeddings_2d(self) -> Tensor:
-        return self.ref_alt_seq_embeddings_2d
 
     def size(self) -> int:
         return self._size

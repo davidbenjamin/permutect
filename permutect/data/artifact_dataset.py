@@ -46,9 +46,9 @@ class ArtifactDataset(Dataset):
         for n, base_batch_cpu in pbar:
             base_batch = base_batch_cpu.copy_to(base_model._device, non_blocking=is_cuda)
             with torch.inference_mode():
-                representations, ref_alt_seq_embeddings = base_model.calculate_representations(base_batch)
-            for representation, ref_alt_emb, base_datum in zip(representations.detach().cpu(), ref_alt_seq_embeddings.detach().cpu(), base_batch_cpu.original_list()):
-                artifact_datum = ArtifactDatum(base_datum, representation.detach(), ref_alt_emb)
+                representations, _ = base_model.calculate_representations(base_batch)
+            for representation, base_datum in zip(representations.detach().cpu(), base_batch_cpu.original_list()):
+                artifact_datum = ArtifactDatum(base_datum, representation.detach())
                 self.artifact_data.append(artifact_datum)
                 fold = index % self.num_folds
                 if artifact_datum.is_labeled():
