@@ -1,5 +1,6 @@
 import math
 import random
+import time
 from typing import List
 
 import torch
@@ -25,7 +26,6 @@ class ArtifactDataset(Dataset):
         self.weights = base_dataset.weights
         self.source_weights = base_dataset.source_weights
 
-        self.artifact_data = []
         self.num_folds = base_dataset.num_folds
         self.labeled_indices = [[] for _ in range(self.num_folds)]  # one list for each fold
         self.unlabeled_indices = [[] for _ in range(self.num_folds)]    # ditto
@@ -42,14 +42,15 @@ class ArtifactDataset(Dataset):
         is_cuda = base_model._device.type == 'cuda'
         print(f"Is base model using CUDA? {is_cuda}")
 
-        pbar = tqdm(enumerate(loader), mininterval=60)
+        artifact_datums = []
+        pbar = tqdm(enumerate(loader), mininterval=1)
         for n, base_batch_cpu in pbar:
             base_batch = base_batch_cpu.copy_to(base_model._device, non_blocking=is_cuda)
             with torch.inference_mode():
                 representations, ref_alt_seq_embeddings = base_model.calculate_representations(base_batch)
             for representation, ref_alt_emb, base_datum in zip(representations.detach().cpu(), ref_alt_seq_embeddings.detach().cpu(), base_batch_cpu.original_list()):
                 artifact_datum = ArtifactDatum(base_datum, representation.detach(), ref_alt_emb)
-                self.artifact_data.append(artifact_datum)
+                artifact_datums.append(artifact_datum)
                 fold = index % self.num_folds
                 if artifact_datum.is_labeled():
                     self.labeled_indices[fold].append(index)
@@ -57,11 +58,15 @@ class ArtifactDataset(Dataset):
                     self.unlabeled_indices[fold].append(index)
                 index += 1
 
-    def __len__(self):
-        return len(self.artifact_data)
+        start = time.time()
+        self.artifact_data = ArtifactBatch(artifact_datums)
+        print(f"Time to batch together all artifact data: {time.time() - start:.2f}s")
 
-    def __getitem__(self, index):
-        return self.artifact_data[index]
+    def __len__(self):
+        return self.artifact_data.size()
+
+    def __getitems__(self, indices: List[int]):
+        return self.artifact_data.gather(indices)
 
     # it is often convenient to arbitrarily use the last fold for validation
     def last_fold_only(self):
@@ -78,7 +83,11 @@ class ArtifactDataset(Dataset):
 
     def make_data_loader(self, folds_to_use: List[int], batch_size: int, pin_memory=False, num_workers: int = 0, labeled_only: bool = False):
         sampler = SemiSupervisedArtifactBatchSampler(self, batch_size, folds_to_use, labeled_only)
-        return DataLoader(dataset=self, batch_sampler=sampler, collate_fn=ArtifactBatch, pin_memory=pin_memory, num_workers=num_workers)
+        return DataLoader(dataset=self,
+                          batch_sampler=sampler,
+                          collate_fn=lambda x: x,
+                          pin_memory=pin_memory,
+                          num_workers=num_workers)
 
 
 # make ArtifactBatches that mix different ref, alt counts, labeled, unlabeled

@@ -718,3 +718,31 @@ class ArtifactBatch:
     def variant_types(self):
         one_hot = self.variant_type_one_hot()
         return [int(x) for x in sum([n * one_hot[:, n] for n in range(len(Variation))])]
+
+    def gather(self, indices: List[int]) -> 'ArtifactBatch':
+        """Creates new instance of ArtifactBatch with rows selected by indices.
+        :param indices: indices of rows to select
+        :return: new ArtifactBatch containing only the selected rows
+        """
+        # Create copies of lists with selected indices
+        new_variants = [self.original_variants[i] for i in indices]
+        new_counts_and_seq_lks = [self.original_counts_and_seq_lks[i] for i in indices]
+
+        # Create new batch with selected tensors
+        new_batch = copy.copy(self)
+        new_batch.original_variants = new_variants
+        new_batch.original_counts_and_seq_lks = new_counts_and_seq_lks
+
+        # Gather rows from each tensor
+        index_tensor = torch.tensor(indices, device=self.representations_2d.device)
+        new_batch.representations_2d = self.representations_2d[index_tensor]
+        new_batch.ref_alt_seq_embeddings_2d = self.ref_alt_seq_embeddings_2d[index_tensor]
+        new_batch.labels = self.labels[index_tensor]
+        new_batch.is_labeled_mask = self.is_labeled_mask[index_tensor]
+        new_batch.sources = self.sources[index_tensor]
+        new_batch.ref_counts = self.ref_counts[index_tensor]
+        new_batch.alt_counts = self.alt_counts[index_tensor]
+        new_batch._variant_type_one_hot = self._variant_type_one_hot[index_tensor]
+        new_batch._size = len(indices)
+
+        return new_batch
