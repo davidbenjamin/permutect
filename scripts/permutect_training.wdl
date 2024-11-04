@@ -8,6 +8,7 @@ workflow TrainPermutect {
         Int num_epochs
         Int num_calibration_epochs
         Int batch_size
+        Int inference_batch_size
         Int? num_workers
         Int? gpu_count
         Float dropout_p
@@ -34,6 +35,7 @@ workflow TrainPermutect {
                 num_epochs = num_epochs,
                 num_calibration_epochs = num_calibration_epochs,
                 batch_size = batch_size,
+                inference_batch_size = inference_batch_size,
                 num_workers = num_workers,
                 gpu_count = gpu_count,
                 dropout_p = dropout_p,
@@ -56,6 +58,7 @@ workflow TrainPermutect {
                 num_epochs = num_epochs,
                 num_calibration_epochs = num_calibration_epochs,
                 batch_size = batch_size,
+                inference_batch_size = inference_batch_size,
                 num_workers = num_workers,
                 dropout_p = dropout_p,
                 aggregation_layers = aggregation_layers,
@@ -83,6 +86,7 @@ task TrainPermutectGPU {
         Int num_epochs
         Int num_calibration_epochs
         Int batch_size
+        Int inference_batch_size
         Int? num_workers
         Int? gpu_count
         Float dropout_p
@@ -117,6 +121,7 @@ task TrainPermutectGPU {
             --calibration_layers ~{sep=' ' calibration_layers} \
             --dropout_p ~{dropout_p} \
             --batch_size ~{batch_size} \
+            --inference_batch_size ~{inference_batch_size} \
             ~{"--num_workers " + num_workers} \
             --num_epochs ~{num_epochs} \
             --num_calibration_epochs ~{num_calibration_epochs} \
@@ -157,6 +162,7 @@ task TrainPermutectCPU {
         Int num_epochs
         Int num_calibration_epochs
         Int batch_size
+        Int inference_batch_size
         Int? num_workers
         Float dropout_p
         Array[Int] aggregation_layers
@@ -189,6 +195,7 @@ task TrainPermutectCPU {
             --calibration_layers ~{sep=' ' calibration_layers} \
             --dropout_p ~{dropout_p} \
             --batch_size ~{batch_size} \
+            --inference_batch_size ~{inference_batch_size} \
             ~{"--num_workers " + num_workers} \
             --num_epochs ~{num_epochs} \
             --num_calibration_epochs ~{num_calibration_epochs} \

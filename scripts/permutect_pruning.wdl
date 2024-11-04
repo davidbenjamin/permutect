@@ -8,6 +8,7 @@ workflow PrunePermutect {
         Int num_epochs
         Int num_calibration_epochs
         Int batch_size
+        Int inference_batch_size
         Int chunk_size
         Int? num_workers
         Float dropout_p
@@ -32,6 +33,7 @@ workflow PrunePermutect {
                 num_epochs = num_epochs,
                 num_calibration_epochs = num_calibration_epochs,
                 batch_size = batch_size,
+                inference_batch_size = inference_batch_size,
                 chunk_size = chunk_size,
                 num_workers = num_workers,
                 dropout_p = dropout_p,
@@ -52,6 +54,7 @@ workflow PrunePermutect {
                 num_epochs = num_epochs,
                 num_calibration_epochs = num_calibration_epochs,
                 batch_size = batch_size,
+                inference_batch_size = inference_batch_size,
                 chunk_size = chunk_size,
                 num_workers = num_workers,
                 dropout_p = dropout_p,
@@ -77,6 +80,7 @@ task PrunePermutectGPU {
         Int num_epochs
         Int num_calibration_epochs
         Int batch_size
+        Int inference_batch_size
         Int chunk_size
         Int? num_workers
         Float dropout_p
@@ -108,6 +112,7 @@ task PrunePermutectGPU {
             --calibration_layers ~{sep=' ' calibration_layers} \
             --dropout_p ~{dropout_p} \
             --batch_size ~{batch_size} \
+            --inference_batch_size ~{inference_batch_size} \
             --chunk_size ~{chunk_size} \
             ~{"--num_workers " + num_workers} \
             --num_epochs ~{num_epochs} \
@@ -145,6 +150,7 @@ task PrunePermutectCPU {
         Int num_epochs
         Int num_calibration_epochs
         Int batch_size
+        Int inference_batch_size
         Int chunk_size
         Int? num_workers
         Float dropout_p
@@ -175,6 +181,7 @@ task PrunePermutectCPU {
             --calibration_layers ~{sep=' ' calibration_layers} \
             --dropout_p ~{dropout_p} \
             --batch_size ~{batch_size} \
+            --inference_batch_size ~{inference_batch_size} \
             --chunk_size ~{chunk_size} \
             ~{"--num_workers " + num_workers} \
             --num_epochs ~{num_epochs} \
