@@ -672,8 +672,8 @@ class ArtifactDatum:
 class ArtifactBatch:
     def __init__(self, data: List[ArtifactDatum]):
         # note: these numpy arrays are not used in training and are never sent to the GPU
-        self.variants_array = np.vstack((d.get_other_stuff_1d().get_variant_array() for d in data))
-        self.counts_and_seq_lks_array = np.vstack((d.get_other_stuff_1d().get_counts_and_seq_lks_array() for d in data))
+        self.variants_array = np.vstack([d.get_other_stuff_1d().get_variant_array() for d in data])
+        self.counts_and_seq_lks_array = np.vstack([d.get_other_stuff_1d().get_counts_and_seq_lks_array() for d in data])
 
         self.representations_2d = torch.vstack([item.representation for item in data])
         self.labels = FloatTensor([1.0 if item.get_label() == Label.ARTIFACT else 0.0 for item in data])

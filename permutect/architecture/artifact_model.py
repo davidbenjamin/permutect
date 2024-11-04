@@ -113,7 +113,7 @@ class Calibration(nn.Module):
         device, dtype = self.final_adjustments.device, self.final_adjustments.dtype
         alt_counts = [1, 3, 5, 10, 15, 20]
         ref_counts = [1, 3, 5, 10, 15, 20]
-        logits = torch.range(-10, 10, 0.1, device=device, dtype=dtype)
+        logits = torch.arange(-10, 10, 0.1, device=device, dtype=dtype)
         cal_fig,cal_axes = plt.subplots(len(alt_counts), len(ref_counts), sharex='all', sharey='all',
                                         squeeze=False, figsize=(10, 6), dpi=100)
 
