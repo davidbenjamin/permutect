@@ -291,13 +291,13 @@ class ArtifactModel(nn.Module):
 
                     uncalibrated_cross_entropies = bce(precalibrated_logits, batch.labels)
                     calibrated_cross_entropies = bce(logits, batch.labels)
-                    labeled_losses = batch.is_labeled_mask * (uncalibrated_cross_entropies + calibrated_cross_entropies) / 2
+                    labeled_losses = batch.get_is_labeled_mask() * (uncalibrated_cross_entropies + calibrated_cross_entropies) / 2
 
                     # unlabeled loss: entropy regularization. We use the uncalibrated logits because otherwise entropy
                     # regularization simply biases calibration to be overconfident.
                     probabilities = torch.sigmoid(precalibrated_logits)
                     entropies = torch.nn.functional.binary_cross_entropy_with_logits(precalibrated_logits, probabilities, reduction='none')
-                    unlabeled_losses = (1 - batch.is_labeled_mask) * entropies
+                    unlabeled_losses = (1 - batch.get_is_labeled_mask()) * entropies
 
                     # these losses include weights and take labeled vs unlabeled into account
                     losses = (labeled_losses + unlabeled_losses) * weights + (source_prediction_losses * source_prediction_weights)
@@ -305,9 +305,9 @@ class ArtifactModel(nn.Module):
 
                     # at this point, losses, weights are on GPU (if available), while metrics are on CPU
                     # if we have done things right, this is okay and record_losses handles GPU <--> CPU efficiently
-                    loss_metrics.record_losses(calibrated_cross_entropies.detach(), batch, weights * batch.is_labeled_mask)
-                    uncalibrated_loss_metrics.record_losses(uncalibrated_cross_entropies.detach(), batch, weights * batch.is_labeled_mask)
-                    uncalibrated_loss_metrics.record_losses(entropies.detach(), batch, weights * (1 - batch.is_labeled_mask))
+                    loss_metrics.record_losses(calibrated_cross_entropies.detach(), batch, weights * batch.get_is_labeled_mask())
+                    uncalibrated_loss_metrics.record_losses(uncalibrated_cross_entropies.detach(), batch, weights * batch.get_is_labeled_mask())
+                    uncalibrated_loss_metrics.record_losses(entropies.detach(), batch, weights * (1 - batch.get_is_labeled_mask()))
                     source_prediction_loss_metrics.record_losses(source_prediction_losses.detach(), batch, source_prediction_weights)
 
                     # calibration epochs freeze the model up to calibration, so I wonder if a purely unlabeled batch
@@ -392,7 +392,7 @@ class ArtifactModel(nn.Module):
                 correct = ((pred > 0) == (batch_cpu.labels > 0.5)).tolist()
 
                 for variant_type, predicted_logit, label, is_labeled, correct_call, alt_count, variant, weight in zip(
-                        batch_cpu.variant_types(), pred.tolist(), batch_cpu.labels.tolist(), batch_cpu.is_labeled_mask.tolist(), correct,
+                        batch_cpu.variant_types(), pred.tolist(), batch_cpu.labels.tolist(), batch_cpu.get_is_labeled_mask().tolist(), correct,
                         batch_cpu.get_alt_counts(), batch_cpu.original_variants, weights.tolist()):
                     if is_labeled < 0.5:    # we only evaluate labeled data
                         continue
@@ -448,10 +448,10 @@ class ArtifactModel(nn.Module):
                 correct = ((pred > 0) == (batch_cpu.labels > 0.5)).tolist()
 
                 label_strings = [("artifact" if label > 0.5 else "non-artifact") if is_labeled > 0.5 else "unlabeled"
-                                 for (label, is_labeled) in zip(batch_cpu.labels.tolist(), batch_cpu.is_labeled_mask.tolist())]
+                                 for (label, is_labeled) in zip(batch_cpu.labels.tolist(), batch_cpu.get_is_labeled_mask().tolist())]
 
                 correct_strings = [str(correctness) if is_labeled > 0.5 else "-1"
-                                 for (correctness, is_labeled) in zip(correct, batch_cpu.is_labeled_mask.tolist())]
+                                 for (correctness, is_labeled) in zip(correct, batch_cpu.get_is_labeled_mask().tolist())]
 
                 for (metrics, embedding) in [(embedding_metrics, batch_cpu.get_representations_2d().detach())]:
                     metrics.label_metadata.extend(label_strings)

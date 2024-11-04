@@ -100,7 +100,7 @@ class LossMetrics:
     # TODO: put type hint batch: BaseBatch | ArtifactBatch once docker update
     def record_losses(self, losses: torch.Tensor, batch, weights: torch.Tensor):
         # handle total loss
-        labeled_weights, unlabeled_weights = batch.is_labeled_mask * weights, (1 - batch.is_labeled_mask) * weights
+        labeled_weights, unlabeled_weights = batch.get_is_labeled_mask() * weights, (1 - batch.get_is_labeled_mask()) * weights
 
         self.labeled_loss.record_with_weights(losses, labeled_weights)
         self.unlabeled_loss.record_with_weights(losses, unlabeled_weights)

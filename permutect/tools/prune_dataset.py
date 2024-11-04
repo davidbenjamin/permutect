@@ -118,7 +118,7 @@ def generated_pruned_data_for_fold(art_threshold: float, nonart_threshold: float
         art_logits, _, _ = artifact_model.forward(artifact_batch)
         art_probs = torch.sigmoid(art_logits.detach())
         art_label_mask = (base_batch.labels > 0.5)
-        is_labeled_mask = (base_batch.is_labeled_mask > 0.5)
+        is_labeled_mask = (base_batch.get_is_labeled_mask() > 0.5)
 
         for art_prob, labeled_as_art, datum, is_labeled in zip(art_probs.tolist(), art_label_mask.tolist(), base_batch.original_list(), is_labeled_mask.tolist()):
             if not is_labeled:

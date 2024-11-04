@@ -42,8 +42,8 @@ def calculate_batch_weights(batch, dataset, by_count: bool):
     weights_by_label_and_type = {label: (np.vstack([dataset.weights[count][label] for count in batch.get_alt_counts().tolist()]) if \
         by_count else dataset.weights[-1][label]) for label in Label}
     weights_by_label = {label: torch.sum(torch.from_numpy(weights_by_label_and_type[label]) * types_one_hot, dim=1) for label in Label}
-    weights = batch.is_labeled_mask * (batch.labels * weights_by_label[Label.ARTIFACT] + (1 - batch.labels) * weights_by_label[Label.VARIANT]) + \
-              (1 - batch.is_labeled_mask) * weights_by_label[Label.UNLABELED]
+    weights = batch.get_is_labeled_mask() * (batch.labels * weights_by_label[Label.ARTIFACT] + (1 - batch.labels) * weights_by_label[Label.VARIANT]) + \
+              (1 - batch.get_is_labeled_mask()) * weights_by_label[Label.UNLABELED]
     return weights
 
 
@@ -568,8 +568,8 @@ def learn_base_model(base_model: BaseModel, dataset: BaseDataset, learning_metho
 
                 classification_logits = classifier_on_top.forward(representations.detach()).reshape(batch.size())
                 classification_losses = classifier_bce(classification_logits, batch.labels)
-                classification_loss = torch.sum(batch.is_labeled_mask * weights * classification_losses)
-                classifier_metrics.record_losses(classification_losses.detach(), batch, batch.is_labeled_mask * weights)
+                classification_loss = torch.sum(batch.get_is_labeled_mask() * weights * classification_losses)
+                classifier_metrics.record_losses(classification_losses.detach(), batch, batch.get_is_labeled_mask() * weights)
 
                 if epoch_type == utils.Epoch.TRAIN:
                     utils.backpropagate(train_optimizer, loss)
@@ -609,7 +609,7 @@ def record_embeddings(base_model: BaseModel, loader, summary_writer: SummaryWrit
         ref_alt_seq_embeddings = ref_alt_seq_embeddings.cpu()
 
         labels = [("artifact" if label > 0.5 else "non-artifact") if is_labeled > 0.5 else "unlabeled" for (label, is_labeled) in
-                  zip(batch.labels.tolist(), batch.is_labeled_mask.tolist())]
+                  zip(batch.labels.tolist(), batch.get_is_labeled_mask().tolist())]
         for (metrics, embeddings) in [(embedding_metrics, representations), (ref_alt_seq_metrics, ref_alt_seq_embeddings)]:
             metrics.label_metadata.extend(labels)
             metrics.correct_metadata.extend(["unknown"] * batch.size())

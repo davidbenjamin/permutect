@@ -603,6 +603,9 @@ class BaseBatch:
     def get_alt_counts(self) -> IntTensor:
         return self.alt_counts
 
+    def get_is_labeled_mask(self) -> IntTensor:
+        return self.is_labeled_mask
+
     def get_info_2d(self) -> Tensor:
         return self.info_2d
 
@@ -668,12 +671,12 @@ class ArtifactBatch:
 
         self.representations_2d = torch.vstack([item.representation for item in data])
         self.labels = FloatTensor([1.0 if item.get_label() == Label.ARTIFACT else 0.0 for item in data])
-        self.is_labeled_mask = FloatTensor([0.0 if item.get_label() == Label.UNLABELED else 1.0 for item in data])
 
         sources = IntTensor([item.get_source() for item in data])
         ref_counts = IntTensor([int(item.get_ref_count()) for item in data])
         alt_counts = IntTensor([int(item.get_alt_count()) for item in data])
-        self.int_tensor = torch.vstack((sources, ref_counts, alt_counts))
+        is_labeled_mask = FloatTensor([0.0 if item.get_label() == Label.UNLABELED else 1.0 for item in data])
+        self.int_tensor = torch.vstack((sources, ref_counts, alt_counts, is_labeled_mask))
 
         self._size = len(data)
 
@@ -688,11 +691,13 @@ class ArtifactBatch:
     def get_alt_counts(self) -> IntTensor:
         return self.int_tensor[2]
 
+    def get_is_labeled_mask(self) -> IntTensor:
+        return self.int_tensor[3]
+
     # pin memory for all tensors that are sent to the GPU
     def pin_memory(self):
         self.representations_2d = self.representations_2d.pin_memory()
         self.labels = self.labels.pin_memory()
-        self.is_labeled_mask = self.is_labeled_mask.pin_memory()
         self.int_tensor = self.int_tensor.pin_memory()
         self._variant_type_one_hot = self._variant_type_one_hot.pin_memory()
         return self
@@ -703,7 +708,6 @@ class ArtifactBatch:
 
         new_batch.representations_2d = self.representations_2d.to(device=device, dtype=dtype, non_blocking=non_blocking)
         new_batch.labels = self.labels.to(device, dtype=dtype, non_blocking=non_blocking)
-        new_batch.is_labeled_mask = self.is_labeled_mask.to(device, dtype=dtype, non_blocking=non_blocking)
         new_batch.int_tensor = self.int_tensor.to(device, dtype=dtype, non_blocking=non_blocking)
         new_batch._variant_type_one_hot = self._variant_type_one_hot.to(device, dtype=dtype, non_blocking=non_blocking)
 
