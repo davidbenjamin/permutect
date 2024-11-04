@@ -120,7 +120,7 @@ class LossMetrics:
                 self.labeled_loss_by_count[multiple_of_three_bin_index(batch.alt_count)].record_with_weights(losses, labeled_weights)
         elif isinstance(batch, ArtifactBatch):
             for count_bin_index in range(NUM_COUNT_BINS):
-                count_bin_mask = make_count_bin_mask(count_bin_index, batch.alt_counts)
+                count_bin_mask = make_count_bin_mask(count_bin_index, batch.get_alt_counts())
                 self.labeled_loss_by_count[count_bin_index].record_with_weights(losses, labeled_weights * count_bin_mask)
 
 

@@ -39,7 +39,7 @@ def calculate_batch_weights(batch, dataset, by_count: bool):
     # -1 is the sentinel value for aggregation over all counts
     # TODO: we need a parameter to control the relative weight of unlabeled loss to labeled loss
     types_one_hot = batch.variant_type_one_hot()
-    weights_by_label_and_type = {label: (np.vstack([dataset.weights[count][label] for count in batch.alt_counts.tolist()]) if \
+    weights_by_label_and_type = {label: (np.vstack([dataset.weights[count][label] for count in batch.get_alt_counts().tolist()]) if \
         by_count else dataset.weights[-1][label]) for label in Label}
     weights_by_label = {label: torch.sum(torch.from_numpy(weights_by_label_and_type[label]) * types_one_hot, dim=1) for label in Label}
     weights = batch.is_labeled_mask * (batch.labels * weights_by_label[Label.ARTIFACT] + (1 - batch.labels) * weights_by_label[Label.VARIANT]) + \
@@ -52,7 +52,7 @@ def calculate_batch_weights(batch, dataset, by_count: bool):
 def calculate_batch_source_weights(batch, dataset, by_count: bool):
     # -1 is the sentinel value for aggregation over all counts
     types_one_hot = batch.variant_type_one_hot()
-    weights_by_type = np.vstack([dataset.weights[count if by_count else -1][source] for count, source in zip(batch.alt_counts.tolist(), batch.sources.tolist())])
+    weights_by_type = np.vstack([dataset.weights[count if by_count else -1][source] for count, source in zip(batch.get_alt_counts().tolist(), batch.get_sources().tolist())])
     source_weights = torch.sum(torch.from_numpy(weights_by_type).to(device=types_one_hot.device) * types_one_hot, dim=1)
 
     return source_weights
@@ -559,7 +559,7 @@ def learn_base_model(base_model: BaseModel, dataset: BaseDataset, learning_metho
                 # try to forget alt count, while parameters after the representation try to minimize it, i.e. they try
                 # to achieve the adversarial task
                 alt_count_pred = torch.sigmoid(alt_count_predictor.forward(alt_count_gradient_reversal(representations)).squeeze())
-                alt_count_target = batch.alt_counts.to(dtype=alt_count_pred.dtype)/20
+                alt_count_target = batch.get_alt_counts().to(dtype=alt_count_pred.dtype)/20
                 alt_count_losses = alt_count_loss_func(alt_count_pred, alt_count_target)
 
                 alt_count_adversarial_metrics.record_losses(alt_count_losses.detach(), batch, weights=torch.ones_like(alt_count_losses))

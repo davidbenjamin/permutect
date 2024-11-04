@@ -185,7 +185,7 @@ class ArtifactModel(nn.Module):
         one_hot_types_2d = batch.variant_type_one_hot()
         for n, _ in enumerate(Variation):
             mask = one_hot_types_2d[:, n]
-            calibrated_logits += mask * self.calibration[n].forward(uncalibrated_logits, batch.ref_counts, batch.alt_counts)
+            calibrated_logits += mask * self.calibration[n].forward(uncalibrated_logits, batch.get_ref_counts(), batch.get_alt_counts())
         return calibrated_logits, uncalibrated_logits, features
 
     def learn(self, dataset: ArtifactDataset, training_params: TrainingParameters, summary_writer: SummaryWriter, validation_fold: int = None, epochs_per_evaluation: int = None):
@@ -275,7 +275,7 @@ class ArtifactModel(nn.Module):
                         # to achieve the adversarial task of distinguishing sources
                         source_prediction_logits = source_classifier.forward(source_gradient_reversal(features))
                         source_prediction_probs = torch.nn.functional.softmax(source_prediction_logits, dim=-1)
-                        source_prediction_targets = torch.nn.functional.one_hot(batch.sources.long(), num_sources)
+                        source_prediction_targets = torch.nn.functional.one_hot(batch.get_sources().long(), num_sources)
                         source_prediction_losses = torch.sum(torch.square(source_prediction_probs - source_prediction_targets), dim=-1)
 
                         # TODO: always by count?
@@ -393,7 +393,7 @@ class ArtifactModel(nn.Module):
 
                 for variant_type, predicted_logit, label, is_labeled, correct_call, alt_count, variant, weight in zip(
                         batch_cpu.variant_types(), pred.tolist(), batch_cpu.labels.tolist(), batch_cpu.is_labeled_mask.tolist(), correct,
-                        batch_cpu.alt_counts, batch_cpu.original_variants, weights.tolist()):
+                        batch_cpu.get_alt_counts(), batch_cpu.original_variants, weights.tolist()):
                     if is_labeled < 0.5:    # we only evaluate labeled data
                         continue
                     evaluation_metrics.record_call(epoch_type, variant_type, predicted_logit, label, correct_call, alt_count, weight)
@@ -457,7 +457,7 @@ class ArtifactModel(nn.Module):
                     metrics.label_metadata.extend(label_strings)
                     metrics.correct_metadata.extend(correct_strings)
                     metrics.type_metadata.extend([Variation(idx).name for idx in batch_cpu.variant_types()])
-                    metrics.truncated_count_metadata.extend([str(round_up_to_nearest_three(min(MAX_COUNT, alt_count))) for alt_count in batch_cpu.alt_counts])
+                    metrics.truncated_count_metadata.extend([str(round_up_to_nearest_three(min(MAX_COUNT, alt_count))) for alt_count in batch_cpu.get_alt_counts()])
                     metrics.representations.append(embedding)
             embedding_metrics.output_to_summary_writer(summary_writer, epoch=epoch)
         # done collecting data

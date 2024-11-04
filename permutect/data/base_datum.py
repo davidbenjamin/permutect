@@ -600,6 +600,9 @@ class BaseBatch:
     def get_reads_2d(self) -> Tensor:
         return self.reads_2d
 
+    def get_alt_counts(self) -> IntTensor:
+        return self.alt_counts
+
     def get_info_2d(self) -> Tensor:
         return self.info_2d
 
@@ -666,21 +669,31 @@ class ArtifactBatch:
         self.representations_2d = torch.vstack([item.representation for item in data])
         self.labels = FloatTensor([1.0 if item.get_label() == Label.ARTIFACT else 0.0 for item in data])
         self.is_labeled_mask = FloatTensor([0.0 if item.get_label() == Label.UNLABELED else 1.0 for item in data])
-        self.sources = IntTensor([item.get_source() for item in data])
-        self.ref_counts = IntTensor([int(item.get_ref_count()) for item in data])
-        self.alt_counts = IntTensor([int(item.get_alt_count()) for item in data])
+
+        sources = IntTensor([item.get_source() for item in data])
+        ref_counts = IntTensor([int(item.get_ref_count()) for item in data])
+        alt_counts = IntTensor([int(item.get_alt_count()) for item in data])
+        self.int_tensor = torch.vstack((sources, ref_counts, alt_counts))
+
         self._size = len(data)
 
         self._variant_type_one_hot = torch.from_numpy(np.vstack([item.variant_type_one_hot() for item in data]))
+
+    def get_sources(self) -> IntTensor:
+        return self.int_tensor[0]
+
+    def get_ref_counts(self) -> IntTensor:
+        return self.int_tensor[1]
+
+    def get_alt_counts(self) -> IntTensor:
+        return self.int_tensor[2]
 
     # pin memory for all tensors that are sent to the GPU
     def pin_memory(self):
         self.representations_2d = self.representations_2d.pin_memory()
         self.labels = self.labels.pin_memory()
         self.is_labeled_mask = self.is_labeled_mask.pin_memory()
-        self.sources = self.sources.pin_memory()
-        self.ref_counts = self.ref_counts.pin_memory()
-        self.alt_counts = self.alt_counts.pin_memory()
+        self.int_tensor = self.int_tensor.pin_memory()
         self._variant_type_one_hot = self._variant_type_one_hot.pin_memory()
         return self
 
@@ -691,9 +704,7 @@ class ArtifactBatch:
         new_batch.representations_2d = self.representations_2d.to(device=device, dtype=dtype, non_blocking=non_blocking)
         new_batch.labels = self.labels.to(device, dtype=dtype, non_blocking=non_blocking)
         new_batch.is_labeled_mask = self.is_labeled_mask.to(device, dtype=dtype, non_blocking=non_blocking)
-        new_batch.sources = self.sources.to(device, dtype=dtype, non_blocking=non_blocking)
-        new_batch.ref_counts = self.ref_counts.to(device, dtype=dtype, non_blocking=non_blocking)
-        new_batch.alt_counts = self.alt_counts.to(device, dtype=dtype, non_blocking=non_blocking)
+        new_batch.int_tensor = self.int_tensor.to(device, dtype=dtype, non_blocking=non_blocking)
         new_batch._variant_type_one_hot = self._variant_type_one_hot.to(device, dtype=dtype, non_blocking=non_blocking)
 
         return new_batch
