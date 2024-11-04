@@ -61,7 +61,7 @@ def plot_artifact_spectra(artifact_spectra, depth: int = None):
         n = variant_type
         row, col = int(n / 2), n % 2
         frac, dens = artifact_spectra.spectrum_density_vs_fraction(variant_type, depth)
-        art_spectra_axs[row, col].plot(frac.detach().numpy(), dens.detach().numpy())
+        art_spectra_axs[row, col].plot(frac.detach().numpy(), dens.detach().numpy(), label=variant_type.name)
         art_spectra_axs[row, col].set_title(variant_type.name + " artifact AF spectrum")
     for ax in art_spectra_fig.get_axes():
         ax.label_outer()
@@ -263,7 +263,7 @@ class PosteriorModel(torch.nn.Module):
 
                 var_spectra_fig, var_spectra_axs = plt.subplots()
                 frac, dens = self.somatic_spectrum.spectrum_density_vs_fraction()
-                var_spectra_axs.plot(frac.detach().numpy(), dens.detach().numpy())
+                var_spectra_axs.plot(frac.detach().numpy(), dens.detach().numpy(), label="spectrum")
                 var_spectra_axs.set_title("Variant AF Spectrum")
                 summary_writer.add_figure("Variant AF Spectra", var_spectra_fig, epoch)
 

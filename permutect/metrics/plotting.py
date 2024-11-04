@@ -79,9 +79,9 @@ def plot_accuracy_vs_accuracy_roc_on_axis(lists_of_predictions_and_labels, curve
 
     simple_plot_on_axis(axis, x_y_lab_tuples, "artifact accuracy", "non-artifact accuracy")
     for x, y, spec in small_dots:
-        axis.plot(x, y, spec, markersize=2)  # point
+        axis.plot(x, y, spec, markersize=2,label="")  # point
     for x, y, spec in big_dots:
-        axis.plot(x, y, spec, markersize=6)  # point
+        axis.plot(x, y, spec, markersize=6,label="")  # point
 
 
 # similar to the above, but labels are not known and we just have the predicted error probabilities
@@ -105,7 +105,7 @@ def plot_theoretical_roc_on_axis(predicted_error_probs, curve_labels, axis):
 
     simple_plot_on_axis(axis, x_y_lab_tuples, "precision", "sensitivity")
     for x, y, spec in dots:
-        axis.plot(x, y, spec, markersize=2)  # point
+        axis.plot(x, y, spec, markersize=2,label="")  # point
     return best_thresholds
 
 
