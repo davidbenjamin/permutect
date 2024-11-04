@@ -43,7 +43,7 @@ class ArtifactDataset(Dataset):
         print(f"Is base model using CUDA? {is_cuda}")
 
         artifact_datums = []
-        pbar = tqdm(enumerate(loader), mininterval=1)
+        pbar = tqdm(enumerate(loader), mininterval=60)
         for n, base_batch_cpu in pbar:
             base_batch = base_batch_cpu.copy_to(base_model._device, non_blocking=is_cuda)
             with torch.inference_mode():
