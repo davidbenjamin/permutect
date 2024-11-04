@@ -226,7 +226,7 @@ class ArtifactModel(nn.Module):
         validation_fold_to_use = (dataset.num_folds - 1) if validation_fold is None else validation_fold
         train_loader = dataset.make_data_loader(dataset.all_but_one_fold(validation_fold_to_use), training_params.batch_size, is_cuda, training_params.num_workers)
         print(f"Train loader created, memory usage percent: {psutil.virtual_memory().percent:.1f}")
-        valid_loader = dataset.make_data_loader([validation_fold_to_use], training_params.batch_size, is_cuda, training_params.num_workers)
+        valid_loader = dataset.make_data_loader([validation_fold_to_use], training_params.inference_batch_size, is_cuda, training_params.num_workers)
         print(f"Validation loader created, memory usage percent: {psutil.virtual_memory().percent:.1f}")
 
         first_epoch, last_epoch = 1, training_params.num_epochs + training_params.num_calibration_epochs
@@ -331,6 +331,7 @@ class ArtifactModel(nn.Module):
             print(f"End of epoch {epoch}, memory usage percent: {psutil.virtual_memory().percent:.1f}, time elapsed(s): {time.time() - start_of_epoch:.2f}")
             is_last = (epoch == last_epoch)
             if (epochs_per_evaluation is not None and epoch % epochs_per_evaluation == 0) or is_last:
+                print(f"performing evaluation on epoch {epoch}")
                 self.evaluate_model(epoch, dataset, train_loader, valid_loader, summary_writer, collect_embeddings=False, report_worst=False)
             if is_last:
                 # collect data in order to do final calibration
@@ -364,6 +365,7 @@ class ArtifactModel(nn.Module):
         valid_loader = dataset.make_data_loader(dataset.last_fold_only(), batch_size, self._device.type == 'cuda', num_workers)
         self.evaluate_model(None, dataset, train_loader, valid_loader, summary_writer, collect_embeddings=True, report_worst=True)
 
+    @torch.inference_mode()
     def collect_evaluation_data(self, dataset: ArtifactDataset, train_loader, valid_loader, report_worst: bool):
         # the keys are tuples of (true label -- 1 for variant, 0 for artifact; rounded alt count)
         worst_offenders_by_truth_and_alt_count = defaultdict(lambda: PriorityQueue(WORST_OFFENDERS_QUEUE_SIZE))
@@ -389,9 +391,9 @@ class ArtifactModel(nn.Module):
                 # note that for metrics we use batch_cpu
                 correct = ((pred > 0) == (batch_cpu.labels > 0.5)).tolist()
 
-                for variant_type, predicted_logit, label, is_labeled, correct_call, alt_count, datum, weight in zip(
+                for variant_type, predicted_logit, label, is_labeled, correct_call, alt_count, variant, weight in zip(
                         batch_cpu.variant_types(), pred.tolist(), batch_cpu.labels.tolist(), batch_cpu.is_labeled_mask.tolist(), correct,
-                        batch_cpu.alt_counts, batch_cpu.original_data, weights.tolist()):
+                        batch_cpu.alt_counts, batch_cpu.original_variants, weights.tolist()):
                     if is_labeled < 0.5:    # we only evaluate labeled data
                         continue
                     evaluation_metrics.record_call(epoch_type, variant_type, predicted_logit, label, correct_call, alt_count, weight)
@@ -408,13 +410,13 @@ class ArtifactModel(nn.Module):
                             pqueue.get()  # discards the least confident bad call
 
                         if not pqueue.full():  # if space was cleared or if it wasn't full already
-                            variant = datum.get_other_stuff_1d().get_variant()
                             pqueue.put((confidence, str(variant.contig) + ":" + str(
                                 variant.position) + ':' + variant.ref + "->" + variant.alt))
             # done with this epoch type
         # done collecting data
         return evaluation_metrics, worst_offenders_by_truth_and_alt_count
 
+    @torch.inference_mode()
     def evaluate_model(self, epoch: int, dataset: ArtifactDataset, train_loader, valid_loader, summary_writer: SummaryWriter,
                                       collect_embeddings: bool = False, report_worst: bool = False):
 
