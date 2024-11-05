@@ -15,6 +15,7 @@ from permutect.architecture.artifact_model import ArtifactModel, load_base_model
 from permutect.architecture.posterior_model import PosteriorModel
 from permutect.architecture.base_model import BaseModel
 from permutect.data import base_dataset, plain_text_data, base_datum
+from permutect.data.base_datum import Variant
 from permutect.data.posterior import PosteriorDataset, PosteriorDatum
 from permutect.data.artifact_dataset import ArtifactDataset
 from permutect.metrics.evaluation_metrics import EvaluationMetrics, PosteriorResult, EmbeddingMetrics, \
@@ -51,8 +52,7 @@ def encode(contig: str, position: int, ref: str, alt: str):
     return contig + ':' + str(position) + ':' + base_datum.truncate_bases_if_necessary(trimmed_alt)
 
 
-def encode_datum(datum: PosteriorDatum, contig_index_to_name_map):
-    variant = datum.get_variant()
+def encode_datum(variant: Variant, contig_index_to_name_map):
     contig_name = contig_index_to_name_map[variant.contig]
     return encode(contig_name, variant.position, variant.ref, variant.alt)
 
@@ -264,7 +264,7 @@ def apply_filtering_to_vcf(input_vcf, output_vcf, contig_index_to_name_map, erro
 
         posterior_probs = torch.nn.functional.softmax(log_posteriors, dim=1)
 
-        encodings = [encode_datum(datum, contig_index_to_name_map) for datum in batch.original_list()]
+        encodings = [encode_datum(variant, contig_index_to_name_map) for variant in batch.get_variants()]
         artifact_logits = batch.get_artifact_logits().tolist()
         var_types = batch.get_variant_types().tolist()
         labels = batch.get_labels().tolist()
