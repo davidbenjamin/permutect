@@ -22,7 +22,7 @@ from permutect.metrics.evaluation_metrics import MAX_COUNT, NUM_COUNT_BINS, mult
 # TODO: write unit test asserting that this comes out to zero when counts are zero
 # given germline, the probability of these particular reads being alt
 def germline_log_likelihood(afs, mafs, alt_counts, depths):
-    HOM_ALPHA, HOM_BETA = torch.Tensor([98.0], device=depths.device), torch.Tensor([2.0], device=depths.device)
+    HOM_ALPHA, HOM_BETA = torch.tensor([98.0], device=depths.device), torch.tensor([2.0], device=depths.device)
 
     het_probs = 2 * afs * (1 - afs)
     hom_probs = afs * afs
