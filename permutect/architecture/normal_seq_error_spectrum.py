@@ -49,7 +49,7 @@ class NormalSeqErrorSpectrum(nn.Module):
     def get_fractions(self, batch_size, num_samples):
         actual_mean = torch.sigmoid(self.mean_pre_sigmoid) * self.max_mean
         actual_sigma = SQRT_PI_OVER_2 * actual_mean
-        normal_samples = torch.randn(batch_size, num_samples)
+        normal_samples = torch.randn(batch_size, num_samples, device=actual_sigma.device)
         half_normal_samples = torch.abs(normal_samples)
         fractions_2d_unbounded = actual_sigma * half_normal_samples
         # apply tanh to constrain fractions to [0, 1), and then to [EPSILON, 1 - EPSILON] for numerical stability
