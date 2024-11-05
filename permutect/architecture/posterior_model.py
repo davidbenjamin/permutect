@@ -235,7 +235,7 @@ class PosteriorModel(torch.nn.Module):
                 # a missing non-INSERTION etc
                 # we use a germline allele frequency of 0.001 for the missing sites but it doesn't really matter
                 for variant_type in Variation:
-                    log_priors = torch.nn.functional.log_softmax(self.make_unnormalized_priors(torch.from_numpy(variant_type.one_hot_tensor()).to(device=self._device, dtype=self._dtype).unsqueeze(dim=0), torch.Tensor([0.001], device=self._device)), dim=1)
+                    log_priors = torch.nn.functional.log_softmax(self.make_unnormalized_priors(torch.from_numpy(variant_type.one_hot_tensor()).to(device=self._device, dtype=self._dtype).unsqueeze(dim=0), torch.tensor([0.001], device=self._device)), dim=1)
                     log_seq_error_prior = log_priors.squeeze()[Call.SEQ_ERROR]
                     missing_loss = -ignored_to_non_ignored_ratio * log_seq_error_prior  
                     loss += missing_loss
