@@ -185,6 +185,7 @@ def make_filtered_vcf(saved_artifact_model_path, initial_log_variant_prior: floa
     apply_filtering_to_vcf(input_vcf, output_vcf, contig_index_to_name_map, error_probability_thresholds, posterior_data_loader, posterior_model, summary_writer=summary_writer, germline_mode=germline_mode)
 
 
+@torch.inference_mode()
 def make_posterior_data_loader(dataset_file, input_vcf, contig_index_to_name_map, base_model: BaseModel, artifact_model: ArtifactModel,
                                batch_size: int, num_workers: int, chunk_size: int, segmentation=defaultdict(IntervalTree), normal_segmentation=defaultdict(IntervalTree)):
     print("Reading test dataset")
@@ -250,6 +251,7 @@ def make_posterior_data_loader(dataset_file, input_vcf, contig_index_to_name_map
 
 
 # error probability thresholds is a dict from Variant type to error probability threshold (float)
+@torch.inference_mode()
 def apply_filtering_to_vcf(input_vcf, output_vcf, contig_index_to_name_map, error_probability_thresholds, posterior_loader, posterior_model, summary_writer: SummaryWriter, germline_mode: bool = False):
     print("Computing final error probabilities")
     passing_call_type = Call.GERMLINE if germline_mode else Call.SOMATIC
