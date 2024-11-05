@@ -102,7 +102,7 @@ class PosteriorBatch:
         return new_batch
 
     def get_variants(self) -> List[Variant]:
-        subarray_2d = self.int_array[PosteriorDatum.CONTIG:PosteriorDatum.ALT + 1]
+        subarray_2d = self.int_tensor[PosteriorDatum.CONTIG:PosteriorDatum.ALT + 1]
         return [variant_from_int_array(subarray) for subarray in subarray_2d]
 
     def get_variant_types(self) -> torch.Tensor:
