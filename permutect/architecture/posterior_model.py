@@ -53,7 +53,7 @@ def initialize_normal_artifact_spectra():
     return OverdispersedBinomialMixture(input_size=len(Variation), num_components=1, max_mean=0.1, mode='beta')
 
 
-# this work for ArtifactSpectra and OverdispersedBinomialMixture
+# this works for ArtifactSpectra and OverdispersedBinomialMixture
 def plot_artifact_spectra(artifact_spectra, depth: int = None):
     # plot AF spectra in two-column grid with as many rows as needed
     art_spectra_fig, art_spectra_axs = plt.subplots(ceil(len(Variation) / 2), 2, sharex='all', sharey='all')
