@@ -295,12 +295,13 @@ class PosteriorModel(torch.nn.Module):
         error_probs_by_type_by_cnt = {var_type: [[] for _ in range(NUM_COUNT_BINS)] for var_type in Variation}
 
         pbar = tqdm(enumerate(loader), mininterval=10)
-        for n, batch in pbar:
-            alt_counts = batch.get_alt_counts().tolist()
+        for n, batch_cpu in pbar:
+            batch = batch_cpu.copy_to(self._device, self._dtype, non_blocking=self._device.type == 'cuda')
+            alt_counts = batch_cpu.get_alt_counts().tolist()
             # 0th column is true variant, subtract it from 1 to get error prob
-            error_probs = self.error_probabilities(batch, germline_mode).tolist()
+            error_probs = self.error_probabilities(batch, germline_mode).cpu().tolist()
 
-            for var_type, alt_count, error_prob in zip(batch.get_variant_types().tolist(), alt_counts, error_probs):
+            for var_type, alt_count, error_prob in zip(batch_cpu.get_variant_types().tolist(), alt_counts, error_probs):
                 error_probs_by_type[var_type].append(error_prob)
                 error_probs_by_type_by_cnt[var_type][multiple_of_three_bin_index(min(alt_count, MAX_COUNT))].append(error_prob)
 
