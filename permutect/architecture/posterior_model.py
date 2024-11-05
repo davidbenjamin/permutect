@@ -271,8 +271,9 @@ class PosteriorModel(torch.nn.Module):
                 log_prior_bar_plot_data = defaultdict(list)
                 for variant_type in Variation:
                     log_priors = torch.nn.functional.log_softmax(self.make_unnormalized_priors(torch.from_numpy(variant_type.one_hot_tensor()).to(device=self._device, dtype=self._dtype).unsqueeze(dim=0), torch.Tensor([0.001])), dim=1)
+                    log_priors_cpu = log_priors.squeeze().detach().cpu()
                     for call_type in (Call.SOMATIC, Call.ARTIFACT, Call.NORMAL_ARTIFACT):
-                        log_prior_bar_plot_data[call_type.name].append(log_priors.squeeze().detach()[call_type])
+                        log_prior_bar_plot_data[call_type.name].append(log_priors_cpu[call_type])
 
                 prior_fig, prior_ax = plotting.grouped_bar_plot(log_prior_bar_plot_data, [v_type.name for v_type in Variation], "log priors")
                 summary_writer.add_figure("log priors", prior_fig, epoch)
