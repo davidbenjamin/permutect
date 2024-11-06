@@ -381,7 +381,7 @@ class EmbeddingMetrics:
 
             num_bad_calls_to_keep = min(len(indices_of_bad_calls), NUM_DATA_FOR_TENSORBOARD_PROJECTION // 2)
             num_good_calls_to_keep = min(max(num_bad_calls_to_keep, 1000), len(indices_of_good_calls))
-            num_unknown_calls_to_keep = max(1000 - num_bad_calls_to_keep - num_good_calls_to_keep, 0)
+            num_unknown_calls_to_keep = min(max(1000 - num_bad_calls_to_keep - num_good_calls_to_keep, 0), len(indices_of_unknown_calls))
 
             bad_indices = indices_of_bad_calls[np.random.choice(len(indices_of_bad_calls), size=num_bad_calls_to_keep, replace=False)]
             good_indices = indices_of_good_calls[np.random.choice(len(indices_of_good_calls), size=num_good_calls_to_keep, replace=False)]
