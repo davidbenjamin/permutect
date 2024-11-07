@@ -12,6 +12,14 @@ from permutect import utils
 from permutect.utils import Label, Variation
 
 
+def variant_from_int_array(subarray) -> Variant:
+    contig = subarray[0].item()
+    position = subarray[1].item()
+    ref = bases5_as_base_string(subarray[2].item())  # ref and alt are the base-5 encoding as integers
+    alt = bases5_as_base_string(subarray[3].item())
+    return Variant(contig, position, ref, alt)
+
+
 class PosteriorDatum:
     CONTIG = 0
     POSITION = 1
@@ -60,11 +68,8 @@ class PosteriorDatum:
 
     def get_variant(self) -> Variant:
         this_class = self.__class__
-        contig = self.int_array[this_class.CONTIG].item()
-        position = self.int_array[this_class.POSITION].item()
-        ref = bases5_as_base_string(self.int_array[this_class.REF].item()) # ref and alt are the base-5 encoding as integers
-        alt = bases5_as_base_string(self.int_array[this_class.ALT].item())
-        return Variant(contig, position, ref, alt)
+        subarray = self.int_array[this_class.CONTIG:this_class.ALT + 1]
+        return variant_from_int_array(subarray)
 
     def get_artifact_logit(self) -> float:
         return self.float_array[self.__class__.ARTIFACT_LOGIT]
@@ -73,7 +78,6 @@ class PosteriorDatum:
 class PosteriorBatch:
 
     def __init__(self, data: List[PosteriorDatum]):
-        self._original_list = data  # keep this for downsampling augmentation
         self.embeddings = torch.vstack([item.embedding for item in data]).float()
         self.int_tensor = torch.vstack([item.int_array for item in data])
         self.float_tensor = torch.vstack([item.float_array for item in data]).float()
@@ -96,6 +100,10 @@ class PosteriorBatch:
         new_batch.float_tensor = self.float_tensor.to(device=device, dtype=dtype, non_blocking=non_blocking)
 
         return new_batch
+
+    def get_variants(self) -> List[Variant]:
+        subarray_2d = self.int_tensor[:, PosteriorDatum.CONTIG:PosteriorDatum.ALT + 1]
+        return [variant_from_int_array(subarray) for subarray in subarray_2d]
 
     def get_variant_types(self) -> torch.Tensor:
         return self.int_tensor[:, PosteriorDatum.VAR_TYPE]
@@ -132,9 +140,6 @@ class PosteriorBatch:
 
     def get_normal_mafs(self) -> torch.Tensor:
         return self.float_tensor[:, PosteriorDatum.NORMAL_MAF]
-
-    def original_list(self) -> List[PosteriorDatum]:
-        return self._original_list
 
     def size(self) -> int:
         return self._size

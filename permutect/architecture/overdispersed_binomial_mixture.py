@@ -212,13 +212,15 @@ class OverdispersedBinomialMixture(nn.Module):
     here x is a 1D tensor, a single datum/row of the 2D tensors as above
     '''
     def spectrum_density_vs_fraction(self, variant_type: Variation, depth: int):
-        fractions = torch.arange(0.01, 0.99, 0.001)  # 1D tensor
-        x = torch.from_numpy(variant_type.one_hot_tensor()).float()
+        device = next(self.mean_pre_sigmoid.parameters()).device
+        fractions = torch.arange(0.01, 0.99, 0.001)  # 1D tensor on CPU
+        x = torch.from_numpy(variant_type.one_hot_tensor()).float().to(device)
 
         unsqueezed = x.unsqueeze(dim=0)  # this and the three following tensors are 2D tensors with one row
-        log_weights = log_softmax(self.weights_pre_softmax(unsqueezed).detach(), dim=1)
-        means = self.max_mean * torch.sigmoid(self.mean_pre_sigmoid(unsqueezed).detach())
+        log_weights = log_softmax(self.weights_pre_softmax(unsqueezed).detach(), dim=1).cpu()
+        means = self.max_mean * torch.sigmoid(self.mean_pre_sigmoid(unsqueezed).detach()).cpu()
 
+        # now we're on CPU
         if self.mode == 'none':
             # this is copied from the beta case below -- basically we smear each delta function / discrete binomial
             # into a narrow Gaussian
@@ -227,7 +229,7 @@ class OverdispersedBinomialMixture(nn.Module):
                                             keepdim=False))  # 1D tensor
             return fractions, densities
         else:
-            concentrations = self.get_concentration(unsqueezed).detach()
+            concentrations = self.get_concentration(unsqueezed).detach().cpu()
             alphas = means * concentrations
             betas = (1 - means) * concentrations if self.mode == 'beta' else concentrations
 

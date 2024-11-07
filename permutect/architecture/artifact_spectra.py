@@ -114,10 +114,10 @@ class ArtifactSpectra(nn.Module):
         log_weights_k = torch.log_softmax(weights_pre_softmax_k, dim=0)
         beta_k = self.beta * torch.ones_like(alpha_k)
 
-        dist = torch.distributions.beta.Beta(alpha_k, beta_k)
-
+        # distribution done on CPU
+        dist = torch.distributions.beta.Beta(alpha_k.cpu(), beta_k.cpu())
         log_densities_fk = dist.log_prob(fractions_f.unsqueeze(dim=-1))
-        log_weights_fk = log_weights_k.unsqueeze(dim=0)
+        log_weights_fk = log_weights_k.unsqueeze(dim=0).cpu()
 
         log_weighted_densities_fk = log_weights_fk + log_densities_fk
         densities_f = torch.exp(torch.logsumexp(log_weighted_densities_fk, dim=1, keepdim=False))

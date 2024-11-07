@@ -112,13 +112,13 @@ def generated_pruned_data_for_fold(art_threshold: float, nonart_threshold: float
     pbar = tqdm(enumerate(pruning_base_data_loader), mininterval=60)
     for n, base_batch in pbar:
         # apply the representation model AND the artifact model to go from the original read set to artifact logits
-        representation, ref_alt_seq_embeddings = base_model.calculate_representations(base_batch)
+        representation, _ = base_model.calculate_representations(base_batch)
 
-        artifact_batch = ArtifactBatch([ArtifactDatum(rs, rep, ref_alt_emb) for rs, rep, ref_alt_emb in zip(base_batch.original_list(), representation.detach(), ref_alt_seq_embeddings.detach())])
+        artifact_batch = ArtifactBatch([ArtifactDatum(rs, rep) for rs, rep in zip(base_batch.original_list(), representation.detach())])
         art_logits, _, _ = artifact_model.forward(artifact_batch)
         art_probs = torch.sigmoid(art_logits.detach())
         art_label_mask = (base_batch.labels > 0.5)
-        is_labeled_mask = (base_batch.is_labeled_mask > 0.5)
+        is_labeled_mask = (base_batch.get_is_labeled_mask() > 0.5)
 
         for art_prob, labeled_as_art, datum, is_labeled in zip(art_probs.tolist(), art_label_mask.tolist(), base_batch.original_list(), is_labeled_mask.tolist()):
             if not is_labeled:

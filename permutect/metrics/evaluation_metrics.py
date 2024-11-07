@@ -100,7 +100,7 @@ class LossMetrics:
     # TODO: put type hint batch: BaseBatch | ArtifactBatch once docker update
     def record_losses(self, losses: torch.Tensor, batch, weights: torch.Tensor):
         # handle total loss
-        labeled_weights, unlabeled_weights = batch.is_labeled_mask * weights, (1 - batch.is_labeled_mask) * weights
+        labeled_weights, unlabeled_weights = batch.get_is_labeled_mask() * weights, (1 - batch.get_is_labeled_mask()) * weights
 
         self.labeled_loss.record_with_weights(losses, labeled_weights)
         self.unlabeled_loss.record_with_weights(losses, unlabeled_weights)
@@ -120,7 +120,7 @@ class LossMetrics:
                 self.labeled_loss_by_count[multiple_of_three_bin_index(batch.alt_count)].record_with_weights(losses, labeled_weights)
         elif isinstance(batch, ArtifactBatch):
             for count_bin_index in range(NUM_COUNT_BINS):
-                count_bin_mask = make_count_bin_mask(count_bin_index, batch.alt_counts)
+                count_bin_mask = make_count_bin_mask(count_bin_index, batch.get_alt_counts())
                 self.labeled_loss_by_count[count_bin_index].record_with_weights(losses, labeled_weights * count_bin_mask)
 
 
@@ -381,7 +381,7 @@ class EmbeddingMetrics:
 
             num_bad_calls_to_keep = min(len(indices_of_bad_calls), NUM_DATA_FOR_TENSORBOARD_PROJECTION // 2)
             num_good_calls_to_keep = min(max(num_bad_calls_to_keep, 1000), len(indices_of_good_calls))
-            num_unknown_calls_to_keep = max(1000 - num_bad_calls_to_keep - num_good_calls_to_keep, 0)
+            num_unknown_calls_to_keep = min(max(1000 - num_bad_calls_to_keep - num_good_calls_to_keep, 0), len(indices_of_unknown_calls))
 
             bad_indices = indices_of_bad_calls[np.random.choice(len(indices_of_bad_calls), size=num_bad_calls_to_keep, replace=False)]
             good_indices = indices_of_good_calls[np.random.choice(len(indices_of_good_calls), size=num_good_calls_to_keep, replace=False)]

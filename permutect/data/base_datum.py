@@ -367,8 +367,14 @@ class ArtifactDatum1DStuff:
     def get_source(self):
         return self.array[3]
 
+    def get_variant_array(self) -> np.ndarray:
+        return self.array[4:self.__class__.VARIANT_END_POS]
+
     def get_variant(self) -> Variant:
         return Variant.from_np_array(self.array[4:self.__class__.VARIANT_END_POS])
+
+    def get_counts_and_seq_lks_array(self) -> np.ndarray:
+        return self.array[self.__class__.VARIANT_END_POS:self.__class__.COUNTS_AND_SEQ_LKS_END_POS]
 
     def get_counts_and_seq_lks(self) -> CountsAndSeqLks:
         return CountsAndSeqLks.from_np_array(self.array[self.__class__.VARIANT_END_POS:self.__class__.COUNTS_AND_SEQ_LKS_END_POS])
@@ -376,7 +382,7 @@ class ArtifactDatum1DStuff:
     def variant_type_one_hot(self):
         return self.array[self.__class__.COUNTS_AND_SEQ_LKS_END_POS:]
 
-    def to_np_array(self):
+    def to_np_array(self) -> np.ndarray:
         return self.array
 
     @classmethod
@@ -600,6 +606,12 @@ class BaseBatch:
     def get_reads_2d(self) -> Tensor:
         return self.reads_2d
 
+    def get_alt_counts(self) -> IntTensor:
+        return self.alt_counts
+
+    def get_is_labeled_mask(self) -> IntTensor:
+        return self.is_labeled_mask
+
     def get_info_2d(self) -> Tensor:
         return self.info_2d
 
@@ -621,11 +633,10 @@ class BaseBatch:
 class ArtifactDatum:
     """
     """
-    def __init__(self, base_datum: BaseDatum, representation: Tensor, ref_alt_seq_embedding: Tensor):
+    def __init__(self, base_datum: BaseDatum, representation: Tensor):
         # Note: if changing any of the data fields below, make sure to modify the size_in_bytes() method below accordingly!
         assert representation.dim() == 1
         self.representation = representation
-        self.ref_alt_seq_embedding = ref_alt_seq_embedding
         self.other_stuff = ArtifactDatum1DStuff(base_datum.get_other_stuff_1d())
         self.set_dtype(np.float16)
 
@@ -660,53 +671,63 @@ class ArtifactDatum:
 
 class ArtifactBatch:
     def __init__(self, data: List[ArtifactDatum]):
-
-        self.original_variants = [d.get_other_stuff_1d().get_variant() for d in data]
-        self.original_counts_and_seq_lks = [d.get_other_stuff_1d().get_counts_and_seq_lks() for d in data]
+        # note: these numpy arrays are not used in training and are never sent to the GPU
+        self.variants_array = np.vstack([d.get_other_stuff_1d().get_variant_array() for d in data])
+        self.counts_and_seq_lks_array = np.vstack([d.get_other_stuff_1d().get_counts_and_seq_lks_array() for d in data])
 
         self.representations_2d = torch.vstack([item.representation for item in data])
-        self.ref_alt_seq_embeddings_2d = torch.vstack([item.ref_alt_seq_embedding for item in data])
         self.labels = FloatTensor([1.0 if item.get_label() == Label.ARTIFACT else 0.0 for item in data])
-        self.is_labeled_mask = FloatTensor([0.0 if item.get_label() == Label.UNLABELED else 1.0 for item in data])
-        self.sources = IntTensor([item.get_source() for item in data])
-        self.ref_counts = IntTensor([int(item.get_ref_count()) for item in data])
-        self.alt_counts = IntTensor([int(item.get_alt_count()) for item in data])
+
+        sources = IntTensor([item.get_source() for item in data])
+        ref_counts = IntTensor([int(item.get_ref_count()) for item in data])
+        alt_counts = IntTensor([int(item.get_alt_count()) for item in data])
+        is_labeled_mask = FloatTensor([0.0 if item.get_label() == Label.UNLABELED else 1.0 for item in data])
+        self.int_tensor = torch.vstack((sources, ref_counts, alt_counts, is_labeled_mask))
+
         self._size = len(data)
 
         self._variant_type_one_hot = torch.from_numpy(np.vstack([item.variant_type_one_hot() for item in data]))
 
+    def get_variants(self) -> List[Variant]:
+        return [Variant.from_np_array(var_array_1d) for var_array_1d in self.variants_array]
+
+    def get_counts_and_seq_lks(self) -> List[CountsAndSeqLks]:
+        return [CountsAndSeqLks.from_np_array(var_array_1d) for var_array_1d in self.counts_and_seq_lks_array]
+
+    def get_sources(self) -> IntTensor:
+        return self.int_tensor[0]
+
+    def get_ref_counts(self) -> IntTensor:
+        return self.int_tensor[1]
+
+    def get_alt_counts(self) -> IntTensor:
+        return self.int_tensor[2]
+
+    def get_is_labeled_mask(self) -> IntTensor:
+        return self.int_tensor[3]
+
     # pin memory for all tensors that are sent to the GPU
     def pin_memory(self):
         self.representations_2d = self.representations_2d.pin_memory()
-        self.ref_alt_seq_embeddings_2d = self.ref_alt_seq_embeddings_2d.pin_memory()
         self.labels = self.labels.pin_memory()
-        self.is_labeled_mask = self.is_labeled_mask.pin_memory()
-        self.sources = self.sources.pin_memory()
-        self.ref_counts = self.ref_counts.pin_memory()
-        self.alt_counts = self.alt_counts.pin_memory()
+        self.int_tensor = self.int_tensor.pin_memory()
         self._variant_type_one_hot = self._variant_type_one_hot.pin_memory()
         return self
 
     def copy_to(self, device, dtype, non_blocking):
         # For all non-tensor attributes, shallow copy is sufficient
+        # note that variants_array and counts_and_seq_lks_array are not used in training and are never sent to GPU
         new_batch = copy.copy(self)
 
         new_batch.representations_2d = self.representations_2d.to(device=device, dtype=dtype, non_blocking=non_blocking)
-        new_batch.ref_alt_seq_embeddings_2d = self.ref_alt_seq_embeddings_2d.to(device, dtype=dtype, non_blocking=non_blocking)
         new_batch.labels = self.labels.to(device, dtype=dtype, non_blocking=non_blocking)
-        new_batch.is_labeled_mask = self.is_labeled_mask.to(device, dtype=dtype, non_blocking=non_blocking)
-        new_batch.sources = self.sources.to(device, dtype=dtype, non_blocking=non_blocking)
-        new_batch.ref_counts = self.ref_counts.to(device, dtype=dtype, non_blocking=non_blocking)
-        new_batch.alt_counts = self.alt_counts.to(device, dtype=dtype, non_blocking=non_blocking)
+        new_batch.int_tensor = self.int_tensor.to(device, dtype=dtype, non_blocking=non_blocking)
         new_batch._variant_type_one_hot = self._variant_type_one_hot.to(device, dtype=dtype, non_blocking=non_blocking)
 
         return new_batch
 
     def get_representations_2d(self) -> Tensor:
         return self.representations_2d
-
-    def get_ref_alt_seq_embeddings_2d(self) -> Tensor:
-        return self.ref_alt_seq_embeddings_2d
 
     def size(self) -> int:
         return self._size

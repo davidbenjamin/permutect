@@ -18,12 +18,12 @@ from permutect.metrics import plotting
 from permutect.utils import Variation, Call
 from permutect.metrics.evaluation_metrics import MAX_COUNT, NUM_COUNT_BINS, multiple_of_three_bin_index, multiple_of_three_bin_index_to_count
 
-HOM_ALPHA, HOM_BETA = torch.Tensor([98.0]), torch.Tensor([2.0])
-
 
 # TODO: write unit test asserting that this comes out to zero when counts are zero
 # given germline, the probability of these particular reads being alt
 def germline_log_likelihood(afs, mafs, alt_counts, depths):
+    HOM_ALPHA, HOM_BETA = torch.tensor([98.0], device=depths.device), torch.tensor([2.0], device=depths.device)
+
     het_probs = 2 * afs * (1 - afs)
     hom_probs = afs * afs
     het_proportion = het_probs / (het_probs + hom_probs)
@@ -53,7 +53,7 @@ def initialize_normal_artifact_spectra():
     return OverdispersedBinomialMixture(input_size=len(Variation), num_components=1, max_mean=0.1, mode='beta')
 
 
-# this work for ArtifactSpectra and OverdispersedBinomialMixture
+# this works for ArtifactSpectra and OverdispersedBinomialMixture
 def plot_artifact_spectra(artifact_spectra, depth: int = None):
     # plot AF spectra in two-column grid with as many rows as needed
     art_spectra_fig, art_spectra_axs = plt.subplots(ceil(len(Variation) / 2), 2, sharex='all', sharey='all')
@@ -61,7 +61,7 @@ def plot_artifact_spectra(artifact_spectra, depth: int = None):
         n = variant_type
         row, col = int(n / 2), n % 2
         frac, dens = artifact_spectra.spectrum_density_vs_fraction(variant_type, depth)
-        art_spectra_axs[row, col].plot(frac.detach().numpy(), dens.detach().numpy())
+        art_spectra_axs[row, col].plot(frac.detach().numpy(), dens.detach().numpy(), label=variant_type.name)
         art_spectra_axs[row, col].set_title(variant_type.name + " artifact AF spectrum")
     for ax in art_spectra_fig.get_axes():
         ax.label_outer()
@@ -235,7 +235,7 @@ class PosteriorModel(torch.nn.Module):
                 # a missing non-INSERTION etc
                 # we use a germline allele frequency of 0.001 for the missing sites but it doesn't really matter
                 for variant_type in Variation:
-                    log_priors = torch.nn.functional.log_softmax(self.make_unnormalized_priors(torch.from_numpy(variant_type.one_hot_tensor()).to(device=self._device, dtype=self._dtype).unsqueeze(dim=0), torch.Tensor([0.001], device=self._device)), dim=1)
+                    log_priors = torch.nn.functional.log_softmax(self.make_unnormalized_priors(torch.from_numpy(variant_type.one_hot_tensor()).to(device=self._device, dtype=self._dtype).unsqueeze(dim=0), torch.tensor([0.001], device=self._device)), dim=1)
                     log_seq_error_prior = log_priors.squeeze()[Call.SEQ_ERROR]
                     missing_loss = -ignored_to_non_ignored_ratio * log_seq_error_prior  
                     loss += missing_loss
@@ -263,7 +263,7 @@ class PosteriorModel(torch.nn.Module):
 
                 var_spectra_fig, var_spectra_axs = plt.subplots()
                 frac, dens = self.somatic_spectrum.spectrum_density_vs_fraction()
-                var_spectra_axs.plot(frac.detach().numpy(), dens.detach().numpy())
+                var_spectra_axs.plot(frac.detach().numpy(), dens.detach().numpy(), label="spectrum")
                 var_spectra_axs.set_title("Variant AF Spectrum")
                 summary_writer.add_figure("Variant AF Spectra", var_spectra_fig, epoch)
 
@@ -271,8 +271,9 @@ class PosteriorModel(torch.nn.Module):
                 log_prior_bar_plot_data = defaultdict(list)
                 for variant_type in Variation:
                     log_priors = torch.nn.functional.log_softmax(self.make_unnormalized_priors(torch.from_numpy(variant_type.one_hot_tensor()).to(device=self._device, dtype=self._dtype).unsqueeze(dim=0), torch.Tensor([0.001])), dim=1)
+                    log_priors_cpu = log_priors.squeeze().detach().cpu()
                     for call_type in (Call.SOMATIC, Call.ARTIFACT, Call.NORMAL_ARTIFACT):
-                        log_prior_bar_plot_data[call_type.name].append(log_priors.squeeze().detach()[call_type])
+                        log_prior_bar_plot_data[call_type.name].append(log_priors_cpu[call_type])
 
                 prior_fig, prior_ax = plotting.grouped_bar_plot(log_prior_bar_plot_data, [v_type.name for v_type in Variation], "log priors")
                 summary_writer.add_figure("log priors", prior_fig, epoch)
@@ -294,12 +295,13 @@ class PosteriorModel(torch.nn.Module):
         error_probs_by_type_by_cnt = {var_type: [[] for _ in range(NUM_COUNT_BINS)] for var_type in Variation}
 
         pbar = tqdm(enumerate(loader), mininterval=10)
-        for n, batch in pbar:
-            alt_counts = batch.get_alt_counts().tolist()
+        for n, batch_cpu in pbar:
+            batch = batch_cpu.copy_to(self._device, self._dtype, non_blocking=self._device.type == 'cuda')
+            alt_counts = batch_cpu.get_alt_counts().tolist()
             # 0th column is true variant, subtract it from 1 to get error prob
-            error_probs = self.error_probabilities(batch, germline_mode).tolist()
+            error_probs = self.error_probabilities(batch, germline_mode).cpu().tolist()
 
-            for var_type, alt_count, error_prob in zip(batch.get_variant_types().tolist(), alt_counts, error_probs):
+            for var_type, alt_count, error_prob in zip(batch_cpu.get_variant_types().tolist(), alt_counts, error_probs):
                 error_probs_by_type[var_type].append(error_prob)
                 error_probs_by_type_by_cnt[var_type][multiple_of_three_bin_index(min(alt_count, MAX_COUNT))].append(error_prob)
 

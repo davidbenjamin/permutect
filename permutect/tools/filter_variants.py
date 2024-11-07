@@ -15,6 +15,7 @@ from permutect.architecture.artifact_model import ArtifactModel, load_base_model
 from permutect.architecture.posterior_model import PosteriorModel
 from permutect.architecture.base_model import BaseModel
 from permutect.data import base_dataset, plain_text_data, base_datum
+from permutect.data.base_datum import Variant
 from permutect.data.posterior import PosteriorDataset, PosteriorDatum
 from permutect.data.artifact_dataset import ArtifactDataset
 from permutect.metrics.evaluation_metrics import EvaluationMetrics, PosteriorResult, EmbeddingMetrics, \
@@ -51,8 +52,7 @@ def encode(contig: str, position: int, ref: str, alt: str):
     return contig + ':' + str(position) + ':' + base_datum.truncate_bases_if_necessary(trimmed_alt)
 
 
-def encode_datum(datum: PosteriorDatum, contig_index_to_name_map):
-    variant = datum.get_variant()
+def encode_datum(variant: Variant, contig_index_to_name_map):
     contig_name = contig_index_to_name_map[variant.contig]
     return encode(contig_name, variant.position, variant.ref, variant.alt)
 
@@ -185,6 +185,7 @@ def make_filtered_vcf(saved_artifact_model_path, initial_log_variant_prior: floa
     apply_filtering_to_vcf(input_vcf, output_vcf, contig_index_to_name_map, error_probability_thresholds, posterior_data_loader, posterior_model, summary_writer=summary_writer, germline_mode=germline_mode)
 
 
+@torch.inference_mode()
 def make_posterior_data_loader(dataset_file, input_vcf, contig_index_to_name_map, base_model: BaseModel, artifact_model: ArtifactModel,
                                batch_size: int, num_workers: int, chunk_size: int, segmentation=defaultdict(IntervalTree), normal_segmentation=defaultdict(IntervalTree)):
     print("Reading test dataset")
@@ -220,10 +221,10 @@ def make_posterior_data_loader(dataset_file, input_vcf, contig_index_to_name_map
             artifact_batch = artifact_batch_cpu.copy_to(device=artifact_model._device, dtype=artifact_model._dtype, non_blocking=artifact_model._device.type == 'cuda')
             artifact_logits, _, _ = artifact_model.forward(batch=artifact_batch)
 
-            labels = [(Label.ARTIFACT if label > 0.5 else Label.VARIANT) if is_labeled > 0.5 else Label.UNLABELED for (label, is_labeled) in zip(artifact_batch.labels, artifact_batch.is_labeled_mask)]
+            labels = [(Label.ARTIFACT if label > 0.5 else Label.VARIANT) if is_labeled > 0.5 else Label.UNLABELED for (label, is_labeled) in zip(artifact_batch.labels, artifact_batch.get_is_labeled_mask())]
 
-            for variant,counts_and_seq_lks, logit, label, embedding in zip(artifact_batch.original_variants,
-                                                               artifact_batch.original_counts_and_seq_lks,
+            for variant,counts_and_seq_lks, logit, label, embedding in zip(artifact_batch_cpu.get_variants(),
+                                                               artifact_batch_cpu.get_counts_and_seq_lks(),
                                                                artifact_logits.detach().tolist(),
                                                                labels,
                                                                artifact_batch.get_representations_2d().cpu()):
@@ -250,6 +251,7 @@ def make_posterior_data_loader(dataset_file, input_vcf, contig_index_to_name_map
 
 
 # error probability thresholds is a dict from Variant type to error probability threshold (float)
+@torch.inference_mode()
 def apply_filtering_to_vcf(input_vcf, output_vcf, contig_index_to_name_map, error_probability_thresholds, posterior_loader, posterior_model, summary_writer: SummaryWriter, germline_mode: bool = False):
     print("Computing final error probabilities")
     passing_call_type = Call.GERMLINE if germline_mode else Call.SOMATIC
@@ -264,7 +266,7 @@ def apply_filtering_to_vcf(input_vcf, output_vcf, contig_index_to_name_map, erro
 
         posterior_probs = torch.nn.functional.softmax(log_posteriors, dim=1)
 
-        encodings = [encode_datum(datum, contig_index_to_name_map) for datum in batch.original_list()]
+        encodings = [encode_datum(variant, contig_index_to_name_map) for variant in batch.get_variants()]
         artifact_logits = batch.get_artifact_logits().tolist()
         var_types = batch.get_variant_types().tolist()
         labels = batch.get_labels().tolist()

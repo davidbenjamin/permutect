@@ -39,11 +39,11 @@ def calculate_batch_weights(batch, dataset, by_count: bool):
     # -1 is the sentinel value for aggregation over all counts
     # TODO: we need a parameter to control the relative weight of unlabeled loss to labeled loss
     types_one_hot = batch.variant_type_one_hot()
-    weights_by_label_and_type = {label: (np.vstack([dataset.weights[count][label] for count in batch.alt_counts.tolist()]) if \
+    weights_by_label_and_type = {label: (np.vstack([dataset.weights[count][label] for count in batch.get_alt_counts().tolist()]) if \
         by_count else dataset.weights[-1][label]) for label in Label}
     weights_by_label = {label: torch.sum(torch.from_numpy(weights_by_label_and_type[label]) * types_one_hot, dim=1) for label in Label}
-    weights = batch.is_labeled_mask * (batch.labels * weights_by_label[Label.ARTIFACT] + (1 - batch.labels) * weights_by_label[Label.VARIANT]) + \
-              (1 - batch.is_labeled_mask) * weights_by_label[Label.UNLABELED]
+    weights = batch.get_is_labeled_mask() * (batch.labels * weights_by_label[Label.ARTIFACT] + (1 - batch.labels) * weights_by_label[Label.VARIANT]) + \
+              (1 - batch.get_is_labeled_mask()) * weights_by_label[Label.UNLABELED]
     return weights
 
 
@@ -52,7 +52,7 @@ def calculate_batch_weights(batch, dataset, by_count: bool):
 def calculate_batch_source_weights(batch, dataset, by_count: bool):
     # -1 is the sentinel value for aggregation over all counts
     types_one_hot = batch.variant_type_one_hot()
-    weights_by_type = np.vstack([dataset.weights[count if by_count else -1][source] for count, source in zip(batch.alt_counts.tolist(), batch.sources.tolist())])
+    weights_by_type = np.vstack([dataset.weights[count if by_count else -1][source] for count, source in zip(batch.get_alt_counts().tolist(), batch.get_sources().tolist())])
     source_weights = torch.sum(torch.from_numpy(weights_by_type).to(device=types_one_hot.device) * types_one_hot, dim=1)
 
     return source_weights
@@ -500,7 +500,7 @@ def learn_base_model(base_model: BaseModel, dataset: BaseDataset, learning_metho
                                         lr=training_params.learning_rate, weight_decay=training_params.weight_decay)
     # train scheduler needs to be given the thing that's supposed to decrease at the end of each epoch
     train_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
-        train_optimizer, factor=0.2, patience=3, threshold=0.001, min_lr=(training_params.learning_rate/100), verbose=True)
+        train_optimizer, factor=0.2, patience=5, threshold=0.001, min_lr=(training_params.learning_rate/100), verbose=True)
 
     classifier_on_top = MLP([base_model.output_dimension()] + [30, -1, -1, -1, 10] + [1])\
         .to(device=base_model._device, dtype=base_model._dtype)
@@ -559,7 +559,7 @@ def learn_base_model(base_model: BaseModel, dataset: BaseDataset, learning_metho
                 # try to forget alt count, while parameters after the representation try to minimize it, i.e. they try
                 # to achieve the adversarial task
                 alt_count_pred = torch.sigmoid(alt_count_predictor.forward(alt_count_gradient_reversal(representations)).squeeze())
-                alt_count_target = batch.alt_counts.to(dtype=alt_count_pred.dtype)/20
+                alt_count_target = batch.get_alt_counts().to(dtype=alt_count_pred.dtype)/20
                 alt_count_losses = alt_count_loss_func(alt_count_pred, alt_count_target)
 
                 alt_count_adversarial_metrics.record_losses(alt_count_losses.detach(), batch, weights=torch.ones_like(alt_count_losses))
@@ -568,8 +568,8 @@ def learn_base_model(base_model: BaseModel, dataset: BaseDataset, learning_metho
 
                 classification_logits = classifier_on_top.forward(representations.detach()).reshape(batch.size())
                 classification_losses = classifier_bce(classification_logits, batch.labels)
-                classification_loss = torch.sum(batch.is_labeled_mask * weights * classification_losses)
-                classifier_metrics.record_losses(classification_losses.detach(), batch, batch.is_labeled_mask * weights)
+                classification_loss = torch.sum(batch.get_is_labeled_mask() * weights * classification_losses)
+                classifier_metrics.record_losses(classification_losses.detach(), batch, batch.get_is_labeled_mask() * weights)
 
                 if epoch_type == utils.Epoch.TRAIN:
                     utils.backpropagate(train_optimizer, loss)
@@ -609,7 +609,7 @@ def record_embeddings(base_model: BaseModel, loader, summary_writer: SummaryWrit
         ref_alt_seq_embeddings = ref_alt_seq_embeddings.cpu()
 
         labels = [("artifact" if label > 0.5 else "non-artifact") if is_labeled > 0.5 else "unlabeled" for (label, is_labeled) in
-                  zip(batch.labels.tolist(), batch.is_labeled_mask.tolist())]
+                  zip(batch.labels.tolist(), batch.get_is_labeled_mask().tolist())]
         for (metrics, embeddings) in [(embedding_metrics, representations), (ref_alt_seq_metrics, ref_alt_seq_embeddings)]:
             metrics.label_metadata.extend(labels)
             metrics.correct_metadata.extend(["unknown"] * batch.size())
