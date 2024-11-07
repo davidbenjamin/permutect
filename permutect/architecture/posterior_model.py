@@ -23,6 +23,7 @@ from permutect.metrics.evaluation_metrics import MAX_COUNT, NUM_COUNT_BINS, mult
 # given germline, the probability of these particular reads being alt
 def germline_log_likelihood(afs, mafs, alt_counts, depths, het_beta=None):
     HOM_ALPHA, HOM_BETA = torch.tensor([98.0], device=depths.device), torch.tensor([2.0], device=depths.device)
+    HET_ALPHA, HET_BETA = torch.tensor([het_beta], device=depths.device), torch.tensor([het_beta], device=depths.device)
     het_probs = 2 * afs * (1 - afs)
     hom_probs = afs * afs
     het_proportion = het_probs / (het_probs + hom_probs)
@@ -37,9 +38,9 @@ def germline_log_likelihood(afs, mafs, alt_counts, depths, het_beta=None):
     combinatorial_term = torch.lgamma(depths + 1) - torch.lgamma(alt_counts + 1) - torch.lgamma(ref_counts + 1)
     # the following should both be 1D tensors of length batch size
     alt_minor_binomial = combinatorial_term + alt_counts * log_mafs + ref_counts * log_1m_mafs
-    alt_major_binomial = combinatorial_term + log_half_het_prop + ref_counts * log_mafs + alt_counts * log_1m_mafs
-    alt_minor_ll = log_half_het_prop + (alt_minor_binomial if het_beta is None else utils.beta_binomial(depths, alt_counts, het_beta, het_beta))
-    alt_major_ll = log_half_het_prop + (alt_major_binomial if het_beta is None else utils.beta_binomial(depths, alt_counts, het_beta, het_beta))
+    alt_major_binomial = combinatorial_term + ref_counts * log_mafs + alt_counts * log_1m_mafs
+    alt_minor_ll = log_half_het_prop + (alt_minor_binomial if het_beta is None else utils.beta_binomial(depths, alt_counts, HET_ALPHA, HET_BETA))
+    alt_major_ll = log_half_het_prop + (alt_major_binomial if het_beta is None else utils.beta_binomial(depths, alt_counts, HET_ALPHA, HET_BETA))
     hom_ll = torch.log(hom_proportion) + utils.beta_binomial(depths, alt_counts, HOM_ALPHA, HOM_BETA)
 
     return torch.logsumexp(torch.vstack((alt_minor_ll, alt_major_ll, hom_ll)), dim=0)
