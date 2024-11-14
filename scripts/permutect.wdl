@@ -36,7 +36,7 @@ workflow Permutect {
         File? test_dataset_truth_vcf_idx
 
         String? m3_filtering_extra_args
-        String? more_filtering_extra_args,
+        String? more_filtering_extra_args
         Boolean use_gpu
         String gatk_docker
         String bcftools_docker
