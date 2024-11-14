@@ -102,6 +102,8 @@ def parse_arguments():
     parser.add_argument('--' + constants.GERMLINE_MODE_NAME, action='store_true',
                         help='flag for genotyping both somatic and somatic variants distinctly but considering both '
                              'as non-errors (true positives), which affects the posterior threshold set by optimal F1 score')
+    parser.add_argument('--' + constants.HET_BETA_NAME, type=float, required=False,
+                        help='beta shape parameter for germline spectrum beta binomial if we want to override binomial')
 
     parser.add_argument('--' + constants.NO_GERMLINE_MODE_NAME, action='store_true',
                         help='flag for not genotyping germline events so that the only possibilities considered are '
@@ -146,13 +148,14 @@ def main_without_parsing(args):
                       genomic_span=getattr(args, constants.GENOMIC_SPAN_NAME),
                       germline_mode=getattr(args, constants.GERMLINE_MODE_NAME),
                       no_germline_mode=getattr(args, constants.NO_GERMLINE_MODE_NAME),
+                      het_beta=getattr(args, constants.HET_BETA_NAME),
                       segmentation=get_segmentation(getattr(args, constants.MAF_SEGMENTS_NAME)),
                       normal_segmentation=get_segmentation(getattr(args, constants.NORMAL_MAF_SEGMENTS_NAME)))
 
 
 def make_filtered_vcf(saved_artifact_model_path, initial_log_variant_prior: float, initial_log_artifact_prior: float,
                       test_dataset_file, contigs_table, input_vcf, output_vcf, batch_size: int, num_workers: int, chunk_size: int, num_spectrum_iterations: int,
-                      spectrum_learning_rate: float, tensorboard_dir, genomic_span: int, germline_mode: bool = False, no_germline_mode: bool = False,
+                      spectrum_learning_rate: float, tensorboard_dir, genomic_span: int, germline_mode: bool = False, no_germline_mode: bool = False, het_beta: float = None,
                       segmentation=defaultdict(IntervalTree), normal_segmentation=defaultdict(IntervalTree)):
     print("Loading artifact model and test dataset")
     contig_index_to_name_map = {}
@@ -165,7 +168,7 @@ def make_filtered_vcf(saved_artifact_model_path, initial_log_variant_prior: floa
     base_model, artifact_model, artifact_log_priors, artifact_spectra_state_dict = \
         load_base_model_and_artifact_model(saved_artifact_model_path, device=device)
 
-    posterior_model = PosteriorModel(initial_log_variant_prior, initial_log_artifact_prior, no_germline_mode=no_germline_mode, num_base_features=artifact_model.num_base_features)
+    posterior_model = PosteriorModel(initial_log_variant_prior, initial_log_artifact_prior, no_germline_mode=no_germline_mode, num_base_features=artifact_model.num_base_features, het_beta=het_beta)
     posterior_data_loader = make_posterior_data_loader(test_dataset_file, input_vcf, contig_index_to_name_map,
         base_model, artifact_model, batch_size, num_workers=num_workers, chunk_size=chunk_size, segmentation=segmentation, normal_segmentation=normal_segmentation)
 

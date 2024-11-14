@@ -315,19 +315,22 @@ class EvaluationMetrics:
                 metric.plot_roc_curves_by_count(var_type, roc_by_cnt_axes[row_idx, var_type], given_threshold, sens_prec)
         # done collecting stats for all loaders and filling in subplots
 
+        nonart_label = "sensitivity" if sens_prec else "non-artifact accuracy"
+        art_label = "precision" if sens_prec else "artifact accuracy"
+
         variation_types = [var_type.name for var_type in Variation]
         row_names = [epoch_type.name for epoch_type in self.metrics.keys()]
         plotting.tidy_subplots(acc_vs_cnt_fig, acc_vs_cnt_axes, x_label="alt count", y_label="accuracy", row_labels=row_names, column_labels=variation_types)
-        plotting.tidy_subplots(roc_fig, roc_axes, x_label="non-artifact accuracy", y_label="artifact accuracy", row_labels=row_names, column_labels=variation_types)
-        plotting.tidy_subplots(roc_by_cnt_fig, roc_by_cnt_axes, x_label="non-artifact accuracy", y_label="artifact accuracy", row_labels=row_names, column_labels=variation_types)
+        plotting.tidy_subplots(roc_fig, roc_axes, x_label=nonart_label, y_label=art_label, row_labels=row_names, column_labels=variation_types)
+        plotting.tidy_subplots(roc_by_cnt_fig, roc_by_cnt_axes, x_label=nonart_label, y_label=art_label, row_labels=row_names, column_labels=variation_types)
         plotting.tidy_subplots(cal_fig, cal_axes, x_label="predicted logit", y_label="accuracy", row_labels=row_names, column_labels=variation_types)
         plotting.tidy_subplots(cal_fig_all_counts, cal_axes_all_counts, x_label="predicted logit", y_label="accuracy", row_labels=row_names, column_labels=variation_types)
 
         summary_writer.add_figure("accuracy by alt count", acc_vs_cnt_fig, global_step=epoch)
         summary_writer.add_figure(" accuracy by logit output by count", cal_fig, global_step=epoch)
         summary_writer.add_figure(" accuracy by logit output", cal_fig_all_counts, global_step=epoch)
-        summary_writer.add_figure(" variant accuracy vs artifact accuracy curve", roc_fig, global_step=epoch)
-        summary_writer.add_figure(" variant accuracy vs artifact accuracy curves by alt count", roc_by_cnt_fig, global_step=epoch)
+        summary_writer.add_figure("sensitivity vs precision" if sens_prec else "variant accuracy vs artifact accuracy", roc_fig, global_step=epoch)
+        summary_writer.add_figure("sensitivity vs precision by alt count" if sens_prec else "variant accuracy vs artifact accuracy by alt count", roc_by_cnt_fig, global_step=epoch)
 
 
 def sample_indices_for_tensorboard(indices: List[int]):

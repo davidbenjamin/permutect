@@ -77,7 +77,7 @@ def plot_accuracy_vs_accuracy_roc_on_axis(lists_of_predictions_and_labels, curve
             else:
                 small_dots.append((art_acc, non_art_acc, 'go'))     # green circle
 
-    simple_plot_on_axis(axis, x_y_lab_tuples, "artifact accuracy", "non-artifact accuracy")
+    simple_plot_on_axis(axis, x_y_lab_tuples, "precision" if sens_prec else "artifact accuracy", "sensitivity" if sens_prec else "non-artifact accuracy")
     for x, y, spec in small_dots:
         axis.plot(x, y, spec, markersize=2,label="")  # point
     for x, y, spec in big_dots:
