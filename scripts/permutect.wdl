@@ -36,6 +36,7 @@ workflow Permutect {
         File? test_dataset_truth_vcf_idx
 
         String? m3_filtering_extra_args
+        String? more_filtering_extra_args,
         Boolean use_gpu
         String gatk_docker
         String bcftools_docker
@@ -113,6 +114,7 @@ workflow Permutect {
                 spectrum_learning_rate = spectrum_learning_rate,
                 chunk_size = chunk_size,
                 m3_filtering_extra_args = m3_filtering_extra_args,
+                more_filtering_extra_args = more_filtering_extra_args,
                 permutect_docker = permutect_docker,
         }
     }
@@ -133,6 +135,7 @@ workflow Permutect {
                 spectrum_learning_rate = spectrum_learning_rate,
                 chunk_size = chunk_size,
                 m3_filtering_extra_args = m3_filtering_extra_args,
+                more_filtering_extra_args = more_filtering_extra_args,
                 permutect_docker = permutect_docker,
         }
     }
@@ -169,6 +172,7 @@ task PermutectFilteringCPU {
         Int num_workers
         Int chunk_size
         String? m3_filtering_extra_args
+        String? more_filtering_extra_args
 
         String permutect_docker
         Int? preemptible
@@ -196,7 +200,7 @@ task PermutectFilteringCPU {
             ~{" --num_spectrum_iterations " + num_spectrum_iterations} \
             ~{" --spectrum_learning_rate " + spectrum_learning_rate} \
             ~{" --maf_segments " + maf_segments} ~{" --normal_maf_segments " + normal_maf_segments} \
-            --genomic_span $genomic_span ~{m3_filtering_extra_args}
+            --genomic_span $genomic_span ~{m3_filtering_extra_args} ~{more_filtering_extra_args}
 
         tar cvf tensorboard.tar tensorboard/
     >>>
@@ -233,6 +237,7 @@ task PermutectFilteringCPU {
         Int? gpu_count
         Int chunk_size
         String? m3_filtering_extra_args
+        String? more_filtering_extra_args
 
         String permutect_docker
         Int? preemptible
@@ -260,7 +265,7 @@ task PermutectFilteringCPU {
             ~{" --num_spectrum_iterations " + num_spectrum_iterations} \
             ~{" --spectrum_learning_rate " + spectrum_learning_rate} \
             ~{" --maf_segments " + maf_segments} ~{" --normal_maf_segments " + normal_maf_segments} \
-            --genomic_span $genomic_span ~{m3_filtering_extra_args}
+            --genomic_span $genomic_span ~{m3_filtering_extra_args} ~{more_filtering_extra_args}
 
         tar cvf tensorboard.tar tensorboard/
     >>>

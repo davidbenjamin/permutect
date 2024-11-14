@@ -161,5 +161,10 @@ class PosteriorDataset(Dataset):
     def __getitem__(self, index) -> PosteriorDatum:
         return self.data[index]
 
-    def make_data_loader(self, batch_size: int, pin_memory: bool = False, num_workers: int = 0):
-        return DataLoader(dataset=self, batch_size=batch_size, pin_memory=pin_memory, num_workers=num_workers, collate_fn=PosteriorBatch)
+    def make_data_loader(self, batch_size: int, pin_memory: bool = False, num_workers: int = 0, min_artifact_logit: float = 0.0):
+        if min_artifact_logit == 0.0:
+            dataset = self
+        else:
+            indices = (n for n in range(len(self)) if abs(self[n].get_artifact_logit()) > min_artifact_logit)
+            dataset = torch.utils.data.Subset(self, indices)
+        return DataLoader(dataset=dataset, batch_size=batch_size, pin_memory=pin_memory, num_workers=num_workers, collate_fn=PosteriorBatch)

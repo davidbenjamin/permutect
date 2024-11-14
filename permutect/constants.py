@@ -55,6 +55,7 @@ TENSORBOARD_DIR_NAME = 'tensorboard_dir'
 
 INITIAL_LOG_VARIANT_PRIOR_NAME = 'initial_log_variant_prior'
 INITIAL_LOG_ARTIFACT_PRIOR_NAME = 'initial_log_artifact_prior'
+MIN_SPECTRA_LOGIT_NAME = 'min_spectra_logit'
 CONTIGS_TABLE_NAME = 'contigs_table'
 GENOMIC_SPAN_NAME = 'genomic_span'
 MAF_SEGMENTS_NAME = 'maf_segments'

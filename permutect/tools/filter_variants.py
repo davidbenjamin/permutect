@@ -90,6 +90,8 @@ def parse_arguments():
                         help='initial value for natural log prior of somatic variants')
     parser.add_argument('--' + constants.INITIAL_LOG_ARTIFACT_PRIOR_NAME, type=float, default=-10.0, required=False,
                         help='initial value for natural log prior of artifacts')
+    parser.add_argument('--' + constants.MIN_SPECTRA_LOGIT_NAME, type=float, default=0.0, required=False,
+                        help='minimum absolute value of artifact logit for data to be used in fitting AF spectra and priors')
     parser.add_argument('--' + constants.GENOMIC_SPAN_NAME, type=float, required=True,
                         help='number of sites considered by Mutect2, including those lacking variation or artifacts, hence absent from input dataset.  '
                              'Necessary for learning priors since otherwise rates of artifacts and variants would be overinflated.')
@@ -135,6 +137,7 @@ def main_without_parsing(args):
     make_filtered_vcf(saved_artifact_model_path=getattr(args, constants.M3_MODEL_NAME),
                       initial_log_variant_prior=getattr(args, constants.INITIAL_LOG_VARIANT_PRIOR_NAME),
                       initial_log_artifact_prior=getattr(args, constants.INITIAL_LOG_ARTIFACT_PRIOR_NAME),
+                      min_spectra_logit=getattr(args, constants.MIN_SPECTRA_LOGIT_NAME),
                       test_dataset_file=getattr(args, constants.TEST_DATASET_NAME),
                       contigs_table=getattr(args, constants.CONTIGS_TABLE_NAME),
                       input_vcf=getattr(args, constants.INPUT_NAME),
@@ -153,7 +156,7 @@ def main_without_parsing(args):
                       normal_segmentation=get_segmentation(getattr(args, constants.NORMAL_MAF_SEGMENTS_NAME)))
 
 
-def make_filtered_vcf(saved_artifact_model_path, initial_log_variant_prior: float, initial_log_artifact_prior: float,
+def make_filtered_vcf(saved_artifact_model_path, initial_log_variant_prior: float, initial_log_artifact_prior: float, min_spectra_logit: float,
                       test_dataset_file, contigs_table, input_vcf, output_vcf, batch_size: int, num_workers: int, chunk_size: int, num_spectrum_iterations: int,
                       spectrum_learning_rate: float, tensorboard_dir, genomic_span: int, germline_mode: bool = False, no_germline_mode: bool = False, het_beta: float = None,
                       segmentation=defaultdict(IntervalTree), normal_segmentation=defaultdict(IntervalTree)):
@@ -169,27 +172,30 @@ def make_filtered_vcf(saved_artifact_model_path, initial_log_variant_prior: floa
         load_base_model_and_artifact_model(saved_artifact_model_path, device=device)
 
     posterior_model = PosteriorModel(initial_log_variant_prior, initial_log_artifact_prior, no_germline_mode=no_germline_mode, num_base_features=artifact_model.num_base_features, het_beta=het_beta)
-    posterior_data_loader = make_posterior_data_loader(test_dataset_file, input_vcf, contig_index_to_name_map,
+    posterior_dataset = make_posterior_dataset(test_dataset_file, input_vcf, contig_index_to_name_map,
         base_model, artifact_model, batch_size, num_workers=num_workers, chunk_size=chunk_size, segmentation=segmentation, normal_segmentation=normal_segmentation)
 
+    posterior_data_loader_for_spectra = posterior_dataset.make_data_loader(batch_size, pin_memory=torch.cuda.is_available(),
+                                                                           num_workers=num_workers, min_artifact_logit=min_spectra_logit)
     print("Learning AF spectra")
     summary_writer = SummaryWriter(tensorboard_dir)
 
-    num_ignored_sites = genomic_span - len(posterior_data_loader.dataset)
+    num_ignored_sites = genomic_span - len(posterior_data_loader_for_spectra.dataset)
     # here is where pretrained artifact priors and spectra are used if given
 
-    posterior_model.learn_priors_and_spectra(posterior_data_loader, num_iterations=num_spectrum_iterations,
-        summary_writer=summary_writer, ignored_to_non_ignored_ratio=num_ignored_sites/len(posterior_data_loader.dataset),
+    posterior_model.learn_priors_and_spectra(posterior_data_loader_for_spectra, num_iterations=num_spectrum_iterations,
+        summary_writer=summary_writer, ignored_to_non_ignored_ratio=num_ignored_sites/len(posterior_data_loader_for_spectra.dataset),
                                              learning_rate=spectrum_learning_rate)
 
     print("Calculating optimal logit threshold")
+    posterior_data_loader = posterior_dataset.make_data_loader(batch_size, pin_memory=torch.cuda.is_available(), num_workers=num_workers)
     error_probability_thresholds = posterior_model.calculate_probability_thresholds(posterior_data_loader, summary_writer, germline_mode=germline_mode)
     print(f"Optimal probability threshold: {error_probability_thresholds}")
     apply_filtering_to_vcf(input_vcf, output_vcf, contig_index_to_name_map, error_probability_thresholds, posterior_data_loader, posterior_model, summary_writer=summary_writer, germline_mode=germline_mode)
 
 
 @torch.inference_mode()
-def make_posterior_data_loader(dataset_file, input_vcf, contig_index_to_name_map, base_model: BaseModel, artifact_model: ArtifactModel,
+def make_posterior_dataset(dataset_file, input_vcf, contig_index_to_name_map, base_model: BaseModel, artifact_model: ArtifactModel,
                                batch_size: int, num_workers: int, chunk_size: int, segmentation=defaultdict(IntervalTree), normal_segmentation=defaultdict(IntervalTree)):
     print("Reading test dataset")
 
@@ -250,7 +256,7 @@ def make_posterior_data_loader(dataset_file, input_vcf, contig_index_to_name_map
     print(f"Size of filtering dataset: {len(posterior_data)}")
     posterior_dataset = PosteriorDataset(posterior_data)
     print(f"Memory usage percent after creating PosteriorDataset: {psutil.virtual_memory().percent:.1f}")
-    return posterior_dataset.make_data_loader(batch_size, pin_memory=torch.cuda.is_available(), num_workers=num_workers)
+    return posterior_dataset
 
 
 # error probability thresholds is a dict from Variant type to error probability threshold (float)
