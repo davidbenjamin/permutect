@@ -165,6 +165,6 @@ class PosteriorDataset(Dataset):
         if min_artifact_logit == 0.0:
             dataset = self
         else:
-            indices = (n for n in range(len(self)) if abs(self[n].get_artifact_logit()) > min_artifact_logit)
+            indices = [n for n in range(len(self)) if abs(self[n].get_artifact_logit()) > min_artifact_logit]
             dataset = torch.utils.data.Subset(self, indices)
         return DataLoader(dataset=dataset, batch_size=batch_size, pin_memory=pin_memory, num_workers=num_workers, collate_fn=PosteriorBatch)
