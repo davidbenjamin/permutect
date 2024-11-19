@@ -119,7 +119,6 @@ class BaseModel(torch.nn.Module):
         self._dtype = DEFAULT_GPU_FLOAT if device != torch.device("cpu") else DEFAULT_CPU_FLOAT
         self._ref_sequence_length = ref_sequence_length
         self._params = params
-        self.alt_downsample = params.alt_downsample
 
         # embeddings of reads, info, and reference sequence prior to the transformer layers
         self.read_embedding = MLP([num_read_features] + params.read_layers, batch_normalize=params.batch_normalize, dropout_p=params.dropout_p)
@@ -164,23 +163,19 @@ class BaseModel(torch.nn.Module):
     # first by variant within the batch, then the read
     def calculate_representations(self, batch: BaseBatch, weight_range: float = 0) -> torch.Tensor:
         ref_count, alt_count = batch.ref_count, batch.alt_count
-        total_ref, total_alt = ref_count * batch.size(), alt_count * batch.size()
+
+        ref_counts, alt_counts = batch.ref_counts, batch.alt_counts
+        total_ref = torch.sum(ref_counts).item()
 
         read_embeddings_re = self.read_embedding.forward(batch.get_reads_2d().to(dtype=self._dtype))
         info_embeddings_ve = self.info_embedding.forward(batch.get_info_2d().to(dtype=self._dtype))
         ref_seq_embeddings_ve = self.ref_seq_cnn(batch.get_ref_sequences_2d().to(dtype=self._dtype))
         info_and_seq_ve = torch.hstack((info_embeddings_ve, ref_seq_embeddings_ve))
-        info_and_seq_re = torch.vstack((torch.repeat_interleave(info_and_seq_ve, ref_count, dim=0),
-                                       torch.repeat_interleave(info_and_seq_ve, alt_count, dim=0)))
+        info_and_seq_re = torch.vstack((torch.repeat_interleave(info_and_seq_ve, repeats=ref_counts, dim=0),
+                                       torch.repeat_interleave(info_and_seq_ve, repeats=alt_counts, dim=0)))
         reads_info_seq_re = torch.hstack((read_embeddings_re, info_and_seq_re))
         ref_reads_info_seq_vre = None if total_ref == 0 else reads_info_seq_re[:total_ref].reshape(batch.size(), ref_count, -1)
         alt_reads_info_seq_vre = reads_info_seq_re[total_ref:].reshape(batch.size(), alt_count, -1)
-
-        if self.alt_downsample < alt_count:
-            alt_read_indices = torch.randperm(alt_count)[:self.alt_downsample]
-            alt_reads_info_seq_vre = alt_reads_info_seq_vre[:, alt_read_indices, :]   # downsample only along the middle (read) dimension
-            alt_count = self.alt_downsample
-            total_alt = batch.size() * self.alt_downsample
 
         # undo some of the above rearrangement
 

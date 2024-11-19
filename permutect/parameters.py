@@ -14,7 +14,7 @@ class BaseModelParameters:
     """
     def __init__(self, read_layers: List[int], num_transformer_heads: int, transformer_hidden_dimension: int,
                  num_transformer_layers: int, info_layers: List[int], aggregation_layers: List[int],
-                 ref_seq_layers_strings: List[str], dropout_p: float, reweighting_range: float, batch_normalize: bool = False, alt_downsample: int = 100):
+                 ref_seq_layers_strings: List[str], dropout_p: float, reweighting_range: float, batch_normalize: bool = False):
 
         self.read_layers = read_layers
         self.info_layers = info_layers
@@ -26,7 +26,6 @@ class BaseModelParameters:
         self.dropout_p = dropout_p
         self.reweighting_range = reweighting_range
         self.batch_normalize = batch_normalize
-        self.alt_downsample = alt_downsample
 
     def output_dimension(self):
         return self.aggregation_layers[-1]
@@ -43,10 +42,9 @@ def parse_base_model_params(args) -> BaseModelParameters:
     dropout_p = getattr(args, constants.DROPOUT_P_NAME)
     reweighting_range = getattr(args, constants.REWEIGHTING_RANGE_NAME)
     batch_normalize = getattr(args, constants.BATCH_NORMALIZE_NAME)
-    alt_downsample = getattr(args, constants.ALT_DOWNSAMPLE_NAME)
     return BaseModelParameters(read_layers, num_transformer_heads, transformer_hidden_dimension,
                                num_transformer_layers, info_layers, aggregation_layers, ref_seq_layer_strings, dropout_p,
-                               reweighting_range, batch_normalize, alt_downsample)
+                               reweighting_range, batch_normalize)
 
 
 def add_base_model_params_to_parser(parser):
@@ -75,8 +73,6 @@ def add_base_model_params_to_parser(parser):
     parser.add_argument('--' + constants.REWEIGHTING_RANGE_NAME, type=float, default=0.3, required=False,
                         help='magnitude of data augmentation by randomly weighted average of read embeddings.  '
                              'a value of x yields random weights between 1 - x and 1 + x')
-    parser.add_argument('--' + constants.ALT_DOWNSAMPLE_NAME, type=int, default=100, required=False,
-                        help='max number of alt reads to downsample to inside the model')
     parser.add_argument('--' + constants.BATCH_NORMALIZE_NAME, action='store_true',
                         help='flag to turn on batch normalization')
 
