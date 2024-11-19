@@ -190,9 +190,7 @@ class BaseModel(torch.nn.Module):
         alt_wt_sums_v = utils.sums_over_rows(alt_weights_r, alt_counts)
         normalized_alt_weights_r = alt_weights_r / torch.repeat_interleave(alt_wt_sums_v, repeats=alt_counts, dim=0)
 
-        normalized_alt_weights_vr1 = (alt_weights_vr / alt_wt_sums).reshape(batch.size(), alt_count, 1)
-
-        alt_means_ve = torch.sum(transformed_alt_vre * normalized_alt_weights_vr1, dim=1)
+        alt_means_ve = utils.sums_over_rows(transformed_alt_re * normalized_alt_weights_r[:,None], alt_counts)
 
         result_ve = self.aggregation.forward(alt_means_ve)
 
