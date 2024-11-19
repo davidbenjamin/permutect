@@ -247,7 +247,7 @@ workflow CallVariantsWithUDA {
         File permutect_contigs_table = Mutect2.permutect_contigs_table
         File permutect_read_groups_table = Mutect2.permutect_read_groups_table
         File train_tar = Preprocess.train_tar
-        File training_tensorboard_tar = TrainPermutect.tensorboard_tar
+        File training_tensorboard_tar = TrainPermutect.training_tensorboard_tar
         File output_vcf = IndexAfterFiltering.vcf
         File output_vcf_idx = IndexAfterFiltering.vcf_index
         File calling_tensorboard_tar = select_first([PermutectFilteringGPU.tensorboard_report, PermutectFilteringCPU.tensorboard_report])
