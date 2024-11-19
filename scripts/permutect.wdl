@@ -148,8 +148,8 @@ workflow Permutect {
         File output_vcf_idx = IndexAfterFiltering.vcf_index
         File tensorboard_report = select_first([PermutectFilteringGPU.tensorboard_report, PermutectFilteringCPU.tensorboard_report])
         File test_dataset = select_first([Mutect2.m3_dataset])
-        File mutect2_vcf = Mutect2.filtered_vcf
-        File mutect2_vcf_idx = Mutect2.filtered_vcf_idx
+        File mutect2_vcf = Mutect2.output_vcf
+        File mutect2_vcf_idx = Mutect2.output_vcf_idx
     }
 }
 
