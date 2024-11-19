@@ -9,6 +9,7 @@ version 1.0
 import "https://api.firecloud.org/ga4gh/v1/tools/davidben:mutect2/versions/17/plain-WDL/descriptor" as m2
 import "https://api.firecloud.org/ga4gh/v1/tools/davidben:permutect-uda-dataset/versions/3/plain-WDL/descriptor" as uda
 import "https://api.firecloud.org/ga4gh/v1/tools/davidben:permutect-train-artifact-model/versions/10/plain-WDL/descriptor" as training
+import "https://api.firecloud.org/ga4gh/v1/tools/davidben:permutect-call-variants/versions/18/plain-WDL/descriptor" as calling
 
 workflow CallVariantsWithUDA {
     input {
@@ -66,7 +67,7 @@ workflow CallVariantsWithUDA {
         File? test_dataset_truth_vcf_idx
         Int? num_spectrum_iterations
         Float? spectrum_learning_rate
-        String? m3_filtering_extra_args
+        String? permutect_filtering_extra_args
         String bcftools_docker = "us.gcr.io/broad-dsde-methods/davidben/bcftools"
         File? obscene_hack_leave_unset
 
@@ -175,6 +176,70 @@ workflow CallVariantsWithUDA {
             max_retries = 0
     }
 
+    # we already ran M2 so we don't need the entire calling workflow, just the post-M2 parts of it
+    call calling.SplitMultiallelics {
+        input:
+            input_vcf = Mutect2.output_vcf,
+            input_vcf_idx = Mutect2.output_vcf_idx,
+            ref_fasta = ref_fasta,
+            ref_fai = ref_fai,
+            ref_dict = ref_dict,
+            bcftools_docker = bcftools_docker
+    }
+
+    call calling.IndexVCF as IndexAfterSplitting {
+        input:
+            unindexed_vcf = SplitMultiallelics.output_vcf,
+            gatk_docker = gatk_docker
+    }
+
+    if (use_gpu) {
+        call calling.PermutectFilteringGPU {
+            input:
+                mutect2_vcf = IndexAfterSplitting.vcf,
+                mutect2_vcf_idx = IndexAfterSplitting.vcf_index,
+                permutect_model = TrainPermutect.artifact_model,
+                test_dataset = select_first([Mutect2.permutect_test_dataset]),
+                contigs_table = Mutect2.permutect_contigs_table,
+                maf_segments = Mutect2.maf_segments,
+                mutect_stats = Mutect2.mutect_stats,
+                batch_size = batch_size,
+                num_workers = num_workers,
+                gpu_count = gpu_count,
+                num_spectrum_iterations = num_spectrum_iterations,
+                spectrum_learning_rate = spectrum_learning_rate,
+                chunk_size = chunk_size,
+                permutect_filtering_extra_args = permutect_filtering_extra_args,
+                permutect_docker = permutect_docker,
+        }
+    }
+
+    if (!use_gpu) {
+        call calling.PermutectFilteringCPU {
+            input:
+                mutect2_vcf = IndexAfterSplitting.vcf,
+                mutect2_vcf_idx = IndexAfterSplitting.vcf_index,
+                permutect_model = TrainPermutect.artifact_model,
+                test_dataset = select_first([Mutect2.permutect_test_dataset]),
+                contigs_table = Mutect2.permutect_contigs_table,
+                maf_segments = Mutect2.maf_segments,
+                mutect_stats = Mutect2.mutect_stats,
+                batch_size = batch_size,
+                num_workers = num_workers,
+                num_spectrum_iterations = num_spectrum_iterations,
+                spectrum_learning_rate = spectrum_learning_rate,
+                chunk_size = chunk_size,
+                permutect_filtering_extra_args = permutect_filtering_extra_args,
+                permutect_docker = permutect_docker,
+        }
+    }
+
+    call calling.IndexVCF as IndexAfterFiltering {
+        input:
+            unindexed_vcf = select_first([PermutectFilteringGPU.output_vcf, PermutectFilteringCPU.output_vcf]),
+            gatk_docker = gatk_docker
+    }
+
     output {
         File? bamout = Mutect2.bamout
         File? bamout_index = Mutect2.bamout_index
@@ -182,6 +247,10 @@ workflow CallVariantsWithUDA {
         File permutect_contigs_table = Mutect2.permutect_contigs_table
         File permutect_read_groups_table = Mutect2.permutect_read_groups_table
         File train_tar = Preprocess.train_tar
+        File training_tensorboard_tar = TrainPermutect.tensorboard_tar
+        File output_vcf = IndexAfterFiltering.vcf
+        File output_vcf_idx = IndexAfterFiltering.vcf_index
+        File calling_tensorboard_tar = select_first([PermutectFilteringGPU.tensorboard_report, PermutectFilteringCPU.tensorboard_report])
     }
 
 }
