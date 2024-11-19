@@ -1,6 +1,6 @@
 version 1.0
 
-import "https://api.firecloud.org/ga4gh/v1/tools/davidben:mutect2/versions/16/plain-WDL/descriptor" as m2
+import "https://api.firecloud.org/ga4gh/v1/tools/davidben:mutect2/versions/17/plain-WDL/descriptor" as m2
 
 workflow Permutect {
     input {
@@ -82,8 +82,8 @@ workflow Permutect {
 
     call SplitMultiallelics {
         input:
-            input_vcf = Mutect2.filtered_vcf,
-            input_vcf_idx = Mutect2.filtered_vcf_idx,
+            input_vcf = Mutect2.output_vcf,
+            input_vcf_idx = Mutect2.output_vcf_idx,
             ref_fasta = ref_fasta,
             ref_fai = ref_fai,
             ref_dict = ref_dict,

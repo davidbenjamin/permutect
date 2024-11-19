@@ -21,15 +21,13 @@ workflow MakeTrainingDataset {
         # extra arguments
         String? m2_extra_args
 
-        # preprocessin arguments
+        # preprocessing arguments
         Int chunk_size
 
         # additional modes and outputs
         File? dragstr_model
         Boolean make_bamout = false
         Boolean compress_vcfs = false
-        Boolean make_permutect_training_dataset = false
-        Boolean make_permutect_test_dataset = false
         File? permutect_training_dataset_truth_vcf
         File? permutect_training_dataset_truth_vcf_idx
 
