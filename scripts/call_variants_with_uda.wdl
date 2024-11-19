@@ -8,7 +8,7 @@ version 1.0
 
 import "https://api.firecloud.org/ga4gh/v1/tools/davidben:mutect2/versions/17/plain-WDL/descriptor" as m2
 import "https://api.firecloud.org/ga4gh/v1/tools/davidben:permutect-uda-dataset/versions/3/plain-WDL/descriptor" as uda
-import "https://api.firecloud.org/ga4gh/v1/tools/davidben:permutect-train-artifact-model/versions/11/plain-WDL/descriptor" as training
+import "https://api.firecloud.org/ga4gh/v1/tools/davidben:permutect-train-artifact-model/versions/12/plain-WDL/descriptor" as training
 import "https://api.firecloud.org/ga4gh/v1/tools/davidben:permutect-call-variants/versions/18/plain-WDL/descriptor" as calling
 
 workflow CallVariantsWithUDA {
@@ -47,6 +47,7 @@ workflow CallVariantsWithUDA {
         Int inference_batch_size
         Int num_workers
         Int? gpu_count
+        Int? training_mem
 
         # UDA training arguments
         File base_model
@@ -163,6 +164,7 @@ workflow CallVariantsWithUDA {
             batch_size = batch_size,
             inference_batch_size = inference_batch_size,
             num_workers = num_workers,
+            mem = training_mem,
             use_gpu = use_gpu,
             gpu_count = gpu_count,
             dropout_p = dropout_p,

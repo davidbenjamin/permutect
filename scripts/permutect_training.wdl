@@ -22,6 +22,7 @@ workflow TrainPermutect {
         String permutect_docker
         Int? preemptible
         Int? max_retries
+        Int? mem
     }
 
     if (use_gpu) {
@@ -32,6 +33,7 @@ workflow TrainPermutect {
                 permutect_docker = permutect_docker,
                 preemptible = preemptible,
                 max_retries = max_retries,
+                mem = mem,
                 num_epochs = num_epochs,
                 num_calibration_epochs = num_calibration_epochs,
                 batch_size = batch_size,
@@ -55,6 +57,7 @@ workflow TrainPermutect {
                 permutect_docker = permutect_docker,
                 preemptible = preemptible,
                 max_retries = max_retries,
+                mem = mem,
                 num_epochs = num_epochs,
                 num_calibration_epochs = num_calibration_epochs,
                 batch_size = batch_size,
