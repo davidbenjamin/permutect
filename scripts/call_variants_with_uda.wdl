@@ -156,7 +156,7 @@ workflow CallVariantsWithUDA {
     # train an artifact model on the UDA dataset
     call training.TrainPermutect {
         input:
-            train_tar = PermutectUDADataset.output_tarfile,
+            train_tar = PermutectUDADataset.uda_train_tar,
             base_model = base_model,
             num_epochs = num_epochs,
             num_calibration_epochs = num_calibration_epochs,
