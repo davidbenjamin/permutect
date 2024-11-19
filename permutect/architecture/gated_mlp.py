@@ -219,13 +219,18 @@ class SpacialGatingUnitRefAlt(nn.Module):
         z2_ref_rd = self.norm(z2_ref_rd)
         z2_alt_rd = self.norm(z2_alt_rd)
 
-        ref_mean_field_rd = utils.means_over_rows(z2_ref_rd, ref_counts, keepdim=True)
-        alt_mean_field_rd = utils.means_over_rows(z2_alt_rd, alt_counts, keepdim=True)
+        # these are means by variant -- need repeat_interleave to make them by-read
+        ref_mean_field_vd = utils.means_over_rows(z2_ref_rd, ref_counts)
+        alt_mean_field_vd = utils.means_over_rows(z2_alt_rd, alt_counts)
+
+        ref_mean_field_on_ref_rd = torch.repeat_interleave(ref_mean_field_vd, dim=0, repeats=ref_counts)
+        ref_mean_field_on_alt_rd = torch.repeat_interleave(ref_mean_field_vd, dim=0, repeats=alt_counts)
+        alt_mean_field_on_alt_rd = torch.repeat_interleave(alt_mean_field_vd, dim=0, repeats=alt_counts)
 
         # same as above except now there is an additional term for the ref mean field influence on alt
         # maybe later also let alt mean field influence ref
-        z2_ref_rd = 1 + self.alpha_ref * z2_ref_rd + self.beta_ref * ref_mean_field_rd
-        z2_alt_rd = 1 + self.alpha_alt * z2_alt_rd + self.beta_alt * alt_mean_field_rd + self.gamma * ref_mean_field_rd
+        z2_ref_rd = 1 + self.alpha_ref * z2_ref_rd + self.beta_ref * ref_mean_field_on_ref_rd
+        z2_alt_rd = 1 + self.alpha_alt * z2_alt_rd + self.beta_alt * alt_mean_field_on_alt_rd + self.gamma * ref_mean_field_on_alt_rd
 
         # $Z_1 \odot f_{W,b}(Z_2)$
         return z1_ref_rd * z2_ref_rd, z1_alt_rd * z2_alt_rd
