@@ -162,10 +162,10 @@ class BaseModel(torch.nn.Module):
     # so, for example, "re" means a 2D tensor with all reads in the batch stacked and "vre" means a 3D tensor indexed
     # first by variant within the batch, then the read
     def calculate_representations(self, batch: BaseBatch, weight_range: float = 0) -> torch.Tensor:
-        ref_count, alt_count = batch.ref_count, batch.alt_count
+        alt_count = batch.alt_count
 
         ref_counts, alt_counts = batch.ref_counts, batch.alt_counts
-        total_ref = torch.sum(ref_counts).item()
+        total_ref, total_alt = torch.sum(ref_counts).item(), torch.sum(alt_counts).item()
 
         read_embeddings_re = self.read_embedding.forward(batch.get_reads_2d().to(dtype=self._dtype))
         info_embeddings_ve = self.info_embedding.forward(batch.get_info_2d().to(dtype=self._dtype))
@@ -174,18 +174,24 @@ class BaseModel(torch.nn.Module):
         info_and_seq_re = torch.vstack((torch.repeat_interleave(info_and_seq_ve, repeats=ref_counts, dim=0),
                                        torch.repeat_interleave(info_and_seq_ve, repeats=alt_counts, dim=0)))
         reads_info_seq_re = torch.hstack((read_embeddings_re, info_and_seq_re))
-        ref_reads_info_seq_vre = None if total_ref == 0 else reads_info_seq_re[:total_ref].reshape(batch.size(), ref_count, -1)
-        alt_reads_info_seq_vre = reads_info_seq_re[total_ref:].reshape(batch.size(), alt_count, -1)
+
+        ref_reads_info_seq_re = None if total_ref == 0 else reads_info_seq_re[:total_ref]
+        alt_reads_info_seq_re = reads_info_seq_re[total_ref:]
 
         # undo some of the above rearrangement
 
-        transformed_ref_vre, transformed_alt_vre = (None, self.alt_encoder(alt_reads_info_seq_vre)) if total_ref == 0 else \
-            self.ref_alt_reads_encoder(ref_reads_info_seq_vre, alt_reads_info_seq_vre)
+        # TODO: the encoders don't yet know what to do with the ref and alt counts!!!
+        transformed_ref_re, transformed_alt_re = (None, self.alt_encoder.forward(alt_reads_info_seq_re, alt_counts)) if total_ref == 0 else \
+            self.ref_alt_reads_encoder.forward(ref_reads_info_seq_re, alt_reads_info_seq_re, ref_counts, alt_counts)
 
-        alt_weights_vr = 1 + weight_range * (1 - 2 * torch.rand(batch.size(), alt_count, device=self._device, dtype=self._dtype))
-        alt_wt_sums = torch.sum(alt_weights_vr, dim=1, keepdim=True)
-        # normalized so read weights within each variant sum to 1 and add dummy e dimension for broadcasting the multiply below
+        alt_weights_r = 1 + weight_range * (1 - 2 * torch.rand(total_alt, device=self._device, dtype=self._dtype))
+
+        # normalize so read weights within each variant sum to 1
+        alt_wt_sums_v = utils.sums_over_rows(alt_weights_r, alt_counts)
+        normalized_alt_weights_r = alt_weights_r / torch.repeat_interleave(alt_wt_sums_v, repeats=alt_counts, dim=0)
+
         normalized_alt_weights_vr1 = (alt_weights_vr / alt_wt_sums).reshape(batch.size(), alt_count, 1)
+
         alt_means_ve = torch.sum(transformed_alt_vre * normalized_alt_weights_vr1, dim=1)
 
         result_ve = self.aggregation.forward(alt_means_ve)
@@ -366,8 +372,10 @@ class BaseModelAutoencoderLoss(torch.nn.Module, BaseModelLearningStrategy):
         alt_vre = torch.cat((alt_representations_vre, random_alt_seeds_vre), dim=-1)
         ref_vre = torch.cat((ref_representations_vre, random_ref_seeds_vre), dim=-1) if ref_count > 0 else None
 
-        decoded_alt_vre = self.alt_decoder(alt_vre)
-        decoded_ref_vre = self.ref_decoder(ref_vre) if ref_count > 0 else None
+        # TODO: update these to reflect mixed-count batches.  Gated MLPs now take inputs flattened over batch dimension
+        # TODO: and have an extra input of ref and alt read counts
+        decoded_alt_vre = self.alt_decoder.forward(alt_vre)
+        decoded_ref_vre = self.ref_decoder.forward(ref_vre) if ref_count > 0 else None
 
         decoded_alt_re = torch.reshape(decoded_alt_vre, (var_count * alt_count, -1))
         decoded_ref_re = torch.reshape(decoded_ref_vre, (var_count * ref_count, -1)) if ref_count > 0 else None
