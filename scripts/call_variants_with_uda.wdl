@@ -8,7 +8,7 @@ version 1.0
 
 import "https://api.firecloud.org/ga4gh/v1/tools/davidben:mutect2/versions/17/plain-WDL/descriptor" as m2
 import "https://api.firecloud.org/ga4gh/v1/tools/davidben:permutect-uda-dataset/versions/3/plain-WDL/descriptor" as uda
-import "https://api.firecloud.org/ga4gh/v1/tools/davidben:permutect-train-artifact-model/versions/10/plain-WDL/descriptor" as training
+import "https://api.firecloud.org/ga4gh/v1/tools/davidben:permutect-train-artifact-model/versions/11/plain-WDL/descriptor" as training
 import "https://api.firecloud.org/ga4gh/v1/tools/davidben:permutect-call-variants/versions/18/plain-WDL/descriptor" as calling
 
 workflow CallVariantsWithUDA {
