@@ -129,7 +129,6 @@ class BaseModel(torch.nn.Module):
         assert embedding_dim % params.num_transformer_heads == 0
 
         self.ref_alt_reads_encoder = make_gated_ref_alt_mlp_encoder(embedding_dim, params)
-        self.alt_encoder = make_gated_mlp_encoder(embedding_dim, params)
 
         # after encoding alt reads (along with info and ref seq embeddings and with self-attention to ref reads)
         # pass through another MLP
@@ -162,8 +161,6 @@ class BaseModel(torch.nn.Module):
     # so, for example, "re" means a 2D tensor with all reads in the batch stacked and "vre" means a 3D tensor indexed
     # first by variant within the batch, then the read
     def calculate_representations(self, batch: BaseBatch, weight_range: float = 0) -> torch.Tensor:
-        alt_count = batch.alt_count
-
         ref_counts, alt_counts = batch.ref_counts, batch.alt_counts
         total_ref, total_alt = torch.sum(ref_counts).item(), torch.sum(alt_counts).item()
 
@@ -175,14 +172,12 @@ class BaseModel(torch.nn.Module):
                                        torch.repeat_interleave(info_and_seq_ve, repeats=alt_counts, dim=0)))
         reads_info_seq_re = torch.hstack((read_embeddings_re, info_and_seq_re))
 
-        ref_reads_info_seq_re = None if total_ref == 0 else reads_info_seq_re[:total_ref]
+        # TODO: might be a bug if every datum in batch has zero ref reads?
+        ref_reads_info_seq_re = reads_info_seq_re[:total_ref]
         alt_reads_info_seq_re = reads_info_seq_re[total_ref:]
 
-        # undo some of the above rearrangement
-
-        # TODO: the encoders don't yet know what to do with the ref and alt counts!!!
-        transformed_ref_re, transformed_alt_re = (None, self.alt_encoder.forward(alt_reads_info_seq_re, alt_counts)) if total_ref == 0 else \
-            self.ref_alt_reads_encoder.forward(ref_reads_info_seq_re, alt_reads_info_seq_re, ref_counts, alt_counts)
+        # TODO: make sure it handles ref count = 0 case
+        transformed_ref_re, transformed_alt_re = self.ref_alt_reads_encoder.forward(ref_reads_info_seq_re, alt_reads_info_seq_re, ref_counts, alt_counts)
 
         alt_weights_r = 1 + weight_range * (1 - 2 * torch.rand(total_alt, device=self._device, dtype=self._dtype))
 
