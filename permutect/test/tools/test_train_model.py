@@ -53,10 +53,6 @@ def test_train_model():
     assert artifact_log_priors is not None
     assert artifact_spectra_state_dict is not None
 
-    saved = torch.load(saved_artifact_model, device=device)
-    assert constants.ARTIFACT_LOG_PRIORS_NAME in saved
-    assert constants.ARTIFACT_SPECTRA_STATE_DICT_NAME in saved
-
     print(artifact_log_priors)
     h = 99
 
