@@ -303,7 +303,13 @@ class ArtifactModel(nn.Module):
                     losses = (labeled_losses + unlabeled_losses) * weights + (source_prediction_losses * source_prediction_weights)
                     loss = torch.sum(losses)
 
-                    assert (not loss.isnan().any()), f"Loss has a Nan in the {n}th batch"
+                    if loss.isnan().any():
+                        print(f"Loss has a Nan in the {n}th batch")
+                        print(f"losses are {losses.detach().tolist()}")
+                        print(f"alt counts are {batch.get_alt_counts().tolist()}")
+                        print(f"ref counts are {batch.get_ref_counts().tolist()}")
+                        print(f"do representations from base model have NaNs?  {batch.representations_2d.isnan().any()}")
+                        assert 1 == 2, "it is now tie to crash"
 
                     # at this point, losses, weights are on GPU (if available), while metrics are on CPU
                     # if we have done things right, this is okay and record_losses handles GPU <--> CPU efficiently
