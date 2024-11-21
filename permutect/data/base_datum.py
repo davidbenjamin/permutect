@@ -16,6 +16,9 @@ DEFAULT_CPU_FLOAT = torch.float32
 # base strings longer than this when encoding data
 MAX_NUM_BASES_FOR_ENCODING = 13
 
+MAX_FLOAT_16 = torch.finfo(torch.float16).max
+MIN_FLOAT_16 = torch.finfo(torch.float16).min
+
 
 def make_1d_sequence_tensor(sequence_string: str) -> np.ndarray:
     """
@@ -640,7 +643,7 @@ class ArtifactDatum:
     def __init__(self, base_datum: BaseDatum, representation: Tensor):
         # Note: if changing any of the data fields below, make sure to modify the size_in_bytes() method below accordingly!
         assert representation.dim() == 1
-        self.representation = representation
+        self.representation = torch.clamp(representation, MIN_FLOAT_16, MAX_FLOAT_16)
         self.other_stuff = ArtifactDatum1DStuff(base_datum.get_other_stuff_1d())
         self.set_dtype(np.float16)
 
