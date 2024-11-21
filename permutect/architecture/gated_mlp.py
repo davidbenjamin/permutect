@@ -223,7 +223,7 @@ class SpacialGatingUnitRefAlt(nn.Module):
         z2_alt_rd = self.norm(z2_alt_rd)
 
         # these are means by variant -- need repeat_interleave to make them by-read
-        ref_mean_field_vd = utils.means_over_rows_with_regularizer(z2_ref_rd, ref_counts, self.ref_regularizer, torch.exp(self.regularizer_weight_pre_exp) + 1)
+        ref_mean_field_vd = utils.means_over_rows_with_regularizer(z2_ref_rd, ref_counts, self.ref_regularizer, torch.exp(self.regularizer_weight_pre_exp) + 0.25)
         alt_mean_field_vd = utils.means_over_rows(z2_alt_rd, alt_counts)
 
         ref_mean_field_on_ref_rd = torch.repeat_interleave(ref_mean_field_vd, dim=0, repeats=ref_counts)
