@@ -213,10 +213,9 @@ def means_over_rows(input_tensor: torch.Tensor, counts: torch.IntTensor, keepdim
 # same but include a regularizer in case of zeros in the counts vector
 # regularizer has the dimension of one row of the input tensor
 def means_over_rows_with_regularizer(input_tensor: torch.Tensor, counts: torch.IntTensor, regularizer, regularizer_weight, keepdim: bool = False):
-    # TODO: left off right here
     extra_dims = (1,) * (input_tensor.dim() - 1)
 
-    regularized_sums = sums_over_rows(input_tensor, counts) + regularizer[None, :]
+    regularized_sums = sums_over_rows(input_tensor, counts) + (regularizer_weight * regularizer)[None, :]
     regularized_counts = counts + regularizer_weight
     result = regularized_sums / regularized_counts.view(-1, *extra_dims)
 
