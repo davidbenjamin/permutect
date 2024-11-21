@@ -550,7 +550,8 @@ class BaseBatch:
         self._original_list = data
         self.ref_count = len(data[0].reads_2d) - data[0].alt_count
         self.alt_count = data[0].alt_count
-        self.alt_counts = IntTensor([data[0].alt_count for _ in data])
+        self.alt_counts = IntTensor([datum.alt_count for datum in data])
+        self.ref_counts = IntTensor([len(datum.reads_2d) - datum.alt_count for datum in data])
 
         # for datum in data:
         #    assert (datum.label() != Label.UNLABELED) == self.labeled, "Batch may not mix labeled and unlabeled"
@@ -582,6 +583,8 @@ class BaseBatch:
     def pin_memory(self):
         self.ref_sequences_2d = self.ref_sequences_2d.pin_memory()
         self.reads_2d = self.reads_2d.pin_memory()
+        self.alt_counts = self.alt_counts.pin_memory()
+        self.ref_counts = self.ref_counts.pin_memory()
         self.info_2d = self.info_2d.pin_memory()
         self.labels = self.labels.pin_memory()
         self.is_labeled_mask = self.is_labeled_mask.pin_memory()
@@ -598,6 +601,7 @@ class BaseBatch:
         new_batch.is_labeled_mask = self.is_labeled_mask.to(device, non_blocking=non_blocking)
         new_batch.sources = self.sources.to(device, non_blocking=non_blocking)
         new_batch.alt_counts = self.alt_counts.to(device, non_blocking=non_blocking)
+        new_batch.ref_counts = self.ref_counts.to(device, non_blocking=non_blocking)
         return new_batch
 
     def original_list(self):

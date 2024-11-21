@@ -183,6 +183,46 @@ def gamma_binomial(n, k, alpha, beta):
     return exponent_term + gamma_term - torch.log(n + 1)
 
 
+# for tensor of shape (R, C...) and row counts n1, n2. . nK, return a tensor of shape (K, C...) whose 1st row is the sum of the
+# first n1 rows of the input, 2nd row is the sum of the next n2 rows etc
+# note that this works for arbitrary C, including empty.  That is, it works for 1D, 2D, 3D etc input.
+def sums_over_rows(input_tensor: torch.Tensor, counts: torch.IntTensor):
+    range_ends = torch.cumsum(counts, dim=0)
+    assert range_ends[-1] == len(input_tensor)   # the counts need to add up!
+
+    row_cumsums = torch.cumsum(input_tensor, dim=0)
+
+    # if counts are eg 1, 2, 3 then range ends are 1, 3, 6 and we are interested in cumsums[0, 2, 5]
+    relevant_cumsums = row_cumsums[(range_ends - 1).long()]
+
+    # if counts are eg 1, 2, 3 we now have, the sum of the first 1, 3, and 6 rows.  To get the sums of row 0, rows 1-2, rows 3-5
+    # we need the consecutive differences, with a row of zeroes prepended
+    row_of_zeroes = torch.zeros_like(relevant_cumsums[0])[None] # the [None] makes it (1xC)
+    relevant_sums = torch.diff(relevant_cumsums, dim=0, prepend=row_of_zeroes)
+    return relevant_sums
+
+
+# same but divide by the counts to get means
+def means_over_rows(input_tensor: torch.Tensor, counts: torch.IntTensor, keepdim: bool = False):
+    extra_dims = (1,) * (input_tensor.dim() - 1)
+    result = sums_over_rows(input_tensor, counts) / counts.view(-1, *extra_dims)
+
+    return torch.repeat_interleave(result, dim=0, repeats=counts) if keepdim else result
+
+
+# same but include a regularizer in case of zeros in the counts vector
+# regularizer has the dimension of one row of the input tensor
+def means_over_rows_with_regularizer(input_tensor: torch.Tensor, counts: torch.IntTensor, regularizer, regularizer_weight, keepdim: bool = False):
+    # TODO: left off right here
+    extra_dims = (1,) * (input_tensor.dim() - 1)
+
+    regularized_sums = sums_over_rows(input_tensor, counts) + regularizer[None, :]
+    regularized_counts = counts + regularizer_weight
+    result = regularized_sums / regularized_counts.view(-1, *extra_dims)
+
+    return torch.repeat_interleave(result, dim=0, repeats=counts) if keepdim else result
+
+
 class StreamingAverage:
     def __init__(self):
         self._count = 0.0

@@ -119,7 +119,6 @@ class BaseModel(torch.nn.Module):
         self._dtype = DEFAULT_GPU_FLOAT if device != torch.device("cpu") else DEFAULT_CPU_FLOAT
         self._ref_sequence_length = ref_sequence_length
         self._params = params
-        self.alt_downsample = params.alt_downsample
 
         # embeddings of reads, info, and reference sequence prior to the transformer layers
         self.read_embedding = MLP([num_read_features] + params.read_layers, batch_normalize=params.batch_normalize, dropout_p=params.dropout_p)
@@ -130,7 +129,6 @@ class BaseModel(torch.nn.Module):
         assert embedding_dim % params.num_transformer_heads == 0
 
         self.ref_alt_reads_encoder = make_gated_ref_alt_mlp_encoder(embedding_dim, params)
-        self.alt_encoder = make_gated_mlp_encoder(embedding_dim, params)
 
         # after encoding alt reads (along with info and ref seq embeddings and with self-attention to ref reads)
         # pass through another MLP
@@ -163,35 +161,31 @@ class BaseModel(torch.nn.Module):
     # so, for example, "re" means a 2D tensor with all reads in the batch stacked and "vre" means a 3D tensor indexed
     # first by variant within the batch, then the read
     def calculate_representations(self, batch: BaseBatch, weight_range: float = 0) -> torch.Tensor:
-        ref_count, alt_count = batch.ref_count, batch.alt_count
-        total_ref, total_alt = ref_count * batch.size(), alt_count * batch.size()
+        ref_counts, alt_counts = batch.ref_counts, batch.alt_counts
+        total_ref, total_alt = torch.sum(ref_counts).item(), torch.sum(alt_counts).item()
 
         read_embeddings_re = self.read_embedding.forward(batch.get_reads_2d().to(dtype=self._dtype))
         info_embeddings_ve = self.info_embedding.forward(batch.get_info_2d().to(dtype=self._dtype))
         ref_seq_embeddings_ve = self.ref_seq_cnn(batch.get_ref_sequences_2d().to(dtype=self._dtype))
         info_and_seq_ve = torch.hstack((info_embeddings_ve, ref_seq_embeddings_ve))
-        info_and_seq_re = torch.vstack((torch.repeat_interleave(info_and_seq_ve, ref_count, dim=0),
-                                       torch.repeat_interleave(info_and_seq_ve, alt_count, dim=0)))
+        info_and_seq_re = torch.vstack((torch.repeat_interleave(info_and_seq_ve, repeats=ref_counts, dim=0),
+                                       torch.repeat_interleave(info_and_seq_ve, repeats=alt_counts, dim=0)))
         reads_info_seq_re = torch.hstack((read_embeddings_re, info_and_seq_re))
-        ref_reads_info_seq_vre = None if total_ref == 0 else reads_info_seq_re[:total_ref].reshape(batch.size(), ref_count, -1)
-        alt_reads_info_seq_vre = reads_info_seq_re[total_ref:].reshape(batch.size(), alt_count, -1)
 
-        if self.alt_downsample < alt_count:
-            alt_read_indices = torch.randperm(alt_count)[:self.alt_downsample]
-            alt_reads_info_seq_vre = alt_reads_info_seq_vre[:, alt_read_indices, :]   # downsample only along the middle (read) dimension
-            alt_count = self.alt_downsample
-            total_alt = batch.size() * self.alt_downsample
+        # TODO: might be a bug if every datum in batch has zero ref reads?
+        ref_reads_info_seq_re = reads_info_seq_re[:total_ref]
+        alt_reads_info_seq_re = reads_info_seq_re[total_ref:]
 
-        # undo some of the above rearrangement
+        # TODO: make sure it handles ref count = 0 case
+        transformed_ref_re, transformed_alt_re = self.ref_alt_reads_encoder.forward(ref_reads_info_seq_re, alt_reads_info_seq_re, ref_counts, alt_counts)
 
-        transformed_ref_vre, transformed_alt_vre = (None, self.alt_encoder(alt_reads_info_seq_vre)) if total_ref == 0 else \
-            self.ref_alt_reads_encoder(ref_reads_info_seq_vre, alt_reads_info_seq_vre)
+        alt_weights_r = 1 + weight_range * (1 - 2 * torch.rand(total_alt, device=self._device, dtype=self._dtype))
 
-        alt_weights_vr = 1 + weight_range * (1 - 2 * torch.rand(batch.size(), alt_count, device=self._device, dtype=self._dtype))
-        alt_wt_sums = torch.sum(alt_weights_vr, dim=1, keepdim=True)
-        # normalized so read weights within each variant sum to 1 and add dummy e dimension for broadcasting the multiply below
-        normalized_alt_weights_vr1 = (alt_weights_vr / alt_wt_sums).reshape(batch.size(), alt_count, 1)
-        alt_means_ve = torch.sum(transformed_alt_vre * normalized_alt_weights_vr1, dim=1)
+        # normalize so read weights within each variant sum to 1
+        alt_wt_sums_v = utils.sums_over_rows(alt_weights_r, alt_counts)
+        normalized_alt_weights_r = alt_weights_r / torch.repeat_interleave(alt_wt_sums_v, repeats=alt_counts, dim=0)
+
+        alt_means_ve = utils.sums_over_rows(transformed_alt_re * normalized_alt_weights_r[:,None], alt_counts)
 
         result_ve = self.aggregation.forward(alt_means_ve)
 
@@ -371,8 +365,10 @@ class BaseModelAutoencoderLoss(torch.nn.Module, BaseModelLearningStrategy):
         alt_vre = torch.cat((alt_representations_vre, random_alt_seeds_vre), dim=-1)
         ref_vre = torch.cat((ref_representations_vre, random_ref_seeds_vre), dim=-1) if ref_count > 0 else None
 
-        decoded_alt_vre = self.alt_decoder(alt_vre)
-        decoded_ref_vre = self.ref_decoder(ref_vre) if ref_count > 0 else None
+        # TODO: update these to reflect mixed-count batches.  Gated MLPs now take inputs flattened over batch dimension
+        # TODO: and have an extra input of ref and alt read counts
+        decoded_alt_vre = self.alt_decoder.forward(alt_vre)
+        decoded_ref_vre = self.ref_decoder.forward(ref_vre) if ref_count > 0 else None
 
         decoded_alt_re = torch.reshape(decoded_alt_vre, (var_count * alt_count, -1))
         decoded_ref_re = torch.reshape(decoded_ref_vre, (var_count * ref_count, -1)) if ref_count > 0 else None
@@ -506,11 +502,10 @@ def learn_base_model(base_model: BaseModel, dataset: BaseDataset, learning_metho
         .to(device=base_model._device, dtype=base_model._dtype)
     classifier_bce = torch.nn.BCEWithLogitsLoss(reduction='none')
 
-    # TODO: fused = is_cuda?
     classifier_optimizer = torch.optim.AdamW(classifier_on_top.parameters(),
                                              lr=training_params.learning_rate,
                                              weight_decay=training_params.weight_decay,
-                                             fused=True)
+                                             fused=is_cuda)
     classifier_metrics = LossMetrics()
 
     validation_fold_to_use = (dataset.num_folds - 1) if validation_fold is None else validation_fold

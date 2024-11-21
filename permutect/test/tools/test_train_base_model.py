@@ -27,7 +27,6 @@ def test_train_base_model():
                      'linear/out_features=10']
     setattr(train_model_args, constants.REF_SEQ_LAYER_STRINGS_NAME, cnn_layer_strings)
     setattr(train_model_args, constants.DROPOUT_P_NAME, 0.0)
-    setattr(train_model_args, constants.ALT_DOWNSAMPLE_NAME, 20)
     setattr(train_model_args, constants.BATCH_NORMALIZE_NAME, False)
 
     setattr(train_model_args, constants.LEARNING_METHOD_NAME, 'SEMISUPERVISED')
@@ -39,7 +38,8 @@ def test_train_base_model():
     # training hyperparameters
     setattr(train_model_args, constants.REWEIGHTING_RANGE_NAME, 0.3)
     setattr(train_model_args, constants.BATCH_SIZE_NAME, 64)
-    setattr(train_model_args, constants.NUM_WORKERS_NAME, 2)
+    setattr(train_model_args, constants.INFERENCE_BATCH_SIZE_NAME, 64)
+    setattr(train_model_args, constants.NUM_WORKERS_NAME, 0)
     setattr(train_model_args, constants.NUM_EPOCHS_NAME, 2)
     setattr(train_model_args, constants.NUM_CALIBRATION_EPOCHS_NAME, 0)
     setattr(train_model_args, constants.LEARNING_RATE_NAME, 0.001)

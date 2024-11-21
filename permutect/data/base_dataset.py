@@ -63,10 +63,8 @@ class BaseDataset(Dataset):
                 self._data = RaggedMmap(self._memory_map_dir.name)
                 self._memory_map_mode = True
 
-        # keys = (ref read count, alt read count) tuples; values = list of indices
         # this is used in the batch sampler to make same-shape batches
-        self.labeled_indices_by_count = [defaultdict(list) for _ in range(num_folds)]
-        self.unlabeled_indices_by_count = [defaultdict(list) for _ in range(num_folds)]
+        self.indices_by_fold = [[] for _ in range(num_folds)]
 
         # totals by count, then by label -- ARTIFACT, VARIANT, UNLABELED, then by variant type
         # variant type is done as a 1D np array parallel to the one-hot encoding of variant type
@@ -87,7 +85,7 @@ class BaseDataset(Dataset):
 
             fold = n % num_folds
             counts = (len(datum.reads_2d) - datum.alt_count, datum.alt_count)
-            (self.unlabeled_indices_by_count if datum.label == Label.UNLABELED else self.labeled_indices_by_count)[fold][counts].append(n)
+            self.indices_by_fold[fold].append(n)
 
             one_hot = datum.variant_type_one_hot()
             self.totals[ALL_COUNTS_SENTINEL][datum.label] += one_hot
@@ -191,30 +189,24 @@ def chunk(lis, chunk_size):
     return [lis[i:i + chunk_size] for i in range(0, len(lis), chunk_size)]
 
 
-# make batches that have a single value for ref, alt counts within  batches.  Labeled and unlabeled data are mixed.
+# Labeled and unlabeled data are mixed.
 # the artifact model handles weighting the losses to compensate for class imbalance between supervised and unsupervised
 # thus the sampler is not responsible for balancing the data
 class SemiSupervisedBatchSampler(Sampler):
     def __init__(self, dataset: BaseDataset, batch_size, folds_to_use: List[int]):
         # combine the index maps of all relevant folds
-        self.indices_by_count = defaultdict(list)
+        self.indices_to_use = []
 
         for fold in folds_to_use:
-            new_labeled = dataset.labeled_indices_by_count[fold]
-            new_unlabeled = dataset.unlabeled_indices_by_count[fold]
-            for count, indices in new_labeled.items():
-                self.indices_by_count[count].extend(indices)
-            for count, indices in new_unlabeled.items():
-                self.indices_by_count[count].extend(indices)
+            self.indices_to_use.extend(dataset.indices_by_fold[fold])
 
         self.batch_size = batch_size
-        self.num_batches = sum(math.ceil(len(indices) // self.batch_size) for indices in self.indices_by_count.values())
+        self.num_batches = math.ceil(len(self.indices_to_use) // self.batch_size)
 
     def __iter__(self):
         batches = []    # list of lists of indices -- each sublist is a batch
-        for index_list in self.indices_by_count.values():
-            random.shuffle(index_list)
-            batches.extend(chunk(index_list, self.batch_size))
+        random.shuffle(self.indices_to_use)
+        batches.extend(chunk(self.indices_to_use, self.batch_size))
         random.shuffle(batches)
 
         return iter(batches)
