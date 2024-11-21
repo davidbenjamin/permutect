@@ -303,36 +303,6 @@ class ArtifactModel(nn.Module):
                     losses = (labeled_losses + unlabeled_losses) * weights + (source_prediction_losses * source_prediction_weights)
                     loss = torch.sum(losses)
 
-                    if loss.isnan().any():
-                        print(f"Loss has a Nan in the {n}th batch")
-                        print(f"losses are {losses.detach().tolist()}")
-                        print(f"alt counts are {batch.get_alt_counts().tolist()}")
-                        print(f"ref counts are {batch.get_ref_counts().tolist()}")
-                        print(f"do representations from base model have NaNs?  {batch.representations_2d.isnan().any()}")
-                        print(f"do probabilities have NaNs?  {probabilities.isnan().any()}")
-                        print(f"do entropies have NaNs?  {entropies.isnan().any()}")
-                        print(f"do calibrated cross entropies have NaNs?  {calibrated_cross_entropies.isnan().any()}")
-                        print(f"do uncalibrated cross entropies have NaNs?  {uncalibrated_cross_entropies.isnan().any()}")
-                        print(f"do labeled losses have NaNs?  {labeled_losses.isnan().any()}")
-                        print(f"do unlabeled losses have NaNs?  {unlabeled_losses.isnan().any()}")
-
-                        print(f"do weights have NaNs?  {weights.isnan().any()}")
-                        print(f"do source prediction losses have NaNs?  {source_prediction_losses.isnan().any()}")
-                        print(f"do source prediction weights have NaNs?  {source_prediction_weights.isnan().any()}")
-                        print(f"do logits have NaNs?  {logits.isnan().any()}")
-                        print(f"do precalibrated logits have NaNs?  {precalibrated_logits.isnan().any()}")
-                        print(f"do features have NaNs?  {features.isnan().any()}")
-
-                        index_of_nan = torch.isnan(losses).nonzero().reshape(-1)[0].item()
-
-                        print(f"alt count of nan {batch.get_alt_counts()[index_of_nan].item()}")
-                        print(f"ref count of nan {batch.get_ref_counts()[index_of_nan].item()}")
-                        print(f"representation of nan?  {batch.representations_2d[index_of_nan].tolist()}")
-                        print(f"features of nan?  {features[index_of_nan].tolist()}")
-
-
-                        assert 1 == 2, "it is now time to crash"
-
                     # at this point, losses, weights are on GPU (if available), while metrics are on CPU
                     # if we have done things right, this is okay and record_losses handles GPU <--> CPU efficiently
                     loss_metrics.record_losses(calibrated_cross_entropies.detach(), batch, weights * batch.get_is_labeled_mask())

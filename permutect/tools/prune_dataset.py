@@ -114,15 +114,7 @@ def generated_pruned_data_for_fold(art_threshold: float, nonart_threshold: float
         # apply the representation model AND the artifact model to go from the original read set to artifact logits
         representation, _ = base_model.calculate_representations(base_batch)
 
-        if representation.isnan().any() or representation.isinf().any():
-            print("running base model to get artifact data.  Inf or NaN found in output of base model.")
-            assert 1 == 2, "It is time to FAIL"
-
         artifact_batch = ArtifactBatch([ArtifactDatum(rs, rep) for rs, rep in zip(base_batch.original_list(), representation.detach())])
-
-        if artifact_batch.get_representations_2d().isnan().any() or artifact_batch.get_representations_2d().isinf().any():
-            print("running base model to get artifact data.  Inf or NaN found after constructing artifact batch.")
-            assert 1 == 2, "It is time to FAIL"
 
         art_logits, _, _ = artifact_model.forward(artifact_batch)
         art_probs = torch.sigmoid(art_logits.detach())
