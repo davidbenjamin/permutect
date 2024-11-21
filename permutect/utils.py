@@ -220,6 +220,14 @@ def means_over_rows_with_regularizer(input_tensor: torch.Tensor, counts: torch.I
     regularized_counts = counts + regularizer_weight
     result = regularized_sums / regularized_counts.view(-1, *extra_dims)
 
+    if result.isinf().any() or result.isnan().any():
+        print("We have an inf or a nan in the regularized mean")
+        print(f"The regularizer is {regularizer.detach().tolist()}")
+        print(f"The regularizer weight is {regularizer_weight}")
+        print(f"The counts were {counts.detach().tolist()}")
+        print(f"The sums are {regularized_sums.detach().tolist()}")
+        assert 1 == 2, "It is now time to crash"
+
     return torch.repeat_interleave(result, dim=0, repeats=counts) if keepdim else result
 
 
