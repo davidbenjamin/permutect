@@ -309,7 +309,20 @@ class ArtifactModel(nn.Module):
                         print(f"alt counts are {batch.get_alt_counts().tolist()}")
                         print(f"ref counts are {batch.get_ref_counts().tolist()}")
                         print(f"do representations from base model have NaNs?  {batch.representations_2d.isnan().any()}")
-                        assert 1 == 2, "it is now tie to crash"
+                        print(f"do probabilities have NaNs?  {probabilities.isnan().any()}")
+                        print(f"do entropies have NaNs?  {entropies.isnan().any()}")
+                        print(f"do calibrated cross entropies have NaNs?  {calibrated_cross_entropies.isnan().any()}")
+                        print(f"do uncalibrated cross entropies have NaNs?  {uncalibrated_cross_entropies.isnan().any()}")
+                        print(f"do labeled losses have NaNs?  {labeled_losses.isnan().any()}")
+                        print(f"do unlabeled losses have NaNs?  {unlabeled_losses.isnan().any()}")
+
+                        print(f"do weights have NaNs?  {weights.isnan().any()}")
+                        print(f"do source prediction losses have NaNs?  {source_prediction_losses.isnan().any()}")
+                        print(f"do source prediction weights have NaNs?  {source_prediction_weights.isnan().any()}")
+                        print(f"do logits have NaNs?  {logits.isnan().any()}")
+                        print(f"do precalibrated logits have NaNs?  {precalibrated_logits.isnan().any()}")
+                        print(f"do features have NaNs?  {features.isnan().any()}")
+                        assert 1 == 2, "it is now time to crash"
 
                     # at this point, losses, weights are on GPU (if available), while metrics are on CPU
                     # if we have done things right, this is okay and record_losses handles GPU <--> CPU efficiently
