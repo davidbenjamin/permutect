@@ -210,6 +210,19 @@ def means_over_rows(input_tensor: torch.Tensor, counts: torch.IntTensor, keepdim
     return torch.repeat_interleave(result, dim=0, repeats=counts) if keepdim else result
 
 
+# same but include a regularizer in case of zeros in the counts vector
+# regularizer has the dimension of one row of the input tensor
+def means_over_rows_with_regularizer(input_tensor: torch.Tensor, counts: torch.IntTensor, regularizer, regularizer_weight, keepdim: bool = False):
+    # TODO: left off right here
+    extra_dims = (1,) * (input_tensor.dim() - 1)
+
+    regularized_sums = sums_over_rows(input_tensor, counts) + regularizer[None, :]
+    regularized_counts = counts + regularizer_weight
+    result = regularized_sums / regularized_counts.view(-1, *extra_dims)
+
+    return torch.repeat_interleave(result, dim=0, repeats=counts) if keepdim else result
+
+
 class StreamingAverage:
     def __init__(self):
         self._count = 0.0

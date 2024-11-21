@@ -208,8 +208,11 @@ class SpacialGatingUnitRefAlt(nn.Module):
         self.alpha_alt = nn.Parameter(torch.tensor(0.01))
         self.beta_ref = nn.Parameter(torch.tensor(0.01))
         self.beta_alt = nn.Parameter(torch.tensor(0.01))
-
         self.gamma = nn.Parameter(torch.tensor(0.01))
+
+        # regularizer / sort of imputed value for when there are no ref counts
+        self.ref_regularizer = nn.Parameter(0.1 * torch.ones(d_z // 2))
+        self.regularizer_weight = nn.Parameter(torch.tensor(0.1))
 
     def forward(self, zref_rd: torch.Tensor, zalt_rd: torch.Tensor, ref_counts: torch.IntTensor, alt_counts: torch.IntTensor):
 
@@ -220,7 +223,7 @@ class SpacialGatingUnitRefAlt(nn.Module):
         z2_alt_rd = self.norm(z2_alt_rd)
 
         # these are means by variant -- need repeat_interleave to make them by-read
-        ref_mean_field_vd = utils.means_over_rows(z2_ref_rd, ref_counts)
+        ref_mean_field_vd = utils.means_over_rows_with_regularizer(z2_ref_rd, ref_counts, self.ref_regularizer, self.regularizer_weight)
         alt_mean_field_vd = utils.means_over_rows(z2_alt_rd, alt_counts)
 
         ref_mean_field_on_ref_rd = torch.repeat_interleave(ref_mean_field_vd, dim=0, repeats=ref_counts)
