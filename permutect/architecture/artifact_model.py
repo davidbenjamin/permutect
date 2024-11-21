@@ -322,6 +322,15 @@ class ArtifactModel(nn.Module):
                         print(f"do logits have NaNs?  {logits.isnan().any()}")
                         print(f"do precalibrated logits have NaNs?  {precalibrated_logits.isnan().any()}")
                         print(f"do features have NaNs?  {features.isnan().any()}")
+
+                        index_of_nan = torch.isnan(losses).nonzero().reshape(-1)[0].item()
+
+                        print(f"alt count of nan {batch.get_alt_counts()[index_of_nan].item()}")
+                        print(f"ref count of nan {batch.get_ref_counts()[index_of_nan].item()}")
+                        print(f"representation of nan?  {batch.representations_2d[index_of_nan].tolist()}")
+                        print(f"features of nan?  {features[index_of_nan].tolist()}")
+
+
                         assert 1 == 2, "it is now time to crash"
 
                     # at this point, losses, weights are on GPU (if available), while metrics are on CPU
