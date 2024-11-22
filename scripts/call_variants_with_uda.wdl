@@ -6,7 +6,7 @@ version 1.0
 
 # note that the artifact model can be trained before the Mutect2 workflow runs FilterMutectCalls
 
-import "https://api.firecloud.org/ga4gh/v1/tools/davidben:mutect2/versions/17/plain-WDL/descriptor" as m2
+import "https://api.firecloud.org/ga4gh/v1/tools/davidben:mutect2/versions/18/plain-WDL/descriptor" as m2
 import "https://api.firecloud.org/ga4gh/v1/tools/davidben:permutect-uda-dataset/versions/3/plain-WDL/descriptor" as uda
 import "https://api.firecloud.org/ga4gh/v1/tools/davidben:permutect-train-artifact-model/versions/12/plain-WDL/descriptor" as training
 import "https://api.firecloud.org/ga4gh/v1/tools/davidben:permutect-call-variants/versions/18/plain-WDL/descriptor" as calling
@@ -119,6 +119,8 @@ workflow CallVariantsWithUDA {
             make_bamout = make_bamout,
             make_permutect_training_dataset = true,
             make_permutect_test_dataset = true,
+            permutect_test_dataset_truth_vcf = test_dataset_truth_vcf,
+            permutect_test_dataset_truth_vcf_idx = test_dataset_truth_vcf_idx,
             skip_filtering = skip_m2_filtering,
             gatk_docker = gatk_docker,
             gatk_override = gatk_override,
