@@ -203,15 +203,17 @@ class SpacialGatingUnitRefAlt(nn.Module):
         self.norm = nn.LayerNorm([d_z // 2])
         # Weight $W$ in $f_{W,b}(\cdot)$.
 
+        hidden_dim = d_z // 2
+
         # TODO: maybe let these parameters be element-by-element vectors?
-        self.alpha_ref = nn.Parameter(torch.tensor(0.01))
-        self.alpha_alt = nn.Parameter(torch.tensor(0.01))
-        self.beta_ref = nn.Parameter(torch.tensor(0.01))
-        self.beta_alt = nn.Parameter(torch.tensor(0.01))
-        self.gamma = nn.Parameter(torch.tensor(0.01))
+        self.alpha_ref = nn.Parameter(0.01 * torch.ones(hidden_dim))
+        self.alpha_alt = nn.Parameter(0.01 * torch.ones(hidden_dim))
+        self.beta_ref = nn.Parameter(0.01 * torch.ones(hidden_dim))
+        self.beta_alt = nn.Parameter(0.01 * torch.ones(hidden_dim))
+        self.gamma = nn.Parameter(0.01 * torch.ones(hidden_dim))
 
         # regularizer / sort of imputed value for when there are no ref counts
-        self.ref_regularizer = nn.Parameter(0.1 * torch.ones(d_z // 2))
+        self.ref_regularizer = nn.Parameter(0.1 * torch.ones(hidden_dim))
         self.regularizer_weight_pre_exp = nn.Parameter(torch.log(torch.tensor(0.1)))
 
     def forward(self, zref_rd: torch.Tensor, zalt_rd: torch.Tensor, ref_counts: torch.IntTensor, alt_counts: torch.IntTensor):
