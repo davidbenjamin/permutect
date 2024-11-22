@@ -1,6 +1,6 @@
 version 1.0
 
-import "https://api.firecloud.org/ga4gh/v1/tools/davidben:mutect2/versions/15/plain-WDL/descriptor" as m2
+import "https://api.firecloud.org/ga4gh/v1/tools/davidben:mutect2/versions/17/plain-WDL/descriptor" as m2
 
 workflow Permutect {
     input {
@@ -35,7 +35,7 @@ workflow Permutect {
         File? test_dataset_truth_vcf    # used for evaluation
         File? test_dataset_truth_vcf_idx
 
-        String? m3_filtering_extra_args
+        String? permutect_filtering_extra_args
         Boolean use_gpu
         String gatk_docker
         String bcftools_docker
@@ -48,10 +48,10 @@ workflow Permutect {
 
     call m2.Mutect2 {
         input:
-            make_m3_training_dataset = false,
-            make_m3_test_dataset = true,
-            m3_training_dataset_truth_vcf = test_dataset_truth_vcf,
-            m3_training_dataset_truth_vcf_idx = test_dataset_truth_vcf_idx,
+            make_permutect_training_dataset = false,
+            make_permutect_test_dataset = true,
+            permutect_training_dataset_truth_vcf = test_dataset_truth_vcf,
+            permutect_training_dataset_truth_vcf_idx = test_dataset_truth_vcf_idx,
             intervals = intervals,
             masked_intervals = masks,
             ref_fasta = ref_fasta,
@@ -82,8 +82,8 @@ workflow Permutect {
 
     call SplitMultiallelics {
         input:
-            input_vcf = Mutect2.filtered_vcf,
-            input_vcf_idx = Mutect2.filtered_vcf_idx,
+            input_vcf = Mutect2.output_vcf,
+            input_vcf_idx = Mutect2.output_vcf_idx,
             ref_fasta = ref_fasta,
             ref_fai = ref_fai,
             ref_dict = ref_dict,
@@ -102,7 +102,7 @@ workflow Permutect {
                 mutect2_vcf = IndexAfterSplitting.vcf,
                 mutect2_vcf_idx = IndexAfterSplitting.vcf_index,
                 permutect_model = permutect_model,
-                test_dataset = select_first([Mutect2.m3_dataset]),
+                test_dataset = select_first([Mutect2.permutect_test_dataset]),
                 contigs_table = Mutect2.permutect_contigs_table,
                 maf_segments = Mutect2.maf_segments,
                 mutect_stats = Mutect2.mutect_stats,
@@ -112,7 +112,7 @@ workflow Permutect {
                 num_spectrum_iterations = num_spectrum_iterations,
                 spectrum_learning_rate = spectrum_learning_rate,
                 chunk_size = chunk_size,
-                m3_filtering_extra_args = m3_filtering_extra_args,
+                permutect_filtering_extra_args = permutect_filtering_extra_args,
                 permutect_docker = permutect_docker,
         }
     }
@@ -123,7 +123,7 @@ workflow Permutect {
                 mutect2_vcf = IndexAfterSplitting.vcf,
                 mutect2_vcf_idx = IndexAfterSplitting.vcf_index,
                 permutect_model = permutect_model,
-                test_dataset = select_first([Mutect2.m3_dataset]),
+                test_dataset = select_first([Mutect2.permutect_test_dataset]),
                 contigs_table = Mutect2.permutect_contigs_table,
                 maf_segments = Mutect2.maf_segments,
                 mutect_stats = Mutect2.mutect_stats,
@@ -132,7 +132,7 @@ workflow Permutect {
                 num_spectrum_iterations = num_spectrum_iterations,
                 spectrum_learning_rate = spectrum_learning_rate,
                 chunk_size = chunk_size,
-                m3_filtering_extra_args = m3_filtering_extra_args,
+                permutect_filtering_extra_args = permutect_filtering_extra_args,
                 permutect_docker = permutect_docker,
         }
     }
@@ -147,9 +147,9 @@ workflow Permutect {
         File output_vcf = IndexAfterFiltering.vcf
         File output_vcf_idx = IndexAfterFiltering.vcf_index
         File tensorboard_report = select_first([PermutectFilteringGPU.tensorboard_report, PermutectFilteringCPU.tensorboard_report])
-        File test_dataset = select_first([Mutect2.m3_dataset])
-        File mutect2_vcf = Mutect2.filtered_vcf
-        File mutect2_vcf_idx = Mutect2.filtered_vcf_idx
+        File test_dataset = select_first([Mutect2.permutect_test_dataset])
+        File mutect2_vcf = Mutect2.output_vcf
+        File mutect2_vcf_idx = Mutect2.output_vcf_idx
     }
 }
 
@@ -168,7 +168,7 @@ task PermutectFilteringCPU {
         Int batch_size
         Int num_workers
         Int chunk_size
-        String? m3_filtering_extra_args
+        String? permutect_filtering_extra_args
 
         String permutect_docker
         Int? preemptible
@@ -196,7 +196,7 @@ task PermutectFilteringCPU {
             ~{" --num_spectrum_iterations " + num_spectrum_iterations} \
             ~{" --spectrum_learning_rate " + spectrum_learning_rate} \
             ~{" --maf_segments " + maf_segments} ~{" --normal_maf_segments " + normal_maf_segments} \
-            --genomic_span $genomic_span ~{m3_filtering_extra_args}
+            --genomic_span $genomic_span ~{permutect_filtering_extra_args}
 
         tar cvf tensorboard.tar tensorboard/
     >>>
@@ -232,7 +232,7 @@ task PermutectFilteringCPU {
         Int num_workers
         Int? gpu_count
         Int chunk_size
-        String? m3_filtering_extra_args
+        String? permutect_filtering_extra_args
 
         String permutect_docker
         Int? preemptible
@@ -260,7 +260,7 @@ task PermutectFilteringCPU {
             ~{" --num_spectrum_iterations " + num_spectrum_iterations} \
             ~{" --spectrum_learning_rate " + spectrum_learning_rate} \
             ~{" --maf_segments " + maf_segments} ~{" --normal_maf_segments " + normal_maf_segments} \
-            --genomic_span $genomic_span ~{m3_filtering_extra_args}
+            --genomic_span $genomic_span ~{permutect_filtering_extra_args}
 
         tar cvf tensorboard.tar tensorboard/
     >>>

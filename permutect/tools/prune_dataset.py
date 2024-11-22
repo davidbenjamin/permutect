@@ -115,6 +115,7 @@ def generated_pruned_data_for_fold(art_threshold: float, nonart_threshold: float
         representation, _ = base_model.calculate_representations(base_batch)
 
         artifact_batch = ArtifactBatch([ArtifactDatum(rs, rep) for rs, rep in zip(base_batch.original_list(), representation.detach())])
+
         art_logits, _, _ = artifact_model.forward(artifact_batch)
         art_probs = torch.sigmoid(art_logits.detach())
         art_label_mask = (base_batch.labels > 0.5)
