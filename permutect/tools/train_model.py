@@ -25,8 +25,6 @@ def train_artifact_model(hyperparams: ArtifactModelParameters, training_params: 
         cal_fig, cal_axes = model.calibration[n].plot_calibration()
         summary_writer.add_figure("calibration by count for " + var_type.name, cal_fig)
 
-    # TODO: verify that this is redundant now that learning includes evaluations
-    #model.evaluate_model_after_training(dataset, training_params.batch_size, training_params.num_workers, summary_writer)
     return model
 
 

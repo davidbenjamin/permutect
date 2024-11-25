@@ -273,6 +273,9 @@ class BaseDatum1DStuff:
     def set_dtype(self, dtype):
         self.array = self.array.astype(dtype)
 
+    def get_ref_count(self) -> int:
+        return round(self.array[0])
+
     def get_alt_count(self) -> int:
         return round(self.array[1])
 
@@ -514,8 +517,8 @@ def save_list_base_data(base_data: List[BaseDatum], file):
     :return:
     """
     # TODO: should I combine stack these into big arrays rather than leaving them as lists of arrays?
-    read_tensors = [datum.get_reads_2d() for datum in base_data]
-    other_stuff = [datum.get_other_stuff_1d().to_np_array() for datum in base_data]
+    read_tensors = np.vstack([datum.get_reads_2d() for datum in base_data])
+    other_stuff = np.vstack([datum.get_other_stuff_1d().to_np_array() for datum in base_data])
     torch.save([read_tensors, other_stuff], file)
 
 
@@ -525,10 +528,22 @@ def load_list_of_base_data(file) -> List[BaseDatum]:
     :param file:
     :return:
     """
+    # these are vstacked -- see save method above
     read_tensors, other_stuffs = torch.load(file)
-    return [BaseDatum(reads_2d=reads, ref_sequence_1d=None, alt_count=None, info_array_1d=None, label=None, source=None,
-                      variant=None, counts_and_seq_lks=None, other_stuff_override=BaseDatum1DStuff.from_np_array(other_stuff)) for reads, other_stuff in
-            zip(read_tensors, other_stuffs)]
+
+    result = []
+    read_start_row = 0
+    for other_stuff_numpy in other_stuffs:
+        other_stuff = BaseDatum1DStuff.from_np_array(other_stuff_numpy)
+        read_count = other_stuff.get_ref_count() + other_stuff.get_alt_count()
+        read_end_row = read_start_row+read_count
+
+        base_datum = BaseDatum(reads_2d=read_tensors[read_start_row:read_end_row], ref_sequence_1d=None, alt_count=None, info_array_1d=None, label=None, source=None,
+                      variant=None, counts_and_seq_lks=None, other_stuff_override=other_stuff)
+        read_start_row = read_end_row
+        result.append(base_datum)
+
+    return result
 
 
 class BaseBatch:
