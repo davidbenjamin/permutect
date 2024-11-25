@@ -28,8 +28,11 @@ class SomaticSpectrum(nn.Module):
         super(SomaticSpectrum, self).__init__()
         self.K = num_components
 
-        # initialize equal weights
-        self.weights_pre_softmax_k = torch.nn.Parameter(torch.ones(self.K))
+        # initialize equal weights for each binomial component and larger weight for beta binomial background (last component)
+        weights_pre_softmax = torch.ones(self.K)
+        weights_pre_softmax[-1] = 3
+
+        self.weights_pre_softmax_k = torch.nn.Parameter(weights_pre_softmax)
 
         # initialize evenly spaced pre-sigmoid from -2 to 2
         self.f_pre_sigmoid_k = torch.nn.Parameter((4 * torch.arange(self.K - 1) / (self.K - 1)) - 2)
