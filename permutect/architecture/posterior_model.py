@@ -262,8 +262,8 @@ class PosteriorModel(torch.nn.Module):
 
             # 'n' denotes index of data within entire Posterior Dataset
             posteriors_nc = torch.vstack(posteriors_lbc).cpu()
-            alt_counts_n = torch.vstack(alt_counts_lb).cpu()
-            depths_n = torch.vstack(depths_lb).cpu()
+            alt_counts_n = torch.hstack(alt_counts_lb).cpu()
+            depths_n = torch.hstack(depths_lb).cpu()
             types_nt = torch.vstack(types_lbt).cpu()
 
             # update the priors in an EM-style M step.  We'll need the counts of each call type vs variant type
