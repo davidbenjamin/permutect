@@ -35,7 +35,8 @@ FILTER_NAMES = [call_type.name.lower() for call_type in Call]
 
 # the inverse of the sigmoid function.  Convert a probability to a logit.
 def prob_to_logit(prob: float):
-    return math.log(prob / (1 - prob))
+    clipped_prob = 0.5 + 0.9999999 * (prob - 0.5)
+    return math.log(clipped_prob / (1 - clipped_prob))
 
 
 def get_first_numeric_element(variant, key):
