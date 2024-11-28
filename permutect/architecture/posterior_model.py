@@ -261,10 +261,10 @@ class PosteriorModel(torch.nn.Module):
             # iteration over posterior dataloader finished
 
             # 'n' denotes index of data within entire Posterior Dataset
-            posteriors_nc = torch.vstack(posteriors_lbc).cpu()
-            alt_counts_n = torch.hstack(alt_counts_lb).cpu()
-            depths_n = torch.hstack(depths_lb).cpu()
-            types_nt = torch.vstack(types_lbt).cpu()
+            posteriors_nc = torch.vstack(posteriors_lbc)
+            alt_counts_n = torch.hstack(alt_counts_lb)
+            depths_n = torch.hstack(depths_lb)
+            types_nt = torch.vstack(types_lbt)
 
             self.update_priors_m_step(posteriors_nc, types_nt, ignored_to_non_ignored_ratio)
             self.somatic_spectrum.update_m_step(posteriors_nc[:, Call.SOMATIC], alt_counts_n, depths_n)
