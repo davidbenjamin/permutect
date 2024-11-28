@@ -97,6 +97,13 @@ class SomaticSpectrum(nn.Module):
         with torch.no_grad():
             self.weights_pre_softmax_k.copy_(torch.log(cluster_totals_k + 0.00001))
 
+            # update the binomial clusters -- we exclude the last cluster, which is beta binomial
+            for k in range(self.K - 1):
+                weights = cluster_posteriors_nk[:, k]
+                f = torch.sum((weights * somatic_alt_counts_n)) / torch.sum((0.00001 + weights * somatic_depths_n))
+
+                self.f_pre_sigmoid_k[k] = torch.log(f / (1-f))
+
     def fit(self, num_epochs, depths_1d_tensor, alt_counts_1d_tensor, batch_size=64):
         optimizer = torch.optim.Adam(self.parameters())
         num_batches = math.ceil(len(alt_counts_1d_tensor) / batch_size)
