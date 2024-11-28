@@ -267,6 +267,7 @@ class PosteriorModel(torch.nn.Module):
             types_nt = torch.vstack(types_lbt).cpu()
 
             self.update_priors_m_step(posteriors_nc, types_nt, ignored_to_non_ignored_ratio)
+            self.somatic_spectrum.update_m_step(posteriors_nc[:, Call.SOMATIC], alt_counts_n, depths_n)
 
 
             if summary_writer is not None:
@@ -354,24 +355,24 @@ class PosteriorModel(torch.nn.Module):
         return thresholds_by_type
 
 
-def update_priors_m_step(self, posteriors_nc, types_nt, ignored_to_non_ignored_ratio):
-    # update the priors in an EM-style M step.  We'll need the counts of each call type vs variant type
-    total_nonignored = torch.sum(posteriors_nc).item()
-    total_ignored = ignored_to_non_ignored_ratio * total_nonignored
-    overall_total = total_ignored + total_nonignored
+    def update_priors_m_step(self, posteriors_nc, types_nt, ignored_to_non_ignored_ratio):
+        # update the priors in an EM-style M step.  We'll need the counts of each call type vs variant type
+        total_nonignored = torch.sum(posteriors_nc).item()
+        total_ignored = ignored_to_non_ignored_ratio * total_nonignored
+        overall_total = total_ignored + total_nonignored
 
-    with torch.no_grad():
-        for c, call_type in enumerate(Call):
-            if call_type == Call.SEQ_ERROR or call_type == Call.GERMLINE:
-                continue
-            posteriors_n = posteriors_nc[:, c]
+        with torch.no_grad():
+            for c, call_type in enumerate(Call):
+                if call_type == Call.SEQ_ERROR or call_type == Call.GERMLINE:
+                    continue
+                posteriors_n = posteriors_nc[:, c]
 
-            for t, var_type in enumerate(Variation):
-                var_type_mask = types_nt[:, t]
-                total_for_this_call_and_var_type = torch.sum(posteriors_n * var_type_mask)
+                for t, var_type in enumerate(Variation):
+                    var_type_mask = types_nt[:, t]
+                    total_for_this_call_and_var_type = torch.sum(posteriors_n * var_type_mask)
 
-                self._unnormalized_priors.weight[c, t] = torch.log(
-                    total_for_this_call_and_var_type / (total_for_this_call_and_var_type + overall_total)).item()
+                    self._unnormalized_priors.weight[c, t] = torch.log(
+                        total_for_this_call_and_var_type / (total_for_this_call_and_var_type + overall_total)).item()
 
-        self._unnormalized_priors.weight[Call.SEQ_ERROR] = 0
-        self._unnormalized_priors.weight[Call.GERMLINE] = -9999 if self.no_germline_mode else 0
+            self._unnormalized_priors.weight[Call.SEQ_ERROR] = 0
+            self._unnormalized_priors.weight[Call.GERMLINE] = -9999 if self.no_germline_mode else 0
