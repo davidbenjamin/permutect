@@ -13,14 +13,14 @@ class BaseModelParameters:
     num_transformer_layers: number of layers of read transformer
     """
     def __init__(self, read_layers: List[int], transformer_hidden_dimension: int,
-                 num_transformer_layers: int, info_layers: List[int], aggregation_layers: List[int],
+                 num_self_attention_layers: int, info_layers: List[int], aggregation_layers: List[int],
                  ref_seq_layers_strings: List[str], dropout_p: float, reweighting_range: float, batch_normalize: bool = False):
 
         self.read_layers = read_layers
         self.info_layers = info_layers
         self.ref_seq_layer_strings = ref_seq_layers_strings
         self.transformer_hidden_dimension = transformer_hidden_dimension
-        self.num_transformer_layers = num_transformer_layers
+        self.num_self_attention_layers = num_self_attention_layers
         self.aggregation_layers = aggregation_layers
         self.dropout_p = dropout_p
         self.reweighting_range = reweighting_range
@@ -35,13 +35,13 @@ def parse_base_model_params(args) -> BaseModelParameters:
     info_layers = getattr(args, constants.INFO_LAYERS_NAME)
     ref_seq_layer_strings = getattr(args, constants.REF_SEQ_LAYER_STRINGS_NAME)
     transformer_hidden_dimension = getattr(args, constants.TRANSFORMER_HIDDEN_DIMENSION_NAME)
-    num_transformer_layers = getattr(args, constants.NUM_TRANSFORMER_LAYERS_NAME)
+    num_self_attention_layers = getattr(args, constants.NUM_SELF_ATTENTION_LAYERS_NAME)
     aggregation_layers = getattr(args, constants.AGGREGATION_LAYERS_NAME)
     dropout_p = getattr(args, constants.DROPOUT_P_NAME)
     reweighting_range = getattr(args, constants.REWEIGHTING_RANGE_NAME)
     batch_normalize = getattr(args, constants.BATCH_NORMALIZE_NAME)
     return BaseModelParameters(read_layers, transformer_hidden_dimension,
-                               num_transformer_layers, info_layers, aggregation_layers, ref_seq_layer_strings, dropout_p,
+                               num_self_attention_layers, info_layers, aggregation_layers, ref_seq_layer_strings, dropout_p,
                                reweighting_range, batch_normalize)
 
 
@@ -52,8 +52,8 @@ def add_base_model_params_to_parser(parser):
                              'Negative values indicate residual skip connections')
     parser.add_argument('--' + constants.TRANSFORMER_HIDDEN_DIMENSION_NAME, type=int, required=True,
                         help='hidden dimension of transformer keys and values')
-    parser.add_argument('--' + constants.NUM_TRANSFORMER_LAYERS_NAME, type=int, required=True,
-                        help='number of transformer layers')
+    parser.add_argument('--' + constants.NUM_SELF_ATTENTION_LAYERS_NAME, type=int, required=True,
+                        help='number of symmetric gated MLP self-attention layers')
     parser.add_argument('--' + constants.INFO_LAYERS_NAME, nargs='+', type=int, required=True,
                         help='dimensions of hidden layers in the info embedding subnetwork, including the dimension of the embedding itself.  '
                              'Negative values indicate residual skip connections')

@@ -83,12 +83,8 @@ class LearningMethod(Enum):
     MARS = "MARS"
 
 
-def make_gated_mlp_encoder(input_dimension: int, params: BaseModelParameters):
-    return GatedMLP(d_model=input_dimension, d_ffn=params.transformer_hidden_dimension, num_blocks=params.num_transformer_layers)
-
-
 def make_gated_ref_alt_mlp_encoder(input_dimension: int, params: BaseModelParameters):
-    return GatedRefAltMLP(d_model=input_dimension, d_ffn=params.transformer_hidden_dimension, num_blocks=params.num_transformer_layers)
+    return GatedRefAltMLP(d_model=input_dimension, d_ffn=params.transformer_hidden_dimension, num_blocks=params.num_self_attention_layers)
 
 
 class BaseModel(torch.nn.Module):
@@ -342,8 +338,10 @@ class BaseModelAutoencoderLoss(torch.nn.Module, BaseModelLearningStrategy):
         # TODO: maybe also a parameter to scale the random vectors?
 
         # TODO: should these decoder params be the same as the base model encoder params?  It seems reasonable.
-        self.alt_decoder = make_gated_mlp_encoder(self.transformer_dimension, params)
-        self.ref_decoder = make_gated_mlp_encoder(self.transformer_dimension, params)
+
+        # TODO: this is broken -- use the ref_alt_encoder
+        #self.alt_decoder = make_gated_mlp_encoder(self.transformer_dimension, params)
+        #self.ref_decoder = make_gated_mlp_encoder(self.transformer_dimension, params)
 
         self.mapping_back_to_reads = MLP([self.transformer_dimension] + hidden_top_layers + [read_dim])
 

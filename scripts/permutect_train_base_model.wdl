@@ -13,7 +13,7 @@ workflow TrainPermutectBaseModel {
         Float reweighting_range
         Array[Int] read_layers
         Int transformer_hidden_dimension
-        Int num_transformer_layers
+        Int num_self_attention_layers
         Array[Int] info_layers
         Array[Int] aggregation_layers
         Array[String] ref_seq_layer_strings
@@ -41,7 +41,7 @@ workflow TrainPermutectBaseModel {
             reweighting_range = reweighting_range,
             read_layers = read_layers,
             transformer_hidden_dimension = transformer_hidden_dimension,
-            num_transformer_layers = num_transformer_layers,
+            num_self_attention_layers = num_self_attention_layers,
             info_layers = info_layers,
             aggregation_layers = aggregation_layers,
             ref_seq_layer_strings = ref_seq_layer_strings,
@@ -69,7 +69,7 @@ task TrainPermutectBase {
         Float reweighting_range
         Array[Int] read_layers
         Int transformer_hidden_dimension
-        Int num_transformer_layers
+        Int num_self_attention_layers
         Array[Int] info_layers
         Array[Int] aggregation_layers
         Array[String] ref_seq_layer_strings
@@ -96,7 +96,7 @@ task TrainPermutectBase {
             ~{"--pretrained_model " + pretrained_model} \
             --read_layers ~{sep=' ' read_layers} \
             --transformer_hidden_dimension ~{transformer_hidden_dimension} \
-            --num_transformer_layers ~{num_transformer_layers} \
+            --num_self_attention_layers ~{num_self_attention_layers} \
             --info_layers ~{sep=' ' info_layers} \
             --aggregation_layers ~{sep=' ' aggregation_layers} \
             --ref_seq_layer_strings ~{sep=' ' ref_seq_layer_strings} \

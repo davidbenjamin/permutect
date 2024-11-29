@@ -18,7 +18,7 @@ OUTPUT_DIR_NAME = 'output_dir'
 
 READ_LAYERS_NAME = 'read_layers'
 TRANSFORMER_HIDDEN_DIMENSION_NAME = 'transformer_hidden_dimension'
-NUM_TRANSFORMER_LAYERS_NAME = 'num_transformer_layers'
+NUM_SELF_ATTENTION_LAYERS_NAME = 'num_self_attention_layers'
 
 LEARNING_METHOD_NAME = 'learning_method'
 
