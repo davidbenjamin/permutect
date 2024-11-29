@@ -1,9 +1,10 @@
 from argparse import Namespace
 import tempfile
 
+from permutect.data import base_datum
 from permutect.data.base_dataset import BaseDataset
 from permutect.tools import preprocess_dataset
-from permutect import constants
+from permutect import constants, utils
 from permutect.utils import extract_to_temp_dir
 
 
@@ -20,5 +21,7 @@ def test_on_10_megabases_singular():
 
     with tempfile.TemporaryDirectory() as train_temp_dir:
         training_files = extract_to_temp_dir(training_data_tarfile.name, train_temp_dir)
+        for training_file in training_files:
+            base_data_list = base_datum.load_list_of_base_data(training_file)
 
     dataset = BaseDataset(data_tarfile=training_data_tarfile.name, num_folds=10)

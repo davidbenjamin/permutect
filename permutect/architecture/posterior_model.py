@@ -223,11 +223,23 @@ class PosteriorModel(torch.nn.Module):
         for epoch in trange(1, num_iterations + 1, desc="AF spectra epoch"):
             epoch_loss = utils.StreamingAverage()
 
+            # store posteriors as a list (to be stacked at the end of the epoch) for an M step
+            # 'l' for loader, 'b' for batch, 'c' for call type
+            posteriors_lbc = []
+            alt_counts_lb = []
+            depths_lb = []
+            types_lbt = []
+
             pbar = tqdm(enumerate(posterior_loader), mininterval=10)
             for n, batch_cpu in pbar:
                 batch = batch_cpu.copy_to(self._device, self._dtype, non_blocking=self._device.type == 'cuda')
                 relative_posteriors = self.log_relative_posteriors(batch)
                 log_evidence = torch.logsumexp(relative_posteriors, dim=1)
+
+                posteriors_lbc.append(torch.softmax(relative_posteriors, dim=-1).detach())
+                alt_counts_lb.append(batch.get_alt_counts().detach())
+                depths_lb.append(batch.get_depths().detach())
+                types_lbt.append(batch.variant_type_one_hot().detach())
 
                 confidence_mask = torch.abs(batch.get_artifact_logits()) > 3.0
                 #loss = -torch.mean(confidence_mask * log_evidence)
@@ -246,6 +258,17 @@ class PosteriorModel(torch.nn.Module):
                 utils.backpropagate(optimizer, loss)
 
                 epoch_loss.record_sum(batch.size() * loss.detach().item(), batch.size())
+            # iteration over posterior dataloader finished
+
+            # 'n' denotes index of data within entire Posterior Dataset
+            posteriors_nc = torch.vstack(posteriors_lbc)
+            alt_counts_n = torch.hstack(alt_counts_lb)
+            depths_n = torch.hstack(depths_lb)
+            types_nt = torch.vstack(types_lbt)
+
+            self.update_priors_m_step(posteriors_nc, types_nt, ignored_to_non_ignored_ratio)
+            self.somatic_spectrum.update_m_step(posteriors_nc[:, Call.SOMATIC], alt_counts_n, depths_n)
+
 
             if summary_writer is not None:
                 summary_writer.add_scalar("spectrum negative log evidence", epoch_loss.get(), epoch)
@@ -330,3 +353,26 @@ class PosteriorModel(torch.nn.Module):
             summary_writer.add_figure("theoretical ROC by variant type and alt count ", roc_by_cnt_fig)
 
         return thresholds_by_type
+
+
+    def update_priors_m_step(self, posteriors_nc, types_nt, ignored_to_non_ignored_ratio):
+        # update the priors in an EM-style M step.  We'll need the counts of each call type vs variant type
+        total_nonignored = torch.sum(posteriors_nc).item()
+        total_ignored = ignored_to_non_ignored_ratio * total_nonignored
+        overall_total = total_ignored + total_nonignored
+
+        with torch.no_grad():
+            for c, call_type in enumerate(Call):
+                if call_type == Call.SEQ_ERROR or call_type == Call.GERMLINE:
+                    continue
+                posteriors_n = posteriors_nc[:, c]
+
+                for t, var_type in enumerate(Variation):
+                    var_type_mask = types_nt[:, t]
+                    total_for_this_call_and_var_type = torch.sum(posteriors_n * var_type_mask)
+
+                    self._unnormalized_priors.weight[c, t] = torch.log(
+                        total_for_this_call_and_var_type / (total_for_this_call_and_var_type + overall_total)).item()
+
+            self._unnormalized_priors.weight[Call.SEQ_ERROR] = 0
+            self._unnormalized_priors.weight[Call.GERMLINE] = -9999 if self.no_germline_mode else 0
