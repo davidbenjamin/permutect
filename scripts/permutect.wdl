@@ -36,7 +36,6 @@ workflow Permutect {
         File? test_dataset_truth_vcf_idx
 
         String? permutect_filtering_extra_args
-        Boolean use_gpu
         String gatk_docker
         String bcftools_docker
         File? gatk_override
@@ -96,127 +95,42 @@ workflow Permutect {
             gatk_docker = gatk_docker
     }
 
-    if (use_gpu) {
-        call PermutectFilteringGPU {
-            input:
-                mutect2_vcf = IndexAfterSplitting.vcf,
-                mutect2_vcf_idx = IndexAfterSplitting.vcf_index,
-                permutect_model = permutect_model,
-                test_dataset = select_first([Mutect2.permutect_test_dataset]),
-                contigs_table = Mutect2.permutect_contigs_table,
-                maf_segments = Mutect2.maf_segments,
-                mutect_stats = Mutect2.mutect_stats,
-                batch_size = batch_size,
-                num_workers = num_workers,
-                gpu_count = gpu_count,
-                num_spectrum_iterations = num_spectrum_iterations,
-                spectrum_learning_rate = spectrum_learning_rate,
-                chunk_size = chunk_size,
-                permutect_filtering_extra_args = permutect_filtering_extra_args,
-                permutect_docker = permutect_docker,
-        }
-    }
-
-    if (!use_gpu) {
-        call PermutectFilteringCPU {
-            input:
-                mutect2_vcf = IndexAfterSplitting.vcf,
-                mutect2_vcf_idx = IndexAfterSplitting.vcf_index,
-                permutect_model = permutect_model,
-                test_dataset = select_first([Mutect2.permutect_test_dataset]),
-                contigs_table = Mutect2.permutect_contigs_table,
-                maf_segments = Mutect2.maf_segments,
-                mutect_stats = Mutect2.mutect_stats,
-                batch_size = batch_size,
-                num_workers = num_workers,
-                num_spectrum_iterations = num_spectrum_iterations,
-                spectrum_learning_rate = spectrum_learning_rate,
-                chunk_size = chunk_size,
-                permutect_filtering_extra_args = permutect_filtering_extra_args,
-                permutect_docker = permutect_docker,
-        }
+    call PermutectFiltering {
+        input:
+            mutect2_vcf = IndexAfterSplitting.vcf,
+            mutect2_vcf_idx = IndexAfterSplitting.vcf_index,
+            permutect_model = permutect_model,
+            test_dataset = select_first([Mutect2.permutect_test_dataset]),
+            contigs_table = Mutect2.permutect_contigs_table,
+            maf_segments = Mutect2.maf_segments,
+            mutect_stats = Mutect2.mutect_stats,
+            batch_size = batch_size,
+            num_workers = num_workers,
+            gpu_count = gpu_count,
+            num_spectrum_iterations = num_spectrum_iterations,
+            spectrum_learning_rate = spectrum_learning_rate,
+            chunk_size = chunk_size,
+            permutect_filtering_extra_args = permutect_filtering_extra_args,
+            permutect_docker = permutect_docker,
     }
 
     call IndexVCF as IndexAfterFiltering {
         input:
-            unindexed_vcf = select_first([PermutectFilteringGPU.output_vcf, PermutectFilteringCPU.output_vcf]),
+            unindexed_vcf = PermutectFiltering.output_vcf,
             gatk_docker = gatk_docker
     }
 
     output {
         File output_vcf = IndexAfterFiltering.vcf
         File output_vcf_idx = IndexAfterFiltering.vcf_index
-        File tensorboard_report = select_first([PermutectFilteringGPU.tensorboard_report, PermutectFilteringCPU.tensorboard_report])
+        File tensorboard_report = PermutectFiltering.tensorboard_report
         File test_dataset = select_first([Mutect2.permutect_test_dataset])
         File mutect2_vcf = Mutect2.output_vcf
         File mutect2_vcf_idx = Mutect2.output_vcf_idx
     }
 }
 
-task PermutectFilteringCPU {
-    input {
-        File permutect_model
-        File test_dataset
-        File contigs_table
-        File mutect2_vcf
-        File mutect2_vcf_idx
-        File? maf_segments
-        File? normal_maf_segments
-        File mutect_stats
-        Int? num_spectrum_iterations
-        Float? spectrum_learning_rate
-        Int batch_size
-        Int num_workers
-        Int chunk_size
-        String? permutect_filtering_extra_args
-
-        String permutect_docker
-        Int? preemptible
-        Int? max_retries
-        Int? disk_space
-        Int? cpu
-        Int? mem
-        Boolean use_ssd = false
-    }
-
-    # Mem is in units of GB but our command and memory runtime values are in MB
-    Int machine_mem = if defined(mem) then mem * 1000 else 16000
-    Int command_mem = machine_mem - 500
-
-    command <<<
-        # set -e
-        genomic_span=`grep "callable" ~{mutect_stats} | while read name value; do echo $value; done`
-
-        filter_variants --input ~{mutect2_vcf} --test_dataset ~{test_dataset} \
-            --permutect_model ~{permutect_model} \
-            --contigs_table ~{contigs_table} \
-            --output permutect-filtered.vcf \
-            --tensorboard_dir tensorboard \
-            --batch_size ~{batch_size} --num_workers ~{num_workers} --chunk_size ~{chunk_size} \
-            ~{" --num_spectrum_iterations " + num_spectrum_iterations} \
-            ~{" --spectrum_learning_rate " + spectrum_learning_rate} \
-            ~{" --maf_segments " + maf_segments} ~{" --normal_maf_segments " + normal_maf_segments} \
-            --genomic_span $genomic_span ~{permutect_filtering_extra_args}
-
-        tar cvf tensorboard.tar tensorboard/
-    >>>
-
-    runtime {
-        docker: permutect_docker
-        bootDiskSizeGb: 12
-        memory: machine_mem + " MB"
-        disks: "local-disk " + select_first([disk_space, 100]) + if use_ssd then " SSD" else " HDD"
-        preemptible: select_first([preemptible, 3])
-        maxRetries: select_first([max_retries, 1])
-        cpu: select_first([cpu, 2])
-    }
-
-    output {
-        File output_vcf = "permutect-filtered.vcf"
-        File tensorboard_report = "tensorboard.tar"
-    }
-}
- task PermutectFilteringGPU {
+ task PermutectFiltering {
     input {
         File permutect_model
         File test_dataset
@@ -240,7 +154,6 @@ task PermutectFilteringCPU {
         Int? disk_space
         Int? cpu
         Int? mem
-        Boolean use_ssd = false
     }
 
     # Mem is in units of GB but our command and memory runtime values are in MB
@@ -269,9 +182,9 @@ task PermutectFilteringCPU {
         docker: permutect_docker
         bootDiskSizeGb: 12
         memory: machine_mem + " MB"
-        disks: "local-disk " + select_first([disk_space, 100]) + if use_ssd then " SSD" else " HDD"
-        preemptible: select_first([preemptible, 3])
-        maxRetries: select_first([max_retries, 1])
+        disks: "local-disk " + select_first([disk_space, 100]) + " SSD"
+        preemptible: select_first([preemptible, 0])
+        maxRetries: select_first([max_retries, 0])
         cpu: select_first([cpu, 2])
         gpuType: "nvidia-tesla-t4"
         gpuCount: select_first([gpu_count, 1])
@@ -298,7 +211,6 @@ task SplitMultiallelics {
         Int? disk_space
         Int? cpu
         Int? mem
-        Boolean use_ssd = false
     }
 
     # Mem is in units of GB but our command and memory runtime values are in MB
@@ -315,9 +227,9 @@ task SplitMultiallelics {
         docker: bcftools_docker
         bootDiskSizeGb: 12
         memory: machine_mem + " MB"
-        disks: "local-disk " + select_first([disk_space, 100]) + if use_ssd then " SSD" else " HDD"
-        preemptible: select_first([preemptible, 3])
-        maxRetries: select_first([max_retries, 1])
+        disks: "local-disk " + select_first([disk_space, 100]) + " SSD"
+        preemptible: select_first([preemptible, 0])
+        maxRetries: select_first([max_retries, 0])
         cpu: select_first([cpu, 2])
     }
 
@@ -335,7 +247,6 @@ task IndexVCF {
         Int? disk_space
         Int? cpu
         Int? mem
-        Boolean use_ssd = false
     }
 
     # Mem is in units of GB but our command and memory runtime values are in MB
@@ -359,10 +270,10 @@ task IndexVCF {
         docker: gatk_docker
         bootDiskSizeGb: 12
         memory: machine_mem + " MB"
-        disks: "local-disk " + select_first([disk_space, 100]) + if use_ssd then " SSD" else " HDD"
-        preemptible: select_first([preemptible, 3])
-        maxRetries: select_first([max_retries, 1])
-        cpu: select_first([cpu, 2])
+        disks: "local-disk " + select_first([disk_space, 100]) + " SSD"
+        preemptible: select_first([preemptible, 0])
+        maxRetries: select_first([max_retries, 0])
+        cpu: select_first([cpu, 1])
     }
 
     output {

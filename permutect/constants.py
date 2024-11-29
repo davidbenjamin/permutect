@@ -17,9 +17,8 @@ OUTPUT_NAME = 'output'
 OUTPUT_DIR_NAME = 'output_dir'
 
 READ_LAYERS_NAME = 'read_layers'
-NUM_TRANSFORMER_HEADS_NAME = 'num_transformer_heads'
-TRANSFORMER_HIDDEN_DIMENSION_NAME = 'transformer_hidden_dimension'
-NUM_TRANSFORMER_LAYERS_NAME = 'num_transformer_layers'
+SELF_ATTENTION_HIDDEN_DIMENSION_NAME = 'self_attention_hidden_dimension'
+NUM_SELF_ATTENTION_LAYERS_NAME = 'num_self_attention_layers'
 
 LEARNING_METHOD_NAME = 'learning_method'
 
@@ -30,7 +29,6 @@ REF_SEQ_LAYER_STRINGS_NAME = 'ref_seq_layer_strings'
 DROPOUT_P_NAME = 'dropout_p'
 LEARNING_RATE_NAME = 'learning_rate'
 WEIGHT_DECAY_NAME = 'weight_decay'
-ALT_DOWNSAMPLE_NAME = 'alt_downsample'
 BATCH_NORMALIZE_NAME = 'batch_normalize'
 LEARN_ARTIFACT_SPECTRA_NAME = 'learn_artifact_spectra'
 

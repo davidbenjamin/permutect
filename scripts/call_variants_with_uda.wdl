@@ -8,8 +8,8 @@ version 1.0
 
 import "https://api.firecloud.org/ga4gh/v1/tools/davidben:mutect2/versions/18/plain-WDL/descriptor" as m2
 import "https://api.firecloud.org/ga4gh/v1/tools/davidben:permutect-uda-dataset/versions/3/plain-WDL/descriptor" as uda
-import "https://api.firecloud.org/ga4gh/v1/tools/davidben:permutect-train-artifact-model/versions/12/plain-WDL/descriptor" as training
-import "https://api.firecloud.org/ga4gh/v1/tools/davidben:permutect-call-variants/versions/18/plain-WDL/descriptor" as calling
+import "https://api.firecloud.org/ga4gh/v1/tools/davidben:permutect-train-artifact-model/versions/13/plain-WDL/descriptor" as training
+import "https://api.firecloud.org/ga4gh/v1/tools/davidben:permutect-call-variants/versions/19/plain-WDL/descriptor" as calling
 
 workflow CallVariantsWithUDA {
     input {
@@ -42,7 +42,6 @@ workflow CallVariantsWithUDA {
         Int chunk_size
 
         # training arguments for both artifact model and posterior model
-        Boolean use_gpu = true
         Int batch_size
         Int inference_batch_size
         Int num_workers
@@ -167,12 +166,11 @@ workflow CallVariantsWithUDA {
             inference_batch_size = inference_batch_size,
             num_workers = num_workers,
             mem = training_mem,
-            use_gpu = use_gpu,
             gpu_count = gpu_count,
             dropout_p = dropout_p,
             aggregation_layers = aggregation_layers,
             calibration_layers = calibration_layers,
-            train_m3_extra_args = training_extra_args,
+            extra_args = training_extra_args,
             learn_artifact_spectra = learn_artifact_spectra,
             genomic_span = genomic_span,
             permutect_docker = permutect_docker,
@@ -197,50 +195,29 @@ workflow CallVariantsWithUDA {
             gatk_docker = gatk_docker
     }
 
-    if (use_gpu) {
-        call calling.PermutectFilteringGPU {
-            input:
-                mutect2_vcf = IndexAfterSplitting.vcf,
-                mutect2_vcf_idx = IndexAfterSplitting.vcf_index,
-                permutect_model = TrainPermutect.artifact_model,
-                test_dataset = select_first([Mutect2.permutect_test_dataset]),
-                contigs_table = Mutect2.permutect_contigs_table,
-                maf_segments = Mutect2.maf_segments,
-                mutect_stats = Mutect2.mutect_stats,
-                batch_size = batch_size,
-                num_workers = num_workers,
-                gpu_count = gpu_count,
-                num_spectrum_iterations = num_spectrum_iterations,
-                spectrum_learning_rate = spectrum_learning_rate,
-                chunk_size = chunk_size,
-                permutect_filtering_extra_args = permutect_filtering_extra_args,
-                permutect_docker = permutect_docker,
-        }
+    call calling.PermutectFiltering {
+        input:
+            mutect2_vcf = IndexAfterSplitting.vcf,
+            mutect2_vcf_idx = IndexAfterSplitting.vcf_index,
+            permutect_model = TrainPermutect.artifact_model,
+            test_dataset = select_first([Mutect2.permutect_test_dataset]),
+            contigs_table = Mutect2.permutect_contigs_table,
+            maf_segments = Mutect2.maf_segments,
+            mutect_stats = Mutect2.mutect_stats,
+            batch_size = batch_size,
+            num_workers = num_workers,
+            gpu_count = gpu_count,
+            num_spectrum_iterations = num_spectrum_iterations,
+            spectrum_learning_rate = spectrum_learning_rate,
+            chunk_size = chunk_size,
+            permutect_filtering_extra_args = permutect_filtering_extra_args,
+            permutect_docker = permutect_docker,
     }
 
-    if (!use_gpu) {
-        call calling.PermutectFilteringCPU {
-            input:
-                mutect2_vcf = IndexAfterSplitting.vcf,
-                mutect2_vcf_idx = IndexAfterSplitting.vcf_index,
-                permutect_model = TrainPermutect.artifact_model,
-                test_dataset = select_first([Mutect2.permutect_test_dataset]),
-                contigs_table = Mutect2.permutect_contigs_table,
-                maf_segments = Mutect2.maf_segments,
-                mutect_stats = Mutect2.mutect_stats,
-                batch_size = batch_size,
-                num_workers = num_workers,
-                num_spectrum_iterations = num_spectrum_iterations,
-                spectrum_learning_rate = spectrum_learning_rate,
-                chunk_size = chunk_size,
-                permutect_filtering_extra_args = permutect_filtering_extra_args,
-                permutect_docker = permutect_docker,
-        }
-    }
 
     call calling.IndexVCF as IndexAfterFiltering {
         input:
-            unindexed_vcf = select_first([PermutectFilteringGPU.output_vcf, PermutectFilteringCPU.output_vcf]),
+            unindexed_vcf = PermutectFiltering.output_vcf,
             gatk_docker = gatk_docker
     }
 
@@ -254,7 +231,7 @@ workflow CallVariantsWithUDA {
         File training_tensorboard_tar = TrainPermutect.training_tensorboard_tar
         File output_vcf = IndexAfterFiltering.vcf
         File output_vcf_idx = IndexAfterFiltering.vcf_index
-        File calling_tensorboard_tar = select_first([PermutectFilteringGPU.tensorboard_report, PermutectFilteringCPU.tensorboard_report])
+        File calling_tensorboard_tar = PermutectFiltering.tensorboard_report
     }
 
 }
@@ -271,7 +248,6 @@ task Preprocess {
         Int? disk_space
         Int? cpu
         Int? mem
-        Boolean use_ssd = true
     }
 
     # Mem is in units of GB but our command and memory runtime values are in MB
@@ -288,7 +264,7 @@ task Preprocess {
         docker: permutect_docker
         bootDiskSizeGb: 12
         memory: machine_mem + " MB"
-        disks: "local-disk " + select_first([disk_space, 100]) + if use_ssd then " SSD" else " HDD"
+        disks: "local-disk " + select_first([disk_space, 100]) + " SSD"
         preemptible: select_first([preemptible, 2])
         maxRetries: select_first([max_retries, 0])
         cpu: select_first([cpu, 1])

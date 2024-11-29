@@ -83,12 +83,8 @@ class LearningMethod(Enum):
     MARS = "MARS"
 
 
-def make_gated_mlp_encoder(input_dimension: int, params: BaseModelParameters):
-    return GatedMLP(d_model=input_dimension, d_ffn=params.transformer_hidden_dimension, num_blocks=params.num_transformer_layers)
-
-
 def make_gated_ref_alt_mlp_encoder(input_dimension: int, params: BaseModelParameters):
-    return GatedRefAltMLP(d_model=input_dimension, d_ffn=params.transformer_hidden_dimension, num_blocks=params.num_transformer_layers)
+    return GatedRefAltMLP(d_model=input_dimension, d_ffn=params.self_attention_hidden_dimension, num_blocks=params.num_self_attention_layers)
 
 
 class BaseModel(torch.nn.Module):
@@ -126,7 +122,6 @@ class BaseModel(torch.nn.Module):
         self.ref_seq_cnn = DNASequenceConvolution(params.ref_seq_layer_strings, ref_sequence_length)
 
         embedding_dim = self.read_embedding.output_dimension() + self.info_embedding.output_dimension() + self.ref_seq_cnn.output_dimension()
-        assert embedding_dim % params.num_transformer_heads == 0
 
         self.ref_alt_reads_encoder = make_gated_ref_alt_mlp_encoder(embedding_dim, params)
 
@@ -336,18 +331,17 @@ class BaseModelAutoencoderLoss(torch.nn.Module, BaseModelLearningStrategy):
         super(BaseModelAutoencoderLoss, self).__init__()
         self.base_model_output_dimension = params.output_dimension()
 
-        # the transformer embedding dimension has to be divisible by its number of heads
-        excess = (2*self.base_model_output_dimension) % params.num_transformer_heads
-
         # TODO: explore making random seed dimension different from the base model embedding dimension
-        self.random_seed_dimension = self.base_model_output_dimension - excess
+        self.random_seed_dimension = self.base_model_output_dimension
         self.transformer_dimension = self.base_model_output_dimension + self.random_seed_dimension
 
         # TODO: maybe also a parameter to scale the random vectors?
 
         # TODO: should these decoder params be the same as the base model encoder params?  It seems reasonable.
-        self.alt_decoder = make_gated_mlp_encoder(self.transformer_dimension, params)
-        self.ref_decoder = make_gated_mlp_encoder(self.transformer_dimension, params)
+
+        # TODO: this is broken -- use the ref_alt_encoder
+        #self.alt_decoder = make_gated_mlp_encoder(self.transformer_dimension, params)
+        #self.ref_decoder = make_gated_mlp_encoder(self.transformer_dimension, params)
 
         self.mapping_back_to_reads = MLP([self.transformer_dimension] + hidden_top_layers + [read_dim])
 
