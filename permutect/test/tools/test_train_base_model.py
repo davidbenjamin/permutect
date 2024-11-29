@@ -15,7 +15,7 @@ def test_train_base_model():
 
     train_model_args = Namespace()
     setattr(train_model_args, constants.READ_LAYERS_NAME, [10, 10, 10])
-    setattr(train_model_args, constants.TRANSFORMER_HIDDEN_DIMENSION_NAME, 20)
+    setattr(train_model_args, constants.SELF_ATTENTION_HIDDEN_DIMENSION_NAME, 20)
     setattr(train_model_args, constants.NUM_SELF_ATTENTION_LAYERS_NAME, 2)
     setattr(train_model_args, constants.INFO_LAYERS_NAME, [10, 10])
     setattr(train_model_args, constants.AGGREGATION_LAYERS_NAME, [20, 20, 20])

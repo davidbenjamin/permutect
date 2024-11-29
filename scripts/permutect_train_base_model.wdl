@@ -12,7 +12,7 @@ workflow TrainPermutectBaseModel {
         Float dropout_p
         Float reweighting_range
         Array[Int] read_layers
-        Int transformer_hidden_dimension
+        Int self_attention_hidden_dimension
         Int num_self_attention_layers
         Array[Int] info_layers
         Array[Int] aggregation_layers
@@ -40,7 +40,7 @@ workflow TrainPermutectBaseModel {
             dropout_p = dropout_p,
             reweighting_range = reweighting_range,
             read_layers = read_layers,
-            transformer_hidden_dimension = transformer_hidden_dimension,
+            self_attention_hidden_dimension = self_attention_hidden_dimension,
             num_self_attention_layers = num_self_attention_layers,
             info_layers = info_layers,
             aggregation_layers = aggregation_layers,
@@ -68,7 +68,7 @@ task TrainPermutectBase {
         Float dropout_p
         Float reweighting_range
         Array[Int] read_layers
-        Int transformer_hidden_dimension
+        Int self_attention_hidden_dimension
         Int num_self_attention_layers
         Array[Int] info_layers
         Array[Int] aggregation_layers
@@ -95,7 +95,7 @@ task TrainPermutectBase {
             --train_tar ~{train_tar} \
             ~{"--pretrained_model " + pretrained_model} \
             --read_layers ~{sep=' ' read_layers} \
-            --transformer_hidden_dimension ~{transformer_hidden_dimension} \
+            --self_attention_hidden_dimension ~{self_attention_hidden_dimension} \
             --num_self_attention_layers ~{num_self_attention_layers} \
             --info_layers ~{sep=' ' info_layers} \
             --aggregation_layers ~{sep=' ' aggregation_layers} \

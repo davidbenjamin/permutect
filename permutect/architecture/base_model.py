@@ -84,7 +84,7 @@ class LearningMethod(Enum):
 
 
 def make_gated_ref_alt_mlp_encoder(input_dimension: int, params: BaseModelParameters):
-    return GatedRefAltMLP(d_model=input_dimension, d_ffn=params.transformer_hidden_dimension, num_blocks=params.num_self_attention_layers)
+    return GatedRefAltMLP(d_model=input_dimension, d_ffn=params.self_attention_hidden_dimension, num_blocks=params.num_self_attention_layers)
 
 
 class BaseModel(torch.nn.Module):
