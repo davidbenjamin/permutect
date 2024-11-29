@@ -13,7 +13,6 @@ workflow TrainPermutectBaseModel {
         Int? alt_downsample
         Float reweighting_range
         Array[Int] read_layers
-        Int num_transformer_heads
         Int transformer_hidden_dimension
         Int num_transformer_layers
         Array[Int] info_layers
@@ -43,7 +42,6 @@ workflow TrainPermutectBaseModel {
             alt_downsample = alt_downsample,
             reweighting_range = reweighting_range,
             read_layers = read_layers,
-            num_transformer_heads = num_transformer_heads,
             transformer_hidden_dimension = transformer_hidden_dimension,
             num_transformer_layers = num_transformer_layers,
             info_layers = info_layers,
@@ -73,7 +71,6 @@ task TrainPermutectBase {
         Int? alt_downsample
         Float reweighting_range
         Array[Int] read_layers
-        Int num_transformer_heads
         Int transformer_hidden_dimension
         Int num_transformer_layers
         Array[Int] info_layers
@@ -101,7 +98,6 @@ task TrainPermutectBase {
             --train_tar ~{train_tar} \
             ~{"--pretrained_model " + pretrained_model} \
             --read_layers ~{sep=' ' read_layers} \
-            --num_transformer_heads ~{num_transformer_heads} \
             --transformer_hidden_dimension ~{transformer_hidden_dimension} \
             --num_transformer_layers ~{num_transformer_layers} \
             --info_layers ~{sep=' ' info_layers} \

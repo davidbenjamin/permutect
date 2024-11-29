@@ -126,7 +126,6 @@ class BaseModel(torch.nn.Module):
         self.ref_seq_cnn = DNASequenceConvolution(params.ref_seq_layer_strings, ref_sequence_length)
 
         embedding_dim = self.read_embedding.output_dimension() + self.info_embedding.output_dimension() + self.ref_seq_cnn.output_dimension()
-        assert embedding_dim % params.num_transformer_heads == 0
 
         self.ref_alt_reads_encoder = make_gated_ref_alt_mlp_encoder(embedding_dim, params)
 
@@ -336,11 +335,8 @@ class BaseModelAutoencoderLoss(torch.nn.Module, BaseModelLearningStrategy):
         super(BaseModelAutoencoderLoss, self).__init__()
         self.base_model_output_dimension = params.output_dimension()
 
-        # the transformer embedding dimension has to be divisible by its number of heads
-        excess = (2*self.base_model_output_dimension) % params.num_transformer_heads
-
         # TODO: explore making random seed dimension different from the base model embedding dimension
-        self.random_seed_dimension = self.base_model_output_dimension - excess
+        self.random_seed_dimension = self.base_model_output_dimension
         self.transformer_dimension = self.base_model_output_dimension + self.random_seed_dimension
 
         # TODO: maybe also a parameter to scale the random vectors?
