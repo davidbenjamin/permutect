@@ -10,7 +10,6 @@ workflow TrainPermutectBaseModel {
         Int inference_batch_size
         Int? num_workers
         Float dropout_p
-        Int? alt_downsample
         Float reweighting_range
         Array[Int] read_layers
         Int transformer_hidden_dimension
@@ -39,7 +38,6 @@ workflow TrainPermutectBaseModel {
             num_workers = num_workers,
             gpu_count = gpu_count,
             dropout_p = dropout_p,
-            alt_downsample = alt_downsample,
             reweighting_range = reweighting_range,
             read_layers = read_layers,
             transformer_hidden_dimension = transformer_hidden_dimension,
@@ -68,7 +66,6 @@ task TrainPermutectBase {
         Int? num_workers
         Int? gpu_count
         Float dropout_p
-        Int? alt_downsample
         Float reweighting_range
         Array[Int] read_layers
         Int transformer_hidden_dimension
@@ -104,7 +101,6 @@ task TrainPermutectBase {
             --aggregation_layers ~{sep=' ' aggregation_layers} \
             --ref_seq_layer_strings ~{sep=' ' ref_seq_layer_strings} \
             --dropout_p ~{dropout_p} \
-            ~{"--alt_downsample " + alt_downsample} \
             --reweighting_range ~{reweighting_range} \
             --batch_size ~{batch_size} \
             --inference_batch_size ~{inference_batch_size} \
