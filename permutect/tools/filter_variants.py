@@ -256,7 +256,8 @@ def make_posterior_data_loader(dataset_file, input_vcf, contig_index_to_name_map
 
 # error probability thresholds is a dict from Variant type to error probability threshold (float)
 @torch.inference_mode()
-def apply_filtering_to_vcf(input_vcf, output_vcf, contig_index_to_name_map, error_probability_thresholds, posterior_loader, posterior_model, summary_writer: SummaryWriter, germline_mode: bool = False):
+def apply_filtering_to_vcf(input_vcf, output_vcf, contig_index_to_name_map, error_probability_thresholds,
+                           posterior_loader, posterior_model, summary_writer: SummaryWriter, germline_mode: bool = False):
     print("Computing final error probabilities")
     passing_call_type = Call.GERMLINE if germline_mode else Call.SOMATIC
     encoding_to_posterior_results = {}

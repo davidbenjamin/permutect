@@ -10,7 +10,7 @@ from permutect.architecture.base_model import load_base_model
 
 def test_train_base_model():
     training_data_tarfile = "/Users/davidben/mutect3/permutect/integration-tests/singular-10-Mb/preprocessed-dataset.tar"
-    saved_embedding_model = tempfile.NamedTemporaryFile()
+    saved_base_model = tempfile.NamedTemporaryFile()
     training_tensorboard_dir = tempfile.TemporaryDirectory()
 
     train_model_args = Namespace()
@@ -45,7 +45,7 @@ def test_train_base_model():
     setattr(train_model_args, constants.WEIGHT_DECAY_NAME, 0.01)
 
     # path to saved model
-    setattr(train_model_args, constants.OUTPUT_NAME, saved_embedding_model.name)
+    setattr(train_model_args, constants.OUTPUT_NAME, saved_base_model.name)
     setattr(train_model_args, constants.TENSORBOARD_DIR_NAME, training_tensorboard_dir.name)
 
     train_base_model.main_without_parsing(train_model_args)
@@ -53,4 +53,4 @@ def test_train_base_model():
     events = EventAccumulator(training_tensorboard_dir.name)
     events.Reload()
 
-    loaded_base_model = load_base_model(saved_embedding_model)
+    loaded_base_model = load_base_model(saved_base_model)

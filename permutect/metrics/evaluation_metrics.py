@@ -363,59 +363,61 @@ class EmbeddingMetrics:
     def output_to_summary_writer(self, summary_writer: SummaryWriter, prefix: str = "", is_filter_variants: bool = False, epoch: int = None):
         # downsample to a reasonable amount of UMAP data
         all_metadata = list(zip(self.label_metadata, self.correct_metadata, self.type_metadata, self.truncated_count_metadata))
-        if is_filter_variants:
-            indices_of_bad_calls = []
-            indices_of_unknown_calls = []
-            indices_of_good_calls = []
-            for n, correct_status in enumerate(self.correct_metadata):
-                if correct_status == "unknown":
-                    indices_of_unknown_calls.append(n)
-                elif correct_status == EmbeddingMetrics.FALSE_POSITIVE or correct_status == EmbeddingMetrics.FALSE_NEGATIVE_ARTIFACT:
-                    indices_of_bad_calls.append(n)
-                elif correct_status == EmbeddingMetrics.TRUE_POSITIVE or correct_status == EmbeddingMetrics.TRUE_NEGATIVE_ARTIFACT:
-                    indices_of_good_calls.append(n)
 
-            # heuristic: at most 5000 bad calls, then fill out with good or unknown calls until we have at least 1000 good points total or
-            # twice the number of bad calls, whichever is greater
+        indices_by_correct_status = defaultdict(list)
 
-            indices_of_bad_calls = np.array(indices_of_bad_calls)
-            indices_of_good_calls = np.array(indices_of_good_calls)
-            indices_of_unknown_calls = np.array(indices_of_unknown_calls)
+        for n, correct_status in enumerate(self.correct_metadata):
+            indices_by_correct_status[correct_status].append(n)
 
-            num_bad_calls_to_keep = min(len(indices_of_bad_calls), NUM_DATA_FOR_TENSORBOARD_PROJECTION // 2)
-            num_good_calls_to_keep = min(max(num_bad_calls_to_keep, 1000), len(indices_of_good_calls))
-            num_unknown_calls_to_keep = min(max(1000 - num_bad_calls_to_keep - num_good_calls_to_keep, 0), len(indices_of_unknown_calls))
+        # note that if we don't have labeled truth, everything is boring
+        all_indices = set(range(len(all_metadata)))
+        interesting_indices = set(indices_by_correct_status[EmbeddingMetrics.TRUE_POSITIVE] +
+                                       indices_by_correct_status[EmbeddingMetrics.FALSE_POSITIVE] +
+                                       indices_by_correct_status[EmbeddingMetrics.FALSE_NEGATIVE_ARTIFACT])
+        boring_indices = all_indices - interesting_indices
 
-            bad_indices = indices_of_bad_calls[np.random.choice(len(indices_of_bad_calls), size=num_bad_calls_to_keep, replace=False)]
-            good_indices = indices_of_good_calls[np.random.choice(len(indices_of_good_calls), size=num_good_calls_to_keep, replace=False)]
-            unknown_indices = indices_of_unknown_calls[np.random.choice(len(indices_of_unknown_calls), size=num_unknown_calls_to_keep, replace=False)]
-            idx = np.hstack((bad_indices, good_indices, unknown_indices))
-        else:
-            idx = np.random.choice(len(all_metadata), size=min(NUM_DATA_FOR_TENSORBOARD_PROJECTION, len(all_metadata)), replace=False)
+        '''if is_filter_variants:
+            boring_indices = np.array(indices_by_correct_status["unknown"] + indices_by_correct_status[EmbeddingMetrics.TRUE_NEGATIVE_ARTIFACT])
 
-        summary_writer.add_embedding(torch.vstack(self.representations)[idx],
-                                     metadata=[all_metadata[round(n)] for n in idx.tolist()],
-                                     metadata_header=["Labels", "Correctness", "Types", "Counts"],
-                                     tag=prefix+"embedding", global_step=epoch)
+            # if we have labeled truth, keep a few "boring" true negatives around; otherwise we only have "unknown"s
+            boring_count = len(interesting_indices) // 3 if len(interesting_indices) > 0 else len(boring_indices)
+            boring_to_keep = boring_indices[np.random.choice(len(boring_indices), size=boring_count, replace=False)]
+            idx = np.hstack((boring_to_keep, interesting_indices))
+
+        idx = np.random.choice(len(all_metadata), size=min(NUM_DATA_FOR_TENSORBOARD_PROJECTION, len(all_metadata)), replace=False)
+'''
+
+        stacked_representations = torch.vstack(self.representations)
 
         # read average embeddings stratified by variant type
         for variant_type in Variation:
             variant_name = variant_type.name
-            indices = [n for n, type_name in enumerate(self.type_metadata) if type_name == variant_name]
-            indices = sample_indices_for_tensorboard(indices)
-            summary_writer.add_embedding(torch.vstack(self.representations)[indices],
-                                         metadata=[all_metadata[round(n)] for n in indices.tolist()],
+            indices = set([n for n, type_name in enumerate(self.type_metadata) if type_name == variant_name])
+
+            interesting = interesting_indices & indices
+            boring = boring_indices & indices
+            boring_count = max(len(interesting) // 3, 100) if is_filter_variants else len(boring)
+            boring_to_keep = np.array([int(n) for n in boring])[np.random.choice(len(boring), size=boring_count, replace=False)]
+            idx = sample_indices_for_tensorboard(np.hstack((boring_to_keep, np.array([int(n) for n in interesting]))))
+
+            summary_writer.add_embedding(stacked_representations[idx],
+                                         metadata=[all_metadata[round(n)] for n in idx.tolist()],
                                          metadata_header=["Labels", "Correctness", "Types", "Counts"],
                                          tag=prefix+"embedding for variant type " + variant_name, global_step=epoch)
 
         # read average embeddings stratified by alt count
-        for row_idx in range(NUM_COUNT_BINS):
-            count = multiple_of_three_bin_index_to_count(row_idx)
-            indices = [n for n, alt_count in enumerate(self.truncated_count_metadata) if alt_count == str(count)]
-            indices = sample_indices_for_tensorboard(indices)
-            if len(indices) > 0:
-                summary_writer.add_embedding(torch.vstack(self.representations)[indices],
-                                        metadata=[all_metadata[round(n)] for n in indices.tolist()],
+        for count_bin in range(NUM_COUNT_BINS):
+            count = multiple_of_three_bin_index_to_count(count_bin)
+            indices = set([n for n, alt_count in enumerate(self.truncated_count_metadata) if alt_count == str(count)])
+            interesting = interesting_indices & indices
+            boring = boring_indices & indices
+            boring_count = max(len(interesting) // 3, 100) if is_filter_variants else len(boring)
+            boring_to_keep = np.array([int(n) for n in boring])[np.random.choice(len(boring), size=boring_count, replace=False)]
+            idx = sample_indices_for_tensorboard(np.hstack((boring_to_keep, np.array([int(n) for n in interesting]))))
+
+            if len(idx) > 0:
+                summary_writer.add_embedding(stacked_representations[idx],
+                                        metadata=[all_metadata[round(n)] for n in idx.tolist()],
                                         metadata_header=["Labels", "Correctness", "Types", "Counts"],
                                         tag=prefix+"embedding for alt count " + str(count), global_step=epoch)
 
