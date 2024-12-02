@@ -57,6 +57,12 @@ class MLP(nn.Module):
         self._output_dim = input_dim
         self._model = nn.Sequential(*layers)
 
+    def forward(self, x: Tensor) -> Tensor:
+        # Ensure input is on same device as model
+        device = next(self.parameters()).device
+        x = x.to(device)
+        return self._model.forward(x)
+
     def input_dimension(self) -> int:
         return self._input_dim
 

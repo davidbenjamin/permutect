@@ -151,9 +151,29 @@ def f_score(tp, fp, total_true):
 # unsqueezing is necessary
 # NOTE: this includes the nCk factor
 def beta_binomial(n, k, alpha, beta):
+    device = n.device  # Get the device from model parameters
+
+    # Ensure all inputs are on the same device
+    k = k.to(device)
+    alpha = alpha.to(device)
+    beta = beta.to(device)
+
+
+# # Get device from input tensor
+#     device = n.device if torch.is_tensor(n) else k.device
+#     # Ensure all inputs are tensors on the same device
+#     if not torch.is_tensor(alpha):
+#         alpha = torch.tensor(alpha, device=device)
+#     if not torch.is_tensor(beta):
+#         beta = torch.tensor(beta, device=device)
+#     if not torch.is_tensor(n):
+#         n = torch.tensor(n, device=device)
+#     if not torch.is_tensor(k):
+#         k = torch.tensor(k, device=device)
+
     combinatorial_term = torch.lgamma(n + 1) - torch.lgamma(n - k + 1) - torch.lgamma(k + 1)
-    return combinatorial_term + torch.lgamma(k + alpha) + torch.lgamma(n - k + beta) + torch.lgamma(alpha + beta) \
-           - torch.lgamma(n + alpha + beta) - torch.lgamma(alpha) - torch.lgamma(beta)
+    return combinatorial_term.to(device) + torch.lgamma(k + alpha).to(device) + torch.lgamma(n - k + beta).to(device) + torch.lgamma(alpha + beta).to(device) \
+           - torch.lgamma(n + alpha + beta).to(device) - torch.lgamma(alpha).to(device) - torch.lgamma(beta).to(device)
 
 
 # note: this function works for n, k, p tensors of the same shape

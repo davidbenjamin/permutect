@@ -42,9 +42,14 @@ class SomaticSpectrum(nn.Module):
     here alt counts and depths are 1D (batch size, ) tensors
     '''
     def forward(self, depths_b, alt_counts_b):
-        batch_size = len(alt_counts_b)
+        device = next(self.parameters()).device
 
-        f_k = torch.sigmoid(self.f_pre_sigmoid_k)
+        # Move input tensors to device at start
+        depths_b = depths_b.to(device)
+        alt_counts_b = alt_counts_b.to(device)
+
+        batch_size = len(alt_counts_b)
+        f_k = torch.sigmoid(self.f_pre_sigmoid_k).to(device)
         f_bk = f_k.expand(batch_size, -1)
         alt_counts_bk = torch.unsqueeze(alt_counts_b, dim=1).expand(-1, self.K - 1)
         depths_bk = torch.unsqueeze(depths_b, dim=1).expand(-1, self.K - 1)
@@ -83,29 +88,30 @@ class SomaticSpectrum(nn.Module):
     get raw data for a spectrum plot of probability density vs allele fraction
     '''
     def spectrum_density_vs_fraction(self):
-        fractions_f = torch.arange(0.01, 0.99, 0.001)  # 1D tensor
+        device = next(self.parameters()).device
+        fractions_f = torch.arange(0.01, 0.99, 0.001, device=device)  # 1D tensor
 
-        f_k = torch.sigmoid(self.f_pre_sigmoid_k)
+        f_k = torch.sigmoid(self.f_pre_sigmoid_k).to(device)
 
         # smear each binomial f into a narrow Gaussian for plotting
         gauss_k = torch.distributions.normal.Normal(f_k, 0.01 * torch.ones_like(f_k))
         log_gauss_fk = gauss_k.log_prob(fractions_f.unsqueeze(dim=1))
 
-        alpha = torch.exp(self.alpha_pre_exp)
-        beta = torch.exp(self.beta_pre_exp)
+        alpha = torch.exp(self.alpha_pre_exp).to(device)
+        beta = torch.exp(self.beta_pre_exp).to(device)
 
-        beta = torch.distributions.beta.Beta(alpha, beta)
-        log_beta_fk = beta.log_prob(fractions_f.unsqueeze(dim=1))
+        beta = torch.distributions.beta.Beta(alpha, beta)   
+        log_beta_fk = beta.log_prob(fractions_f.unsqueeze(dim=1).to(device))
 
         log_densities_fk = torch.hstack((log_gauss_fk, log_beta_fk))
 
-        log_weights_k = log_softmax(self.weights_pre_softmax_k)  # these weights are normalized
-        log_weights_fk = log_weights_k.expand(len(fractions_f), -1)
+        log_weights_k = log_softmax(self.weights_pre_softmax_k).to(device)  # these weights are normalized
+        log_weights_fk = log_weights_k.expand(len(fractions_f), -1).to(device)
 
         log_weighted_densities_fk = log_weights_fk + log_densities_fk
-        densities_f = torch.exp(torch.logsumexp(log_weighted_densities_fk, dim=1, keepdim=False))
+        densities_f = torch.exp(torch.logsumexp(log_weighted_densities_fk, dim=1, keepdim=False).to(device))
 
-        return fractions_f, densities_f
+        return fractions_f.cpu(), densities_f.cpu()
 
     def plot_spectrum(self, title):
         fractions, densities = self.spectrum_density_vs_fraction()

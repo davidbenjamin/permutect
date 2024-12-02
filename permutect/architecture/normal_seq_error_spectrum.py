@@ -30,16 +30,18 @@ class NormalSeqErrorSpectrum(nn.Module):
         self.mean_pre_sigmoid = torch.nn.Parameter(torch.tensor(0.0))
 
     def forward(self, alt_counts_1d: torch.Tensor, ref_counts_1d: torch.Tensor):
-        batch_size = len(alt_counts_1d)
-        fractions_2d = self.get_fractions(batch_size, self.num_samples)
+        device = alt_counts_1d.device
 
-        log_likelihoods_2d = torch.reshape(alt_counts_1d, (batch_size, 1)) * torch.log(fractions_2d) \
-            + torch.reshape(ref_counts_1d, (batch_size, 1)) * torch.log(1 - fractions_2d)
+        batch_size = len(alt_counts_1d)
+        fractions_2d = self.get_fractions(batch_size, self.num_samples).to(device)
+
+        log_likelihoods_2d = torch.reshape(alt_counts_1d, (batch_size, 1)) * torch.log(fractions_2d).to(device) \
+            + torch.reshape(ref_counts_1d.to(device), (batch_size, 1)) * torch.log(1 - fractions_2d).to(device)
 
         # average over sample dimension
-        log_likelihoods_1d = torch.logsumexp(log_likelihoods_2d, dim=1) - math.log(self.num_samples)
+        log_likelihoods_1d = torch.logsumexp(log_likelihoods_2d, dim=1).to(device) - math.log(self.num_samples)
 
-        combinatorial_term = torch.lgamma(alt_counts_1d + ref_counts_1d + 1) - torch.lgamma(alt_counts_1d + 1) - torch.lgamma(ref_counts_1d + 1)
+        combinatorial_term = torch.lgamma(alt_counts_1d + ref_counts_1d.to(device) + 1).to(device) - torch.lgamma(alt_counts_1d + 1).to(device) - torch.lgamma(ref_counts_1d.to(device) + 1).to(device)
 
         return combinatorial_term + log_likelihoods_1d
 
@@ -47,9 +49,12 @@ class NormalSeqErrorSpectrum(nn.Module):
         return torch.sigmoid(self.mean_pre_sigmoid) * self.max_mean
 
     def get_fractions(self, batch_size, num_samples):
+        # Get the device from the model parameter
+        device = self.mean_pre_sigmoid.device
+
         actual_mean = torch.sigmoid(self.mean_pre_sigmoid) * self.max_mean
         actual_sigma = SQRT_PI_OVER_2 * actual_mean
-        normal_samples = torch.randn(batch_size, num_samples)
+        normal_samples = torch.randn(batch_size, num_samples, device=device)
         half_normal_samples = torch.abs(normal_samples)
         fractions_2d_unbounded = actual_sigma * half_normal_samples
         # apply tanh to constrain fractions to [0, 1), and then to [EPSILON, 1 - EPSILON] for numerical stability

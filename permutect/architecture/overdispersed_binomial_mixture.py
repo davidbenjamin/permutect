@@ -91,17 +91,19 @@ class OverdispersedBinomialMixture(nn.Module):
         assert n.size() == k.size()
         assert len(x) == len(n)
         assert x.size()[1] == self.input_size
+        device = x.device
 
-        log_weights = log_softmax(self.weights_pre_softmax(x), dim=1)
+        log_weights = log_softmax(self.weights_pre_softmax(x), dim=1).to(device)
 
         # we make them 2D, with 1st dim batch, to match alpha and beta.  A single column is OK because the single value of
         # n/k are broadcast over all mixture components
-        n_2d = unsqueeze(n, dim=1)
-        k_2d = unsqueeze(k, dim=1)
+        n_2d = unsqueeze(n, dim=1).to(device)
+        k_2d = unsqueeze(k, dim=1).to(device)
 
         # 2D tensors -- 1st dim batch, 2nd dim mixture component
         means = self.max_mean * torch.sigmoid(self.mean_pre_sigmoid(x))
-        concentrations = self.get_concentration(x)
+        means = means.to(device)
+        concentrations = self.get_concentration(x).to(device)
 
         if self.mode == 'beta':
             alphas = means * concentrations
@@ -212,8 +214,10 @@ class OverdispersedBinomialMixture(nn.Module):
     here x is a 1D tensor, a single datum/row of the 2D tensors as above
     '''
     def spectrum_density_vs_fraction(self, variant_type: Variation, depth: int):
-        fractions = torch.arange(0.01, 0.99, 0.001)  # 1D tensor
-        x = torch.from_numpy(variant_type.one_hot_tensor()).float()
+        device = next(self.weights_pre_softmax.parameters()).device  # Get device from model parameter
+        
+        fractions = torch.arange(0.01, 0.99, 0.001, device=device)  # 1D tensor
+        x = torch.from_numpy(variant_type.one_hot_tensor()).float().to(device)
 
         unsqueezed = x.unsqueeze(dim=0)  # this and the three following tensors are 2D tensors with one row
         log_weights = log_softmax(self.weights_pre_softmax(unsqueezed).detach(), dim=1)
