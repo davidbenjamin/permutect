@@ -280,7 +280,8 @@ class BaseModelMaskPredictionLoss(torch.nn.Module, BaseModelLearningStrategy):
         self.mask_predictor = MLP([base_model_output_dim] + hidden_top_layers + [num_read_features], batch_normalize=params.batch_normalize, dropout_p=params.dropout_p)
 
     def loss_function(self, base_model: BaseModel, base_batch: BaseBatch, base_model_representations):
-        ref_count, alt_count = base_batch.ref_count, base_batch.alt_count
+        # TODO: this is broken now that batches have mixed counts
+        '''ref_count, alt_count = base_batch.ref_count, base_batch.alt_count
         total_ref, total_alt = ref_count * base_batch.size(), alt_count * base_batch.size()
 
         alt_reads_2d = base_batch.get_reads_2d()[total_ref:]
@@ -304,6 +305,8 @@ class BaseModelMaskPredictionLoss(torch.nn.Module, BaseModelLearningStrategy):
         # by batch index and feature
         losses_bf = self.bce(mask_prediction_logits, datum_mask)
         return torch.mean(losses_bf, dim=1)   # average over read features
+        '''
+        pass
 
     # I don't like implicit forward!!
     def forward(self):
@@ -346,7 +349,8 @@ class BaseModelAutoencoderLoss(torch.nn.Module, BaseModelLearningStrategy):
         self.mapping_back_to_reads = MLP([self.transformer_dimension] + hidden_top_layers + [read_dim])
 
     def loss_function(self, base_model: BaseModel, base_batch: BaseBatch, base_model_representations):
-        var_count, alt_count, ref_count = base_batch.size(), base_batch.alt_count, base_batch.ref_count
+        # TODO: this is broken now that batches have mixed counts
+        '''var_count, alt_count, ref_count = base_batch.size(), base_batch.alt_count, base_batch.ref_count
 
         total_ref, total_alt = ref_count * var_count, alt_count * var_count
 
@@ -377,6 +381,8 @@ class BaseModelAutoencoderLoss(torch.nn.Module, BaseModelLearningStrategy):
         alt_chamfer_dist = chamfer_distance(original_alt_vre, reconstructed_alt_vre)
         ref_chamfer_dist = chamfer_distance(original_ref_vre, reconstructed_ref_vre) if ref_count > 0 else 0
         return alt_chamfer_dist + ref_chamfer_dist
+        '''
+        pass
 
     # I don't like implicit forward!!
     def forward(self):
@@ -603,7 +609,8 @@ def record_embeddings(base_model: BaseModel, loader, summary_writer: SummaryWrit
             metrics.label_metadata.extend(labels)
             metrics.correct_metadata.extend(["unknown"] * batch.size())
             metrics.type_metadata.extend([Variation(idx).name for idx in batch.variant_types()])
-            metrics.truncated_count_metadata.extend([str(round_up_to_nearest_three(min(MAX_COUNT, batch.alt_count)))] * batch.size())
+            alt_count_strings = [str(round_up_to_nearest_three(min(MAX_COUNT, ac))) for ac in batch.get_alt_counts().tolist()]
+            metrics.truncated_count_metadata.extend(alt_count_strings)
             metrics.representations.append(embeddings)
     embedding_metrics.output_to_summary_writer(summary_writer)
     ref_alt_seq_metrics.output_to_summary_writer(summary_writer, prefix="ref and alt allele context")

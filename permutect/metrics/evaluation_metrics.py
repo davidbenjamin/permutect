@@ -116,8 +116,9 @@ class LossMetrics:
 
         # by count
         if isinstance(batch, BaseBatch):
-            if batch.alt_count <= MAX_COUNT:
-                self.labeled_loss_by_count[multiple_of_three_bin_index(batch.alt_count)].record_with_weights(losses, labeled_weights)
+            for alt_count, loss, labeled_weight in zip(batch.get_alt_counts(), losses.detach().cpu().tolist(), labeled_weights.detach().cpu().tolist()):
+                if alt_count <= MAX_COUNT:
+                    self.labeled_loss_by_count[multiple_of_three_bin_index(alt_count)].record(loss, labeled_weight)
         elif isinstance(batch, ArtifactBatch):
             for count_bin_index in range(NUM_COUNT_BINS):
                 count_bin_mask = make_count_bin_mask(count_bin_index, batch.get_alt_counts())

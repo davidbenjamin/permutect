@@ -566,8 +566,6 @@ class BaseBatch:
 
     def __init__(self, data: List[BaseDatum]):
         self._original_list = data
-        self.ref_count = len(data[0].reads_2d) - data[0].alt_count
-        self.alt_count = data[0].alt_count
         self.alt_counts = IntTensor([datum.alt_count for datum in data])
         self.ref_counts = IntTensor([len(datum.reads_2d) - datum.alt_count for datum in data])
 
