@@ -1,19 +1,25 @@
 torch >= 2.3.0
 tensorboard~=2.8.0
-numpy >= 1.16.5, < 1.23.0
-tqdm~=4.62.3
-setuptools~=57.0.0
-matplotlib~=3.5.2
-pysam~=0.18.0
-pandas~=1.3.5
+numpy >= 1.26.2
+tqdm~=4.66.1
+setuptools>=57.0.0
+matplotlib~=3.8.2
+pysam~=0.22.0
+pandas~=2.1.3
 cyvcf2~=0.30.15
 mmap-ninja >= 0.2.4
 # Protobuf 4.0 is incompatible with TF. Force < 3.20 until they unblock upgrade.
-# See: http://b/182876485
-# See: https://github.com/protocolbuffers/protobuf/issues/9954#issuecomment-1128283911
-# See: https://cs.opensource.google/tensorflow/tensorflow/+/master:tensorflow/tools/pip_package/setup.py?q=protobuf
 protobuf >= 3.9.2, < 3.20
 
 intervaltree~=3.1.0
 psutil >= 5.9.2
-scikit-learn >= 0.24.2
+scikit-learn >= 1.3.2
+pymc == 5.10.1
+pytensor == 2.18.3
+h5py >= 3.10.0
+pytorch-lightning >= 2.4.0
+tensorboard >= 2.8.0
+
+dill >= 0.3.7
+biopython >= 1.84
+scipy >= 1.11.4
