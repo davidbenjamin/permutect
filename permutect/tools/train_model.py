@@ -7,6 +7,7 @@ from torch.utils.tensorboard import SummaryWriter
 
 from permutect import constants, utils
 from permutect.architecture.artifact_model import ArtifactModel
+from permutect.architecture.artifact_spectra import ArtifactSpectra
 from permutect.architecture.posterior_model import initialize_artifact_spectra, plot_artifact_spectra
 from permutect.architecture.base_model import load_base_model
 from permutect.data.base_dataset import BaseDataset
@@ -46,15 +47,14 @@ def learn_artifact_priors_and_spectra(artifact_dataset: ArtifactDataset, genomic
 
     # turn the lists into tensors
     types_tensor = torch.LongTensor(types_list)
-    types_tensor_one_hot = torch.nn.functional.one_hot(types_tensor, len(utils.Variation)).float()
     depths_tensor = torch.Tensor(depths_list).float()
     alt_counts_tensor = torch.Tensor(alt_counts_list).float()
 
     log_artifact_priors = torch.log(artifact_counts / genomic_span_of_data)
-    artifact_spectra = initialize_artifact_spectra()
+    artifact_spectra = ArtifactSpectra(num_components=2)
 
     # TODO: hard-coded num epochs!!!
-    artifact_spectra.fit(num_epochs=10, inputs_2d_tensor=types_tensor_one_hot, depths_1d_tensor=depths_tensor,
+    artifact_spectra.fit(num_epochs=10, types_b=types_tensor, depths_1d_tensor=depths_tensor,
                          alt_counts_1d_tensor=alt_counts_tensor, batch_size=64)
 
     return log_artifact_priors, artifact_spectra

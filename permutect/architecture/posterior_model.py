@@ -156,7 +156,7 @@ class PosteriorModel(torch.nn.Module):
         normal_depths, normal_alt_counts = batch.get_normal_depths(), batch.get_normal_alt_counts()
         flat_prior_spectra_log_likelihoods = -torch.log(depths + 1)
         somatic_spectrum_log_likelihoods = self.somatic_spectrum.forward(depths, alt_counts)
-        tumor_artifact_spectrum_log_likelihood = self.artifact_spectra.forward(batch.variant_type_one_hot(), depths, alt_counts)
+        tumor_artifact_spectrum_log_likelihood = self.artifact_spectra.forward(batch.get_variant_types(), depths, alt_counts)
         spectra_log_likelihoods = torch.zeros_like(log_priors, device=self._device, dtype=self._dtype)
 
         # essentially, this corrects the TLOD from M2, computed with a flat prior, to account for the precises somatic spectrum
