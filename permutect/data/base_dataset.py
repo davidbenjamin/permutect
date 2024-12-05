@@ -168,7 +168,7 @@ class BaseDataset(Dataset):
 def make_flattened_tensor_generator(base_data_generator):
     for base_datum in base_data_generator:
         yield base_datum.get_reads_2d()
-        yield base_datum.get_other_stuff_1d().to_np_array()
+        yield base_datum.get_1d_data().to_np_array()
 
 
 def make_base_data_generator_from_tarfile(data_tarfile):
