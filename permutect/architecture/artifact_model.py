@@ -394,7 +394,7 @@ class ArtifactModel(nn.Module):
                 correct = ((pred > 0) == (labels > 0.5)).tolist()
 
                 for variant_type, predicted_logit, label, is_labeled, correct_call, alt_count, variant, weight in zip(
-                        batch_cpu.variant_types(), pred.tolist(), labels.tolist(), batch_cpu.get_is_labeled_mask().tolist(), correct,
+                        batch_cpu.get_variant_types(), pred.tolist(), labels.tolist(), batch_cpu.get_is_labeled_mask().tolist(), correct,
                         batch_cpu.get_alt_counts(), batch_cpu.get_variants(), weights.tolist()):
                     if is_labeled < 0.5:    # we only evaluate labeled data
                         continue
@@ -459,7 +459,7 @@ class ArtifactModel(nn.Module):
                 for (metrics, embedding) in [(embedding_metrics, batch_cpu.get_representations_2d().detach())]:
                     metrics.label_metadata.extend(label_strings)
                     metrics.correct_metadata.extend(correct_strings)
-                    metrics.type_metadata.extend([Variation(idx).name for idx in batch_cpu.variant_types()])
+                    metrics.type_metadata.extend([Variation(idx).name for idx in batch_cpu.get_variant_types()])
                     metrics.truncated_count_metadata.extend([str(round_up_to_nearest_three(min(MAX_COUNT, alt_count))) for alt_count in batch_cpu.get_alt_counts()])
                     metrics.representations.append(embedding)
             embedding_metrics.output_to_summary_writer(summary_writer, epoch=epoch)

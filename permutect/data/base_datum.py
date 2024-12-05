@@ -695,6 +695,9 @@ class ArtifactBatch:
     def get_sources(self) -> IntTensor:
         return self.other_stuff_array[:, OneDimensionalData.SOURCE_IDX].int()
 
+    def get_variant_types(self) -> IntTensor:
+        self.other_stuff_array[:, OneDimensionalData.VAR_TYPE_IDX].int()
+
     def get_ref_counts(self) -> IntTensor:
         return self.other_stuff_array[:, OneDimensionalData.REF_COUNT_IDX].int()
 
@@ -725,9 +728,3 @@ class ArtifactBatch:
     # TODO: this is broken now!!!
     def variant_type_one_hot(self) -> Tensor:
         return self._variant_type_one_hot
-
-    # TODO: not good!!!
-    # return list of variant type integer indices
-    def variant_types(self):
-        one_hot = self.variant_type_one_hot()
-        return [int(x) for x in sum([n * one_hot[:, n] for n in range(len(Variation))])]
