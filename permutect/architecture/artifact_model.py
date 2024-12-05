@@ -182,9 +182,9 @@ class ArtifactModel(nn.Module):
         features = self.feature_layers.forward(batch.get_representations_2d())
         uncalibrated_logits = self.artifact_classifier.forward(features).reshape(batch.size())
         calibrated_logits = torch.zeros_like(uncalibrated_logits, device=self._device)
-        one_hot_types_2d = batch.variant_type_one_hot()
+        variant_types = batch.get_variant_types()
         for n, _ in enumerate(Variation):
-            mask = one_hot_types_2d[:, n]
+            mask = (variant_types == n)
             calibrated_logits += mask * self.calibration[n].forward(uncalibrated_logits, batch.get_ref_counts(), batch.get_alt_counts())
         return calibrated_logits, uncalibrated_logits, features
 

@@ -113,11 +113,11 @@ class LossMetrics:
 
         # Note that we currently do not track unlabeled loss by type or by count
         # by type
-        types_one_hot = batch.variant_type_one_hot()
+        variant_types = batch.get_variant_types()
 
         # weight for losses is product of 1) the weights 2) the is_labeled mask, 3) the variant type mask
         for var_type_idx, var_type in enumerate(Variation):
-            variant_type_mask = types_one_hot[:, var_type_idx]  # 1 if this type, 0 otherwise
+            variant_type_mask = (variant_types == var_type_idx)
             self.labeled_loss_by_type[var_type].record_with_weights(losses, labeled_weights * variant_type_mask)
 
         # by count

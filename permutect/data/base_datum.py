@@ -563,7 +563,8 @@ class BaseBatch:
         labels = IntTensor([1 if item.label == Label.ARTIFACT else 0 for item in data])
         is_labeled_mask = IntTensor([0 if item.label == Label.UNLABELED else 1 for item in data])
         sources = IntTensor([item.source for item in data])
-        self.int_tensor = torch.vstack((ref_counts, alt_counts, labels, is_labeled_mask, sources))
+        variant_types = IntTensor([datum.get_variant_type() for datum in data])
+        self.int_tensor = torch.vstack((ref_counts, alt_counts, labels, is_labeled_mask, sources, variant_types))
 
         self._size = len(data)
 
@@ -607,6 +608,9 @@ class BaseBatch:
     def get_sources(self) -> IntTensor:
         return self.int_tensor[4, :]
 
+    def get_variant_types(self) -> IntTensor:
+        return self.int_tensor[5, :]
+
     def get_info_2d(self) -> Tensor:
         return self.info_2d
 
@@ -618,11 +622,6 @@ class BaseBatch:
 
     def variant_type_one_hot(self) -> Tensor:
         return self.info_2d[:, -len(Variation):]
-
-    # return list of variant type integer indices
-    def variant_types(self):
-        one_hot = self.variant_type_one_hot()
-        return [int(x) for x in sum([n*one_hot[:, n] for n in range(len(Variation))])]
 
 
 class ArtifactDatum:
@@ -725,6 +724,7 @@ class ArtifactBatch:
     def size(self) -> int:
         return self._size
 
+    # TODO: left off at eliminating this, which requires new logic for calculating batch weights
     # TODO: this is broken now!!!
     def variant_type_one_hot(self) -> Tensor:
         return self._variant_type_one_hot
