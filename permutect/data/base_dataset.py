@@ -14,7 +14,7 @@ from torch.utils.data.sampler import Sampler
 
 from mmap_ninja.ragged import RaggedMmap
 from permutect import utils
-from permutect.data.base_datum import BaseDatum, BaseBatch, load_list_of_base_data, BaseDatum1DStuff
+from permutect.data.base_datum import BaseDatum, BaseBatch, load_list_of_base_data, OneDimensionalData
 from permutect.utils import Label, MutableInt
 
 TENSORS_PER_BASE_DATUM = 2  # 1) 2D reads (ref and alt), 1) 1D concatenated stuff
@@ -138,7 +138,7 @@ class BaseDataset(Dataset):
     def __getitem__(self, index):
         if self._memory_map_mode:
             bottom_index = index * TENSORS_PER_BASE_DATUM
-            other_stuff = BaseDatum1DStuff.from_np_array(self._data[bottom_index+1])
+            other_stuff = OneDimensionalData.from_np_array(self._data[bottom_index + 1])
 
             return BaseDatum(reads_2d=self._data[bottom_index], ref_sequence_1d=None, alt_count=None, info_array_1d=None,
                              variant_type=None, label=None, source=None, variant=None, counts_and_seq_lks=None,
