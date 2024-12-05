@@ -624,9 +624,6 @@ class BaseBatch:
     def size(self) -> int:
         return self._size
 
-    def variant_type_one_hot(self) -> Tensor:
-        return self.info_2d[:, -len(Variation):]
-
 
 class ArtifactDatum:
     """
@@ -731,7 +728,3 @@ class ArtifactBatch:
     def size(self) -> int:
         return self._size
 
-    # TODO: left off at eliminating this, which requires new logic for calculating batch weights
-    # TODO: this is broken now!!!
-    def variant_type_one_hot(self) -> Tensor:
-        return self._variant_type_one_hot
