@@ -105,7 +105,7 @@ class PosteriorBatch:
         subarray_2d = self.int_tensor[:, PosteriorDatum.CONTIG:PosteriorDatum.ALT + 1]
         return [variant_from_int_array(subarray) for subarray in subarray_2d]
 
-    def get_variant_types(self) -> torch.Tensor:
+    def get_variant_types(self) -> torch.IntTensor:
         return self.int_tensor[:, PosteriorDatum.VAR_TYPE]
 
     def variant_type_one_hot(self) -> torch.Tensor:

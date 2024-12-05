@@ -228,7 +228,7 @@ class PosteriorModel(torch.nn.Module):
             posteriors_lbc = []
             alt_counts_lb = []
             depths_lb = []
-            types_lbt = []
+            types_lb = []
 
             pbar = tqdm(enumerate(posterior_loader), mininterval=10)
             for n, batch_cpu in pbar:
@@ -239,7 +239,7 @@ class PosteriorModel(torch.nn.Module):
                 posteriors_lbc.append(torch.softmax(relative_posteriors, dim=-1).detach())
                 alt_counts_lb.append(batch.get_alt_counts().detach())
                 depths_lb.append(batch.get_depths().detach())
-                types_lbt.append(batch.variant_type_one_hot().detach())
+                types_lb.append(batch.get_variant_types.detach())
 
                 confidence_mask = torch.abs(batch.get_artifact_logits()) > 3.0
                 #loss = -torch.mean(confidence_mask * log_evidence)
@@ -264,11 +264,10 @@ class PosteriorModel(torch.nn.Module):
             posteriors_nc = torch.vstack(posteriors_lbc)
             alt_counts_n = torch.hstack(alt_counts_lb)
             depths_n = torch.hstack(depths_lb)
-            types_nt = torch.vstack(types_lbt)
+            types_n = torch.hstack(types_lb)
 
-            self.update_priors_m_step(posteriors_nc, types_nt, ignored_to_non_ignored_ratio)
+            self.update_priors_m_step(posteriors_nc, types_n, ignored_to_non_ignored_ratio)
             self.somatic_spectrum.update_m_step(posteriors_nc[:, Call.SOMATIC], alt_counts_n, depths_n)
-
 
             if summary_writer is not None:
                 summary_writer.add_scalar("spectrum negative log evidence", epoch_loss.get(), epoch)
@@ -354,8 +353,7 @@ class PosteriorModel(torch.nn.Module):
 
         return thresholds_by_type
 
-
-    def update_priors_m_step(self, posteriors_nc, types_nt, ignored_to_non_ignored_ratio):
+    def update_priors_m_step(self, posteriors_nc, types_n, ignored_to_non_ignored_ratio):
         # update the priors in an EM-style M step.  We'll need the counts of each call type vs variant type
         total_nonignored = torch.sum(posteriors_nc).item()
         total_ignored = ignored_to_non_ignored_ratio * total_nonignored
@@ -368,7 +366,7 @@ class PosteriorModel(torch.nn.Module):
                 posteriors_n = posteriors_nc[:, c]
 
                 for t, var_type in enumerate(Variation):
-                    var_type_mask = types_nt[:, t]
+                    var_type_mask = (types_n == t)
                     total_for_this_call_and_var_type = torch.sum(posteriors_n * var_type_mask)
 
                     self._unnormalized_priors.weight[c, t] = torch.log(
