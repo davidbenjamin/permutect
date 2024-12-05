@@ -434,7 +434,7 @@ class BaseDatum:
         read_tensor = np.vstack([ref_tensor, alt_tensor]) if ref_tensor is not None else alt_tensor
         alt_count = len(alt_tensor)
         str_info = get_str_info_array(ref_sequence_string, variant)
-        info_tensor = np.hstack([gatk_info_tensor, str_info, variant_type.one_hot_tensor().astype(DEFAULT_NUMPY_FLOAT)])
+        info_tensor = np.hstack([gatk_info_tensor, str_info])
         result = cls(read_tensor, make_1d_sequence_tensor(ref_sequence_string), alt_count, info_tensor, label, source, variant, counts_and_seq_lks)
         result.set_dtype(np.float16)
         return result
