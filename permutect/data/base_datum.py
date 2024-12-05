@@ -645,6 +645,9 @@ class ArtifactDatum:
     def get_alt_count(self) -> int:
         return self.one_dimensional_data.get_alt_count()
 
+    def get_depth(self) -> int:
+        return self.one_dimensional_data.get_counts_and_seq_lks().depth
+
     def get_variant_type(self) -> int:
         return self.one_dimensional_data.get_variant_type()
 
@@ -693,13 +696,14 @@ class ArtifactBatch:
     # TODO: put in some breakpoints to double-check that this works
     def get_is_labeled_mask(self):
         int_enum_labels = self.get_labels()
-        return int_enum_labels != Label.UNLABELED
+        return (int_enum_labels != Label.UNLABELED).int()
 
     def get_sources(self) -> IntTensor:
         return self.other_stuff_array[:, OneDimensionalData.SOURCE_IDX].int()
 
     def get_variant_types(self) -> IntTensor:
-        self.other_stuff_array[:, OneDimensionalData.VAR_TYPE_IDX].int()
+        result = self.other_stuff_array[:, OneDimensionalData.VAR_TYPE_IDX].int()
+        return result
 
     def get_ref_counts(self) -> IntTensor:
         return self.other_stuff_array[:, OneDimensionalData.REF_COUNT_IDX].int()

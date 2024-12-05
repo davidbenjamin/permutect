@@ -11,6 +11,7 @@ from permutect.architecture.posterior_model import initialize_artifact_spectra, 
 from permutect.architecture.base_model import load_base_model
 from permutect.data.base_dataset import BaseDataset
 from permutect.data.artifact_dataset import ArtifactDataset
+from permutect.data.base_datum import ArtifactDatum
 from permutect.parameters import TrainingParameters, add_training_params_to_parser, parse_training_params, \
     ArtifactModelParameters, parse_artifact_model_params, add_artifact_model_params_to_parser
 from permutect.utils import Variation, Label
@@ -30,19 +31,22 @@ def train_artifact_model(hyperparams: ArtifactModelParameters, training_params: 
 
 def learn_artifact_priors_and_spectra(artifact_dataset: ArtifactDataset, genomic_span_of_data: int):
     artifact_counts = torch.zeros(len(utils.Variation))
-    types_one_hot_list, depths_list, alt_counts_list = [], [], []
+    types_list, depths_list, alt_counts_list = [], [], []
 
+    artifact_datum: ArtifactDatum
     for artifact_datum in artifact_dataset:
         if artifact_datum.get_label() != Label.ARTIFACT:
             continue
-        variant_type_one_hot = artifact_datum.variant_type_one_hot()
-        artifact_counts += variant_type_one_hot
-        types_one_hot_list.append(variant_type_one_hot)
-        depths_list.append(artifact_datum.other_stuff.get_counts_and_seq_lks().depth)
-        alt_counts_list.append(artifact_datum.other_stuff.get_counts_and_seq_lks().alt_count)
+        variant_type = artifact_datum.get_variant_type()
+        artifact_counts[variant_type] += 1
+        types_list.append(variant_type)
+        counts_and_seq_lks = artifact_datum.one_dimensional_data.get_counts_and_seq_lks()
+        depths_list.append(counts_and_seq_lks.depth)
+        alt_counts_list.append(counts_and_seq_lks.alt_count)
 
     # turn the lists into tensors
-    types_one_hot_tensor = torch.from_numpy(np.vstack(types_one_hot_list)).float()
+    types_tensor = torch.LongTensor(types_list)
+    types_tensor_one_hot = torch.nn.functional.one_hot(types_tensor, len(utils.Variation)).float()
     depths_tensor = torch.Tensor(depths_list).float()
     alt_counts_tensor = torch.Tensor(alt_counts_list).float()
 
@@ -50,7 +54,7 @@ def learn_artifact_priors_and_spectra(artifact_dataset: ArtifactDataset, genomic
     artifact_spectra = initialize_artifact_spectra()
 
     # TODO: hard-coded num epochs!!!
-    artifact_spectra.fit(num_epochs=10, inputs_2d_tensor=types_one_hot_tensor, depths_1d_tensor=depths_tensor,
+    artifact_spectra.fit(num_epochs=10, inputs_2d_tensor=types_tensor_one_hot, depths_1d_tensor=depths_tensor,
                          alt_counts_1d_tensor=alt_counts_tensor, batch_size=64)
 
     return log_artifact_priors, artifact_spectra

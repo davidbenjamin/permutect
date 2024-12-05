@@ -609,7 +609,7 @@ def record_embeddings(base_model: BaseModel, loader, summary_writer: SummaryWrit
         for (metrics, embeddings) in [(embedding_metrics, representations), (ref_alt_seq_metrics, ref_alt_seq_embeddings)]:
             metrics.label_metadata.extend(labels)
             metrics.correct_metadata.extend(["unknown"] * batch.size())
-            metrics.type_metadata.extend([Variation(idx).name for idx in batch.get_variant_types()])
+            metrics.type_metadata.extend([Variation(idx).name for idx in batch.get_variant_types().tolist()])
             alt_count_strings = [str(round_up_to_nearest_three(min(MAX_COUNT, ac))) for ac in batch.get_alt_counts().tolist()]
             metrics.truncated_count_metadata.extend(alt_count_strings)
             metrics.representations.append(embeddings)

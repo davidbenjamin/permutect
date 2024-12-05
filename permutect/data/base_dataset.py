@@ -98,11 +98,11 @@ class BaseDataset(Dataset):
         # in the weights array, count == 0 (which never occurs as a real alt count) is the sentinel value for
         # aggregation over all alt counts.  The array is indexed by count, then label, then variation type
         max_count = max(self.totals.keys())
-        self.weights = np.zeros(max_count + 1, len(Label), len(utils.Variation))
+        self.weights = np.zeros((max_count + 1, len(Label), len(utils.Variation)))
 
         # similar but indexed by count, then source, then variant type
-        max_source = max(self.source_totals[-1].keys())
-        self.source_weights = np.zeros(max_count + 1, max_source + 1, len(utils.Variation))
+        max_source = max(self.source_totals[ALL_COUNTS_SENTINEL].keys())
+        self.source_weights = np.zeros((max_count + 1, max_source + 1, len(utils.Variation)))
 
         sources = self.source_totals[ALL_COUNTS_SENTINEL].keys()
         for count in self.totals.keys():
