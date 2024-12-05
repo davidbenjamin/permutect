@@ -37,8 +37,7 @@ def sums_over_chunks(tensor2d: torch.Tensor, chunk_size: int):
 # if by_count is True, each count is weighted separately for balanced loss within that count
 def calculate_batch_weights(batch, dataset, by_count: bool):
     # TODO: we need a parameter to control the relative weight of unlabeled loss to labeled loss
-
-    # For batch index n, we want weight[n] = W_clv[alt_counts[n], labels[n], variant_types[n]]
+    # For batch index n, we want weight[n] = dataset.weights[alt_counts[n], labels[n], variant_types[n]]
     counts = batch.get_alt_counts()
     labels = batch.get_labels()
     variant_types = batch.get_variant_types()
@@ -50,12 +49,13 @@ def calculate_batch_weights(batch, dataset, by_count: bool):
 # note: this works for both BaseBatch/BaseDataset AND ArtifactBatch/ArtifactDataset
 # if by_count is True, each count is weighted separately for balanced loss within that count
 def calculate_batch_source_weights(batch, dataset, by_count: bool):
-    # -1 is the sentinel value for aggregation over all counts
-    types_one_hot = batch.variant_type_one_hot()
-    weights_by_type = np.vstack([dataset.weights[count if by_count else -1][source] for count, source in zip(batch.get_alt_counts().tolist(), batch.get_sources().tolist())])
-    source_weights = torch.sum(torch.from_numpy(weights_by_type).to(device=types_one_hot.device) * types_one_hot, dim=1)
+    # For batch index n, we want weight[n] = dataset.source_weights[alt_counts[n], sources[n], variant_types[n]]
+    counts = batch.get_alt_counts()
+    sources = batch.get_sources()
+    variant_types = batch.get_variant_types()
 
-    return source_weights
+    return utils.index_3d_array(dataset.source_weights, counts, sources, variant_types) if by_count else \
+        utils.index_2d_array(dataset.source_weights[ALL_COUNTS_SENTINEL], sources, variant_types)
 
 
 class LearningMethod(Enum):
