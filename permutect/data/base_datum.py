@@ -269,7 +269,6 @@ class OneDimensionalData:
     VARIANT_END_IDX = VARIANT_START_IDX + Variant.LENGTH
     COUNTS_AND_SEQ_LKS_START_IDX = VARIANT_END_IDX
 
-
     # 1st four elements are tensor sizes: ref count, alt count, ref seq length, info length
     # next is ref sequence as 1D array
     # next is info 1D array
@@ -371,69 +370,6 @@ class OneDimensionalData:
     def from_np_array(cls, np_array: np.ndarray):
         return cls(tensor_sizes=None, ref_sequence_1d=None, info_array_1d=None, variant_type=None, label=None, source=None,
                    variant=None, counts_and_seq_lks=None, array_override=np_array)
-
-
-class ArtifactDatum1DStuff:
-
-
-
-    # 5 for ref count, alt count, variant type, label, source
-    NUM_ELEMENTS = 5 + Variant.LENGTH + CountsAndSeqLks.LENGTH
-    VARIANT_END_POS = 5 + Variant.LENGTH
-    COUNTS_AND_SEQ_LKS_END_POS = VARIANT_END_POS + CountsAndSeqLks.LENGTH
-
-    def __init__(self, base_datum_1d_stuff: OneDimensionalData, array_override: np.ndarray = None):
-        if array_override is None:
-            this_class = self.__class__
-            # we need ref count, alt count, label, variant, countsandseqlks, variant type one-hot
-            # note: Label is an IntEnum so we can treat label as an integer
-            self.array = np.zeros(self.__class__.NUM_ELEMENTS)
-            self.array[this_class.REF_COUNT_IDX] = base_datum_1d_stuff.array[0]    # ref count
-            self.array[this_class.ALT_COUNT_IDX] = base_datum_1d_stuff.array[1]    # alt count
-            self.array[this_class.VAR_TYPE_IDX] = base_datum_1d_stuff.get_variant_type()
-            self.array[this_class.LABEL_IDX] = base_datum_1d_stuff.get_label()
-            self.array[this_class.SOURCE_IDX] = base_datum_1d_stuff.get_source()
-            self.array[this_class.VARIANT_START_IDX:this_class.VARIANT_END_IDX] = base_datum_1d_stuff.get_variant_array()
-            self.array[self.__class__.VARIANT_END_POS:self.__class__.COUNTS_AND_SEQ_LKS_END_POS] = base_datum_1d_stuff.get_counts_and_seq_lks_array()
-        else:
-            self.array = array_override
-
-    def set_dtype(self, dtype):
-        self.array = self.array.astype(dtype)
-
-    def get_ref_count(self):
-        return round(self.array[0])
-
-    def get_alt_count(self):
-        return round(self.array[1])
-
-    def get_variant_type(self) -> int:
-        return round(self.array[2])
-
-    def get_label(self):
-        return self.array[3]
-
-    def get_source(self):
-        return self.array[4]
-
-    def get_variant_array(self) -> np.ndarray:
-        return self.array[5:self.__class__.VARIANT_END_POS]
-
-    def get_variant(self) -> Variant:
-        return Variant.from_np_array(self.array[5:self.__class__.VARIANT_END_POS])
-
-    def get_counts_and_seq_lks_array(self) -> np.ndarray:
-        return self.array[self.__class__.VARIANT_END_POS:self.__class__.COUNTS_AND_SEQ_LKS_END_POS]
-
-    def get_counts_and_seq_lks(self) -> CountsAndSeqLks:
-        return CountsAndSeqLks.from_np_array(self.array[self.__class__.VARIANT_END_POS:self.__class__.COUNTS_AND_SEQ_LKS_END_POS])
-
-    def to_np_array(self) -> np.ndarray:
-        return self.array
-
-    @classmethod
-    def from_np_array(cls, np_array: np.ndarray):
-        return cls(base_datum_1d_stuff=None, array_override=np_array)
 
 
 class BaseDatum:
