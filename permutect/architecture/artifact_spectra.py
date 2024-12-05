@@ -58,7 +58,6 @@ class ArtifactSpectra(nn.Module):
         depths_bk = torch.unsqueeze(depths_b, dim=1).expand(-1, self.K - 1)
         depths_bvk = depths_bk[:, None, :]
 
-        self.alpha0_pre_exp_vk
         eta_vk = torch.exp(self.eta_pre_exp_vk)
         delta_vk = torch.exp(self.delta_pre_exp_vk)
         alpha0_pre_exp_bvk, eta_bvk, delta_bvk = self.alpha0_pre_exp_vk[None, :, :], eta_vk[None, :, :], delta_vk[None, :, :]
@@ -69,6 +68,10 @@ class ArtifactSpectra(nn.Module):
         types_one_hot_bvk = torch.unsqueeze(types_one_hot_bv, dim=-1)   # gives it broadcastable length-1 component dimension
         alpha_bk = torch.sum(types_one_hot_bvk * alpha_bvk, dim=1)  # due to one-hotness only one v contributes to the sum
         beta_bk = self.beta * torch.ones_like(alpha_bk)
+
+        if alpha_bk.isnan().any():
+            print("NaN found in alpha_bk")
+            assert 1 < 0, "FAIL"
 
         beta_binomial_likelihoods_bk = beta_binomial(depths_bk, alt_counts_bk, alpha_bk, beta_bk)
 
