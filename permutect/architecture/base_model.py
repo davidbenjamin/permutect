@@ -39,10 +39,26 @@ def calculate_batch_weights(batch, dataset, by_count: bool):
     # -1 is the sentinel value for aggregation over all counts
     # TODO: we need a parameter to control the relative weight of unlabeled loss to labeled loss
     types_one_hot = batch.variant_type_one_hot()
+
+    # TODO: dataset.weights needs to be a tensor W_clv (c for count, l for label, v for variant type)
+    # what do we want?  For batch index n, we want
+    # weight[n] = W_clv[alt_counts[n], labels[n], variant_types[n]]
+    #
+    #
+    # weights_by_label[labels[n]], where labels have the IntEnum values of ARTIFACT, VARIANT, UNLABELED
+    # where
+    # weights_by_label[label] = weights_by_label_and_type[label]
+
+
+    # TODO: if we can get labels of 0, 1, 2 (the IntEnum) here then this can become really clean
     labels = batch.get_labels()
     weights_by_label_and_type = {label: (np.vstack([dataset.weights[count][label] for count in batch.get_alt_counts().tolist()]) if \
         by_count else dataset.weights[-1][label]) for label in Label}
+
+
+
     weights_by_label = {label: torch.sum(torch.from_numpy(weights_by_label_and_type[label]) * types_one_hot, dim=1) for label in Label}
+
     weights = batch.get_is_labeled_mask() * (labels * weights_by_label[Label.ARTIFACT] + (1 - labels) * weights_by_label[Label.VARIANT]) + \
               (1 - batch.get_is_labeled_mask()) * weights_by_label[Label.UNLABELED]
     return weights
