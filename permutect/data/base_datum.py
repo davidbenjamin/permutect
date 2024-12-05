@@ -668,13 +668,6 @@ class ArtifactBatch:
     def __init__(self, data: List[ArtifactDatum]):
         self.representations_2d = torch.vstack([item.representation for item in data])
         self.other_stuff_array = torch.from_numpy(np.vstack([d.get_1d_data().to_np_array() for d in data]))
-
-        # TODO: these are extraneous -- they belong to the one-dimensional data arrays
-
-        # TODO: compute this rather than store it
-        is_labeled_mask = FloatTensor([0.0 if item.get_label() == Label.UNLABELED else 1.0 for item in data])
-        self.int_tensor = torch.vstack((is_labeled_mask))
-
         self._size = len(data)
 
     def get_variants(self) -> List[Variant]:
@@ -685,9 +678,19 @@ class ArtifactBatch:
         relevant_cols = self.other_stuff_array[:, OneDimensionalData.COUNTS_AND_SEQ_LKS_START_IDX:].numpy()
         return [CountsAndSeqLks.from_np_array(var_array_1d) for var_array_1d in relevant_cols]
 
-    # TODO: I believe this is still in the Label IntEnum format of 0, 1, 2
+    # TODO: left off here
+    # TODO: put in some breakpoints to double-check that this works
+    # I believe other_stuff_array is still in the Label IntEnum format of 0, 1, 2
+    # we need to convert to the training format of 0.0 / 1.0 for variant / artifact
+    # this will return 0.0, spuriously, for unlabeled data, but the is_labeled mask handles that
     def get_labels(self):
-        return self.other_stuff_array[:, OneDimensionalData.LABEL_IDX]
+        int_enum_labels = self.other_stuff_array[:, OneDimensionalData.LABEL_IDX]
+        return 1.0 * (int_enum_labels == Label.ARTIFACT)
+
+    # TODO: put in some breakpoints to double-check that this works
+    def get_is_labeled_mask(self) -> IntTensor:
+        int_enum_labels = self.other_stuff_array[:, OneDimensionalData.LABEL_IDX]
+        return 1.0 * (int_enum_labels != Label.UNLABELED)
 
     def get_sources(self) -> IntTensor:
         return self.other_stuff_array[:, OneDimensionalData.SOURCE_IDX].int()
@@ -698,24 +701,18 @@ class ArtifactBatch:
     def get_alt_counts(self) -> IntTensor:
         return self.other_stuff_array[:, OneDimensionalData.ALT_COUNT_IDX].int()
 
-    def get_is_labeled_mask(self) -> IntTensor:
-        return self.int_tensor[3]
-
     # pin memory for all tensors that are sent to the GPU
     def pin_memory(self):
         self.representations_2d = self.representations_2d.pin_memory()
         self.other_stuff_array = self.other_stuff_array.pin_memory()
-        self.int_tensor = self.int_tensor.pin_memory()
         return self
 
     def copy_to(self, device, dtype, non_blocking):
         # For all non-tensor attributes, shallow copy is sufficient
         # note that variants_array and counts_and_seq_lks_array are not used in training and are never sent to GPU
         new_batch = copy.copy(self)
-
         new_batch.representations_2d = self.representations_2d.to(device=device, dtype=dtype, non_blocking=non_blocking)
         new_batch.other_stuff_array = self.other_stuff_array.to(device, dtype=dtype, non_blocking=non_blocking)
-        new_batch.int_tensor = self.int_tensor.to(device, dtype=dtype, non_blocking=non_blocking)
 
         return new_batch
 
