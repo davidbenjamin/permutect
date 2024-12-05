@@ -24,6 +24,12 @@ def multiple_of_three_bin_index(x: int):
     return (round_up_to_nearest_three(x)//3) - 1    # -1 because zero is not a bin
 
 
+MAX_BIN = multiple_of_three_bin_index(MAX_COUNT)
+
+def multiple_of_three_bin_indices(counts: torch.Tensor):
+    return (torch.ceil(counts/3) - 1).int()
+
+
 def multiple_of_three_bin_index_to_count(idx: int):
     return 3 * (idx + 1)
 
@@ -116,8 +122,13 @@ class LossMetrics:
 
         # by count
         if isinstance(batch, BaseBatch):
-            if batch.alt_count <= MAX_COUNT:
-                self.labeled_loss_by_count[multiple_of_three_bin_index(batch.alt_count)].record_with_weights(losses, labeled_weights)
+            # rather than individually record each count, and therefore send lots of stuff off the GPU, we
+            # send everything with the same bin simultaneously
+            bins = multiple_of_three_bin_indices(batch.get_alt_counts())
+            for count_bin in range(MAX_BIN + 1):
+                indices = (bins == count_bin)
+                self.labeled_loss_by_count[count_bin].record_with_weights(losses[indices], labeled_weights[indices])
+
         elif isinstance(batch, ArtifactBatch):
             for count_bin_index in range(NUM_COUNT_BINS):
                 count_bin_mask = make_count_bin_mask(count_bin_index, batch.get_alt_counts())
