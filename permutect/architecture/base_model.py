@@ -36,32 +36,15 @@ def sums_over_chunks(tensor2d: torch.Tensor, chunk_size: int):
 # note: this works for both BaseBatch/BaseDataset AND ArtifactBatch/ArtifactDataset
 # if by_count is True, each count is weighted separately for balanced loss within that count
 def calculate_batch_weights(batch, dataset, by_count: bool):
-    # -1 is the sentinel value for aggregation over all counts
     # TODO: we need a parameter to control the relative weight of unlabeled loss to labeled loss
-    types_one_hot = batch.variant_type_one_hot()
 
-    # TODO: dataset.weights needs to be a tensor W_clv (c for count, l for label, v for variant type)
-    # what do we want?  For batch index n, we want
-    # weight[n] = W_clv[alt_counts[n], labels[n], variant_types[n]]
-    #
-    #
-    # weights_by_label[labels[n]], where labels have the IntEnum values of ARTIFACT, VARIANT, UNLABELED
-    # where
-    # weights_by_label[label] = weights_by_label_and_type[label]
-
-
-    # TODO: if we can get labels of 0, 1, 2 (the IntEnum) here then this can become really clean
+    # For batch index n, we want weight[n] = W_clv[alt_counts[n], labels[n], variant_types[n]]
+    counts = batch.get_alt_counts()
     labels = batch.get_labels()
-    weights_by_label_and_type = {label: (np.vstack([dataset.weights[count][label] for count in batch.get_alt_counts().tolist()]) if \
-        by_count else dataset.weights[-1][label]) for label in Label}
+    variant_types = batch.get_variant_types()
 
-
-
-    weights_by_label = {label: torch.sum(torch.from_numpy(weights_by_label_and_type[label]) * types_one_hot, dim=1) for label in Label}
-
-    weights = batch.get_is_labeled_mask() * (labels * weights_by_label[Label.ARTIFACT] + (1 - labels) * weights_by_label[Label.VARIANT]) + \
-              (1 - batch.get_is_labeled_mask()) * weights_by_label[Label.UNLABELED]
-    return weights
+    return utils.index_3d_array(dataset.weights, counts, labels, variant_types) if by_count else \
+        utils.index_2d_array(dataset.weights[ALL_COUNTS_SENTINEL], labels, variant_types)
 
 
 # note: this works for both BaseBatch/BaseDataset AND ArtifactBatch/ArtifactDataset
@@ -256,7 +239,7 @@ class BaseModelSemiSupervisedLoss(torch.nn.Module, BaseModelLearningStrategy):
 
     def loss_function(self, base_model: BaseModel, base_batch: BaseBatch, base_model_representations: torch.Tensor):
         logits = self.logit_predictor.forward(base_model_representations).reshape((base_batch.size()))
-        labels = base_batch.get_labels()
+        labels = base_batch.get_training_labels()
 
         # base batch always has labels, but for unlabeled elements these labels are meaningless and is_labeled_mask is zero
         cross_entropies = self.bce(logits, labels)
@@ -420,7 +403,7 @@ class BaseModelDeepSADLoss(torch.nn.Module, BaseModelLearningStrategy):
         # labels are 1 for artifact, 0 otherwise.  We convert to +1 if normal, -1 if artifact
         # DeepSAD assumes most unlabeled data are normal and so the unlabeled loss is identical to the normal loss, that is,
         # squared Euclidean distance from the centroid
-        signs = (1 - 2 * base_batch.get_labels()) * base_batch.get_is_labeled_mask() + 1 * (1 - base_batch.get_is_labeled_mask())
+        signs = (1 - 2 * base_batch.get_training_labels()) * base_batch.get_is_labeled_mask() + 1 * (1 - base_batch.get_is_labeled_mask())
 
         # distance squared for normal and unlabeled, inverse distance squared for artifact
         return dist_squared ** signs
@@ -455,7 +438,7 @@ class BaseModelMARSLoss(torch.nn.Module, BaseModelLearningStrategy):
         min_dist_squared_b = torch.min(dist_squared_bc, dim=-1).values
 
         # closest centroid with correct label is labeled, otherwise just the closest centroid
-        labeled_losses_b = (base_batch.get_labels() * artifact_dist_squared_b + (1 - base_batch.get_labels()) * normal_dist_squared_b)
+        labeled_losses_b = (base_batch.get_training_labels() * artifact_dist_squared_b + (1 - base_batch.get_training_labels()) * normal_dist_squared_b)
         unlabeled_losses_b = min_dist_squared_b
         embedding_centroid_losses_b =  base_batch.get_is_labeled_mask() * labeled_losses_b + (1 - base_batch.get_is_labeled_mask()) * unlabeled_losses_b
 
@@ -580,7 +563,7 @@ def learn_base_model(base_model: BaseModel, dataset: BaseDataset, learning_metho
                 loss = torch.sum((weights * losses) + alt_count_losses)
 
                 classification_logits = classifier_on_top.forward(representations.detach()).reshape(batch.size())
-                classification_losses = classifier_bce(classification_logits, batch.get_labels())
+                classification_losses = classifier_bce(classification_logits, batch.get_training_labels())
                 classification_loss = torch.sum(batch.get_is_labeled_mask() * weights * classification_losses)
                 classifier_metrics.record_losses(classification_losses.detach(), batch, batch.get_is_labeled_mask() * weights)
 
@@ -622,7 +605,7 @@ def record_embeddings(base_model: BaseModel, loader, summary_writer: SummaryWrit
         ref_alt_seq_embeddings = ref_alt_seq_embeddings.cpu()
 
         labels = [("artifact" if label > 0.5 else "non-artifact") if is_labeled > 0.5 else "unlabeled" for (label, is_labeled) in
-                  zip(batch.get_labels().tolist(), batch.get_is_labeled_mask().tolist())]
+                  zip(batch.get_training_labels().tolist(), batch.get_is_labeled_mask().tolist())]
         for (metrics, embeddings) in [(embedding_metrics, representations), (ref_alt_seq_metrics, ref_alt_seq_embeddings)]:
             metrics.label_metadata.extend(labels)
             metrics.correct_metadata.extend(["unknown"] * batch.size())

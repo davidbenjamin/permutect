@@ -289,7 +289,7 @@ class ArtifactModel(nn.Module):
                     weights = calculate_batch_weights(batch_cpu, dataset, by_count=True)
                     weights = weights.to(device=self._device, dtype=self._dtype, non_blocking=True)
 
-                    labels = batch.get_labels()
+                    labels = batch.get_training_labels()
                     uncalibrated_cross_entropies = bce(precalibrated_logits, labels)
                     calibrated_cross_entropies = bce(logits, labels)
                     labeled_losses = batch.get_is_labeled_mask() * (uncalibrated_cross_entropies + calibrated_cross_entropies) / 2
@@ -390,7 +390,7 @@ class ArtifactModel(nn.Module):
                 pred = logits.detach().cpu()
 
                 # note that for metrics we use batch_cpu
-                labels = batch_cpu.get_labels()
+                labels = batch_cpu.get_training_labels()
                 correct = ((pred > 0) == (labels > 0.5)).tolist()
 
                 for variant_type, predicted_logit, label, is_labeled, correct_call, alt_count, variant, weight in zip(
@@ -447,7 +447,7 @@ class ArtifactModel(nn.Module):
                 batch = batch_cpu.copy_to(self._device, self._dtype, non_blocking=self._device.type == 'cuda')
                 logits, _, _ = self.forward(batch)
                 pred = logits.detach().cpu()
-                labels = batch_cpu.get_labels()
+                labels = batch_cpu.get_training_labels()
                 correct = ((pred > 0) == (labels > 0.5)).tolist()
 
                 label_strings = [("artifact" if label > 0.5 else "non-artifact") if is_labeled > 0.5 else "unlabeled"

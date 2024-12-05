@@ -9,6 +9,7 @@ from itertools import chain
 from typing import Iterable, List
 
 import numpy as np
+import torch
 from torch.utils.data import Dataset, DataLoader
 from torch.utils.data.sampler import Sampler
 
@@ -22,7 +23,7 @@ TENSORS_PER_BASE_DATUM = 2  # 1) 2D reads (ref and alt), 1) 1D concatenated stuf
 # tarfiles on disk take up about 4x as much as the dataset on RAM
 TARFILE_TO_RAM_RATIO = 4
 
-ALL_COUNTS_SENTINEL = -1
+ALL_COUNTS_SENTINEL = 0
 
 WEIGHT_PSEUDOCOUNT = 10
 
@@ -68,7 +69,7 @@ class BaseDataset(Dataset):
 
         # totals by count, then by label -- ARTIFACT, VARIANT, UNLABELED, then by variant type
         # variant type is done as a 1D np array parallel to the one-hot encoding of variant type
-        # we use a sentinel count value of -1 to denote aggregation over all counts
+        # we use a sentinel count value of 0 to denote aggregation over all counts
         # eg totals[4][Label.ARTIFACT] = [2,4,6,8,10] means there are 2 artifact SNVs with alt count 4
         self.totals = defaultdict(lambda: {label: np.zeros(len(utils.Variation)) for label in Label})
 
@@ -92,14 +93,18 @@ class BaseDataset(Dataset):
             self.source_totals[ALL_COUNTS_SENTINEL][datum.source][variant_type_idx] += 1
             self.source_totals[datum.alt_count][datum.source][variant_type_idx] += 1
 
+
         # compute weights to balance loss even for unbalanced data
-        # recall count == -1 is a sentinel value for aggregated totals over all alt counts
-        self.weights = defaultdict(lambda: {label: np.zeros(len(utils.Variation)) for label in Label})
+        # in the weights array, count == 0 (which never occurs as a real alt count) is the sentinel value for
+        # aggregation over all alt counts.  The array is indexed by count, then label, then variation type
+        max_count = max(self.totals.keys())
+        self.weights = np.zeros(max_count + 1, len(Label), len(utils.Variation))
 
         # similar but indexed by count, then source, then variant type
-        self.source_weights = defaultdict(lambda: defaultdict(lambda: np.zeros(len(utils.Variation))))
+        max_source = max(self.source_totals[-1].keys())
+        self.source_weights = np.zeros(max_count + 1, max_source + 1, len(utils.Variation))
 
-        sources = self.source_totals[-1].keys()
+        sources = self.source_totals[ALL_COUNTS_SENTINEL].keys()
         for count in self.totals.keys():
             # eg: if there are 1000 artifact and 10 non-artifact SNVs, the ratio is 100, and artifacts get a weight of 1/sqrt(100) = 1/10
             # while non-artifacts get a weight of 10 -- hence the effective count of each is 1000/10 = 10*10 = 100
@@ -118,7 +123,6 @@ class BaseDataset(Dataset):
             # by variant type, for this count
             totals_over_sources = np.sum([self.source_totals[count][source] for source in sources])
             for source in sources:
-                np.sum([self.source_weights[count][source] for source in sources])
                 self.source_weights[count][source] = np.sqrt(ratio_with_pseudocount(totals_over_sources, self.source_weights[count][source]))
 
             # normalize source prediction weights to have same total effective count.  Note that this is modulated
@@ -128,6 +132,8 @@ class BaseDataset(Dataset):
             for source in sources:
                 self.source_weights[count][source] = self.source_weights[count][source] * source_weight_normalization
 
+        self.weights = torch.from_numpy(self.weights)
+        self.source_weights = torch.from_numpy(self.source_weights)
         self.num_read_features = self[0].get_reads_2d().shape[1]
         self.num_info_features = len(self[0].get_info_tensor_1d())
         self.ref_sequence_length = len(self[0].get_ref_sequence_1d())

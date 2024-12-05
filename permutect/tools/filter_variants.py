@@ -225,7 +225,7 @@ def make_posterior_data_loader(dataset_file, input_vcf, contig_index_to_name_map
             artifact_batch = artifact_batch_cpu.copy_to(device=artifact_model._device, dtype=artifact_model._dtype, non_blocking=artifact_model._device.type == 'cuda')
             artifact_logits, _, _ = artifact_model.forward(batch=artifact_batch)
 
-            labels = [(Label.ARTIFACT if label > 0.5 else Label.VARIANT) if is_labeled > 0.5 else Label.UNLABELED for (label, is_labeled) in zip(artifact_batch.get_labels(), artifact_batch.get_is_labeled_mask())]
+            labels = [(Label.ARTIFACT if label > 0.5 else Label.VARIANT) if is_labeled > 0.5 else Label.UNLABELED for (label, is_labeled) in zip(artifact_batch.get_training_labels(), artifact_batch.get_is_labeled_mask())]
 
             for variant,counts_and_seq_lks, logit, label, embedding in zip(artifact_batch_cpu.get_variants(),
                                                                artifact_batch_cpu.get_counts_and_seq_lks(),
@@ -274,7 +274,7 @@ def apply_filtering_to_vcf(input_vcf, output_vcf, contig_index_to_name_map, erro
         encodings = [encode_datum(variant, contig_index_to_name_map) for variant in batch.get_variants()]
         artifact_logits = batch.get_artifact_logits().tolist()
         var_types = batch.get_variant_types().tolist()
-        labels = batch.get_labels().tolist()
+        labels = batch.get_training_labels().tolist()
         alt_counts = batch.get_alt_counts().tolist()
         depths = batch.get_depths().tolist()
 

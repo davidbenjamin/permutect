@@ -598,9 +598,13 @@ class BaseBatch:
     def get_alt_counts(self) -> IntTensor:
         return self.int_tensor[1, :]
 
-    # TODO: do we need .float()?
+    # the original IntEnum format
     def get_labels(self):
         return self.int_tensor[2, :]
+
+    def get_training_labels(self):
+        int_enum_labels = self.get_labels()
+        return 1.0 * (int_enum_labels == Label.ARTIFACT) + 0.5 * (int_enum_labels == Label.UNLABELED)
 
     def get_is_labeled_mask(self) -> IntTensor:
         return self.int_tensor[3, :]
@@ -677,19 +681,22 @@ class ArtifactBatch:
         relevant_cols = self.other_stuff_array[:, OneDimensionalData.COUNTS_AND_SEQ_LKS_START_IDX:].numpy()
         return [CountsAndSeqLks.from_np_array(var_array_1d) for var_array_1d in relevant_cols]
 
+    # get the original IntEnum format (VARIANT = 0, ARTIFACT = 1, UNLABELED = 2) labels
+    def get_labels(self) -> IntTensor:
+        return self.other_stuff_array[:, OneDimensionalData.LABEL_IDX].int()
+
     # TODO: left off here
     # TODO: put in some breakpoints to double-check that this works
-    # I believe other_stuff_array is still in the Label IntEnum format of 0, 1, 2
-    # we need to convert to the training format of 0.0 / 1.0 for variant / artifact
-    # this will return 0.0, spuriously, for unlabeled data, but the is_labeled mask handles that
-    def get_labels(self):
-        int_enum_labels = self.other_stuff_array[:, OneDimensionalData.LABEL_IDX]
-        return 1.0 * (int_enum_labels == Label.ARTIFACT)
+    # convert to the training format of 0.0 / 0.5 / 1.0 for variant / unlabeled / artifact
+    # the 0.5 for unlabeled data is reasonable but should never actually be used due to the is_labeled mask
+    def get_training_labels(self) -> FloatTensor:
+        int_enum_labels = self.get_labels()
+        return 1.0 * (int_enum_labels == Label.ARTIFACT) + 0.5 * (int_enum_labels == Label.UNLABELED)
 
     # TODO: put in some breakpoints to double-check that this works
-    def get_is_labeled_mask(self) -> IntTensor:
-        int_enum_labels = self.other_stuff_array[:, OneDimensionalData.LABEL_IDX]
-        return 1.0 * (int_enum_labels != Label.UNLABELED)
+    def get_is_labeled_mask(self):
+        int_enum_labels = self.get_labels()
+        return int_enum_labels != Label.UNLABELED
 
     def get_sources(self) -> IntTensor:
         return self.other_stuff_array[:, OneDimensionalData.SOURCE_IDX].int()
