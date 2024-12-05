@@ -8,21 +8,33 @@ from typing import List
 def simple_plot(x_y_lab_tuples, x_label, y_label, title):
     fig = plt.figure()
     curve = fig.gca()
+    labels_present = False
     for (x, y, lab) in x_y_lab_tuples:
-        curve.plot(x, y, label=lab)
+        if lab is not None:
+            curve.plot(x, y, label=lab)
+            labels_present = True
+        else:
+            curve.plot(x, y)
     curve.set_title(title)
     curve.set_xlabel(x_label)
     curve.set_ylabel(y_label)
-    curve.legend()
+    if labels_present:
+        curve.legend()
     return fig, curve
 
 
 def simple_plot_on_axis(ax, x_y_lab_tuples, x_label, y_label):
+    labels_present = False
     for (x, y, lab) in x_y_lab_tuples:
-        ax.plot(x, y, label=lab)
+        if lab is not None:
+            ax.plot(x, y, label=lab)
+            labels_present = True
+        else:
+            ax.plot(x, y)
     ax.set_xlabel(x_label)
     ax.set_ylabel(y_label)
-    ax.legend()
+    if labels_present:
+        ax.legend()
 
 
 def simple_histograms_on_axis(ax, list_of_histogram_data, list_of_labels, num_bins):
