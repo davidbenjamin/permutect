@@ -16,7 +16,7 @@ from permutect.architecture.posterior_model import PosteriorModel
 from permutect.architecture.base_model import BaseModel
 from permutect.data import base_dataset, plain_text_data, base_datum
 from permutect.data.base_datum import Variant
-from permutect.data.posterior import PosteriorDataset, PosteriorDatum
+from permutect.data.posterior import PosteriorDataset, PosteriorDatum, PosteriorBatch
 from permutect.data.artifact_dataset import ArtifactDataset
 from permutect.metrics.evaluation_metrics import EvaluationMetrics, PosteriorResult, EmbeddingMetrics, \
     round_up_to_nearest_three, MAX_COUNT
@@ -263,6 +263,7 @@ def apply_filtering_to_vcf(input_vcf, output_vcf, contig_index_to_name_map, erro
     encoding_to_posterior_results = {}
 
     pbar = tqdm(enumerate(posterior_loader), mininterval=60)
+    batch_cpu: PosteriorBatch
     for n, batch_cpu in pbar:
         batch = batch_cpu.copy_to(device=posterior_model._device, dtype=posterior_model._dtype, non_blocking=posterior_model._device.type == 'cuda')
         # posterior, along with intermediate tensors for debugging/interpretation
@@ -274,7 +275,7 @@ def apply_filtering_to_vcf(input_vcf, output_vcf, contig_index_to_name_map, erro
         encodings = [encode_datum(variant, contig_index_to_name_map) for variant in batch.get_variants()]
         artifact_logits = batch.get_artifact_logits().tolist()
         var_types = batch.get_variant_types().tolist()
-        labels = batch.get_training_labels().tolist()
+        labels = batch.get_labels().tolist()
         alt_counts = batch.get_alt_counts().tolist()
         depths = batch.get_depths().tolist()
 
