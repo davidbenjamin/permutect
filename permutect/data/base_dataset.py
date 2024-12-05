@@ -142,7 +142,7 @@ class BaseDataset(Dataset):
 
             return BaseDatum(reads_2d=self._data[bottom_index], ref_sequence_1d=None, alt_count=None, info_array_1d=None,
                              variant_type=None, label=None, source=None, variant=None, counts_and_seq_lks=None,
-                             other_stuff_override=other_stuff)
+                             one_dimensional_data_override=other_stuff)
         else:
             return self._data[index]
 

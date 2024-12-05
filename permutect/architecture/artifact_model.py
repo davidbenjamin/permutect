@@ -289,8 +289,9 @@ class ArtifactModel(nn.Module):
                     weights = calculate_batch_weights(batch_cpu, dataset, by_count=True)
                     weights = weights.to(device=self._device, dtype=self._dtype, non_blocking=True)
 
-                    uncalibrated_cross_entropies = bce(precalibrated_logits, batch.labels)
-                    calibrated_cross_entropies = bce(logits, batch.labels)
+                    labels = batch.get_labels()
+                    uncalibrated_cross_entropies = bce(precalibrated_logits, labels)
+                    calibrated_cross_entropies = bce(logits, labels)
                     labeled_losses = batch.get_is_labeled_mask() * (uncalibrated_cross_entropies + calibrated_cross_entropies) / 2
 
                     # unlabeled loss: entropy regularization. We use the uncalibrated logits because otherwise entropy
@@ -389,10 +390,11 @@ class ArtifactModel(nn.Module):
                 pred = logits.detach().cpu()
 
                 # note that for metrics we use batch_cpu
-                correct = ((pred > 0) == (batch_cpu.labels > 0.5)).tolist()
+                labels = batch_cpu.get_labels()
+                correct = ((pred > 0) == (labels > 0.5)).tolist()
 
                 for variant_type, predicted_logit, label, is_labeled, correct_call, alt_count, variant, weight in zip(
-                        batch_cpu.variant_types(), pred.tolist(), batch_cpu.labels.tolist(), batch_cpu.get_is_labeled_mask().tolist(), correct,
+                        batch_cpu.variant_types(), pred.tolist(), labels.tolist(), batch_cpu.get_is_labeled_mask().tolist(), correct,
                         batch_cpu.get_alt_counts(), batch_cpu.get_variants(), weights.tolist()):
                     if is_labeled < 0.5:    # we only evaluate labeled data
                         continue
@@ -445,10 +447,11 @@ class ArtifactModel(nn.Module):
                 batch = batch_cpu.copy_to(self._device, self._dtype, non_blocking=self._device.type == 'cuda')
                 logits, _, _ = self.forward(batch)
                 pred = logits.detach().cpu()
-                correct = ((pred > 0) == (batch_cpu.labels > 0.5)).tolist()
+                labels = batch_cpu.get_labels()
+                correct = ((pred > 0) == (labels > 0.5)).tolist()
 
                 label_strings = [("artifact" if label > 0.5 else "non-artifact") if is_labeled > 0.5 else "unlabeled"
-                                 for (label, is_labeled) in zip(batch_cpu.labels.tolist(), batch_cpu.get_is_labeled_mask().tolist())]
+                                 for (label, is_labeled) in zip(labels.tolist(), batch_cpu.get_is_labeled_mask().tolist())]
 
                 correct_strings = [str(correctness) if is_labeled > 0.5 else "-1"
                                  for (correctness, is_labeled) in zip(correct, batch_cpu.get_is_labeled_mask().tolist())]

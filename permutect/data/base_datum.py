@@ -381,12 +381,12 @@ class BaseDatum:
     """
     def __init__(self, reads_2d: np.ndarray, ref_sequence_1d: np.ndarray, alt_count: int, info_array_1d: np.ndarray,
                  variant_type: Variation, label: Label, source: int, variant: Variant, counts_and_seq_lks: CountsAndSeqLks,
-                 other_stuff_override: OneDimensionalData = None):
+                 one_dimensional_data_override: OneDimensionalData = None):
         # Note: if changing any of the data fields below, make sure to modify the size_in_bytes() method below accordingly!
 
         self.reads_2d = reads_2d
 
-        if other_stuff_override is None:
+        if one_dimensional_data_override is None:
             self.alt_count = alt_count
             self.label = label
             self.source = source
@@ -394,10 +394,10 @@ class BaseDatum:
                                        ref_sequence_length=len(ref_sequence_1d), info_tensor_length=len(info_array_1d))
             self.other_stuff = OneDimensionalData(tensor_sizes, ref_sequence_1d, info_array_1d, variant_type, label, source, variant, counts_and_seq_lks)
         else:
-            self.other_stuff = other_stuff_override
-            self.alt_count = other_stuff_override.get_alt_count()
-            self.label = other_stuff_override.get_label()
-            self.source = other_stuff_override.get_source()
+            self.other_stuff = one_dimensional_data_override
+            self.alt_count = one_dimensional_data_override.get_alt_count()
+            self.label = one_dimensional_data_override.get_label()
+            self.source = one_dimensional_data_override.get_source()
         self.set_dtype(np.float16)
 
     def set_dtype(self, dtype):
@@ -517,7 +517,7 @@ def load_list_of_base_data(file) -> List[BaseDatum]:
 
         base_datum = BaseDatum(reads_2d=read_tensors[read_start_row:read_end_row], ref_sequence_1d=None, alt_count=None, info_array_1d=None,
                                variant_type=None, label=None, source=None,
-                            variant=None, counts_and_seq_lks=None, other_stuff_override=other_stuff)
+                               variant=None, counts_and_seq_lks=None, one_dimensional_data_override=other_stuff)
         read_start_row = read_end_row
         result.append(base_datum)
 
@@ -543,14 +543,8 @@ class BaseBatch:
     """
 
     def __init__(self, data: List[BaseDatum]):
+        # TODO: can we get rid of this potential bottleneck (might interact really badly with multiple workers)?
         self._original_list = data
-        self.alt_counts = IntTensor([datum.alt_count for datum in data])
-        self.ref_counts = IntTensor([len(datum.reads_2d) - datum.alt_count for datum in data])
-
-        # for datum in data:
-        #    assert (datum.label() != Label.UNLABELED) == self.labeled, "Batch may not mix labeled and unlabeled"
-        #    assert len(datum.ref_tensor) == self.ref_count, "batch may not mix different ref counts"
-        #    assert len(datum.alt_tensor) == self.alt_count, "batch may not mix different alt counts"
 
         # num_classes = 5 for A, C, G, T, and deletion / insertion
         ref_alt = [torch.flatten(torch.permute(torch.nn.functional.one_hot(torch.from_numpy(np.vstack(item.get_ref_and_alt_sequences())).long(), num_classes=5), (0,2,1)), 0, 1) for item in data]    # list of 2D (2x5)xL
@@ -564,25 +558,22 @@ class BaseBatch:
         self.reads_2d = torch.from_numpy(np.vstack(list_of_ref_tensors + list_of_alt_tensors))
         self.info_2d = torch.from_numpy(np.vstack([base_datum.get_info_tensor_1d() for base_datum in data]))
 
-        # TODO: get this from the other_stuff_1d tensor
-        # labels are 1 for artifact, 0 for non-artifact
-        # also 0 for UNLABELED but that value should NEVER be used if we apply the is_labeled_mask properly
-        self.labels = FloatTensor([1.0 if item.label == Label.ARTIFACT else 0.0 for item in data])
-        self.is_labeled_mask = FloatTensor([0.0 if item.label == Label.UNLABELED else 1.0 for item in data])
+        ref_counts = IntTensor([len(datum.reads_2d) - datum.alt_count for datum in data])
+        alt_counts = IntTensor([datum.alt_count for datum in data])
+        labels = IntTensor([1 if item.label == Label.ARTIFACT else 0 for item in data])
+        is_labeled_mask = IntTensor([0 if item.label == Label.UNLABELED else 1 for item in data])
+        sources = IntTensor([item.source for item in data])
+        self.int_tensor = torch.vstack((ref_counts, alt_counts, labels, is_labeled_mask, sources))
 
-        self.sources = IntTensor([item.source for item in data])
         self._size = len(data)
 
     # pin memory for all tensors that are sent to the GPU
     def pin_memory(self):
         self.ref_sequences_2d = self.ref_sequences_2d.pin_memory()
         self.reads_2d = self.reads_2d.pin_memory()
-        self.alt_counts = self.alt_counts.pin_memory()
-        self.ref_counts = self.ref_counts.pin_memory()
         self.info_2d = self.info_2d.pin_memory()
-        self.labels = self.labels.pin_memory()
-        self.is_labeled_mask = self.is_labeled_mask.pin_memory()
-        self.sources = self.sources.pin_memory()
+        self.int_tensor = self.int_tensor.pin_memory()
+
         return self
 
     def copy_to(self, device, non_blocking):
@@ -591,11 +582,7 @@ class BaseBatch:
         new_batch.ref_sequences_2d = self.ref_sequences_2d.to(device, non_blocking=non_blocking)
         new_batch.reads_2d = self.reads_2d.to(device, non_blocking=non_blocking)
         new_batch.info_2d = self.info_2d.to(device, non_blocking=non_blocking)
-        new_batch.labels = self.labels.to(device, non_blocking=non_blocking)
-        new_batch.is_labeled_mask = self.is_labeled_mask.to(device, non_blocking=non_blocking)
-        new_batch.sources = self.sources.to(device, non_blocking=non_blocking)
-        new_batch.alt_counts = self.alt_counts.to(device, non_blocking=non_blocking)
-        new_batch.ref_counts = self.ref_counts.to(device, non_blocking=non_blocking)
+        new_batch.int_tensor = self.int_tensor.to(device, non_blocking=non_blocking)
         return new_batch
 
     def original_list(self):
@@ -604,11 +591,21 @@ class BaseBatch:
     def get_reads_2d(self) -> Tensor:
         return self.reads_2d
 
+    def get_ref_counts(self) -> IntTensor:
+        return self.int_tensor[0, :]
+
     def get_alt_counts(self) -> IntTensor:
-        return self.alt_counts
+        return self.int_tensor[1, :]
+
+    # TODO: do we need .float()?
+    def get_labels(self):
+        return self.int_tensor[2, :]
 
     def get_is_labeled_mask(self) -> IntTensor:
-        return self.is_labeled_mask
+        return self.int_tensor[3, :]
+
+    def get_sources(self) -> IntTensor:
+        return self.int_tensor[4, :]
 
     def get_info_2d(self) -> Tensor:
         return self.info_2d
@@ -669,39 +666,37 @@ class ArtifactDatum:
 
 class ArtifactBatch:
     def __init__(self, data: List[ArtifactDatum]):
-        self.other_stuff_array = np.vstack([d.get_1d_data().to_np_array() for d in data])
-
+        self.representations_2d = torch.vstack([item.representation for item in data])
+        self.other_stuff_array = torch.from_numpy(np.vstack([d.get_1d_data().to_np_array() for d in data]))
 
         # TODO: these are extraneous -- they belong to the one-dimensional data arrays
-        # note: these numpy arrays are not used in training and are never sent to the GPU
-        self.variants_array = np.vstack([d.get_1d_data().get_variant_array() for d in data])
-        self.counts_and_seq_lks_array = np.vstack([d.get_1d_data().get_counts_and_seq_lks_array() for d in data])
 
-        self.representations_2d = torch.vstack([item.representation for item in data])
-        self.labels = FloatTensor([1.0 if item.get_label() == Label.ARTIFACT else 0.0 for item in data])
-
-        sources = IntTensor([item.get_source() for item in data])
-        ref_counts = IntTensor([int(item.get_ref_count()) for item in data])
-        alt_counts = IntTensor([int(item.get_alt_count()) for item in data])
+        # TODO: compute this rather than store it
         is_labeled_mask = FloatTensor([0.0 if item.get_label() == Label.UNLABELED else 1.0 for item in data])
-        self.int_tensor = torch.vstack((sources, ref_counts, alt_counts, is_labeled_mask))
+        self.int_tensor = torch.vstack((is_labeled_mask))
 
         self._size = len(data)
 
     def get_variants(self) -> List[Variant]:
-        return [Variant.from_np_array(var_array_1d) for var_array_1d in self.variants_array]
+        relevant_cols = self.other_stuff_array[:, OneDimensionalData.VARIANT_START_IDX:OneDimensionalData.VARIANT_END_IDX].numpy()
+        return [Variant.from_np_array(var_array_1d) for var_array_1d in relevant_cols]
 
     def get_counts_and_seq_lks(self) -> List[CountsAndSeqLks]:
-        return [CountsAndSeqLks.from_np_array(var_array_1d) for var_array_1d in self.counts_and_seq_lks_array]
+        relevant_cols = self.other_stuff_array[:, OneDimensionalData.COUNTS_AND_SEQ_LKS_START_IDX:].numpy()
+        return [CountsAndSeqLks.from_np_array(var_array_1d) for var_array_1d in relevant_cols]
+
+    # TODO: I believe this is still in the Label IntEnum format of 0, 1, 2
+    def get_labels(self):
+        return self.other_stuff_array[:, OneDimensionalData.LABEL_IDX]
 
     def get_sources(self) -> IntTensor:
-        return self.int_tensor[0]
+        return self.other_stuff_array[:, OneDimensionalData.SOURCE_IDX].int()
 
     def get_ref_counts(self) -> IntTensor:
-        return self.int_tensor[1]
+        return self.other_stuff_array[:, OneDimensionalData.REF_COUNT_IDX].int()
 
     def get_alt_counts(self) -> IntTensor:
-        return self.int_tensor[2]
+        return self.other_stuff_array[:, OneDimensionalData.ALT_COUNT_IDX].int()
 
     def get_is_labeled_mask(self) -> IntTensor:
         return self.int_tensor[3]
@@ -709,7 +704,7 @@ class ArtifactBatch:
     # pin memory for all tensors that are sent to the GPU
     def pin_memory(self):
         self.representations_2d = self.representations_2d.pin_memory()
-        self.labels = self.labels.pin_memory()
+        self.other_stuff_array = self.other_stuff_array.pin_memory()
         self.int_tensor = self.int_tensor.pin_memory()
         return self
 
@@ -719,7 +714,7 @@ class ArtifactBatch:
         new_batch = copy.copy(self)
 
         new_batch.representations_2d = self.representations_2d.to(device=device, dtype=dtype, non_blocking=non_blocking)
-        new_batch.labels = self.labels.to(device, dtype=dtype, non_blocking=non_blocking)
+        new_batch.other_stuff_array = self.other_stuff_array.to(device, dtype=dtype, non_blocking=non_blocking)
         new_batch.int_tensor = self.int_tensor.to(device, dtype=dtype, non_blocking=non_blocking)
 
         return new_batch
