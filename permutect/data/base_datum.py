@@ -250,19 +250,20 @@ class TensorSizes:
 
 
 class BaseDatum1DStuff:
-    NUM_ELEMENTS_AFTER_INFO = 2 + Variant.LENGTH + CountsAndSeqLks.LENGTH   # 1 for the label, 1 for the source (integer)
+    NUM_ELEMENTS_AFTER_INFO = 3 + Variant.LENGTH + CountsAndSeqLks.LENGTH   # 1 for variant type, 1 for the label, 1 for the source (integer)
 
     # 1st four elements are tensor sizes: ref count, alt count, ref seq length, info length
     # next is ref sequence as 1D array
     # next is info 1D array
-    # label, source (each a single int)
+    # variant type, label, source (each a single int)
     # Variant (Variant.LENGTH elements)
     # CountsAndSeqLks (CountsAndSeqLks.LENGTH elements)
-    def __init__(self, tensor_sizes: TensorSizes, ref_sequence_1d: np.ndarray, info_array_1d: np.ndarray, label: Label, source: int,
-                 variant: Variant, counts_and_seq_lks: CountsAndSeqLks, array_override: np.ndarray = None):
+    def __init__(self, tensor_sizes: TensorSizes, ref_sequence_1d: np.ndarray, info_array_1d: np.ndarray,
+                 variant_type: Variation, label: Label, source: int, variant: Variant, counts_and_seq_lks: CountsAndSeqLks,
+                 array_override: np.ndarray = None):
         if array_override is None:
             # note: Label is an IntEnum so we can treat label as an integer
-            self.array = np.hstack((tensor_sizes.to_np_array(), ref_sequence_1d, info_array_1d, np.array([label, source]),
+            self.array = np.hstack((tensor_sizes.to_np_array(), ref_sequence_1d, info_array_1d, np.array([variant_type, label, source]),
                                 variant.to_np_array(), counts_and_seq_lks.to_np_array()))
         else:
             self.array = array_override
@@ -301,26 +302,29 @@ class BaseDatum1DStuff:
         self.array[3] = len(new_info)   # update the info tensor size
         self.array = np.hstack((before_info, new_info, after_info))
 
+    def get_variant_type(self) -> int:
+        return round(self.array[-self.__class__.NUM_ELEMENTS_AFTER_INFO])
+
+    def set_variant_type(self, variant_type: Variation):
+        self.array[-self.__class__.NUM_ELEMENTS_AFTER_INFO] = variant_type
+
     def get_label(self):
-        return self.array[-self.__class__.NUM_ELEMENTS_AFTER_INFO]
+        return self.array[-self.__class__.NUM_ELEMENTS_AFTER_INFO + 1]
 
     def set_label(self, label: Label):
-        self.array[-self.__class__.NUM_ELEMENTS_AFTER_INFO] = label
+        self.array[-self.__class__.NUM_ELEMENTS_AFTER_INFO + 1] = label
 
     def get_source(self) -> int:
-        return round(self.array[-self.__class__.NUM_ELEMENTS_AFTER_INFO + 1])
+        return round(self.array[-self.__class__.NUM_ELEMENTS_AFTER_INFO + 2])
 
     def set_source(self, source: int):
-        self.array[-self.__class__.NUM_ELEMENTS_AFTER_INFO + 1] = source
-
-    def variant_type_one_hot(self):
-        return self.get_info_1d()[-len(Variation):]
+        self.array[-self.__class__.NUM_ELEMENTS_AFTER_INFO + 2] = source
 
     def get_variant(self):
-        return Variant.from_np_array(self.array[-self.__class__.NUM_ELEMENTS_AFTER_INFO + 2:-CountsAndSeqLks.LENGTH])
+        return Variant.from_np_array(self.array[-self.__class__.NUM_ELEMENTS_AFTER_INFO + 3:-CountsAndSeqLks.LENGTH])
 
     def get_variant_array(self):
-        return self.array[-self.__class__.NUM_ELEMENTS_AFTER_INFO + 2:-CountsAndSeqLks.LENGTH]
+        return self.array[-self.__class__.NUM_ELEMENTS_AFTER_INFO + 3:-CountsAndSeqLks.LENGTH]
 
     def get_counts_and_seq_lks(self):
         return CountsAndSeqLks.from_np_array(self.array[-CountsAndSeqLks.LENGTH:])
@@ -333,7 +337,7 @@ class BaseDatum1DStuff:
 
     @classmethod
     def from_np_array(cls, np_array: np.ndarray):
-        return cls(tensor_sizes=None, ref_sequence_1d=None, info_array_1d=None, label=None, source=None,
+        return cls(tensor_sizes=None, ref_sequence_1d=None, info_array_1d=None, variant_type=None, label=None, source=None,
                    variant=None, counts_and_seq_lks=None, array_override=np_array)
 
 
@@ -403,8 +407,9 @@ class BaseDatum:
     :param info_array_1d  1D tensor of information about the variant as a whole
     :param label        an object of the Label enum artifact, non-artifact, unlabeled
     """
-    def __init__(self, reads_2d: np.ndarray, ref_sequence_1d: np.ndarray, alt_count: int,  info_array_1d: np.ndarray, label: Label,
-                 source: int, variant: Variant, counts_and_seq_lks: CountsAndSeqLks, other_stuff_override: BaseDatum1DStuff = None):
+    def __init__(self, reads_2d: np.ndarray, ref_sequence_1d: np.ndarray, alt_count: int,  info_array_1d: np.ndarray,
+                 variant_type: Variation, label: Label, source: int, variant: Variant, counts_and_seq_lks: CountsAndSeqLks,
+                 other_stuff_override: BaseDatum1DStuff = None):
         # Note: if changing any of the data fields below, make sure to modify the size_in_bytes() method below accordingly!
 
         self.reads_2d = reads_2d
@@ -415,7 +420,7 @@ class BaseDatum:
             self.source = source
             tensor_sizes = TensorSizes(ref_count=len(reads_2d) - alt_count, alt_count=alt_count,
                                        ref_sequence_length=len(ref_sequence_1d), info_tensor_length=len(info_array_1d))
-            self.other_stuff = BaseDatum1DStuff(tensor_sizes, ref_sequence_1d, info_array_1d, label, source, variant, counts_and_seq_lks)
+            self.other_stuff = BaseDatum1DStuff(tensor_sizes, ref_sequence_1d, info_array_1d, variant_type, label, source, variant, counts_and_seq_lks)
         else:
             self.other_stuff = other_stuff_override
             self.alt_count = other_stuff_override.get_alt_count()
@@ -435,7 +440,7 @@ class BaseDatum:
         alt_count = len(alt_tensor)
         str_info = get_str_info_array(ref_sequence_string, variant)
         info_tensor = np.hstack([gatk_info_tensor, str_info])
-        result = cls(read_tensor, make_1d_sequence_tensor(ref_sequence_string), alt_count, info_tensor, label, source, variant, counts_and_seq_lks)
+        result = cls(read_tensor, make_1d_sequence_tensor(ref_sequence_string), alt_count, info_tensor, variant_type, label, source, variant, counts_and_seq_lks)
         result.set_dtype(np.float16)
         return result
 
@@ -448,8 +453,8 @@ class BaseDatum:
     def get_other_stuff_1d(self) -> BaseDatum1DStuff:
         return self.other_stuff
 
-    def variant_type_one_hot(self):
-        return self.other_stuff.variant_type_one_hot()
+    def get_variant_type(self) -> int:
+        return self.other_stuff.get_variant_type()
 
     def set_label(self, label: Label):
         self.label = label
@@ -538,8 +543,9 @@ def load_list_of_base_data(file) -> List[BaseDatum]:
         read_count = other_stuff.get_ref_count() + other_stuff.get_alt_count()
         read_end_row = read_start_row+read_count
 
-        base_datum = BaseDatum(reads_2d=read_tensors[read_start_row:read_end_row], ref_sequence_1d=None, alt_count=None, info_array_1d=None, label=None, source=None,
-                      variant=None, counts_and_seq_lks=None, other_stuff_override=other_stuff)
+        base_datum = BaseDatum(reads_2d=read_tensors[read_start_row:read_end_row], ref_sequence_1d=None, alt_count=None, info_array_1d=None,
+                               variant_type=None, label=None, source=None,
+                            variant=None, counts_and_seq_lks=None, other_stuff_override=other_stuff)
         read_start_row = read_end_row
         result.append(base_datum)
 

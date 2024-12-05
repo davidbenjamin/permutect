@@ -84,14 +84,13 @@ class BaseDataset(Dataset):
             self.counts_by_source[datum.source].increment()
 
             fold = n % num_folds
-            counts = (len(datum.reads_2d) - datum.alt_count, datum.alt_count)
             self.indices_by_fold[fold].append(n)
 
-            one_hot = datum.variant_type_one_hot()
-            self.totals[ALL_COUNTS_SENTINEL][datum.label] += one_hot
-            self.totals[datum.alt_count][datum.label] += one_hot
-            self.source_totals[ALL_COUNTS_SENTINEL][datum.source] += one_hot
-            self.source_totals[datum.alt_count][datum.source] += one_hot
+            variant_type_idx = datum.get_variant_type()
+            self.totals[ALL_COUNTS_SENTINEL][datum.label][variant_type_idx] += 1
+            self.totals[datum.alt_count][datum.label][variant_type_idx] += 1
+            self.source_totals[ALL_COUNTS_SENTINEL][datum.source][variant_type_idx] += 1
+            self.source_totals[datum.alt_count][datum.source][variant_type_idx] += 1
 
         # compute weights to balance loss even for unbalanced data
         # recall count == -1 is a sentinel value for aggregated totals over all alt counts
@@ -141,8 +140,9 @@ class BaseDataset(Dataset):
             bottom_index = index * TENSORS_PER_BASE_DATUM
             other_stuff = BaseDatum1DStuff.from_np_array(self._data[bottom_index+1])
 
-            return BaseDatum(reads_2d=self._data[bottom_index], ref_sequence_1d=None, alt_count=None, info_array_1d=None, label=None,
-                              source=None, variant=None, counts_and_seq_lks=None, other_stuff_override=other_stuff)
+            return BaseDatum(reads_2d=self._data[bottom_index], ref_sequence_1d=None, alt_count=None, info_array_1d=None,
+                             variant_type=None, label=None, source=None, variant=None, counts_and_seq_lks=None,
+                             other_stuff_override=other_stuff)
         else:
             return self._data[index]
 
