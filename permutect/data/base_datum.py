@@ -342,9 +342,9 @@ class BaseDatum1DStuff:
 
 
 class ArtifactDatum1DStuff:
-    # 4 for ref count, alt count, label, source; len(Variation) for one-hot variant type
-    NUM_ELEMENTS = 4 + Variant.LENGTH + CountsAndSeqLks.LENGTH + len(Variation)
-    VARIANT_END_POS = 4 + Variant.LENGTH
+    # 5 for ref count, alt count, variant type, label, source
+    NUM_ELEMENTS = 5 + Variant.LENGTH + CountsAndSeqLks.LENGTH
+    VARIANT_END_POS = 5 + Variant.LENGTH
     COUNTS_AND_SEQ_LKS_END_POS = VARIANT_END_POS + CountsAndSeqLks.LENGTH
 
     def __init__(self, base_datum_1d_stuff: BaseDatum1DStuff, array_override: np.ndarray = None):
@@ -354,11 +354,11 @@ class ArtifactDatum1DStuff:
             self.array = np.zeros(self.__class__.NUM_ELEMENTS)
             self.array[0] = base_datum_1d_stuff.array[0]    # ref count
             self.array[1] = base_datum_1d_stuff.array[1]    # alt count
-            self.array[2] = base_datum_1d_stuff.get_label()
-            self.array[3] = base_datum_1d_stuff.get_source()
-            self.array[4:self.__class__.VARIANT_END_POS] = base_datum_1d_stuff.get_variant_array()
+            self.array[2] = base_datum_1d_stuff.get_variant_type()
+            self.array[3] = base_datum_1d_stuff.get_label()
+            self.array[4] = base_datum_1d_stuff.get_source()
+            self.array[5:self.__class__.VARIANT_END_POS] = base_datum_1d_stuff.get_variant_array()
             self.array[self.__class__.VARIANT_END_POS:self.__class__.COUNTS_AND_SEQ_LKS_END_POS] = base_datum_1d_stuff.get_counts_and_seq_lks_array()
-            self.array[self.__class__.COUNTS_AND_SEQ_LKS_END_POS:] = base_datum_1d_stuff.variant_type_one_hot()
         else:
             self.array = array_override
 
@@ -371,26 +371,26 @@ class ArtifactDatum1DStuff:
     def get_alt_count(self):
         return round(self.array[1])
 
-    def get_label(self):
-        return self.array[2]
+    def get_variant_type(self) -> int:
+        return round(self.array[2])
 
-    def get_source(self):
+    def get_label(self):
         return self.array[3]
 
+    def get_source(self):
+        return self.array[4]
+
     def get_variant_array(self) -> np.ndarray:
-        return self.array[4:self.__class__.VARIANT_END_POS]
+        return self.array[5:self.__class__.VARIANT_END_POS]
 
     def get_variant(self) -> Variant:
-        return Variant.from_np_array(self.array[4:self.__class__.VARIANT_END_POS])
+        return Variant.from_np_array(self.array[5:self.__class__.VARIANT_END_POS])
 
     def get_counts_and_seq_lks_array(self) -> np.ndarray:
         return self.array[self.__class__.VARIANT_END_POS:self.__class__.COUNTS_AND_SEQ_LKS_END_POS]
 
     def get_counts_and_seq_lks(self) -> CountsAndSeqLks:
         return CountsAndSeqLks.from_np_array(self.array[self.__class__.VARIANT_END_POS:self.__class__.COUNTS_AND_SEQ_LKS_END_POS])
-
-    def variant_type_one_hot(self):
-        return self.array[self.__class__.COUNTS_AND_SEQ_LKS_END_POS:]
 
     def to_np_array(self) -> np.ndarray:
         return self.array
@@ -676,6 +676,9 @@ class ArtifactDatum:
     def get_alt_count(self) -> int:
         return self.other_stuff.get_alt_count()
 
+    def get_variant_type(self) -> int:
+        return self.other_stuff.get_variant_type()
+
     def get_label(self):
         return self.other_stuff.get_label()
 
@@ -687,9 +690,6 @@ class ArtifactDatum:
 
     def get_other_stuff_1d(self) -> ArtifactDatum1DStuff:
         return self.other_stuff
-
-    def variant_type_one_hot(self):
-        return self.other_stuff.variant_type_one_hot()
 
     def is_labeled(self):
         return self.get_label() != Label.UNLABELED
