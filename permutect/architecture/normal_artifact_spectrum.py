@@ -26,7 +26,6 @@ class NormalArtifactSpectrum(nn.Module):
 
     def forward(self, tumor_alt_1d: torch.Tensor, tumor_ref_1d: torch.Tensor, normal_alt_1d: torch.Tensor, normal_ref_1d: torch.Tensor):
         if torch.sum(normal_alt_1d) < 1:    # shortcut if no normal alts in the whole batch
-            print("debug, no normal alts in batch")
             return -9999 * torch.ones_like(tumor_alt_1d)
         batch_size = len(tumor_alt_1d)
         tumor_fractions_2d, normal_fractions_2d = self.get_tumor_and_normal_fraction(batch_size, self.num_samples)

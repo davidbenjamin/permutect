@@ -210,7 +210,6 @@ def make_posterior_data_loader(dataset_file, input_vcf, contig_index_to_name_map
     print("reading dataset and calculating artifact logits")
     print(f"Memory usage percent before loading data: {psutil.virtual_memory().percent:.1f}")
     posterior_data = []
-    m = 0
     for list_of_base_data in plain_text_data.generate_normalized_data([dataset_file], chunk_size):
         print(f"Memory usage percent before creating BaseDataset: {psutil.virtual_memory().percent:.1f}")
         raw_dataset = base_dataset.BaseDataset(data_in_ram=list_of_base_data)
@@ -232,7 +231,6 @@ def make_posterior_data_loader(dataset_file, input_vcf, contig_index_to_name_map
                                                                artifact_logits.detach().tolist(),
                                                                labels,
                                                                artifact_batch.get_representations_2d().cpu()):
-                m += 1  # DEBUG
                 contig_name = contig_index_to_name_map[variant.contig]
                 encoding = encode(contig_name, variant.position, variant.ref, variant.alt)
                 if encoding in allele_frequencies and encoding not in m2_filtering_to_keep:

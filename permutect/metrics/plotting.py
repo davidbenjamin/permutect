@@ -166,10 +166,6 @@ def get_roc_data(predictions_and_labels, given_threshold: float = None, sens_pre
             thresh_and_accs.append((given_threshold, art_metric, non_art_acc))
             given_threshold_reached = True
 
-    # DEBUG STUFF -- definitely delete it !!!!!!
-    print(f"best mean and threshold.  mean: {best_mean}, threshold: {best_threshold}")
-    print(f"best art acc: {best_art_acc}, best non-art acc: {best_non_art_acc}")
-
     return thresh_and_accs, best_threshold
 
 
