@@ -108,9 +108,6 @@ class PosteriorBatch:
     def get_variant_types(self) -> torch.IntTensor:
         return self.int_tensor[:, PosteriorDatum.VAR_TYPE]
 
-    def variant_type_one_hot(self) -> torch.Tensor:
-        return torch.nn.functional.one_hot(self.get_variant_types(), num_classes=len(Variation))
-
     def get_alt_counts(self) -> torch.Tensor:
         return self.int_tensor[:, PosteriorDatum.ALT_COUNT]
 

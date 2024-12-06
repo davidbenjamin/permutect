@@ -8,7 +8,7 @@ from torch.utils.tensorboard import SummaryWriter
 from permutect import constants, utils
 from permutect.architecture.artifact_model import ArtifactModel
 from permutect.architecture.artifact_spectra import ArtifactSpectra
-from permutect.architecture.posterior_model import initialize_artifact_spectra, plot_artifact_spectra
+from permutect.architecture.posterior_model import plot_artifact_spectra
 from permutect.architecture.base_model import load_base_model
 from permutect.data.base_dataset import BaseDataset
 from permutect.data.artifact_dataset import ArtifactDataset

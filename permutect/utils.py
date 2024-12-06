@@ -77,11 +77,6 @@ class Variation(enum.IntEnum):
     BIG_INSERTION = 3
     BIG_DELETION = 4
 
-    def one_hot_tensor(self):
-        result = np.zeros(len(Variation))
-        result[self.value] = 1
-        return result
-
     @staticmethod
     def get_type(ref_allele: str, alt_allele: str):
         diff = len(alt_allele) - len(ref_allele)
