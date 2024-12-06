@@ -181,7 +181,7 @@ class OverdispersedBinomialMixture(nn.Module):
                                             keepdim=False))  # 1D tensor
             return fractions, densities
         else:
-            concentrations_k = self.max_concentration * torch.sigmoid(self.concentration_pre_sigmoid_vk[variant_type]).detach().cpu()
+            concentrations_k = self.max_concentration.cpu() * torch.sigmoid(self.concentration_pre_sigmoid_vk[variant_type]).detach().cpu()
             alphas_k = means_k * concentrations_k
             betas_k = (1 - means_k) * concentrations_k if self.mode == 'beta' else concentrations_k
 
