@@ -16,7 +16,7 @@ from permutect.architecture.posterior_model import PosteriorModel
 from permutect.architecture.base_model import BaseModel
 from permutect.data import base_dataset, plain_text_data, base_datum
 from permutect.data.base_datum import Variant
-from permutect.data.posterior import PosteriorDataset, PosteriorDatum
+from permutect.data.posterior import PosteriorDataset, PosteriorDatum, PosteriorBatch
 from permutect.data.artifact_dataset import ArtifactDataset
 from permutect.metrics.evaluation_metrics import EvaluationMetrics, PosteriorResult, EmbeddingMetrics, \
     round_up_to_nearest_three, MAX_COUNT
@@ -210,7 +210,6 @@ def make_posterior_data_loader(dataset_file, input_vcf, contig_index_to_name_map
     print("reading dataset and calculating artifact logits")
     print(f"Memory usage percent before loading data: {psutil.virtual_memory().percent:.1f}")
     posterior_data = []
-    m = 0
     for list_of_base_data in plain_text_data.generate_normalized_data([dataset_file], chunk_size):
         print(f"Memory usage percent before creating BaseDataset: {psutil.virtual_memory().percent:.1f}")
         raw_dataset = base_dataset.BaseDataset(data_in_ram=list_of_base_data)
@@ -225,14 +224,13 @@ def make_posterior_data_loader(dataset_file, input_vcf, contig_index_to_name_map
             artifact_batch = artifact_batch_cpu.copy_to(device=artifact_model._device, dtype=artifact_model._dtype, non_blocking=artifact_model._device.type == 'cuda')
             artifact_logits, _, _ = artifact_model.forward(batch=artifact_batch)
 
-            labels = [(Label.ARTIFACT if label > 0.5 else Label.VARIANT) if is_labeled > 0.5 else Label.UNLABELED for (label, is_labeled) in zip(artifact_batch.labels, artifact_batch.get_is_labeled_mask())]
+            labels = [(Label.ARTIFACT if label > 0.5 else Label.VARIANT) if is_labeled > 0.5 else Label.UNLABELED for (label, is_labeled) in zip(artifact_batch.get_training_labels(), artifact_batch.get_is_labeled_mask())]
 
             for variant,counts_and_seq_lks, logit, label, embedding in zip(artifact_batch_cpu.get_variants(),
                                                                artifact_batch_cpu.get_counts_and_seq_lks(),
                                                                artifact_logits.detach().tolist(),
                                                                labels,
                                                                artifact_batch.get_representations_2d().cpu()):
-                m += 1  # DEBUG
                 contig_name = contig_index_to_name_map[variant.contig]
                 encoding = encode(contig_name, variant.position, variant.ref, variant.alt)
                 if encoding in allele_frequencies and encoding not in m2_filtering_to_keep:
@@ -263,6 +261,7 @@ def apply_filtering_to_vcf(input_vcf, output_vcf, contig_index_to_name_map, erro
     encoding_to_posterior_results = {}
 
     pbar = tqdm(enumerate(posterior_loader), mininterval=60)
+    batch_cpu: PosteriorBatch
     for n, batch_cpu in pbar:
         batch = batch_cpu.copy_to(device=posterior_model._device, dtype=posterior_model._dtype, non_blocking=posterior_model._device.type == 'cuda')
         # posterior, along with intermediate tensors for debugging/interpretation

@@ -43,8 +43,9 @@ def calculate_pruning_thresholds(labeled_only_pruning_loader, artifact_model: Ar
             art_logits, _, _ = artifact_model.forward(batch)
             art_probs = torch.sigmoid(art_logits.detach())
 
-            art_label_mask = (batch.labels > 0.5)
-            nonart_label_mask = (batch.labels < 0.5)
+            labels = batch.get_training_labels()
+            art_label_mask = (labels > 0.5)
+            nonart_label_mask = (labels < 0.5)
             average_artifact_confidence.record_with_mask(art_probs, art_label_mask)
             average_nonartifact_confidence.record_with_mask(1 - art_probs, nonart_label_mask)
 
@@ -66,7 +67,7 @@ def calculate_pruning_thresholds(labeled_only_pruning_loader, artifact_model: Ar
 
             conf_art_mask = predicted_artifact_probs >= art_conf_threshold
             conf_nonart_mask = (1 - predicted_artifact_probs) >= nonart_conf_threshold
-            art_label_mask = (batch.labels > 0.5)
+            art_label_mask = (batch.get_training_labels() > 0.5)
 
             for conf_artifact, conf_nonartifact, artifact_label in zip(conf_art_mask.tolist(), conf_nonart_mask.tolist(), art_label_mask.tolist()):
                 row = 1 if artifact_label else 0
@@ -118,7 +119,7 @@ def generated_pruned_data_for_fold(art_threshold: float, nonart_threshold: float
 
         art_logits, _, _ = artifact_model.forward(artifact_batch)
         art_probs = torch.sigmoid(art_logits.detach())
-        art_label_mask = (base_batch.labels > 0.5)
+        art_label_mask = (base_batch.get_training_labels() > 0.5)
         is_labeled_mask = (base_batch.get_is_labeled_mask() > 0.5)
 
         for art_prob, labeled_as_art, datum, is_labeled in zip(art_probs.tolist(), art_label_mask.tolist(), base_batch.original_list(), is_labeled_mask.tolist()):

@@ -249,23 +249,51 @@ class TensorSizes:
         return cls(round(np_array[0]), round(np_array[1]), round(np_array[2]), round(np_array[3]))
 
 
-class BaseDatum1DStuff:
-    NUM_ELEMENTS_AFTER_INFO = 2 + Variant.LENGTH + CountsAndSeqLks.LENGTH   # 1 for the label, 1 for the source (integer)
+# This applies to both BaseDatum AND ArtifactDatum.  ArtifactDatum is simply the special case where the ref seq and info
+# tensor sizes are zero.
+class OneDimensionalData:
+    REF_COUNT_IDX = 0
+    ALT_COUNT_IDX = 1
+    REF_SEQ_LENGTH_IDX = 2
+    INFO_LENGTH_IDX = 3
+    REF_SEQ_START_IDX = 4
+
+    # starting at index 4 is ref seq and then info, if these are not empty as in the case of artifact data
+    NUM_ELEMENTS_AFTER_INFO = 3 + Variant.LENGTH + CountsAndSeqLks.LENGTH   # 1 for variant type, 1 for the label, 1 for the source (integer)
+
+    VAR_TYPE_IDX = -NUM_ELEMENTS_AFTER_INFO
+    LABEL_IDX = -NUM_ELEMENTS_AFTER_INFO + 1
+    SOURCE_IDX = -NUM_ELEMENTS_AFTER_INFO + 2
+
+    VARIANT_START_IDX = -NUM_ELEMENTS_AFTER_INFO + 3
+    VARIANT_END_IDX = VARIANT_START_IDX + Variant.LENGTH
+    COUNTS_AND_SEQ_LKS_START_IDX = VARIANT_END_IDX
 
     # 1st four elements are tensor sizes: ref count, alt count, ref seq length, info length
     # next is ref sequence as 1D array
     # next is info 1D array
-    # label, source (each a single int)
+    # variant type, label, source (each a single int)
     # Variant (Variant.LENGTH elements)
     # CountsAndSeqLks (CountsAndSeqLks.LENGTH elements)
-    def __init__(self, tensor_sizes: TensorSizes, ref_sequence_1d: np.ndarray, info_array_1d: np.ndarray, label: Label, source: int,
-                 variant: Variant, counts_and_seq_lks: CountsAndSeqLks, array_override: np.ndarray = None):
+    def __init__(self, tensor_sizes: TensorSizes, ref_sequence_1d: np.ndarray, info_array_1d: np.ndarray,
+                 variant_type: Variation, label: Label, source: int, variant: Variant, counts_and_seq_lks: CountsAndSeqLks,
+                 array_override: np.ndarray = None):
         if array_override is None:
             # note: Label is an IntEnum so we can treat label as an integer
-            self.array = np.hstack((tensor_sizes.to_np_array(), ref_sequence_1d, info_array_1d, np.array([label, source]),
+            self.array = np.hstack((tensor_sizes.to_np_array(), ref_sequence_1d, info_array_1d, np.array([variant_type, label, source]),
                                 variant.to_np_array(), counts_and_seq_lks.to_np_array()))
         else:
             self.array = array_override
+
+    # used for sending the data from BaseDatum to ArtifactDatum
+    def copy_without_ref_seq_and_info(self):
+        # keep ref count (0) and alt count (1) the same; set ref seq length (2) and info tensor length (3) to zero
+        new_tensor_size_array = np.array([self.array[0], self.array[1], 0, 0])
+
+        # relies on the layout of tensor sizes, then ref seq and info, then the rest
+        new_array = np.hstack((new_tensor_size_array, self.array[-self.__class__.NUM_ELEMENTS_AFTER_INFO:]))
+        return OneDimensionalData(tensor_sizes=None, ref_sequence_1d=None, info_array_1d=None, variant_type=None, label=None,
+                                  source=None, variant=None, counts_and_seq_lks=None, array_override=new_array)
 
     def get_nbytes(self):
         return self.array.nbytes
@@ -274,126 +302,74 @@ class BaseDatum1DStuff:
         self.array = self.array.astype(dtype)
 
     def get_ref_count(self) -> int:
-        return round(self.array[0])
+        return round(self.array[self.__class__.REF_COUNT_IDX])
 
     def get_alt_count(self) -> int:
-        return round(self.array[1])
+        return round(self.array[self.__class__.ALT_COUNT_IDX])
 
     def get_ref_seq_1d(self):
-        ref_seq_length = round(self.array[2])
-        return self.array[4:4 + ref_seq_length]
+        ref_seq_length = round(self.array[self.__class__.REF_SEQ_LENGTH_IDX])
+        start = self.__class__.REF_SEQ_START_IDX
+        assert ref_seq_length > 0, "trying to get ref seq array when none exists -- is this used in an ArtifactDatum?"
+        return self.array[start:start + ref_seq_length]
 
     def get_info_1d(self):
-        ref_seq_length = round(self.array[2])
-        info_length = round(self.array[3])
-        return self.array[4 + ref_seq_length:4 + ref_seq_length + info_length]
+        ref_seq_length = round(self.array[self.__class__.REF_SEQ_LENGTH_IDX])
+        info_length = round(self.array[self.__class__.INFO_LENGTH_IDX])
+        start = self.__class__.REF_SEQ_START_IDX + ref_seq_length
+        assert info_length > 0, "trying to get info array when none exists -- is this used in an ArtifactDatum?"
+        return self.array[start:start + info_length]
 
     # note: this potentially resizes the array and requires the leading info tensor size element to be modified
     # we do this in preprocessing when adding extra info to the info from GATK.
     # this method should not otherwise be used!!!
     def set_info_1d(self, new_info: np.ndarray):
-        ref_seq_length = round(self.array[2])
-        old_info_length = round(self.array[3])
+        ref_seq_length = round(self.array[self.__class__.REF_SEQ_LENGTH_IDX])
+        old_info_length = round(self.array[self.__class__.INFO_LENGTH_IDX])
 
-        before_info = self.array[:4 + ref_seq_length]
-        after_info = self.array[4 + ref_seq_length + old_info_length:]
+        before_info = self.array[:self.__class__.REF_SEQ_START_IDX + ref_seq_length]
+        after_info = self.array[-self.__class__.NUM_ELEMENTS_AFTER_INFO:]
 
-        self.array[3] = len(new_info)   # update the info tensor size
+        self.array[self.__class__.INFO_LENGTH_IDX] = len(new_info)   # update the info tensor size
         self.array = np.hstack((before_info, new_info, after_info))
 
+    def get_variant_type(self) -> int:
+        return round(self.array[self.__class__.VAR_TYPE_IDX])
+
+    def set_variant_type(self, variant_type: Variation):
+        self.array[self.__class__.VAR_TYPE_IDX] = variant_type
+
     def get_label(self):
-        return self.array[-self.__class__.NUM_ELEMENTS_AFTER_INFO]
+        return self.array[self.__class__.LABEL_IDX]
 
     def set_label(self, label: Label):
-        self.array[-self.__class__.NUM_ELEMENTS_AFTER_INFO] = label
+        self.array[self.__class__.LABEL_IDX] = label
 
     def get_source(self) -> int:
-        return round(self.array[-self.__class__.NUM_ELEMENTS_AFTER_INFO + 1])
+        return round(self.array[self.__class__.SOURCE_IDX])
 
     def set_source(self, source: int):
-        self.array[-self.__class__.NUM_ELEMENTS_AFTER_INFO + 1] = source
-
-    def variant_type_one_hot(self):
-        return self.get_info_1d()[-len(Variation):]
+        self.array[self.__class__.SOURCE_IDX] = source
 
     def get_variant(self):
-        return Variant.from_np_array(self.array[-self.__class__.NUM_ELEMENTS_AFTER_INFO + 2:-CountsAndSeqLks.LENGTH])
+        return Variant.from_np_array(self.array[-self.__class__.NUM_ELEMENTS_AFTER_INFO + 3:-CountsAndSeqLks.LENGTH])
 
     def get_variant_array(self):
-        return self.array[-self.__class__.NUM_ELEMENTS_AFTER_INFO + 2:-CountsAndSeqLks.LENGTH]
+        return self.array[self.__class__.VARIANT_START_IDX:self.__class__.VARIANT_END_IDX]
 
     def get_counts_and_seq_lks(self):
-        return CountsAndSeqLks.from_np_array(self.array[-CountsAndSeqLks.LENGTH:])
+        return CountsAndSeqLks.from_np_array(self.array[self.__class__.COUNTS_AND_SEQ_LKS_START_IDX:])
 
     def get_counts_and_seq_lks_array(self):
-        return self.array[-CountsAndSeqLks.LENGTH:]
+        return self.array[self.__class__.COUNTS_AND_SEQ_LKS_START_IDX:]
 
     def to_np_array(self):
         return self.array
 
     @classmethod
     def from_np_array(cls, np_array: np.ndarray):
-        return cls(tensor_sizes=None, ref_sequence_1d=None, info_array_1d=None, label=None, source=None,
+        return cls(tensor_sizes=None, ref_sequence_1d=None, info_array_1d=None, variant_type=None, label=None, source=None,
                    variant=None, counts_and_seq_lks=None, array_override=np_array)
-
-
-class ArtifactDatum1DStuff:
-    # 4 for ref count, alt count, label, source; len(Variation) for one-hot variant type
-    NUM_ELEMENTS = 4 + Variant.LENGTH + CountsAndSeqLks.LENGTH + len(Variation)
-    VARIANT_END_POS = 4 + Variant.LENGTH
-    COUNTS_AND_SEQ_LKS_END_POS = VARIANT_END_POS + CountsAndSeqLks.LENGTH
-
-    def __init__(self, base_datum_1d_stuff: BaseDatum1DStuff, array_override: np.ndarray = None):
-        if array_override is None:
-            # we need ref count, alt count, label, variant, countsandseqlks, variant type one-hot
-            # note: Label is an IntEnum so we can treat label as an integer
-            self.array = np.zeros(self.__class__.NUM_ELEMENTS)
-            self.array[0] = base_datum_1d_stuff.array[0]    # ref count
-            self.array[1] = base_datum_1d_stuff.array[1]    # alt count
-            self.array[2] = base_datum_1d_stuff.get_label()
-            self.array[3] = base_datum_1d_stuff.get_source()
-            self.array[4:self.__class__.VARIANT_END_POS] = base_datum_1d_stuff.get_variant_array()
-            self.array[self.__class__.VARIANT_END_POS:self.__class__.COUNTS_AND_SEQ_LKS_END_POS] = base_datum_1d_stuff.get_counts_and_seq_lks_array()
-            self.array[self.__class__.COUNTS_AND_SEQ_LKS_END_POS:] = base_datum_1d_stuff.variant_type_one_hot()
-        else:
-            self.array = array_override
-
-    def set_dtype(self, dtype):
-        self.array = self.array.astype(dtype)
-
-    def get_ref_count(self):
-        return round(self.array[0])
-
-    def get_alt_count(self):
-        return round(self.array[1])
-
-    def get_label(self):
-        return self.array[2]
-
-    def get_source(self):
-        return self.array[3]
-
-    def get_variant_array(self) -> np.ndarray:
-        return self.array[4:self.__class__.VARIANT_END_POS]
-
-    def get_variant(self) -> Variant:
-        return Variant.from_np_array(self.array[4:self.__class__.VARIANT_END_POS])
-
-    def get_counts_and_seq_lks_array(self) -> np.ndarray:
-        return self.array[self.__class__.VARIANT_END_POS:self.__class__.COUNTS_AND_SEQ_LKS_END_POS]
-
-    def get_counts_and_seq_lks(self) -> CountsAndSeqLks:
-        return CountsAndSeqLks.from_np_array(self.array[self.__class__.VARIANT_END_POS:self.__class__.COUNTS_AND_SEQ_LKS_END_POS])
-
-    def variant_type_one_hot(self):
-        return self.array[self.__class__.COUNTS_AND_SEQ_LKS_END_POS:]
-
-    def to_np_array(self) -> np.ndarray:
-        return self.array
-
-    @classmethod
-    def from_np_array(cls, np_array: np.ndarray):
-        return cls(base_datum_1d_stuff=None, array_override=np_array)
 
 
 class BaseDatum:
@@ -403,24 +379,25 @@ class BaseDatum:
     :param info_array_1d  1D tensor of information about the variant as a whole
     :param label        an object of the Label enum artifact, non-artifact, unlabeled
     """
-    def __init__(self, reads_2d: np.ndarray, ref_sequence_1d: np.ndarray, alt_count: int,  info_array_1d: np.ndarray, label: Label,
-                 source: int, variant: Variant, counts_and_seq_lks: CountsAndSeqLks, other_stuff_override: BaseDatum1DStuff = None):
+    def __init__(self, reads_2d: np.ndarray, ref_sequence_1d: np.ndarray, alt_count: int, info_array_1d: np.ndarray,
+                 variant_type: Variation, label: Label, source: int, variant: Variant, counts_and_seq_lks: CountsAndSeqLks,
+                 one_dimensional_data_override: OneDimensionalData = None):
         # Note: if changing any of the data fields below, make sure to modify the size_in_bytes() method below accordingly!
 
         self.reads_2d = reads_2d
 
-        if other_stuff_override is None:
+        if one_dimensional_data_override is None:
             self.alt_count = alt_count
             self.label = label
             self.source = source
             tensor_sizes = TensorSizes(ref_count=len(reads_2d) - alt_count, alt_count=alt_count,
                                        ref_sequence_length=len(ref_sequence_1d), info_tensor_length=len(info_array_1d))
-            self.other_stuff = BaseDatum1DStuff(tensor_sizes, ref_sequence_1d, info_array_1d, label, source, variant, counts_and_seq_lks)
+            self.other_stuff = OneDimensionalData(tensor_sizes, ref_sequence_1d, info_array_1d, variant_type, label, source, variant, counts_and_seq_lks)
         else:
-            self.other_stuff = other_stuff_override
-            self.alt_count = other_stuff_override.get_alt_count()
-            self.label = other_stuff_override.get_label()
-            self.source = other_stuff_override.get_source()
+            self.other_stuff = one_dimensional_data_override
+            self.alt_count = one_dimensional_data_override.get_alt_count()
+            self.label = one_dimensional_data_override.get_label()
+            self.source = one_dimensional_data_override.get_source()
         self.set_dtype(np.float16)
 
     def set_dtype(self, dtype):
@@ -434,8 +411,8 @@ class BaseDatum:
         read_tensor = np.vstack([ref_tensor, alt_tensor]) if ref_tensor is not None else alt_tensor
         alt_count = len(alt_tensor)
         str_info = get_str_info_array(ref_sequence_string, variant)
-        info_tensor = np.hstack([gatk_info_tensor, str_info, variant_type.one_hot_tensor().astype(DEFAULT_NUMPY_FLOAT)])
-        result = cls(read_tensor, make_1d_sequence_tensor(ref_sequence_string), alt_count, info_tensor, label, source, variant, counts_and_seq_lks)
+        info_tensor = np.hstack([gatk_info_tensor, str_info])
+        result = cls(read_tensor, make_1d_sequence_tensor(ref_sequence_string), alt_count, info_tensor, variant_type, label, source, variant, counts_and_seq_lks)
         result.set_dtype(np.float16)
         return result
 
@@ -445,11 +422,11 @@ class BaseDatum:
     def get_reads_2d(self):
         return self.reads_2d
 
-    def get_other_stuff_1d(self) -> BaseDatum1DStuff:
+    def get_1d_data(self) -> OneDimensionalData:
         return self.other_stuff
 
-    def variant_type_one_hot(self):
-        return self.other_stuff.variant_type_one_hot()
+    def get_variant_type(self) -> int:
+        return self.other_stuff.get_variant_type()
 
     def set_label(self, label: Label):
         self.label = label
@@ -518,7 +495,7 @@ def save_list_base_data(base_data: List[BaseDatum], file):
     """
     # TODO: should I combine stack these into big arrays rather than leaving them as lists of arrays?
     read_tensors = np.vstack([datum.get_reads_2d() for datum in base_data])
-    other_stuff = np.vstack([datum.get_other_stuff_1d().to_np_array() for datum in base_data])
+    other_stuff = np.vstack([datum.get_1d_data().to_np_array() for datum in base_data])
     torch.save([read_tensors, other_stuff], file)
 
 
@@ -534,12 +511,13 @@ def load_list_of_base_data(file) -> List[BaseDatum]:
     result = []
     read_start_row = 0
     for other_stuff_numpy in other_stuffs:
-        other_stuff = BaseDatum1DStuff.from_np_array(other_stuff_numpy)
+        other_stuff = OneDimensionalData.from_np_array(other_stuff_numpy)
         read_count = other_stuff.get_ref_count() + other_stuff.get_alt_count()
         read_end_row = read_start_row+read_count
 
-        base_datum = BaseDatum(reads_2d=read_tensors[read_start_row:read_end_row], ref_sequence_1d=None, alt_count=None, info_array_1d=None, label=None, source=None,
-                      variant=None, counts_and_seq_lks=None, other_stuff_override=other_stuff)
+        base_datum = BaseDatum(reads_2d=read_tensors[read_start_row:read_end_row], ref_sequence_1d=None, alt_count=None, info_array_1d=None,
+                               variant_type=None, label=None, source=None,
+                               variant=None, counts_and_seq_lks=None, one_dimensional_data_override=other_stuff)
         read_start_row = read_end_row
         result.append(base_datum)
 
@@ -565,14 +543,8 @@ class BaseBatch:
     """
 
     def __init__(self, data: List[BaseDatum]):
+        # TODO: can we get rid of this potential bottleneck (might interact really badly with multiple workers)?
         self._original_list = data
-        self.alt_counts = IntTensor([datum.alt_count for datum in data])
-        self.ref_counts = IntTensor([len(datum.reads_2d) - datum.alt_count for datum in data])
-
-        # for datum in data:
-        #    assert (datum.label() != Label.UNLABELED) == self.labeled, "Batch may not mix labeled and unlabeled"
-        #    assert len(datum.ref_tensor) == self.ref_count, "batch may not mix different ref counts"
-        #    assert len(datum.alt_tensor) == self.alt_count, "batch may not mix different alt counts"
 
         # num_classes = 5 for A, C, G, T, and deletion / insertion
         ref_alt = [torch.flatten(torch.permute(torch.nn.functional.one_hot(torch.from_numpy(np.vstack(item.get_ref_and_alt_sequences())).long(), num_classes=5), (0,2,1)), 0, 1) for item in data]    # list of 2D (2x5)xL
@@ -586,25 +558,23 @@ class BaseBatch:
         self.reads_2d = torch.from_numpy(np.vstack(list_of_ref_tensors + list_of_alt_tensors))
         self.info_2d = torch.from_numpy(np.vstack([base_datum.get_info_tensor_1d() for base_datum in data]))
 
-        # TODO: get this from the other_stuff_1d tensor
-        # labels are 1 for artifact, 0 for non-artifact
-        # also 0 for UNLABELED but that value should NEVER be used if we apply the is_labeled_mask properly
-        self.labels = FloatTensor([1.0 if item.label == Label.ARTIFACT else 0.0 for item in data])
-        self.is_labeled_mask = FloatTensor([0.0 if item.label == Label.UNLABELED else 1.0 for item in data])
+        ref_counts = IntTensor([len(datum.reads_2d) - datum.alt_count for datum in data])
+        alt_counts = IntTensor([datum.alt_count for datum in data])
+        labels = IntTensor([1 if item.label == Label.ARTIFACT else 0 for item in data])
+        is_labeled_mask = IntTensor([0 if item.label == Label.UNLABELED else 1 for item in data])
+        sources = IntTensor([item.source for item in data])
+        variant_types = IntTensor([datum.get_variant_type() for datum in data])
+        self.int_tensor = torch.vstack((ref_counts, alt_counts, labels, is_labeled_mask, sources, variant_types))
 
-        self.sources = IntTensor([item.source for item in data])
         self._size = len(data)
 
     # pin memory for all tensors that are sent to the GPU
     def pin_memory(self):
         self.ref_sequences_2d = self.ref_sequences_2d.pin_memory()
         self.reads_2d = self.reads_2d.pin_memory()
-        self.alt_counts = self.alt_counts.pin_memory()
-        self.ref_counts = self.ref_counts.pin_memory()
         self.info_2d = self.info_2d.pin_memory()
-        self.labels = self.labels.pin_memory()
-        self.is_labeled_mask = self.is_labeled_mask.pin_memory()
-        self.sources = self.sources.pin_memory()
+        self.int_tensor = self.int_tensor.pin_memory()
+
         return self
 
     def copy_to(self, device, non_blocking):
@@ -613,11 +583,7 @@ class BaseBatch:
         new_batch.ref_sequences_2d = self.ref_sequences_2d.to(device, non_blocking=non_blocking)
         new_batch.reads_2d = self.reads_2d.to(device, non_blocking=non_blocking)
         new_batch.info_2d = self.info_2d.to(device, non_blocking=non_blocking)
-        new_batch.labels = self.labels.to(device, non_blocking=non_blocking)
-        new_batch.is_labeled_mask = self.is_labeled_mask.to(device, non_blocking=non_blocking)
-        new_batch.sources = self.sources.to(device, non_blocking=non_blocking)
-        new_batch.alt_counts = self.alt_counts.to(device, non_blocking=non_blocking)
-        new_batch.ref_counts = self.ref_counts.to(device, non_blocking=non_blocking)
+        new_batch.int_tensor = self.int_tensor.to(device, non_blocking=non_blocking)
         return new_batch
 
     def original_list(self):
@@ -626,11 +592,28 @@ class BaseBatch:
     def get_reads_2d(self) -> Tensor:
         return self.reads_2d
 
+    def get_ref_counts(self) -> IntTensor:
+        return self.int_tensor[0, :]
+
     def get_alt_counts(self) -> IntTensor:
-        return self.alt_counts
+        return self.int_tensor[1, :]
+
+    # the original IntEnum format
+    def get_labels(self):
+        return self.int_tensor[2, :]
+
+    def get_training_labels(self):
+        int_enum_labels = self.get_labels()
+        return 1.0 * (int_enum_labels == Label.ARTIFACT) + 0.5 * (int_enum_labels == Label.UNLABELED)
 
     def get_is_labeled_mask(self) -> IntTensor:
-        return self.is_labeled_mask
+        return self.int_tensor[3, :]
+
+    def get_sources(self) -> IntTensor:
+        return self.int_tensor[4, :]
+
+    def get_variant_types(self) -> IntTensor:
+        return self.int_tensor[5, :]
 
     def get_info_2d(self) -> Tensor:
         return self.info_2d
@@ -641,14 +624,6 @@ class BaseBatch:
     def size(self) -> int:
         return self._size
 
-    def variant_type_one_hot(self) -> Tensor:
-        return self.info_2d[:, -len(Variation):]
-
-    # return list of variant type integer indices
-    def variant_types(self):
-        one_hot = self.variant_type_one_hot()
-        return [int(x) for x in sum([n*one_hot[:, n] for n in range(len(Variation))])]
-
 
 class ArtifactDatum:
     """
@@ -657,33 +632,36 @@ class ArtifactDatum:
         # Note: if changing any of the data fields below, make sure to modify the size_in_bytes() method below accordingly!
         assert representation.dim() == 1
         self.representation = torch.clamp(representation, MIN_FLOAT_16, MAX_FLOAT_16)
-        self.other_stuff = ArtifactDatum1DStuff(base_datum.get_other_stuff_1d())
+        self.one_dimensional_data = base_datum.get_1d_data().copy_without_ref_seq_and_info()
         self.set_dtype(np.float16)
 
     def set_dtype(self, dtype):
         self.representation = self.representation.to(torch.float16)
-        self.other_stuff.set_dtype(dtype)
+        self.one_dimensional_data.set_dtype(dtype)
 
     def get_ref_count(self) -> int:
-        return self.other_stuff.get_ref_count()
+        return self.one_dimensional_data.get_ref_count()
 
     def get_alt_count(self) -> int:
-        return self.other_stuff.get_alt_count()
+        return self.one_dimensional_data.get_alt_count()
+
+    def get_depth(self) -> int:
+        return self.one_dimensional_data.get_counts_and_seq_lks().depth
+
+    def get_variant_type(self) -> int:
+        return self.one_dimensional_data.get_variant_type()
 
     def get_label(self):
-        return self.other_stuff.get_label()
+        return self.one_dimensional_data.get_label()
 
     def get_source(self) -> int:
-        return round(self.other_stuff.get_source())
+        return self.one_dimensional_data.get_source()
 
     def size_in_bytes(self):
-        return self.representation.nbytes + self.other_stuff.nbytes
+        return self.representation.nbytes + self.one_dimensional_data.get_nbytes()
 
-    def get_other_stuff_1d(self) -> ArtifactDatum1DStuff:
-        return self.other_stuff
-
-    def variant_type_one_hot(self):
-        return self.other_stuff.variant_type_one_hot()
+    def get_1d_data(self) -> OneDimensionalData:
+        return self.one_dimensional_data
 
     def is_labeled(self):
         return self.get_label() != Label.UNLABELED
@@ -691,58 +669,60 @@ class ArtifactDatum:
 
 class ArtifactBatch:
     def __init__(self, data: List[ArtifactDatum]):
-        # note: these numpy arrays are not used in training and are never sent to the GPU
-        self.variants_array = np.vstack([d.get_other_stuff_1d().get_variant_array() for d in data])
-        self.counts_and_seq_lks_array = np.vstack([d.get_other_stuff_1d().get_counts_and_seq_lks_array() for d in data])
-
         self.representations_2d = torch.vstack([item.representation for item in data])
-        self.labels = FloatTensor([1.0 if item.get_label() == Label.ARTIFACT else 0.0 for item in data])
-
-        sources = IntTensor([item.get_source() for item in data])
-        ref_counts = IntTensor([int(item.get_ref_count()) for item in data])
-        alt_counts = IntTensor([int(item.get_alt_count()) for item in data])
-        is_labeled_mask = FloatTensor([0.0 if item.get_label() == Label.UNLABELED else 1.0 for item in data])
-        self.int_tensor = torch.vstack((sources, ref_counts, alt_counts, is_labeled_mask))
-
+        self.other_stuff_array = torch.from_numpy(np.vstack([d.get_1d_data().to_np_array() for d in data]))
         self._size = len(data)
 
-        self._variant_type_one_hot = torch.from_numpy(np.vstack([item.variant_type_one_hot() for item in data]))
-
     def get_variants(self) -> List[Variant]:
-        return [Variant.from_np_array(var_array_1d) for var_array_1d in self.variants_array]
+        relevant_cols = self.other_stuff_array[:, OneDimensionalData.VARIANT_START_IDX:OneDimensionalData.VARIANT_END_IDX].numpy()
+        return [Variant.from_np_array(var_array_1d) for var_array_1d in relevant_cols]
 
     def get_counts_and_seq_lks(self) -> List[CountsAndSeqLks]:
-        return [CountsAndSeqLks.from_np_array(var_array_1d) for var_array_1d in self.counts_and_seq_lks_array]
+        relevant_cols = self.other_stuff_array[:, OneDimensionalData.COUNTS_AND_SEQ_LKS_START_IDX:].numpy()
+        return [CountsAndSeqLks.from_np_array(var_array_1d) for var_array_1d in relevant_cols]
+
+    # get the original IntEnum format (VARIANT = 0, ARTIFACT = 1, UNLABELED = 2) labels
+    def get_labels(self) -> IntTensor:
+        return self.other_stuff_array[:, OneDimensionalData.LABEL_IDX].int()
+
+    # TODO: left off here
+    # TODO: put in some breakpoints to double-check that this works
+    # convert to the training format of 0.0 / 0.5 / 1.0 for variant / unlabeled / artifact
+    # the 0.5 for unlabeled data is reasonable but should never actually be used due to the is_labeled mask
+    def get_training_labels(self) -> FloatTensor:
+        int_enum_labels = self.get_labels()
+        return 1.0 * (int_enum_labels == Label.ARTIFACT) + 0.5 * (int_enum_labels == Label.UNLABELED)
+
+    # TODO: put in some breakpoints to double-check that this works
+    def get_is_labeled_mask(self):
+        int_enum_labels = self.get_labels()
+        return (int_enum_labels != Label.UNLABELED).int()
 
     def get_sources(self) -> IntTensor:
-        return self.int_tensor[0]
+        return self.other_stuff_array[:, OneDimensionalData.SOURCE_IDX].int()
+
+    def get_variant_types(self) -> IntTensor:
+        result = self.other_stuff_array[:, OneDimensionalData.VAR_TYPE_IDX].int()
+        return result
 
     def get_ref_counts(self) -> IntTensor:
-        return self.int_tensor[1]
+        return self.other_stuff_array[:, OneDimensionalData.REF_COUNT_IDX].int()
 
     def get_alt_counts(self) -> IntTensor:
-        return self.int_tensor[2]
-
-    def get_is_labeled_mask(self) -> IntTensor:
-        return self.int_tensor[3]
+        return self.other_stuff_array[:, OneDimensionalData.ALT_COUNT_IDX].int()
 
     # pin memory for all tensors that are sent to the GPU
     def pin_memory(self):
         self.representations_2d = self.representations_2d.pin_memory()
-        self.labels = self.labels.pin_memory()
-        self.int_tensor = self.int_tensor.pin_memory()
-        self._variant_type_one_hot = self._variant_type_one_hot.pin_memory()
+        self.other_stuff_array = self.other_stuff_array.pin_memory()
         return self
 
     def copy_to(self, device, dtype, non_blocking):
         # For all non-tensor attributes, shallow copy is sufficient
         # note that variants_array and counts_and_seq_lks_array are not used in training and are never sent to GPU
         new_batch = copy.copy(self)
-
         new_batch.representations_2d = self.representations_2d.to(device=device, dtype=dtype, non_blocking=non_blocking)
-        new_batch.labels = self.labels.to(device, dtype=dtype, non_blocking=non_blocking)
-        new_batch.int_tensor = self.int_tensor.to(device, dtype=dtype, non_blocking=non_blocking)
-        new_batch._variant_type_one_hot = self._variant_type_one_hot.to(device, dtype=dtype, non_blocking=non_blocking)
+        new_batch.other_stuff_array = self.other_stuff_array.to(device, dtype=dtype, non_blocking=non_blocking)
 
         return new_batch
 
@@ -752,10 +732,3 @@ class ArtifactBatch:
     def size(self) -> int:
         return self._size
 
-    def variant_type_one_hot(self) -> Tensor:
-        return self._variant_type_one_hot
-
-    # return list of variant type integer indices
-    def variant_types(self):
-        one_hot = self.variant_type_one_hot()
-        return [int(x) for x in sum([n * one_hot[:, n] for n in range(len(Variation))])]

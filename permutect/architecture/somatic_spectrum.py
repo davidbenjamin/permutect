@@ -75,7 +75,7 @@ class SomaticSpectrum(nn.Module):
 
         likelihoods_bk = torch.hstack((binomial_likelihoods_bk, beta_binomial_likelihoods_bk))
 
-        log_weights_k = log_softmax(self.weights_pre_softmax_k)  # these weights are normalized
+        log_weights_k = log_softmax(self.weights_pre_softmax_k, dim=-1)  # these weights are normalized
         log_weights_bk = log_weights_k.expand(batch_size, -1)
         weighted_likelihoods_bk = log_weights_bk + likelihoods_bk
 
@@ -136,7 +136,7 @@ class SomaticSpectrum(nn.Module):
 
         log_densities_fk = torch.hstack((log_gauss_fk, log_beta_fk))
 
-        log_weights_k = log_softmax(self.weights_pre_softmax_k).cpu()  # these weights are normalized
+        log_weights_k = log_softmax(self.weights_pre_softmax_k, dim=-1).cpu()  # these weights are normalized
         log_weights_fk = log_weights_k.expand(len(fractions_f), -1)
 
         log_weighted_densities_fk = log_weights_fk + log_densities_fk

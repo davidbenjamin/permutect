@@ -1,6 +1,5 @@
 import tempfile
 from argparse import Namespace
-import torch
 
 from tensorboard.backend.event_processing.event_accumulator import EventAccumulator
 from permutect import constants, utils

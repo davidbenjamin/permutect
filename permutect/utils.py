@@ -77,11 +77,6 @@ class Variation(enum.IntEnum):
     BIG_INSERTION = 3
     BIG_DELETION = 4
 
-    def one_hot_tensor(self):
-        result = np.zeros(len(Variation))
-        result[self.value] = 1
-        return result
-
     @staticmethod
     def get_type(ref_allele: str, alt_allele: str):
         diff = len(alt_allele) - len(ref_allele)
@@ -208,6 +203,20 @@ def means_over_rows(input_tensor: torch.Tensor, counts: torch.IntTensor, keepdim
     result = sums_over_rows(input_tensor, counts) / counts.view(-1, *extra_dims)
 
     return torch.repeat_interleave(result, dim=0, repeats=counts) if keepdim else result
+
+
+# given 3d tensor T_ijk and 1D index tensors I, J, K, return the 1D tensor:
+# result[n] = T[I[n], J[n], K[n]]
+def index_3d_array(tens, idx0, idx1, idx2):
+    dim0, dim1, dim2 = tens.shape
+    flattened_indices = (idx0 * dim1 * dim2) + (idx1 * dim2) + idx2
+    return tens.view(-1)[flattened_indices]
+
+
+def index_2d_array(tens, idx0, idx1):
+    dim0, dim1 = tens.shape
+    flattened_indices = (idx0 * dim1) + idx1
+    return tens.view(-1)[flattened_indices]
 
 
 # same but include a regularizer in case of zeros in the counts vector

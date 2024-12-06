@@ -47,6 +47,7 @@ class ArtifactDataset(Dataset):
             base_batch = base_batch_cpu.copy_to(base_model._device, non_blocking=is_cuda)
             with torch.inference_mode():
                 representations, _ = base_model.calculate_representations(base_batch)
+
             for representation, base_datum in zip(representations.detach().cpu(), base_batch_cpu.original_list()):
                 artifact_datum = ArtifactDatum(base_datum, representation.detach())
                 self.artifact_data.append(artifact_datum)

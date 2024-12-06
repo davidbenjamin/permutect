@@ -2,7 +2,7 @@ import math
 
 import torch
 from permutect import utils
-from torch import nn
+from torch import nn, IntTensor
 
 from permutect.metrics.plotting import simple_plot
 from permutect.utils import beta_binomial, Variation
@@ -47,43 +47,42 @@ class ArtifactSpectra(nn.Module):
         # for each component and variant type:
         # alpha = exp(alpha0_pre_exp - exp(eta_pre_exp)*sigmoid(depth * exp(delta_pre_exp)))
 
-
-
     '''
     here x is a 2D tensor, 1st dimension batch, 2nd dimension being features that determine which Beta mixture to use
     n and k are 1D tensors, the only dimension being batch.
     '''
-    def forward(self, types_one_hot_bv, depths_b, alt_counts_b):
-        alt_counts_bk = torch.unsqueeze(alt_counts_b, dim=1).expand(-1, self.K - 1)
-        depths_bk = torch.unsqueeze(depths_b, dim=1).expand(-1, self.K - 1)
-        depths_bvk = depths_bk[:, None, :]
+    def forward(self, variant_types_b: torch.IntTensor, depths_b, alt_counts_b):
+        # indexing convention: b is batch, v is variant type, k is cluster component
+        alt_counts_bk = alt_counts_b[:, None]
+        depths_bk = depths_b[:, None]
 
-        self.alpha0_pre_exp_vk
         eta_vk = torch.exp(self.eta_pre_exp_vk)
         delta_vk = torch.exp(self.delta_pre_exp_vk)
-        alpha0_pre_exp_bvk, eta_bvk, delta_bvk = self.alpha0_pre_exp_vk[None, :, :], eta_vk[None, :, :], delta_vk[None, :, :]
-        weights0_pre_softmax_bvk, gamma_bvk, kappa_bvk = self.weights0_pre_softmax_vk[None, :, :], self.gamma_vk[None, :, :], self.kappa_vk[None, :, :]
 
-        alpha_bvk = torch.exp(alpha0_pre_exp_bvk - eta_bvk * torch.sigmoid(depths_bvk * delta_bvk))
-
-        types_one_hot_bvk = torch.unsqueeze(types_one_hot_bv, dim=-1)   # gives it broadcastable length-1 component dimension
-        alpha_bk = torch.sum(types_one_hot_bvk * alpha_bvk, dim=1)  # due to one-hotness only one v contributes to the sum
+        var_types_b = variant_types_b.long()
+        alpha0_pre_exp_bk = self.alpha0_pre_exp_vk[var_types_b, :]
+        delta_bk = delta_vk[var_types_b, :]
+        eta_bk = eta_vk[var_types_b, :]
+        alpha_bk = torch.exp(alpha0_pre_exp_bk - eta_bk * torch.sigmoid(depths_bk * delta_bk))
         beta_bk = self.beta * torch.ones_like(alpha_bk)
-
         beta_binomial_likelihoods_bk = beta_binomial(depths_bk, alt_counts_bk, alpha_bk, beta_bk)
 
-        weights_pre_softmax_bvk = weights0_pre_softmax_bvk + gamma_bvk * torch.sigmoid(depths_bvk * kappa_bvk)
+        if alpha_bk.isnan().any():
+            print("NaN found in alpha_bk")
+            assert 1 < 0, "FAIL"
 
-        log_weights_bvk = torch.log_softmax(weights_pre_softmax_bvk, dim=-1)    # softmax over component dimension
-        log_weights_bk = torch.sum(types_one_hot_bvk * log_weights_bvk, dim=1)  # same idea as above
+        weights0_pre_softmax_bk = self.weights0_pre_softmax_vk[var_types_b, :]
+        gamma_bk = self.gamma_vk[var_types_b, :]
+        kappa_bk = self.kappa_vk[var_types_b, :]
+        weights_pre_softmax_bk = weights0_pre_softmax_bk + gamma_bk * torch.sigmoid(depths_bk * kappa_bk)
+        log_weights_bk = torch.log_softmax(weights_pre_softmax_bk, dim=-1)    # softmax over component dimension
 
         weighted_likelihoods_bk = log_weights_bk + beta_binomial_likelihoods_bk
-
-        result_b = torch.logsumexp(weighted_likelihoods_bk, dim=1, keepdim=False)
+        result_b = torch.logsumexp(weighted_likelihoods_bk, dim=-1, keepdim=False)
         return result_b
 
     # TODO: utter code duplication with somatic spectrum
-    def fit(self, num_epochs, types_one_hot_2d, depths_1d_tensor, alt_counts_1d_tensor, batch_size=64):
+    def fit(self, num_epochs, types_b: IntTensor, depths_1d_tensor, alt_counts_1d_tensor, batch_size=64):
         optimizer = torch.optim.Adam(self.parameters())
         num_batches = math.ceil(len(alt_counts_1d_tensor) / batch_size)
 
@@ -92,7 +91,7 @@ class ArtifactSpectra(nn.Module):
                 batch_start = batch * batch_size
                 batch_end = min(batch_start + batch_size, len(alt_counts_1d_tensor))
                 batch_slice = slice(batch_start, batch_end)
-                loss = -torch.mean(self.forward(types_one_hot_2d[batch_slice], depths_1d_tensor[batch_slice], alt_counts_1d_tensor[batch_slice]))
+                loss = -torch.mean(self.forward(types_b[batch_slice], depths_1d_tensor[batch_slice], alt_counts_1d_tensor[batch_slice]))
                 utils.backpropagate(optimizer, loss)
 
     '''

@@ -46,13 +46,9 @@ def germline_log_likelihood(afs, mafs, alt_counts, depths, het_beta=None):
     return torch.logsumexp(torch.vstack((alt_minor_ll, alt_major_ll, hom_ll)), dim=0)
 
 
-def initialize_artifact_spectra():
-    return OverdispersedBinomialMixture(input_size=len(Variation), num_components=5, max_mean=0.4, mode='gamma')
-
-
 # TODO: max_mean is hard-coded magic constant!!
 def initialize_normal_artifact_spectra():
-    return OverdispersedBinomialMixture(input_size=len(Variation), num_components=1, max_mean=0.1, mode='beta')
+    return OverdispersedBinomialMixture(num_components=1, max_mean=0.1, mode='beta')
 
 
 # this works for ArtifactSpectra and OverdispersedBinomialMixture
@@ -94,28 +90,22 @@ class PosteriorModel(torch.nn.Module):
 
         self.normal_artifact_spectra = initialize_normal_artifact_spectra()
 
-        # pre-softmax priors [log P(variant), log P(artifact), log P(seq error)] for each variant type
-        # linear layer with no bias to select the appropriate priors given one-hot variant encoding
-        # in torch linear layers the weight is indexed by out-features, then in-features, so indices are
-        # self.unnormalized_priors.weight[call type, variant type]
-        self._unnormalized_priors = torch.nn.Linear(in_features=len(Variation), out_features=len(Call), bias=False)
+        # pre-softmax priors of different call types [log P(variant), log P(artifact), log P(seq error)] for each variant type
+        self._unnormalized_priors_vc = torch.nn.Parameter(torch.ones(len(Variation), len(Call)))
         with torch.no_grad():
-            initial = torch.zeros_like(self._unnormalized_priors.weight)
-            # the following assignments are broadcast over rows; that is, each variant type gets the same prior
-            initial[Call.SOMATIC] = variant_log_prior
-            initial[Call.ARTIFACT] = artifact_log_prior
-            initial[Call.SEQ_ERROR] = 0
-            initial[Call.GERMLINE] = -9999 if self.no_germline_mode else 0
-            initial[Call.NORMAL_ARTIFACT] = artifact_log_prior
-            self._unnormalized_priors.weight.copy_(initial)
+            self._unnormalized_priors_vc[:, Call.SOMATIC] = variant_log_prior
+            self._unnormalized_priors_vc[:, Call.ARTIFACT] = artifact_log_prior
+            self._unnormalized_priors_vc[:, Call.SEQ_ERROR] = 0
+            self._unnormalized_priors_vc[:, Call.GERMLINE] = -9999 if self.no_germline_mode else 0
+            self._unnormalized_priors_vc[:, Call.NORMAL_ARTIFACT] = artifact_log_prior
 
         self.to(device=self._device, dtype=self._dtype)
 
-    def make_unnormalized_priors(self, variant_types_one_hot_2d: torch.Tensor, allele_frequencies_1d: torch.Tensor) -> torch.Tensor:
-        result = self._unnormalized_priors(variant_types_one_hot_2d.to(device=self._device, dtype=self._dtype))
-        result[:, Call.SEQ_ERROR] = 0
-        result[:, Call.GERMLINE] = -9999 if self.no_germline_mode else torch.log(1 - torch.square(1 - allele_frequencies_1d))     # 1 minus hom ref probability
-        return result   # batch size x len(CallType)
+    def make_unnormalized_priors(self, variant_types_b: torch.IntTensor, allele_frequencies_1d: torch.Tensor) -> torch.Tensor:
+        result_bc = self._unnormalized_priors_vc[variant_types_b.long(), :].to(device=self._device, dtype=self._dtype)
+        result_bc[:, Call.SEQ_ERROR] = 0
+        result_bc[:, Call.GERMLINE] = -9999 if self.no_germline_mode else torch.log(1 - torch.square(1 - allele_frequencies_1d))     # 1 minus hom ref probability
+        return result_bc   # batch size x len(CallType)
 
     def posterior_probabilities(self, batch: PosteriorBatch) -> torch.Tensor:
         """
@@ -143,20 +133,20 @@ class PosteriorModel(torch.nn.Module):
         of length batch_size.
         :return:
         """
-        types = batch.variant_type_one_hot().to(device=self._device, dtype=self._dtype)
+        variant_types = batch.get_variant_types().to(device=self._device, dtype=self._dtype)
 
         # All log likelihood/relative posterior tensors below have shape batch.size() x len(CallType)
         # spectra tensors contain the likelihood that these *particular* reads (that is, not just the read count) are alt
         # normal log likelihoods contain everything going on in the matched normal sample
         # note that the call to make_unnormalized_priors ensures that no_germline_mode works
-        log_priors = torch.nn.functional.log_softmax(self.make_unnormalized_priors(types, batch.get_allele_frequencies()), dim=1)
+        log_priors = torch.nn.functional.log_softmax(self.make_unnormalized_priors(variant_types, batch.get_allele_frequencies()), dim=1)
 
         # defined as log [ int_0^1 Binom(alt count | depth, f) df ], including the combinatorial N choose N_alt factor
         depths, alt_counts = batch.get_depths(), batch.get_alt_counts()
         normal_depths, normal_alt_counts = batch.get_normal_depths(), batch.get_normal_alt_counts()
         flat_prior_spectra_log_likelihoods = -torch.log(depths + 1)
         somatic_spectrum_log_likelihoods = self.somatic_spectrum.forward(depths, alt_counts)
-        tumor_artifact_spectrum_log_likelihood = self.artifact_spectra.forward(batch.variant_type_one_hot(), depths, alt_counts)
+        tumor_artifact_spectrum_log_likelihood = self.artifact_spectra.forward(batch.get_variant_types(), depths, alt_counts)
         spectra_log_likelihoods = torch.zeros_like(log_priors, device=self._device, dtype=self._dtype)
 
         # essentially, this corrects the TLOD from M2, computed with a flat prior, to account for the precises somatic spectrum
@@ -170,7 +160,7 @@ class PosteriorModel(torch.nn.Module):
         normal_seq_error_log_likelihoods = torch.zeros_like(alt_counts).float()
 
         for var_index, _ in enumerate(Variation):
-            mask = types[:, var_index]
+            mask = (variant_types == var_index)
             log_likelihoods_for_this_type = self.normal_seq_error_spectra[var_index].forward(normal_alt_counts, batch.get_normal_ref_counts())
             normal_seq_error_log_likelihoods += mask * log_likelihoods_for_this_type
 
@@ -180,7 +170,7 @@ class PosteriorModel(torch.nn.Module):
 
         no_alt_in_normal_mask = normal_alt_counts < 1
         normal_log_likelihoods[:, Call.NORMAL_ARTIFACT] = -9999 * no_alt_in_normal_mask + \
-            torch.logical_not(no_alt_in_normal_mask) * self.normal_artifact_spectra.forward(types, normal_depths, normal_alt_counts)
+            torch.logical_not(no_alt_in_normal_mask) * self.normal_artifact_spectra.forward(variant_types, normal_depths, normal_alt_counts)
 
         afs = batch.get_allele_frequencies()
         spectra_log_likelihoods[:, Call.GERMLINE] = germline_log_likelihood(afs, batch.get_mafs(), alt_counts, depths, self.het_beta) - flat_prior_spectra_log_likelihoods
@@ -216,7 +206,7 @@ class PosteriorModel(torch.nn.Module):
         :return:
         """
         spectra_and_prior_params = chain(self.somatic_spectrum.parameters(), self.artifact_spectra.parameters(),
-                                         self._unnormalized_priors.parameters(), self.normal_seq_error_spectra.parameters(),
+                                         [self._unnormalized_priors_vc], self.normal_seq_error_spectra.parameters(),
                                          self.normal_artifact_spectra.parameters())
         optimizer = torch.optim.Adam(spectra_and_prior_params, lr=learning_rate)
 
@@ -228,9 +218,10 @@ class PosteriorModel(torch.nn.Module):
             posteriors_lbc = []
             alt_counts_lb = []
             depths_lb = []
-            types_lbt = []
+            types_lb = []
 
             pbar = tqdm(enumerate(posterior_loader), mininterval=10)
+            batch_cpu: PosteriorBatch
             for n, batch_cpu in pbar:
                 batch = batch_cpu.copy_to(self._device, self._dtype, non_blocking=self._device.type == 'cuda')
                 relative_posteriors = self.log_relative_posteriors(batch)
@@ -239,7 +230,7 @@ class PosteriorModel(torch.nn.Module):
                 posteriors_lbc.append(torch.softmax(relative_posteriors, dim=-1).detach())
                 alt_counts_lb.append(batch.get_alt_counts().detach())
                 depths_lb.append(batch.get_depths().detach())
-                types_lbt.append(batch.variant_type_one_hot().detach())
+                types_lb.append(batch.get_variant_types().detach())
 
                 confidence_mask = torch.abs(batch.get_artifact_logits()) > 3.0
                 #loss = -torch.mean(confidence_mask * log_evidence)
@@ -249,8 +240,8 @@ class PosteriorModel(torch.nn.Module):
                 # however, we must sum over variant types since each ignored site is simultaneously a missing non-SNV,
                 # a missing non-INSERTION etc
                 # we use a germline allele frequency of 0.001 for the missing sites but it doesn't really matter
-                for variant_type in Variation:
-                    log_priors = torch.nn.functional.log_softmax(self.make_unnormalized_priors(torch.from_numpy(variant_type.one_hot_tensor()).to(device=self._device, dtype=self._dtype).unsqueeze(dim=0), torch.tensor([0.001], device=self._device)), dim=1)
+                for var_type_idx, variant_type in enumerate(Variation):
+                    log_priors = torch.nn.functional.log_softmax(self.make_unnormalized_priors(torch.LongTensor([var_type_idx]).to(device=self._device, dtype=self._dtype), torch.tensor([0.001], device=self._device)), dim=1)
                     log_seq_error_prior = log_priors.squeeze()[Call.SEQ_ERROR]
                     missing_loss = -ignored_to_non_ignored_ratio * log_seq_error_prior  
                     loss += missing_loss
@@ -264,11 +255,10 @@ class PosteriorModel(torch.nn.Module):
             posteriors_nc = torch.vstack(posteriors_lbc)
             alt_counts_n = torch.hstack(alt_counts_lb)
             depths_n = torch.hstack(depths_lb)
-            types_nt = torch.vstack(types_lbt)
+            types_n = torch.hstack(types_lb)
 
-            self.update_priors_m_step(posteriors_nc, types_nt, ignored_to_non_ignored_ratio)
+            self.update_priors_m_step(posteriors_nc, types_n, ignored_to_non_ignored_ratio)
             self.somatic_spectrum.update_m_step(posteriors_nc[:, Call.SOMATIC], alt_counts_n, depths_n)
-
 
             if summary_writer is not None:
                 summary_writer.add_scalar("spectrum negative log evidence", epoch_loss.get(), epoch)
@@ -295,8 +285,8 @@ class PosteriorModel(torch.nn.Module):
 
                 # bar plot of log priors -- data is indexed by call type name, and x ticks are variant types
                 log_prior_bar_plot_data = defaultdict(list)
-                for variant_type in Variation:
-                    log_priors = torch.nn.functional.log_softmax(self.make_unnormalized_priors(torch.from_numpy(variant_type.one_hot_tensor()).to(device=self._device, dtype=self._dtype).unsqueeze(dim=0), torch.Tensor([0.001])), dim=1)
+                for var_type_idx, variant_type in enumerate(Variation):
+                    log_priors = torch.nn.functional.log_softmax(self.make_unnormalized_priors(torch.LongTensor([var_type_idx]).to(device=self._device, dtype=self._dtype), torch.Tensor([0.001])), dim=-1)
                     log_priors_cpu = log_priors.squeeze().detach().cpu()
                     for call_type in (Call.SOMATIC, Call.ARTIFACT, Call.NORMAL_ARTIFACT):
                         log_prior_bar_plot_data[call_type.name].append(log_priors_cpu[call_type])
@@ -354,8 +344,7 @@ class PosteriorModel(torch.nn.Module):
 
         return thresholds_by_type
 
-
-    def update_priors_m_step(self, posteriors_nc, types_nt, ignored_to_non_ignored_ratio):
+    def update_priors_m_step(self, posteriors_nc, types_n, ignored_to_non_ignored_ratio):
         # update the priors in an EM-style M step.  We'll need the counts of each call type vs variant type
         total_nonignored = torch.sum(posteriors_nc).item()
         total_ignored = ignored_to_non_ignored_ratio * total_nonignored
@@ -368,11 +357,11 @@ class PosteriorModel(torch.nn.Module):
                 posteriors_n = posteriors_nc[:, c]
 
                 for t, var_type in enumerate(Variation):
-                    var_type_mask = types_nt[:, t]
+                    var_type_mask = (types_n == t)
                     total_for_this_call_and_var_type = torch.sum(posteriors_n * var_type_mask)
 
-                    self._unnormalized_priors.weight[c, t] = torch.log(
+                    self._unnormalized_priors_vc[t, c] = torch.log(
                         total_for_this_call_and_var_type / (total_for_this_call_and_var_type + overall_total)).item()
 
-            self._unnormalized_priors.weight[Call.SEQ_ERROR] = 0
-            self._unnormalized_priors.weight[Call.GERMLINE] = -9999 if self.no_germline_mode else 0
+            self._unnormalized_priors_vc[:, Call.SEQ_ERROR] = 0
+            self._unnormalized_priors_vc[:, Call.GERMLINE] = -9999 if self.no_germline_mode else 0

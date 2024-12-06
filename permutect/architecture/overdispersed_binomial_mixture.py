@@ -13,8 +13,7 @@ from permutect.utils import beta_binomial, gamma_binomial, binomial, Variation
 
 class OverdispersedBinomialMixture(nn.Module):
     """
-    This model takes in 2D tensor inputs (1st dimension is batch, 2nd is a feature vector that in practice is one-hot
-    encoding of variant type) and as a function of input has a Beta OR Gamma mixture model.  That is, it computes for each input
+    This model takes in 1D tensor inputs (variant type indices by batch) and as a function of input has a Beta OR Gamma mixture model.  That is, it computes for each input
     vector 1) a vector of mixture component weights 2) a vector of the alpha shape parameters of each component and 3) a
     vector of beta shape parameters of each component.  Due to batching these are all represented as 2D tensors.
 
@@ -44,109 +43,74 @@ class OverdispersedBinomialMixture(nn.Module):
     That is, each component is a plain binomial, though of course by virtue of being a mixture the distribution as a whole is overdispersed.
     """
 
-    def __init__(self, input_size: int, num_components: int, max_mean: float = 1, mode: str = 'beta', hidden_layers: List[int] = []):
+    def __init__(self, num_components: int, max_mean: float = 1, mode: str = 'beta'):
         super(OverdispersedBinomialMixture, self).__init__()
         self.mode = mode
-        self.num_components = num_components
-        self.input_size = input_size
+        self.K = num_components
+        self.V = len(Variation)
         self.max_mean = max_mean
 
-        self.weights_pre_softmax = MLP(layer_sizes=[input_size] + hidden_layers + [num_components])
-        self.mean_pre_sigmoid = MLP(layer_sizes=[input_size] + hidden_layers + [num_components])
+        # parameters for each component and variant type:
+        self.weights_pre_softmax_vk = torch.nn.Parameter(torch.ones(self.V, self.K))
+        self.mean_pre_sigmoid_vk = torch.nn.Parameter(torch.randn(self.V, self.K))
+        self.concentration_pre_sigmoid_vk = torch.nn.Parameter(torch.randn(self.V, self.K))
         self.max_concentration = torch.nn.Parameter(torch.tensor(50.0))
-        self.concentration_pre_sigmoid = MLP(layer_sizes=[input_size] + hidden_layers + [num_components])
-
-        # TODO: replace this now that we use MLP instead of linear?
-        # the kth column of weights corresponds to the kth index of input = 1 and other inputs = 0
-        # we are going to manually initialize to equal weights -- all zeroes
-        # the alphas and betas will be equally spaced Beta distributions, for example, each column of alpha would be
-        # 1, 11, 21, 31, 41, 51 and each column of beta would be 51, 41, 31, 21, 11, 1
-        #with torch.no_grad():
-        #    self.weights_pre_softmax.weight.copy_(torch.zeros_like(self.weights_pre_softmax.weight))
-        #    self.concentration_pre_exp.weight.copy_(
-        #        torch.log(10 * num_components * torch.ones_like(self.concentration_pre_exp.weight)))
-        #    self.set_means((0.5 + torch.arange(num_components)) / num_components)
-
-    # TODO: replace this now that we use MLP instead of linear?
-    #def set_means(self, means):
-    #    assert len(means) == self.num_components
-    #    each_mean_col_pre_sigmoid = torch.log(means / (1 - means))
-    #    repeated_mean_cols = torch.hstack(self.input_size * [each_mean_col_pre_sigmoid.unsqueeze(dim=1)])
-    #    with torch.no_grad():
-    #        self.mean_pre_sigmoid.weight.copy_(repeated_mean_cols)
-
-    def set_weights(self, weights):
-        assert len(weights) == self.num_components
-        pre_softmax_weights = torch.log(weights)
-        repeated = torch.hstack(self.input_size * [pre_softmax_weights.unsqueeze(dim=1)])
-        with torch.no_grad():
-            self.weights_pre_softmax.weight.copy_(repeated)
 
     '''
     here x is a 2D tensor, 1st dimension batch, 2nd dimension being features that determine which Beta mixture to use
     n and k are 1D tensors, the only dimension being batch.
     '''
-    def forward(self, x, n, k):
-        assert x.dim() == 2
-        assert n.size() == k.size()
-        assert len(x) == len(n)
-        assert x.size()[1] == self.input_size
-
-        log_weights = log_softmax(self.weights_pre_softmax(x), dim=1)
+    def forward(self, types_b, n_b, k_b):
+        types_idx = types_b.long()
+        log_weights_bk = log_softmax(self.weights_pre_softmax_vk[types_idx, :], dim=-1)
 
         # we make them 2D, with 1st dim batch, to match alpha and beta.  A single column is OK because the single value of
         # n/k are broadcast over all mixture components
-        n_2d = unsqueeze(n, dim=1)
-        k_2d = unsqueeze(k, dim=1)
+        n_bk = n_b[:, None]
+        k_bk = k_b[:, None]
 
         # 2D tensors -- 1st dim batch, 2nd dim mixture component
-        means = self.max_mean * torch.sigmoid(self.mean_pre_sigmoid(x))
-        concentrations = self.get_concentration(x)
+        mean_bk = self.max_mean * torch.sigmoid(self.mean_pre_sigmoid_vk[types_idx, :])
+        concentration_bk = self.get_concentration(types_b)
 
         if self.mode == 'beta':
-            alphas = means * concentrations
-            betas = (1 - means) * concentrations
-            log_component_likelihoods = beta_binomial(n_2d, k_2d, alphas, betas)
+            alpha_bk = mean_bk * concentration_bk
+            beta_bk = (1 - mean_bk) * concentration_bk
+            log_likelihoods_bk = beta_binomial(n_bk, k_bk, alpha_bk, beta_bk)
         elif self.mode == 'gamma':
-            alphas = means * concentrations
-            betas = concentrations
-            log_component_likelihoods = gamma_binomial(n_2d, k_2d, alphas, betas)
+            alpha_bk = mean_bk * concentration_bk
+            beta_bk = concentration_bk
+            log_likelihoods_bk = gamma_binomial(n_bk, k_bk, alpha_bk, beta_bk)
         elif self.mode == 'none':
             # each mean is the center of a binomial
-            log_component_likelihoods = binomial(n_2d, k_2d, means)
+            log_likelihoods_bk = binomial(n_bk, k_bk, mean_bk)
         else:
             raise Exception("we don't have that kind of mode!")
 
-        log_weighted_component_likelihoods = log_weights + log_component_likelihoods
+        log_weighted_likelihoods_bk = log_weights_bk + log_likelihoods_bk
 
         # yields one number per batch, squeezed into 1D output tensor
-        return logsumexp(log_weighted_component_likelihoods, dim=1, keepdim=False)
+        return logsumexp(log_weighted_likelihoods_bk, dim=-1, keepdim=False)
 
-    def get_concentration(self, input_2d):
-        return self.max_concentration * torch.sigmoid(self.concentration_pre_sigmoid(input_2d))
+    def get_concentration(self, types_b):
+        return self.max_concentration * torch.sigmoid(self.concentration_pre_sigmoid_vk[types_b.long(),:])
 
     # given 1D input tensor, return 1D tensors of component alphas and betas
-    def component_shapes(self, input_1d):
-        assert input_1d.dim() == 1
+    def component_shapes(self, var_type: int):
+        means_k = self.max_mean * torch.sigmoid(self.mean_pre_sigmoid_vk[var_type])
+        concentrations_k = self.max_concentration * torch.sigmoid(self.concentration_pre_sigmoid_vk[var_type])
+        alphas_k = means_k * concentrations_k
+        betas_k = (1 - means_k) * concentrations_k if self.mode == 'beta' else concentrations_k
+        return alphas_k, betas_k
 
-        input_2d = input_1d.unsqueeze(dim=0)
-        means = self.max_mean * torch.sigmoid(self.mean_pre_sigmoid(input_2d)).squeeze()
-        concentrations = self.get_concentration(input_2d).squeeze()
-        alphas = means * concentrations
-        betas = (1 - means) * concentrations if self.mode == 'beta' else concentrations
-        return alphas, betas
+    def component_weights(self, var_type: int):
+        return softmax(self.weights_pre_softmax_vk[var_type], dim=-1)
 
-    def component_weights(self, input_1d):
-        assert input_1d.dim() == 1
-        input_2d = input_1d.unsqueeze(dim=0)
-        return softmax(self.weights_pre_softmax(input_2d), dim=1).squeeze()
-
-    # given 1D input tensor, return the moments E[x], E[ln(x)], and E[x ln(x)] of the underlying beta mixture
-    def moments_of_underlying_beta_mixture(self, input_1d):
-        assert input_1d.dim() == 1
+    # given variant type, return the moments E[x], E[ln(x)], and E[x ln(x)] of the underlying beta mixture
+    def moments_of_underlying_beta_mixture(self, var_type: int):
         assert self.mode == 'beta'
-        alphas, betas = self.component_shapes(input_1d)
-        weights = self.component_weights(input_1d)
+        alphas, betas = self.component_shapes(var_type)
+        weights = self.component_weights(var_type)
 
         # E[x]
         component_means = alphas / (alphas + betas)
@@ -167,20 +131,15 @@ class OverdispersedBinomialMixture(nn.Module):
     here x is a 2D tensor, 1st dimension batch, 2nd dimension being features that determine which Beta mixture to use
     n is a 1D tensor, the only dimension being batch, and we sample a 1D tensor of k's
     '''
-    def sample(self, x, n):
-        assert x.dim() == 2
-        assert x.size()[1] == self.input_size
-        assert n.dim() == 1
-        assert len(x) == len(n)
-
+    def sample(self, types_b, n):
         # compute weights and select one mixture component from the corresponding multinomial for each datum / row
-        weights = softmax(self.weights_pre_softmax(x).detach(), dim=1)  # 2D tensor
+        weights = softmax(self.weights_pre_softmax_vk[types_b, :], dim=-1)
         component_indices = torch.multinomial(weights, num_samples=1, replacement=True)  # 2D tensor with one column
 
         # get 1D tensors of one selected alpha and beta shape parameter per datum / row, then sample a fraction from each
         # It may be very wasteful computing everything and only using one component, but this is just for unit testing
-        means = self.max_mean * torch.sigmoid(self.mean_pre_sigmoid(x).detach()).gather(dim=1, index=component_indices).squeeze()
-        concentrations = self.get_concentration(x).detach().gather(dim=1, index=component_indices).squeeze()
+        means = self.max_mean * torch.sigmoid(self.mean_pre_sigmoid_vk[types_b, :].detach()).gather(dim=1, index=component_indices).squeeze()
+        concentrations = self.get_concentration(types_b).detach().gather(dim=1, index=component_indices).squeeze()
         alphas = means * concentrations
         betas = (1 - means) * concentrations if self.mode == 'beta' else concentrations
         dist = torch.distributions.beta.Beta(alphas, betas) if self.mode == 'beta' else torch.distributions.gamma.Gamma(alphas, betas)
@@ -189,12 +148,7 @@ class OverdispersedBinomialMixture(nn.Module):
         # recall, n and fractions are 1D tensors; result is also 1D tensor, one "success" count per datum
         return torch.distributions.binomial.Binomial(total_count=n, probs=fractions).sample()
 
-    def fit(self, num_epochs, inputs_2d_tensor, depths_1d_tensor, alt_counts_1d_tensor, batch_size=64):
-        assert inputs_2d_tensor.dim() == 2
-        assert depths_1d_tensor.dim() == 1
-        assert alt_counts_1d_tensor.dim() == 1
-        assert len(depths_1d_tensor) == len(alt_counts_1d_tensor)
-
+    def fit(self, num_epochs, types_b, depths_1d_tensor, alt_counts_1d_tensor, batch_size=64):
         optimizer = torch.optim.Adam(self.parameters())
         num_batches = math.ceil(len(alt_counts_1d_tensor) / batch_size)
 
@@ -203,7 +157,7 @@ class OverdispersedBinomialMixture(nn.Module):
                 batch_start = batch * batch_size
                 batch_end = min(batch_start + batch_size, len(alt_counts_1d_tensor))
                 batch_slice = slice(batch_start, batch_end)
-                loss = -torch.mean(self.forward(inputs_2d_tensor[batch_slice], depths_1d_tensor[batch_slice],
+                loss = -torch.mean(self.forward(types_b[batch_slice], depths_1d_tensor[batch_slice],
                                                 alt_counts_1d_tensor[batch_slice]))
                 utils.backpropagate(optimizer, loss)
 
@@ -212,32 +166,30 @@ class OverdispersedBinomialMixture(nn.Module):
     here x is a 1D tensor, a single datum/row of the 2D tensors as above
     '''
     def spectrum_density_vs_fraction(self, variant_type: Variation, depth: int):
-        device = next(self.mean_pre_sigmoid.parameters()).device
+        # device = self.mean_pre_sigmoid_vk.device
         fractions = torch.arange(0.01, 0.99, 0.001)  # 1D tensor on CPU
-        x = torch.from_numpy(variant_type.one_hot_tensor()).float().to(device)
 
-        unsqueezed = x.unsqueeze(dim=0)  # this and the three following tensors are 2D tensors with one row
-        log_weights = log_softmax(self.weights_pre_softmax(unsqueezed).detach(), dim=1).cpu()
-        means = self.max_mean * torch.sigmoid(self.mean_pre_sigmoid(unsqueezed).detach()).cpu()
+        log_weights_k = log_softmax(self.weights_pre_softmax_vk[variant_type].detach(), dim=-1).cpu()
+        means_k = self.max_mean * torch.sigmoid(self.mean_pre_sigmoid_vk[variant_type].detach()).cpu()
 
         # now we're on CPU
         if self.mode == 'none':
             # this is copied from the beta case below -- basically we smear each delta function / discrete binomial
             # into a narrow Gaussian
-            dist = torch.distributions.normal.Normal(means, 0.01 * torch.ones_like(means))
-            densities = exp(torch.logsumexp(log_weights + dist.log_prob(fractions.unsqueeze(dim=1)), dim=1,
+            dist = torch.distributions.normal.Normal(means_k, 0.01 * torch.ones_like(means_k))
+            densities = exp(torch.logsumexp(log_weights_k + dist.log_prob(fractions.unsqueeze(dim=1)), dim=1,
                                             keepdim=False))  # 1D tensor
             return fractions, densities
         else:
-            concentrations = self.get_concentration(unsqueezed).detach().cpu()
-            alphas = means * concentrations
-            betas = (1 - means) * concentrations if self.mode == 'beta' else concentrations
+            concentrations_k = self.max_concentration.cpu() * torch.sigmoid(self.concentration_pre_sigmoid_vk[variant_type]).detach().cpu()
+            alphas_k = means_k * concentrations_k
+            betas_k = (1 - means_k) * concentrations_k if self.mode == 'beta' else concentrations_k
 
             # since f.unsqueeze(dim=1) is 2D column vector, log_prob produces 2D tensor where row index is f and column index is mixture component
             # adding the single-row 2D tensor log_weights broadcasts to each row / value of f
             # then we apply log_sum_exp, dim= 1, to sum over components and get a log_density for each f
-            dist = torch.distributions.beta.Beta(alphas, betas) if self.mode == 'beta' else torch.distributions.gamma.Gamma(alphas, betas)
-            densities = exp(torch.logsumexp(log_weights + dist.log_prob(fractions.unsqueeze(dim=1)), dim=1, keepdim=False))  # 1D tensor
+            dist = torch.distributions.beta.Beta(alphas_k, betas_k) if self.mode == 'beta' else torch.distributions.gamma.Gamma(alphas_k, betas_k)
+            densities = exp(torch.logsumexp(log_weights_k + dist.log_prob(fractions.unsqueeze(dim=1)), dim=1, keepdim=False))  # 1D tensor
 
             return fractions, densities
 
