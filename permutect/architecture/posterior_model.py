@@ -99,12 +99,10 @@ class PosteriorModel(torch.nn.Module):
             self._unnormalized_priors_vc[:, Call.GERMLINE] = -9999 if self.no_germline_mode else 0
             self._unnormalized_priors_vc[:, Call.NORMAL_ARTIFACT] = artifact_log_prior
 
-        self._unnormalized_priors = torch.nn.Linear(in_features=len(Variation), out_features=len(Call), bias=False)
         self.to(device=self._device, dtype=self._dtype)
 
-    # TODO: make this work for 1D variant types, not one hot encoding!!!!
     def make_unnormalized_priors(self, variant_types_b: torch.IntTensor, allele_frequencies_1d: torch.Tensor) -> torch.Tensor:
-        result_bc = self._unnormalized_priors_vc[variant_types_b, :].to(device=self._device, dtype=self._dtype)
+        result_bc = self._unnormalized_priors_vc[variant_types_b.long(), :].to(device=self._device, dtype=self._dtype)
         result_bc[:, Call.SEQ_ERROR] = 0
         result_bc[:, Call.GERMLINE] = -9999 if self.no_germline_mode else torch.log(1 - torch.square(1 - allele_frequencies_1d))     # 1 minus hom ref probability
         return result_bc   # batch size x len(CallType)
@@ -208,7 +206,7 @@ class PosteriorModel(torch.nn.Module):
         :return:
         """
         spectra_and_prior_params = chain(self.somatic_spectrum.parameters(), self.artifact_spectra.parameters(),
-                                         self._unnormalized_priors.parameters(), self.normal_seq_error_spectra.parameters(),
+                                         [self._unnormalized_priors_vc], self.normal_seq_error_spectra.parameters(),
                                          self.normal_artifact_spectra.parameters())
         optimizer = torch.optim.Adam(spectra_and_prior_params, lr=learning_rate)
 
@@ -243,7 +241,7 @@ class PosteriorModel(torch.nn.Module):
                 # a missing non-INSERTION etc
                 # we use a germline allele frequency of 0.001 for the missing sites but it doesn't really matter
                 for var_type_idx, variant_type in enumerate(Variation):
-                    log_priors = torch.nn.functional.log_softmax(self.make_unnormalized_priors(torch.LongTensor([var_type_idx]).to(device=self._device, dtype=self._dtype).unsqueeze(dim=0), torch.tensor([0.001], device=self._device)), dim=1)
+                    log_priors = torch.nn.functional.log_softmax(self.make_unnormalized_priors(torch.LongTensor([var_type_idx]).to(device=self._device, dtype=self._dtype), torch.tensor([0.001], device=self._device)), dim=1)
                     log_seq_error_prior = log_priors.squeeze()[Call.SEQ_ERROR]
                     missing_loss = -ignored_to_non_ignored_ratio * log_seq_error_prior  
                     loss += missing_loss
@@ -288,7 +286,7 @@ class PosteriorModel(torch.nn.Module):
                 # bar plot of log priors -- data is indexed by call type name, and x ticks are variant types
                 log_prior_bar_plot_data = defaultdict(list)
                 for var_type_idx, variant_type in enumerate(Variation):
-                    log_priors = torch.nn.functional.log_softmax(self.make_unnormalized_priors(torch.LongTensor([var_type_idx]).to(device=self._device, dtype=self._dtype).unsqueeze(dim=0), torch.Tensor([0.001])), dim=1)
+                    log_priors = torch.nn.functional.log_softmax(self.make_unnormalized_priors(torch.LongTensor([var_type_idx]).to(device=self._device, dtype=self._dtype), torch.Tensor([0.001])), dim=-1)
                     log_priors_cpu = log_priors.squeeze().detach().cpu()
                     for call_type in (Call.SOMATIC, Call.ARTIFACT, Call.NORMAL_ARTIFACT):
                         log_prior_bar_plot_data[call_type.name].append(log_priors_cpu[call_type])
@@ -362,8 +360,8 @@ class PosteriorModel(torch.nn.Module):
                     var_type_mask = (types_n == t)
                     total_for_this_call_and_var_type = torch.sum(posteriors_n * var_type_mask)
 
-                    self._unnormalized_priors.weight[c, t] = torch.log(
+                    self._unnormalized_priors_vc[t, c] = torch.log(
                         total_for_this_call_and_var_type / (total_for_this_call_and_var_type + overall_total)).item()
 
-            self._unnormalized_priors.weight[Call.SEQ_ERROR] = 0
-            self._unnormalized_priors.weight[Call.GERMLINE] = -9999 if self.no_germline_mode else 0
+            self._unnormalized_priors_vc[:, Call.SEQ_ERROR] = 0
+            self._unnormalized_priors_vc[:, Call.GERMLINE] = -9999 if self.no_germline_mode else 0

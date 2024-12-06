@@ -61,7 +61,8 @@ class OverdispersedBinomialMixture(nn.Module):
     n and k are 1D tensors, the only dimension being batch.
     '''
     def forward(self, types_b, n_b, k_b):
-        log_weights_bk = log_softmax(self.weights_pre_softmax_vk[types_b, :], dim=-1)
+        types_idx = types_b.long()
+        log_weights_bk = log_softmax(self.weights_pre_softmax_vk[types_idx, :], dim=-1)
 
         # we make them 2D, with 1st dim batch, to match alpha and beta.  A single column is OK because the single value of
         # n/k are broadcast over all mixture components
@@ -69,7 +70,7 @@ class OverdispersedBinomialMixture(nn.Module):
         k_bk = k_b[:, None]
 
         # 2D tensors -- 1st dim batch, 2nd dim mixture component
-        mean_bk = self.max_mean * torch.sigmoid(self.mean_pre_sigmoid_vk[types_b, :])
+        mean_bk = self.max_mean * torch.sigmoid(self.mean_pre_sigmoid_vk[types_idx, :])
         concentration_bk = self.get_concentration(types_b)
 
         if self.mode == 'beta':
@@ -92,7 +93,7 @@ class OverdispersedBinomialMixture(nn.Module):
         return logsumexp(log_weighted_likelihoods_bk, dim=-1, keepdim=False)
 
     def get_concentration(self, types_b):
-        return self.max_concentration * torch.sigmoid(self.concentration_pre_sigmoid_vk[types_b,:])
+        return self.max_concentration * torch.sigmoid(self.concentration_pre_sigmoid_vk[types_b.long(),:])
 
     # given 1D input tensor, return 1D tensors of component alphas and betas
     def component_shapes(self, var_type: int):
@@ -165,10 +166,10 @@ class OverdispersedBinomialMixture(nn.Module):
     here x is a 1D tensor, a single datum/row of the 2D tensors as above
     '''
     def spectrum_density_vs_fraction(self, variant_type: Variation, depth: int):
-        device = next(self.mean_pre_sigmoid.parameters()).device
+        # device = self.mean_pre_sigmoid_vk.device
         fractions = torch.arange(0.01, 0.99, 0.001)  # 1D tensor on CPU
 
-        log_weights_k = log_softmax(self.weights_pre_softmax_vk[variant_type].detach(), dim=1).cpu()
+        log_weights_k = log_softmax(self.weights_pre_softmax_vk[variant_type].detach(), dim=-1).cpu()
         means_k = self.max_mean * torch.sigmoid(self.mean_pre_sigmoid_vk[variant_type].detach()).cpu()
 
         # now we're on CPU

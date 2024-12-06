@@ -1,6 +1,5 @@
 import argparse
 
-import numpy as np
 import psutil
 import torch
 from torch.utils.tensorboard import SummaryWriter
