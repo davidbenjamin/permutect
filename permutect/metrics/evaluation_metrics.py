@@ -164,6 +164,13 @@ class EvaluationMetricsForOneEpochType:
         # variant type, count -> (predicted logit, actual label)
         self.roc_data_by_cnt = {var_type: [[] for _ in range(NUM_COUNT_BINS)] for var_type in Variation}
 
+    # TODO: input should be the integer Label, not the float training_label, in order to accoutn for UNLABELED training data
+    # TODO: We should use Label instead of Call for indexing acc_vs_cnt
+    # TODO: add data for a grid of histograms or density plots of logits -- rows are count bins, columns are variant types -- where
+    # TODO: each plot contains the density for artifacts, variants, and unlabeled for each source.  Within the source, the three
+    # TODO: plots have the sae color, but hopefully different locations
+    # TODO: this requires that we have data indexed by variant type, count bin index, label, and source -- within these four indices
+    # TODO: is just a list of artifact logits
     # Variant is an IntEnum, so variant_type can also be integer
     # label is 1 for artifact / error; 0 for non-artifact / true variant
     # correct_call is boolean -- was the prediction correct?
