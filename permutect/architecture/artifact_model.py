@@ -396,7 +396,7 @@ class ArtifactModel(nn.Module):
                 correct = ((pred > 0) == (labels > 0.5)).tolist()
 
                 for variant_type, predicted_logit, source, label, is_labeled, correct_call, alt_count, variant, weight in zip(
-                        batch_cpu.get_variant_types().tolist(), pred.tolist(), batch.get_sources().tolist(), labels.tolist(), batch_cpu.get_is_labeled_mask().tolist(), correct,
+                        batch_cpu.get_variant_types().tolist(), pred.tolist(), batch.get_sources().tolist(), batch_cpu.get_labels().tolist(), batch_cpu.get_is_labeled_mask().tolist(), correct,
                         batch_cpu.get_alt_counts().tolist(), batch_cpu.get_variants(), weights.tolist()):
                     if is_labeled < 0.5:    # we only evaluate labeled data
                         continue

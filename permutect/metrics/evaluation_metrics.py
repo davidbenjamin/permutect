@@ -9,7 +9,7 @@ from torch.utils.tensorboard import SummaryWriter
 
 from permutect.data.base_datum import BaseBatch, ArtifactBatch
 from permutect.metrics import plotting
-from permutect.utils import Variation, Call, Epoch, StreamingAverage
+from permutect.utils import Variation, Call, Epoch, StreamingAverage, Label
 
 MAX_COUNT = 18  # counts above this will be truncated
 MAX_LOGIT = 15
@@ -154,7 +154,7 @@ class EvaluationMetricsForOneEpochType:
         self.acc_vs_logit_all_counts = {
             var_type: [StreamingAverage() for _ in range(2 * MAX_LOGIT + 1)] for var_type in Variation}
 
-        # indexed by variant type, then call type (artifact vs variant), then count bin
+        # indexed by variant type, then Label (artifact vs variant), then count bin
         self.acc_vs_cnt = {var_type: defaultdict(lambda: [StreamingAverage() for _ in range(NUM_COUNT_BINS)]) for
                       var_type in Variation}
 
@@ -175,14 +175,16 @@ class EvaluationMetricsForOneEpochType:
     # label is 1 for artifact / error; 0 for non-artifact / true variant
     # correct_call is boolean -- was the prediction correct?
     # the predicted logit is the logit corresponding to the predicted probability that call in question is an artifact / error
-    def record_call(self, variant_type: Variation, predicted_logit: float, label: float, correct_call, alt_count: int, weight: float = 1.0, source: int = 0):
+    def record_call(self, variant_type: Variation, predicted_logit: float, label: Label, correct_call, alt_count: int, weight: float = 1.0, source: int = 0):
         count_bin_index = multiple_of_three_bin_index(min(MAX_COUNT, alt_count))
-        self.acc_vs_cnt[variant_type][Call.SOMATIC if label < 0.5 else Call.ARTIFACT][count_bin_index].record(correct_call, weight)
-        self.acc_vs_logit[variant_type][count_bin_index][logit_to_bin(predicted_logit)].record(correct_call, weight)
-        self.acc_vs_logit_all_counts[variant_type][logit_to_bin(predicted_logit)].record(correct_call, weight)
+        if label != Label.UNLABELED:
+            self.acc_vs_cnt[variant_type][label][count_bin_index].record(correct_call, weight)
+            self.acc_vs_logit[variant_type][count_bin_index][logit_to_bin(predicted_logit)].record(correct_call, weight)
+            self.acc_vs_logit_all_counts[variant_type][logit_to_bin(predicted_logit)].record(correct_call, weight)
 
-        self.roc_data[variant_type].append((predicted_logit, label))
-        self.roc_data_by_cnt[variant_type][count_bin_index].append((predicted_logit, label))
+            float_label = (1.0 if label == Label.ARTIFACT else 0.0)
+            self.roc_data[variant_type].append((predicted_logit, float_label))
+            self.roc_data_by_cnt[variant_type][count_bin_index].append((predicted_logit, float_label))
 
     # return a list of tuples.  This outer list is over the two labels, Call.SOMATIC and Call.ARTIFACT.  Each tuple consists of
     # (list of alt counts (x axis), list of accuracies (y axis), the label)
@@ -253,10 +255,9 @@ class EvaluationMetrics:
         self.mistakes = []
 
     # Variant is an IntEnum, so variant_type can also be integer
-    # label is 1 for artifact / error; 0 for non-artifact / true variant
     # correct_call is boolean -- was the prediction correct?
     # the predicted logit is the logit corresponding to the predicted probability that call in question is an artifact / error
-    def record_call(self, epoch_type: Epoch, variant_type: Variation, predicted_logit: float, label: float, correct_call, alt_count: int, weight: float = 1.0, source: int = 0):
+    def record_call(self, epoch_type: Epoch, variant_type: Variation, predicted_logit: float, label: Label, correct_call, alt_count: int, weight: float = 1.0, source: int = 0):
         self.metrics[epoch_type].record_call(variant_type, predicted_logit, label, correct_call, alt_count, weight, source=source)
 
     # track bad calls when filtering is given an optional evaluation truth VCF
