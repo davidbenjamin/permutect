@@ -175,7 +175,7 @@ class EvaluationMetricsForOneEpochType:
     # label is 1 for artifact / error; 0 for non-artifact / true variant
     # correct_call is boolean -- was the prediction correct?
     # the predicted logit is the logit corresponding to the predicted probability that call in question is an artifact / error
-    def record_call(self, variant_type: Variation, predicted_logit: float, label: float, correct_call, alt_count: int, weight: float = 1.0):
+    def record_call(self, variant_type: Variation, predicted_logit: float, label: float, correct_call, alt_count: int, weight: float = 1.0, source: int = 0):
         count_bin_index = multiple_of_three_bin_index(min(MAX_COUNT, alt_count))
         self.acc_vs_cnt[variant_type][Call.SOMATIC if label < 0.5 else Call.ARTIFACT][count_bin_index].record(correct_call, weight)
         self.acc_vs_logit[variant_type][count_bin_index][logit_to_bin(predicted_logit)].record(correct_call, weight)
@@ -256,8 +256,8 @@ class EvaluationMetrics:
     # label is 1 for artifact / error; 0 for non-artifact / true variant
     # correct_call is boolean -- was the prediction correct?
     # the predicted logit is the logit corresponding to the predicted probability that call in question is an artifact / error
-    def record_call(self, epoch_type: Epoch, variant_type: Variation, predicted_logit: float, label: float, correct_call, alt_count: int, weight: float = 1.0):
-        self.metrics[epoch_type].record_call(variant_type, predicted_logit, label, correct_call, alt_count, weight)
+    def record_call(self, epoch_type: Epoch, variant_type: Variation, predicted_logit: float, label: float, correct_call, alt_count: int, weight: float = 1.0, source: int = 0):
+        self.metrics[epoch_type].record_call(variant_type, predicted_logit, label, correct_call, alt_count, weight, source=source)
 
     # track bad calls when filtering is given an optional evaluation truth VCF
     def record_mistake(self, posterior_result: PosteriorResult, call: Call):
