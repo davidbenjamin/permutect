@@ -224,7 +224,7 @@ class EvaluationMetricsForOneEpochType:
                     for label in different_labels:
                         line_label = f"{label.name} ({source})" if multiple_sources else label.name
 
-                        sns.kdeplot(data=np.array(plot_data[label][source]), x='artifact logit', fill=(source == 0),
+                        sns.kdeplot(data=np.array(plot_data[label][source]), fill=(source == 0),
                                     color=line_colors[label], ax=axes[row, count_bin], label=line_label)
                 axes[row, count_bin].legend()
 
