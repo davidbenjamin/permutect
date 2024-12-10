@@ -5,6 +5,7 @@ from typing import List
 import numpy as np
 import torch
 from matplotlib import pyplot as plt
+import seaborn as sns
 from torch.utils.tensorboard import SummaryWriter
 
 from permutect.data.base_datum import BaseBatch, ArtifactBatch
@@ -164,19 +165,18 @@ class EvaluationMetricsForOneEpochType:
         # variant type, count -> (predicted logit, actual label)
         self.roc_data_by_cnt = {var_type: [[] for _ in range(NUM_COUNT_BINS)] for var_type in Variation}
 
-    # TODO: input should be the integer Label, not the float training_label, in order to accoutn for UNLABELED training data
-    # TODO: We should use Label instead of Call for indexing acc_vs_cnt
-    # TODO: add data for a grid of histograms or density plots of logits -- rows are count bins, columns are variant types -- where
-    # TODO: each plot contains the density for artifacts, variants, and unlabeled for each source.  Within the source, the three
-    # TODO: plots have the sae color, but hopefully different locations
-    # TODO: this requires that we have data indexed by variant type, count bin index, label, and source -- within these four indices
-    # TODO: is just a list of artifact logits
-    # Variant is an IntEnum, so variant_type can also be integer
-    # label is 1 for artifact / error; 0 for non-artifact / true variant
+        # list of logits for histograms, by variant type, count, label, source
+        self.logit_histogram_data_vcls = {var_type: [defaultdict(lambda: defaultdict(list)) for _ in range(NUM_COUNT_BINS)] for var_type in Variation}
+
+        self.all_sources = set()
+
     # correct_call is boolean -- was the prediction correct?
     # the predicted logit is the logit corresponding to the predicted probability that call in question is an artifact / error
     def record_call(self, variant_type: Variation, predicted_logit: float, label: Label, correct_call, alt_count: int, weight: float = 1.0, source: int = 0):
         count_bin_index = multiple_of_three_bin_index(min(MAX_COUNT, alt_count))
+        self.all_sources.add(source)
+        self.logit_histogram_data_vcls[variant_type][count_bin_index][label][source].append(predicted_logit)
+
         if label != Label.UNLABELED:
             self.acc_vs_cnt[variant_type][label][count_bin_index].record(correct_call, weight)
             self.acc_vs_logit[variant_type][count_bin_index][logit_to_bin(predicted_logit)].record(correct_call, weight)
@@ -207,6 +207,31 @@ class EvaluationMetricsForOneEpochType:
                                          non_empty_logit_bins[count_idx]],
                                         str(multiple_of_three_bin_index_to_count(count_idx))) for count_idx in
                                        range(NUM_COUNT_BINS)]
+
+    def make_logit_histograms(self):
+        fig, axes = plt.subplots(len(Variation), NUM_COUNT_BINS, sharex='all', sharey='all', squeeze=False)
+
+        multiple_sources = len(self.all_sources) > 1
+        line_colors = {Label.VARIANT: 'red', Label.ARTIFACT: 'purple', Label.UNLABELED: 'gold'}
+        for row, variation_type in enumerate(Variation):
+            for count_bin in range(NUM_COUNT_BINS): # this is also the column index
+                plot_data = self.logit_histogram_data_vcls[variation_type][count_bin]
+                different_labels = plot_data.keys()
+
+                # overlapping density plots for all source / label combinations
+                # source 0 is filled; others are not
+                for source in self.all_sources:
+                    for label in different_labels:
+                        line_label = f"{label.name} ({source})" if multiple_sources else label.name
+
+                        sns.kdeplot(data=np.array(plot_data[label][source]), x='artifact logit', fill=(source == 0),
+                                    color=line_colors[label], ax=axes[row, count_bin], label=line_label)
+                axes[row, count_bin].legend()
+
+        column_names = [str(multiple_of_three_bin_index_to_count(count_idx)) for count_idx in range(NUM_COUNT_BINS)]
+        row_names = [var_type.name for var_type in Variation]
+        plotting.tidy_subplots(fig, axes, x_label="predicted logit", y_label="frequency", row_labels=row_names, column_labels=column_names)
+        return fig, axes
 
     # now it's (list of logits, list of accuracies)
     def make_data_for_calibration_plot_all_counts(self, var_type: Variation):
@@ -350,6 +375,14 @@ class EvaluationMetrics:
         summary_writer.add_figure(" accuracy by logit output", cal_fig_all_counts, global_step=epoch)
         summary_writer.add_figure("sensitivity vs precision" if sens_prec else "variant accuracy vs artifact accuracy", roc_fig, global_step=epoch)
         summary_writer.add_figure("sensitivity vs precision by alt count" if sens_prec else "variant accuracy vs artifact accuracy by alt count", roc_by_cnt_fig, global_step=epoch)
+
+        # one more plot, different from the rest.  Here each epoch is its own figure, and within each figure the grid of subplots
+        # is by variant type and count.  Within each subplot we have overlapping density plots of artifact logit predictions for all
+        # combinations of Label and source
+        for key in keys:
+            metric = self.metrics[key]
+            hist_fig, hist_ax = metric.make_logit_histograms()
+            summary_writer.add_figure(f"logit histograms ({key})", hist_fig, global_step=epoch)
 
 
 def sample_indices_for_tensorboard(indices: List[int]):
