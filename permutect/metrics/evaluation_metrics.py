@@ -224,7 +224,7 @@ class EvaluationMetricsForOneEpochType:
                     for label in different_labels:
                         line_label = f"{label.name} ({source})" if multiple_sources else label.name
 
-                        sns.kdeplot(data=np.array(plot_data[label][source]), fill=(source == 0),
+                        sns.kdeplot(data=np.clip(np.array(plot_data[label][source]), -10, 10), fill=(source == 0),
                                     color=line_colors[label], ax=axes[row, count_bin], label=line_label)
                 axes[row, count_bin].legend()
 
@@ -382,7 +382,7 @@ class EvaluationMetrics:
         for key in keys:
             metric = self.metrics[key]
             hist_fig, hist_ax = metric.make_logit_histograms()
-            summary_writer.add_figure(f"logit histograms ({key})", hist_fig, global_step=epoch)
+            summary_writer.add_figure(f"logit histograms ({Epoch(key).name})", hist_fig, global_step=epoch)
 
 
 def sample_indices_for_tensorboard(indices: List[int]):

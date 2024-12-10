@@ -395,14 +395,14 @@ class ArtifactModel(nn.Module):
                 labels = batch_cpu.get_training_labels()
                 correct = ((pred > 0) == (labels > 0.5)).tolist()
 
-                for variant_type, predicted_logit, source, int_label, is_labeled, correct_call, alt_count, variant, weight in zip(
-                        batch_cpu.get_variant_types().tolist(), pred.tolist(), batch.get_sources().tolist(), batch_cpu.get_labels().tolist(), batch_cpu.get_is_labeled_mask().tolist(), correct,
+                for variant_type, predicted_logit, source, int_label, correct_call, alt_count, variant, weight in zip(
+                        batch_cpu.get_variant_types().tolist(), pred.tolist(), batch.get_sources().tolist(), batch_cpu.get_labels().tolist(), correct,
                         batch_cpu.get_alt_counts().tolist(), batch_cpu.get_variants(), weights.tolist()):
                     label = Label(int_label)
-                    if is_labeled < 0.5:    # we only evaluate labeled data
-                        continue
-                    evaluation_metrics.record_call(epoch_type, variant_type, predicted_logit, label, correct_call, alt_count, weight, source=source)
-                    if report_worst and not correct_call:
+                    evaluation_metrics.record_call(epoch_type, variant_type, predicted_logit, label, correct_call,
+                                                   alt_count, weight, source=source)
+
+                    if (label != Label.UNLABELED) and report_worst and not correct_call:
                         rounded_count = round_up_to_nearest_three(alt_count)
                         label_name = Label.ARTIFACT.name if label > 0.5 else Label.VARIANT.name
                         confidence = abs(predicted_logit)
