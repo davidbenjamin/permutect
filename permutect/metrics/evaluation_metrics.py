@@ -167,8 +167,8 @@ class EvaluationMetricsForOneEpochType:
         # source -> variant type -> (predicted logit, actual label)
         self.roc_data = defaultdict(lambda: {var_type: [] for var_type in Variation})
 
-        # variant type, count -> (predicted logit, actual label)
-        self.roc_data_by_cnt = {var_type: [[] for _ in range(NUM_COUNT_BINS)] for var_type in Variation}
+        # source -> variant type, count -> (predicted logit, actual label)
+        self.roc_data_by_cnt = defaultdict(lambda: {var_type: [[] for _ in range(NUM_COUNT_BINS)] for var_type in Variation})
 
         # list of logits for histograms, by variant type, count, label, source
         self.logit_histogram_data_vcls = {var_type: [defaultdict(lambda: defaultdict(list)) for _ in range(NUM_COUNT_BINS)] for var_type in Variation}
@@ -195,7 +195,8 @@ class EvaluationMetricsForOneEpochType:
             float_label = (1.0 if label == Label.ARTIFACT else 0.0)
             self.roc_data[source][variant_type].append((predicted_logit, float_label))
             self.roc_data[ALL_SOURCES][variant_type].append((predicted_logit, float_label))
-            self.roc_data_by_cnt[variant_type][count_bin_index].append((predicted_logit, float_label))
+            self.roc_data_by_cnt[source][variant_type][count_bin_index].append((predicted_logit, float_label))
+            self.roc_data_by_cnt[ALL_SOURCES][variant_type][count_bin_index].append((predicted_logit, float_label))
 
     # return a list of tuples.  This outer list is over the two labels, Call.SOMATIC and Call.ARTIFACT.  Each tuple consists of
     # (list of alt counts (x axis), list of accuracies (y axis), the label)
@@ -270,17 +271,17 @@ class EvaluationMetricsForOneEpochType:
     def plot_roc_curve(self, var_type: Variation, axis, given_threshold: float = None, sens_prec: bool = False, source: int = ALL_SOURCES):
         plotting.plot_accuracy_vs_accuracy_roc_on_axis([self.roc_data[source][var_type]], [None], axis, given_threshold, sens_prec)
 
-    def plot_roc_curves_by_count(self, var_type: Variation, axis, given_threshold: float = None, sens_prec: bool = False):
-        plotting.plot_accuracy_vs_accuracy_roc_on_axis(self.roc_data_by_cnt[var_type],
+    def plot_roc_curves_by_count(self, var_type: Variation, axis, given_threshold: float = None, sens_prec: bool = False, source: int = ALL_SOURCES):
+        plotting.plot_accuracy_vs_accuracy_roc_on_axis(self.roc_data_by_cnt[source][var_type],
                                                        [str(multiple_of_three_bin_index_to_count(idx)) for idx in
                                                         range(NUM_COUNT_BINS)], axis, given_threshold, sens_prec)
 
     # return variant type, count bin -> logit adjustment to be subtracted (so that maximum accuracy is at threshold of logit = 0)
-    def calculate_logit_adjustments(self, use_harmonic_mean: bool = False):
+    def calculate_logit_adjustments(self, use_harmonic_mean: bool = False, source: int = ALL_SOURCES):
         result = {var_type: [0.0 for _ in range(NUM_COUNT_BINS)] for var_type in Variation}
         for var_type in Variation:
             for cbin in range(NUM_COUNT_BINS):
-                data = self.roc_data_by_cnt[var_type][cbin]
+                data = self.roc_data_by_cnt[source][var_type][cbin]
                 if data:    # leave adjustment at 0 if no data
                     result[var_type][cbin] = calculate_logit_adjustment(data, use_harmonic_mean)
 
