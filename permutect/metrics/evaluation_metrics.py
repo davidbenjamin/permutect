@@ -209,10 +209,12 @@ class EvaluationMetricsForOneEpochType:
                                        range(NUM_COUNT_BINS)]
 
     def make_logit_histograms(self):
-        fig, axes = plt.subplots(len(Variation), NUM_COUNT_BINS, sharex='all', sharey='all', squeeze=False)
+        fig, axes = plt.subplots(len(Variation), NUM_COUNT_BINS, sharex='all', sharey='all', squeeze=False,
+                                 figsize=(4 * NUM_COUNT_BINS, 4 * len(Variation)), dpi=200)
 
         multiple_sources = len(self.all_sources) > 1
-        line_colors = {Label.VARIANT: 'red', Label.ARTIFACT: 'purple', Label.UNLABELED: 'gold'}
+        source_zero_line_colors = {Label.VARIANT: 'red', Label.ARTIFACT: 'magenta', Label.UNLABELED: 'limegreen'}
+        other_source_line_colors = {Label.VARIANT: 'darkred', Label.ARTIFACT: 'darkmagenta', Label.UNLABELED: 'darkgreen'}
         for row, variation_type in enumerate(Variation):
             for count_bin in range(NUM_COUNT_BINS): # this is also the column index
                 plot_data = self.logit_histogram_data_vcls[variation_type][count_bin]
@@ -220,13 +222,16 @@ class EvaluationMetricsForOneEpochType:
 
                 # overlapping density plots for all source / label combinations
                 # source 0 is filled; others are not
+                ax = axes[row, count_bin]
                 for source in self.all_sources:
                     for label in different_labels:
                         line_label = f"{label.name} ({source})" if multiple_sources else label.name
+                        color = source_zero_line_colors[label] if source == 0 else other_source_line_colors[label]
 
                         sns.kdeplot(data=np.clip(np.array(plot_data[label][source]), -10, 10), fill=(source == 0),
-                                    color=line_colors[label], ax=axes[row, count_bin], label=line_label)
-                axes[row, count_bin].legend()
+                                    color=color, ax=ax, label=line_label, clip=(-10, 10))
+                ax.set_ylim(0, 0.5)     # don't go all the way to 1 because
+                ax.legend()
 
         column_names = [str(multiple_of_three_bin_index_to_count(count_idx)) for count_idx in range(NUM_COUNT_BINS)]
         row_names = [var_type.name for var_type in Variation]
