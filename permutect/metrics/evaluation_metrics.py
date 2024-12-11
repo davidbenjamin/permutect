@@ -164,8 +164,8 @@ class EvaluationMetricsForOneEpochType:
         self.acc_vs_cnt = defaultdict(lambda: {var_type: defaultdict(lambda: [StreamingAverage() for _ in range(NUM_COUNT_BINS)]) for
                       var_type in Variation})
 
-        # variant type -> (predicted logit, actual label)
-        self.roc_data = {var_type: [] for var_type in Variation}
+        # source -> variant type -> (predicted logit, actual label)
+        self.roc_data = defaultdict(lambda: {var_type: [] for var_type in Variation})
 
         # variant type, count -> (predicted logit, actual label)
         self.roc_data_by_cnt = {var_type: [[] for _ in range(NUM_COUNT_BINS)] for var_type in Variation}
@@ -193,7 +193,8 @@ class EvaluationMetricsForOneEpochType:
                                                                                                      weight)
 
             float_label = (1.0 if label == Label.ARTIFACT else 0.0)
-            self.roc_data[variant_type].append((predicted_logit, float_label))
+            self.roc_data[source][variant_type].append((predicted_logit, float_label))
+            self.roc_data[ALL_SOURCES][variant_type].append((predicted_logit, float_label))
             self.roc_data_by_cnt[variant_type][count_bin_index].append((predicted_logit, float_label))
 
     # return a list of tuples.  This outer list is over the two labels, Call.SOMATIC and Call.ARTIFACT.  Each tuple consists of
@@ -266,8 +267,8 @@ class EvaluationMetricsForOneEpochType:
         logits_list, accuracies_list = self.make_data_for_calibration_plot_all_counts(var_type)
         plotting.simple_plot_on_axis(axis, [(logits_list, accuracies_list, "calibration")], None, None)
 
-    def plot_roc_curve(self, var_type: Variation, axis, given_threshold: float = None, sens_prec: bool = False):
-        plotting.plot_accuracy_vs_accuracy_roc_on_axis([self.roc_data[var_type]], [None], axis, given_threshold, sens_prec)
+    def plot_roc_curve(self, var_type: Variation, axis, given_threshold: float = None, sens_prec: bool = False, source: int = ALL_SOURCES):
+        plotting.plot_accuracy_vs_accuracy_roc_on_axis([self.roc_data[source][var_type]], [None], axis, given_threshold, sens_prec)
 
     def plot_roc_curves_by_count(self, var_type: Variation, axis, given_threshold: float = None, sens_prec: bool = False):
         plotting.plot_accuracy_vs_accuracy_roc_on_axis(self.roc_data_by_cnt[var_type],
