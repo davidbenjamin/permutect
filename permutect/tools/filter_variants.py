@@ -353,7 +353,7 @@ def apply_filtering_to_vcf(input_vcf, output_vcf, contig_index_to_name_map, erro
                 # TODO: we stretch the definitions so that "Label.ARTIFACT" simply means "something we shouldn't call", including
                 # TODO: artifact or germline (in the somatic calling case), and "Label.VARIANT" means "something we should call"
                 is_correct = (called_as_error and label == Label.ARTIFACT) or (not called_as_error and label == Label.VARIANT)
-                evaluation_metrics.record_call(Epoch.TEST, variant_type, error_logit, float_label, is_correct, posterior_result.alt_count)
+                evaluation_metrics.record_call(Epoch.TEST, variant_type, error_logit, label, is_correct, posterior_result.alt_count)
 
                 # TODO: double-check the logic here
                 if is_correct:
