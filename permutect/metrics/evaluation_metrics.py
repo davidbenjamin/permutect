@@ -155,8 +155,10 @@ class EvaluationMetricsForOneEpochType:
             var_type: [[StreamingAverage() for _ in range(2 * MAX_LOGIT + 1)] for _ in range(NUM_COUNT_BINS)] for
             var_type in Variation})
 
-        self.acc_vs_logit_all_counts = {
-            var_type: [StreamingAverage() for _ in range(2 * MAX_LOGIT + 1)] for var_type in Variation}
+        # indexed by source, then variant type
+        # TODO: unite this with the above using an ALL_COUNTS = -1
+        self.acc_vs_logit_all_counts = defaultdict(lambda: {
+            var_type: [StreamingAverage() for _ in range(2 * MAX_LOGIT + 1)] for var_type in Variation})
 
         # indexed by variant type, then Label (artifact vs variant), then count bin
         self.acc_vs_cnt = {var_type: defaultdict(lambda: [StreamingAverage() for _ in range(NUM_COUNT_BINS)]) for
@@ -185,7 +187,9 @@ class EvaluationMetricsForOneEpochType:
             self.acc_vs_logit[source][variant_type][count_bin_index][logit_to_bin(predicted_logit)].record(correct_call, weight)
             self.acc_vs_logit[ALL_SOURCES][variant_type][count_bin_index][logit_to_bin(predicted_logit)].record(correct_call,
                                                                                                            weight)
-            self.acc_vs_logit_all_counts[variant_type][logit_to_bin(predicted_logit)].record(correct_call, weight)
+            self.acc_vs_logit_all_counts[source][variant_type][logit_to_bin(predicted_logit)].record(correct_call, weight)
+            self.acc_vs_logit_all_counts[ALL_SOURCES][variant_type][logit_to_bin(predicted_logit)].record(correct_call,
+                                                                                                     weight)
 
             float_label = (1.0 if label == Label.ARTIFACT else 0.0)
             self.roc_data[variant_type].append((predicted_logit, float_label))
@@ -244,10 +248,10 @@ class EvaluationMetricsForOneEpochType:
         return fig, axes
 
     # now it's (list of logits, list of accuracies)
-    def make_data_for_calibration_plot_all_counts(self, var_type: Variation):
-        non_empty_logit_bins = [idx for idx in range(2 * MAX_LOGIT + 1) if not self.acc_vs_logit_all_counts[var_type][idx].is_empty()]
+    def make_data_for_calibration_plot_all_counts(self, var_type: Variation, source: int = ALL_SOURCES):
+        non_empty_logit_bins = [idx for idx in range(2 * MAX_LOGIT + 1) if not self.acc_vs_logit_all_counts[source][var_type][idx].is_empty()]
         return ([bin_center(idx) for idx in non_empty_logit_bins],
-                    [self.acc_vs_logit_all_counts[var_type][idx].get() for idx in non_empty_logit_bins])
+                    [self.acc_vs_logit_all_counts[source][var_type][idx].get() for idx in non_empty_logit_bins])
 
     def plot_accuracy(self, var_type: Variation, axis):
         acc_vs_cnt_x_y_lab_tuples = self.make_data_for_accuracy_plot(var_type)
