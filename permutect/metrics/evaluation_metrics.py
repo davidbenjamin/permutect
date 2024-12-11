@@ -145,12 +145,15 @@ def calculate_logit_adjustment(predictions_and_labels, use_harmonic_mean: bool =
     return adjustment
 
 
+ALL_SOURCES = -1
+
+
 class EvaluationMetricsForOneEpochType:
     def __init__(self):
-        # indexed by variant type, then count bin, then logit bin
-        self.acc_vs_logit = {
+        # indexed by source, then variant type, then count bin, then logit bin
+        self.acc_vs_logit = defaultdict(lambda: {
             var_type: [[StreamingAverage() for _ in range(2 * MAX_LOGIT + 1)] for _ in range(NUM_COUNT_BINS)] for
-            var_type in Variation}
+            var_type in Variation})
 
         self.acc_vs_logit_all_counts = {
             var_type: [StreamingAverage() for _ in range(2 * MAX_LOGIT + 1)] for var_type in Variation}
@@ -179,7 +182,9 @@ class EvaluationMetricsForOneEpochType:
 
         if label != Label.UNLABELED:
             self.acc_vs_cnt[variant_type][label][count_bin_index].record(correct_call, weight)
-            self.acc_vs_logit[variant_type][count_bin_index][logit_to_bin(predicted_logit)].record(correct_call, weight)
+            self.acc_vs_logit[source][variant_type][count_bin_index][logit_to_bin(predicted_logit)].record(correct_call, weight)
+            self.acc_vs_logit[ALL_SOURCES][variant_type][count_bin_index][logit_to_bin(predicted_logit)].record(correct_call,
+                                                                                                           weight)
             self.acc_vs_logit_all_counts[variant_type][logit_to_bin(predicted_logit)].record(correct_call, weight)
 
             float_label = (1.0 if label == Label.ARTIFACT else 0.0)
@@ -198,12 +203,12 @@ class EvaluationMetricsForOneEpochType:
                     label.name) for label in self.acc_vs_cnt[var_type].keys()]
 
     # similar tuple format but now it's (list of logits, list of accuracies, count)
-    def make_data_for_calibration_plot(self, var_type: Variation):
+    def make_data_for_calibration_plot(self, var_type: Variation, source: int = ALL_SOURCES):
         non_empty_logit_bins = [
-            [idx for idx in range(2 * MAX_LOGIT + 1) if not self.acc_vs_logit[var_type][count_idx][idx].is_empty()]
+            [idx for idx in range(2 * MAX_LOGIT + 1) if not self.acc_vs_logit[source][var_type][count_idx][idx].is_empty()]
             for count_idx in range(NUM_COUNT_BINS)]
         return [([bin_center(idx) for idx in non_empty_logit_bins[count_idx]],
-                                        [self.acc_vs_logit[var_type][count_idx][idx].get() for idx in
+                                        [self.acc_vs_logit[source][var_type][count_idx][idx].get() for idx in
                                          non_empty_logit_bins[count_idx]],
                                         str(multiple_of_three_bin_index_to_count(count_idx))) for count_idx in
                                        range(NUM_COUNT_BINS)]
