@@ -160,9 +160,9 @@ class EvaluationMetricsForOneEpochType:
         self.acc_vs_logit_all_counts = defaultdict(lambda: {
             var_type: [StreamingAverage() for _ in range(2 * MAX_LOGIT + 1)] for var_type in Variation})
 
-        # indexed by variant type, then Label (artifact vs variant), then count bin
-        self.acc_vs_cnt = {var_type: defaultdict(lambda: [StreamingAverage() for _ in range(NUM_COUNT_BINS)]) for
-                      var_type in Variation}
+        # indexed by source, then variant type, then Label (artifact vs variant), then count bin
+        self.acc_vs_cnt = defaultdict(lambda: {var_type: defaultdict(lambda: [StreamingAverage() for _ in range(NUM_COUNT_BINS)]) for
+                      var_type in Variation})
 
         # variant type -> (predicted logit, actual label)
         self.roc_data = {var_type: [] for var_type in Variation}
@@ -183,7 +183,8 @@ class EvaluationMetricsForOneEpochType:
         self.logit_histogram_data_vcls[variant_type][count_bin_index][label][source].append(predicted_logit)
 
         if label != Label.UNLABELED:
-            self.acc_vs_cnt[variant_type][label][count_bin_index].record(correct_call, weight)
+            self.acc_vs_cnt[source][variant_type][label][count_bin_index].record(correct_call, weight)
+            self.acc_vs_cnt[ALL_SOURCES][variant_type][label][count_bin_index].record(correct_call, weight)
             self.acc_vs_logit[source][variant_type][count_bin_index][logit_to_bin(predicted_logit)].record(correct_call, weight)
             self.acc_vs_logit[ALL_SOURCES][variant_type][count_bin_index][logit_to_bin(predicted_logit)].record(correct_call,
                                                                                                            weight)
@@ -197,14 +198,14 @@ class EvaluationMetricsForOneEpochType:
 
     # return a list of tuples.  This outer list is over the two labels, Call.SOMATIC and Call.ARTIFACT.  Each tuple consists of
     # (list of alt counts (x axis), list of accuracies (y axis), the label)
-    def make_data_for_accuracy_plot(self, var_type: Variation):
+    def make_data_for_accuracy_plot(self, var_type: Variation, source: int = ALL_SOURCES):
         non_empty_count_bins_by_label = {
-            label: [idx for idx in range(NUM_COUNT_BINS) if not self.acc_vs_cnt[var_type][label][idx].is_empty()]
-            for label in self.acc_vs_cnt[var_type].keys()}
+            label: [idx for idx in range(NUM_COUNT_BINS) if not self.acc_vs_cnt[source][var_type][label][idx].is_empty()]
+            for label in self.acc_vs_cnt[source][var_type].keys()}
 
         return [([multiple_of_three_bin_index_to_count(idx) for idx in non_empty_count_bins_by_label[label]],
-                    [self.acc_vs_cnt[var_type][label][idx].get() for idx in non_empty_count_bins_by_label[label]],
-                    label.name) for label in self.acc_vs_cnt[var_type].keys()]
+                    [self.acc_vs_cnt[source][var_type][label][idx].get() for idx in non_empty_count_bins_by_label[label]],
+                    label.name) for label in self.acc_vs_cnt[source][var_type].keys()]
 
     # similar tuple format but now it's (list of logits, list of accuracies, count)
     def make_data_for_calibration_plot(self, var_type: Variation, source: int = ALL_SOURCES):
