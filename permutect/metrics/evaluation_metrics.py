@@ -222,7 +222,7 @@ class EvaluationMetricsForOneEpochType:
 
     def make_logit_histograms(self):
         fig, axes = plt.subplots(len(Variation), NUM_COUNT_BINS, sharex='all', sharey='all', squeeze=False,
-                                 figsize=(4 * NUM_COUNT_BINS, 4 * len(Variation)), dpi=200)
+                                 figsize=(2.5 * NUM_COUNT_BINS, 2.5 * len(Variation)), dpi=200)
 
         multiple_sources = len(self.all_sources) > 1
         source_zero_line_colors = {Label.VARIANT: 'red', Label.ARTIFACT: 'magenta', Label.UNLABELED: 'limegreen'}
@@ -365,10 +365,10 @@ class EvaluationMetrics:
             # grid of figures -- rows are epoch types, columns are variant types
             # each subplot has two line graphs of accuracy vs alt count, one each for artifact, non-artifact
             acc_vs_cnt_fig, acc_vs_cnt_axes = plt.subplots(num_rows, len(Variation), sharex='all', sharey='all', squeeze=False)
-            roc_fig, roc_axes = plt.subplots(num_rows, len(Variation), sharex='all', sharey='all', squeeze=False, figsize=(4 * len(Variation), 4 * len(epoch_keys)), dpi=200)
+            roc_fig, roc_axes = plt.subplots(num_rows, len(Variation), sharex='all', sharey='all', squeeze=False, figsize=(2.5 * len(Variation), 2.5 * len(epoch_keys)), dpi=200)
             cal_fig, cal_axes = plt.subplots(num_rows, len(Variation), sharex='all', sharey='all', squeeze=False)
             cal_fig_all_counts, cal_axes_all_counts = plt.subplots(num_rows, len(Variation), sharex='all', sharey='all', squeeze=False)
-            roc_by_cnt_fig, roc_by_cnt_axes = plt.subplots(num_rows, len(Variation), sharex='all', sharey='all', squeeze=False, figsize=(4 * len(Variation), 4 * len(epoch_keys)), dpi=200)
+            roc_by_cnt_fig, roc_by_cnt_axes = plt.subplots(num_rows, len(Variation), sharex='all', sharey='all', squeeze=False, figsize=(2.5 * len(Variation), 2.5 * len(epoch_keys)), dpi=200)
 
             for row_idx, key in enumerate(epoch_keys):
                 metric = self.metrics[key]
