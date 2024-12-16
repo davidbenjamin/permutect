@@ -75,19 +75,9 @@ class BaseDataset(Dataset):
             max_count = max(datum.alt_count, max_count)
             self.max_source = max(datum.source, self.max_source)
 
-        # totals by count, then by label -- ARTIFACT, VARIANT, UNLABELED, then by variant type
-        # variant type is done as a 1D np array parallel to the one-hot encoding of variant type
-        # we use a sentinel count value of 0 to denote aggregation over all counts
-        # eg totals[4][Label.ARTIFACT] = [2,4,6,8,10] means there are 2 artifact SNVs with alt count 4
         # totals by source, count, label, variant type
+        # we use a sentinel count value of 0 to denote aggregation over all counts
         self.totals_sclt = np.zeros((self.max_source + 1, max_count + 1, len(Label), len(Variation)))
-        self.totals = defaultdict(lambda: {label: np.zeros(len(utils.Variation)) for label in Label})
-
-        # totals by count, then by source (integer) then by variant type
-        # basically same as above but with source instead of label.  Since we don't know a priori how
-        # many sources there are, we use a default dict
-        # outer default dict is count, inner is source
-        self.source_totals = defaultdict(lambda: defaultdict(lambda: np.zeros(len(utils.Variation))))
 
         self.counts_by_source = defaultdict(lambda: MutableInt()) # amount of data for each source (which is an integer key)
 
@@ -101,20 +91,12 @@ class BaseDataset(Dataset):
             variant_type_idx = datum.get_variant_type()
             self.totals_sclt[source][ALL_COUNTS_SENTINEL][datum.label][variant_type_idx] += 1
             self.totals_sclt[source][datum.alt_count][datum.label][variant_type_idx] += 1
-            self.source_totals[ALL_COUNTS_SENTINEL][datum.source][variant_type_idx] += 1
-            self.source_totals[datum.alt_count][datum.source][variant_type_idx] += 1
-
 
         # compute weights to balance loss even for unbalanced data
         # in the weights array, count == 0 (which never occurs as a real alt count) is the sentinel value for
         # aggregation over all alt counts.  The array is indexed by source, count, label, variation type
         self.weights_sclt = np.zeros((self.max_source + 1, max_count + 1, len(Label), len(Variation)))
 
-        # TODO: is this still needed now that weights are by source?
-        # similar but indexed by count, then source, then variant type
-        self.source_weights = np.zeros((max_count + 1, self.max_source + 1, len(Variation)))
-
-        sources = self.source_totals[ALL_COUNTS_SENTINEL].keys()
         for source in range(self.max_source + 1):
             for count in range(max_count + 1):
                 # eg: if there are 1000 artifact and 10 non-artifact SNVs, the ratio is 100, and artifacts get a weight of 1/sqrt(100) = 1/10
@@ -131,21 +113,22 @@ class BaseDataset(Dataset):
                 # example, 10 unlabeled and 100 labeled -- unlabeled weight is 1
                 self.weights_sclt[source][count][Label.UNLABELED] = np.clip(ratio_with_pseudocount(effective_labeled_counts, self.totals_sclt[source][count][Label.UNLABELED]), 0, 1)
 
-                # TODO: have to redo logic for source weights now
-                # by variant type, for this count
-                totals_over_sources = np.sum([self.source_totals[count][source] for source in sources])
-                for source in sources:
-                    self.source_weights[count][source] = np.sqrt(ratio_with_pseudocount(totals_over_sources, self.source_weights[count][source]))
+        self.source_weights_sct = np.zeros((self.max_source + 1, max_count + 1, len(Variation)))
+        source_totals_sct = np.sum(self.totals_sclt, axis=2)    # sum over label
+        for source in range(self.max_source + 1):
+            for count in range(max_count + 1):
+                # TODO: left off here -- INCOMPLETE
+                self.source_weights_sct[source][count] = np.sqrt(ratio_with_pseudocount(totals_over_sources, self.source_weights_sct[count][source]))
 
-                # normalize source prediction weights to have same total effective count.  Note that this is modulated
-                # downstream by set_alpha on the gradient reversal layer applied before source prediction
-                effective_source_counts = np.sum([self.source_totals[count][source] * self.source_weights[count][source] for source in sources])
-                source_weight_normalization = effective_labeled_counts / effective_source_counts
-                for source in sources:
-                    self.source_weights[count][source] = self.source_weights[count][source] * source_weight_normalization
+            # normalize source prediction weights to have same total effective count.  Note that this is modulated
+            # downstream by set_alpha on the gradient reversal layer applied before source prediction
+            effective_source_counts = np.sum([self.source_totals[count][source] * self.source_weights_sct[count][source] for source in sources])
+            source_weight_normalization = effective_labeled_counts / effective_source_counts
+            for source in sources:
+                self.source_weights_sct[count][source] = self.source_weights_sct[count][source] * source_weight_normalization
 
         self.weights_sclt = torch.from_numpy(self.weights_sclt)
-        self.source_weights = torch.from_numpy(self.source_weights)
+        self.source_weights_sct = torch.from_numpy(self.source_weights_sct)
         self.num_read_features = self[0].get_reads_2d().shape[1]
         self.num_info_features = len(self[0].get_info_tensor_1d())
         self.ref_sequence_length = len(self[0].get_ref_sequence_1d())

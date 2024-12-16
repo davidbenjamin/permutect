@@ -49,13 +49,12 @@ def calculate_batch_weights(batch, dataset, by_count: bool):
 # note: this works for both BaseBatch/BaseDataset AND ArtifactBatch/ArtifactDataset
 # if by_count is True, each count is weighted separately for balanced loss within that count
 def calculate_batch_source_weights(batch, dataset, by_count: bool):
-    # For batch index n, we want weight[n] = dataset.source_weights[alt_counts[n], sources[n], variant_types[n]]
-    counts = batch.get_alt_counts()
+    # For batch index n, we want weight[n] = dataset.source_weights[sources[n], alt_counts[n], variant_types[n]]
     sources = batch.get_sources()
+    counts = batch.get_alt_counts() if by_count else torch.full(size=len(sources), fill_value=ALL_COUNTS_SENTINEL, dtype=torch.int)
     variant_types = batch.get_variant_types()
 
-    return utils.index_3d_array(dataset.source_weights, counts, sources, variant_types) if by_count else \
-        utils.index_2d_array(dataset.source_weights[ALL_COUNTS_SENTINEL], sources, variant_types)
+    return utils.index_3d_array(dataset.source_weights_sct, sources, counts, variant_types)
 
 
 class LearningMethod(Enum):
