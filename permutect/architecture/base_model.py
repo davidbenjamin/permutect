@@ -18,7 +18,7 @@ from permutect.architecture.gated_mlp import GatedMLP, GatedRefAltMLP
 from permutect.architecture.gradient_reversal.module import GradientReversal
 from permutect.architecture.mlp import MLP
 from permutect.data.base_datum import BaseBatch, DEFAULT_GPU_FLOAT, DEFAULT_CPU_FLOAT
-from permutect.data.base_dataset import BaseDataset, ALL_COUNTS_SENTINEL
+from permutect.data.base_dataset import BaseDataset, ALL_COUNTS_INDEX
 from permutect.metrics.evaluation_metrics import LossMetrics, EmbeddingMetrics, round_up_to_nearest_three, MAX_COUNT
 from permutect.parameters import BaseModelParameters, TrainingParameters
 
@@ -39,7 +39,7 @@ def calculate_batch_weights(batch, dataset, by_count: bool):
     # TODO: we need a parameter to control the relative weight of unlabeled loss to labeled loss
     # For batch index n, we want weight[n] = dataset.weights[alt_counts[n], labels[n], variant_types[n]]
     sources = batch.get_sources()
-    counts = batch.get_alt_counts() if by_count else torch.full(size=len(sources), fill_value=ALL_COUNTS_SENTINEL, dtype=torch.int)
+    counts = batch.get_alt_counts() if by_count else torch.full(size=len(sources), fill_value=ALL_COUNTS_INDEX, dtype=torch.int)
     labels = batch.get_labels()
     variant_types = batch.get_variant_types()
 
@@ -51,7 +51,7 @@ def calculate_batch_weights(batch, dataset, by_count: bool):
 def calculate_batch_source_weights(batch, dataset, by_count: bool):
     # For batch index n, we want weight[n] = dataset.source_weights[sources[n], alt_counts[n], variant_types[n]]
     sources = batch.get_sources()
-    counts = batch.get_alt_counts() if by_count else torch.full(size=len(sources), fill_value=ALL_COUNTS_SENTINEL, dtype=torch.int)
+    counts = batch.get_alt_counts() if by_count else torch.full(size=len(sources), fill_value=ALL_COUNTS_INDEX, dtype=torch.int)
     variant_types = batch.get_variant_types()
 
     return utils.index_3d_array(dataset.source_balancing_weights_sct, sources, counts, variant_types)
@@ -468,7 +468,7 @@ def learn_base_model(base_model: BaseModel, dataset: BaseDataset, learning_metho
         for var_type in utils.Variation:
             print(f"Data counts for variant type {var_type.name}:")
             for label in Label:
-                print(f"{label.name}: {int(dataset.totals_sclt[source][ALL_COUNTS_SENTINEL][label][var_type].item())}")
+                print(f"{label.name}: {int(dataset.totals_sclt[source][ALL_COUNTS_INDEX][label][var_type].item())}")
 
     # TODO: use Python's match syntax, but this requires updating Python version in the docker
     # TODO: hidden_top_layers are hard-coded!

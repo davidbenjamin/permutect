@@ -23,7 +23,7 @@ TENSORS_PER_BASE_DATUM = 2  # 1) 2D reads (ref and alt), 1) 1D concatenated stuf
 # tarfiles on disk take up about 4x as much as the dataset on RAM
 TARFILE_TO_RAM_RATIO = 4
 
-ALL_COUNTS_SENTINEL = 0
+ALL_COUNTS_INDEX = 0
 
 WEIGHT_PSEUDOCOUNT = 10
 
@@ -89,7 +89,7 @@ class BaseDataset(Dataset):
             self.indices_by_fold[fold].append(n)
 
             variant_type_idx = datum.get_variant_type()
-            self.totals_sclt[source][ALL_COUNTS_SENTINEL][datum.label][variant_type_idx] += 1
+            self.totals_sclt[source][ALL_COUNTS_INDEX][datum.label][variant_type_idx] += 1
             self.totals_sclt[source][datum.alt_count][datum.label][variant_type_idx] += 1
 
         # weights that balance artifact and non-artifact loss for each source, count variation type independently
@@ -193,12 +193,18 @@ def chunk(lis, chunk_size):
 # the artifact model handles weighting the losses to compensate for class imbalance between supervised and unsupervised
 # thus the sampler is not responsible for balancing the data
 class SemiSupervisedBatchSampler(Sampler):
-    def __init__(self, dataset: BaseDataset, batch_size, folds_to_use: List[int]):
+    def __init__(self, dataset: BaseDataset, batch_size, folds_to_use: List[int], sources_to_use: List[int] = None):
         # combine the index maps of all relevant folds
         self.indices_to_use = []
-
+        source_set = None if sources_to_use is None else set(sources_to_use)
         for fold in folds_to_use:
-            self.indices_to_use.extend(dataset.indices_by_fold[fold])
+            indices_in_fold = dataset.indices_by_fold[fold]
+            if sources_to_use is None:
+                source_indices_in_fold = indices_in_fold
+            else:
+                source_indices_in_fold = [idx for idx in indices_in_fold if dataset[idx].source in source_set]
+
+            self.indices_to_use.extend(source_indices_in_fold)
 
         self.batch_size = batch_size
         self.num_batches = math.ceil(len(self.indices_to_use) // self.batch_size)

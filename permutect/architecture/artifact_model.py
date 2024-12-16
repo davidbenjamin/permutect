@@ -21,7 +21,7 @@ from permutect.architecture.base_model import calculate_batch_weights, BaseModel
 from permutect.architecture.gradient_reversal.module import GradientReversal
 from permutect.architecture.mlp import MLP
 from permutect.architecture.monotonic import MonoDense
-from permutect.data.base_dataset import ALL_COUNTS_SENTINEL
+from permutect.data.base_dataset import ALL_COUNTS_INDEX
 from permutect.data.base_datum import ArtifactBatch, DEFAULT_GPU_FLOAT, DEFAULT_CPU_FLOAT
 from permutect.data.artifact_dataset import ArtifactDataset
 from permutect import utils, constants
@@ -222,7 +222,7 @@ class ArtifactModel(nn.Module):
             for var_type in utils.Variation:
                 print(f"Data counts for variant type {var_type.name}:")
                 for label in Label:
-                    print(f"{label.name}: {int(dataset.totals_sclt[source][ALL_COUNTS_SENTINEL][label][var_type].item())}")
+                    print(f"{label.name}: {int(dataset.totals_sclt[source][ALL_COUNTS_INDEX][label][var_type].item())}")
 
         is_cuda = self._device.type == 'cuda'
         print(f"Is CUDA available? {is_cuda}")
