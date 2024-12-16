@@ -21,8 +21,8 @@ class ArtifactDataset(Dataset):
                  base_loader_batch_size=8192):
         self.counts_by_source = base_dataset.counts_by_source
         self.totals_sclt = base_dataset.totals_sclt
-        self.weights_sclt = base_dataset.weights_sclt
-        self.source_weights = base_dataset.source_weights_sct
+        self.label_balancing_weights_sclt = base_dataset.label_balancing_weights_sclt
+        self.source_balancing_weights_sct = base_dataset.source_balancing_weights_sct
 
         self.artifact_data = []
         self.num_folds = base_dataset.num_folds

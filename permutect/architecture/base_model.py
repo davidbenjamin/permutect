@@ -43,7 +43,7 @@ def calculate_batch_weights(batch, dataset, by_count: bool):
     labels = batch.get_labels()
     variant_types = batch.get_variant_types()
 
-    return utils.index_4d_array(dataset.weights_sclt, sources, counts, labels, variant_types)
+    return utils.index_4d_array(dataset.label_balancing_weights_sclt, sources, counts, labels, variant_types)
 
 
 # note: this works for both BaseBatch/BaseDataset AND ArtifactBatch/ArtifactDataset
@@ -54,7 +54,7 @@ def calculate_batch_source_weights(batch, dataset, by_count: bool):
     counts = batch.get_alt_counts() if by_count else torch.full(size=len(sources), fill_value=ALL_COUNTS_SENTINEL, dtype=torch.int)
     variant_types = batch.get_variant_types()
 
-    return utils.index_3d_array(dataset.source_weights_sct, sources, counts, variant_types)
+    return utils.index_3d_array(dataset.source_balancing_weights_sct, sources, counts, variant_types)
 
 
 class LearningMethod(Enum):
