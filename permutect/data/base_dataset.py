@@ -113,16 +113,19 @@ class BaseDataset(Dataset):
         self.weights_sclt[:, :, Label.UNLABELED, :] = np.clip(
             ratio_with_pseudocount(effective_labeled_counts_sct, self.totals_sclt[:, :, Label.UNLABELED, :]), 0, 1)
 
+        # weights for adversarial source prediction task.  Balance over sources for each count and variant type
         self.source_weights_sct = np.zeros((self.max_source + 1, max_count + 1, len(Variation)))
-        source_totals_sct = np.sum(self.totals_sclt, axis=2)    # sum over label
-        for source in range(self.max_source + 1):
-            for count in range(max_count + 1):
-                # TODO: left off here -- INCOMPLETE
-                self.source_weights_sct[source][count] = np.sqrt(ratio_with_pseudocount(totals_over_sources, self.source_weights_sct[count][source]))
+        totals_sct = np.sum(self.totals_sclt, axis=2)    # sum over label
+        totals_ct = np.sum(totals_sct, axis=0)  # sum over source
 
-            # normalize source prediction weights to have same total effective count.  Note that this is modulated
-            # downstream by set_alpha on the gradient reversal layer applied before source prediction
-            effective_source_counts = np.sum([self.source_totals[count][source] * self.source_weights_sct[count][source] for source in sources])
+        for source in range(self.max_source + 1):
+            self.source_weights_sct[source, :, :] = ratio_with_pseudocount(totals_ct, totals_sct[source, :, :])
+
+        # TODO: left off here -- INCOMPLETE
+
+        # finally, normalize source prediction weights to have same total effective count.  Note that this is modulated
+        # downstream by set_alpha on the gradient reversal layer applied before source prediction
+        effective_source_counts = np.sum([self.source_totals[count][source] * self.source_weights_sct[count][source] for source in sources])
             source_weight_normalization = effective_labeled_counts / effective_source_counts
             for source in sources:
                 self.source_weights_sct[count][source] = self.source_weights_sct[count][source] * source_weight_normalization
