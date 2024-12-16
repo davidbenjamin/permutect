@@ -159,8 +159,8 @@ class BaseDataset(Dataset):
     def all_folds(self):
         return list(range(self.num_folds))
 
-    def make_data_loader(self, folds_to_use: List[int], batch_size: int, pin_memory=False, num_workers: int = 0):
-        sampler = SemiSupervisedBatchSampler(self, batch_size, folds_to_use)
+    def make_data_loader(self, folds_to_use: List[int], batch_size: int, pin_memory=False, num_workers: int = 0, sources_to_use: List[int] = None):
+        sampler = SemiSupervisedBatchSampler(self, batch_size, folds_to_use, sources_to_use)
         return DataLoader(dataset=self, batch_sampler=sampler, collate_fn=BaseBatch, pin_memory=pin_memory, num_workers=num_workers)
 
 
