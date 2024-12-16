@@ -97,21 +97,21 @@ class BaseDataset(Dataset):
         # aggregation over all alt counts.  The array is indexed by source, count, label, variation type
         self.weights_sclt = np.zeros((self.max_source + 1, max_count + 1, len(Label), len(Variation)))
 
-        for source in range(self.max_source + 1):
-            for count in range(max_count + 1):
-                # eg: if there are 1000 artifact and 10 non-artifact SNVs, the ratio is 100, and artifacts get a weight of 1/sqrt(100) = 1/10
-                # while non-artifacts get a weight of 10 -- hence the effective count of each is 1000/10 = 10*10 = 100
-                art_to_nonart_ratios = ratio_with_pseudocount(self.totals_sclt[source][count][Label.ARTIFACT], self.totals_sclt[source][count][Label.VARIANT])
-                self.weights_sclt[source][count][Label.VARIANT] = np.sqrt(art_to_nonart_ratios)
-                self.weights_sclt[source][count][Label.ARTIFACT] = 1 / np.sqrt(art_to_nonart_ratios)
+        # balance the data between ARTIFACT, VARIANT, and UNLABELED labels within each source/count/variant type, separately
+        art_to_nonart_ratios_sct = ratio_with_pseudocount(self.totals_sclt[:, :, Label.ARTIFACT, :],
+                                                      self.totals_sclt[:, :, Label.VARIANT, :])
+        # eg: if there are 1000 artifact and 10 non-artifact SNVs, the ratio is 100, and artifacts get a weight of 1/sqrt(100) = 1/10
+        # while non-artifacts get a weight of 10 -- hence the effective count of each is 1000/10 = 10*10 = 100
+        self.weights_sclt[:, :, Label.VARIANT, :] = np.sqrt(art_to_nonart_ratios_sct)
+        self.weights_sclt[:, :, Label.ARTIFACT, :] = 1 / np.sqrt(art_to_nonart_ratios_sct)
 
-                effective_labeled_counts = self.totals_sclt[source][count][Label.ARTIFACT] * self.weights_sclt[source][count][Label.ARTIFACT] + \
-                                           self.totals_sclt[source][count][Label.VARIANT] * self.weights_sclt[source][count][Label.VARIANT]
-
-                # unlabeled data are weighted down to have at most the same total weight as labeled data
-                # example, 1000 unlabeled SNVs and 100 labeled SNVs -- unlabeled weight is 100/1000 = 1/10
-                # example, 10 unlabeled and 100 labeled -- unlabeled weight is 1
-                self.weights_sclt[source][count][Label.UNLABELED] = np.clip(ratio_with_pseudocount(effective_labeled_counts, self.totals_sclt[source][count][Label.UNLABELED]), 0, 1)
+        # unlabeled data are weighted down to have at most the same total weight as labeled data
+        # example, 1000 unlabeled SNVs and 100 labeled SNVs -- unlabeled weight is 100/1000 = 1/10
+        # example, 10 unlabeled and 100 labeled -- unlabeled weight is 1
+        effective_labeled_counts_sct = self.totals_sclt[:, :, Label.ARTIFACT, :] * self.weights_sclt[:, :, Label.ARTIFACT, :] + \
+                                   self.totals_sclt[:, :, Label.VARIANT, :] * self.weights_sclt[:, :, Label.VARIANT, :]
+        self.weights_sclt[:, :, Label.UNLABELED, :] = np.clip(
+            ratio_with_pseudocount(effective_labeled_counts_sct, self.totals_sclt[:, :, Label.UNLABELED, :]), 0, 1)
 
         self.source_weights_sct = np.zeros((self.max_source + 1, max_count + 1, len(Variation)))
         source_totals_sct = np.sum(self.totals_sclt, axis=2)    # sum over label
