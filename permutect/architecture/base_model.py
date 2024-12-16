@@ -38,12 +38,12 @@ def sums_over_chunks(tensor2d: torch.Tensor, chunk_size: int):
 def calculate_batch_weights(batch, dataset, by_count: bool):
     # TODO: we need a parameter to control the relative weight of unlabeled loss to labeled loss
     # For batch index n, we want weight[n] = dataset.weights[alt_counts[n], labels[n], variant_types[n]]
-    counts = batch.get_alt_counts()
+    sources = batch.get_sources()
+    counts = batch.get_alt_counts() if by_count else torch.full(size=len(sources), fill_value=ALL_COUNTS_SENTINEL, dtype=torch.int)
     labels = batch.get_labels()
     variant_types = batch.get_variant_types()
 
-    return utils.index_3d_array(dataset.weights, counts, labels, variant_types) if by_count else \
-        utils.index_2d_array(dataset.weights[ALL_COUNTS_SENTINEL], labels, variant_types)
+    return utils.index_4d_array(dataset.weights_sclt, sources, counts, labels, variant_types)
 
 
 # note: this works for both BaseBatch/BaseDataset AND ArtifactBatch/ArtifactDataset
@@ -464,10 +464,12 @@ def learn_base_model(base_model: BaseModel, dataset: BaseDataset, learning_metho
     is_cuda = base_model._device.type == 'cuda'
     print(f"Is CUDA available? {is_cuda}")
 
-    for idx, variation_type in enumerate(utils.Variation):
-        print(f"For variation type {variation_type.name}, there are {int(dataset.totals[ALL_COUNTS_SENTINEL][Label.ARTIFACT][idx].item())} \
-            artifacts, {int(dataset.totals[ALL_COUNTS_SENTINEL][Label.VARIANT][idx].item())} \
-            non-artifacts, and {int(dataset.totals[ALL_COUNTS_SENTINEL][Label.UNLABELED][idx].item())} unlabeled data.")
+    for source in range(dataset.max_source + 1):
+        print(f"Data counts for source {source}:")
+        for var_type in utils.Variation:
+            print(f"Data counts for variant type {var_type.name}:")
+            for label in Label:
+                print(f"{label.name}: {int(dataset.totals_sclt[source][ALL_COUNTS_SENTINEL][label][var_type].item())}")
 
     # TODO: use Python's match syntax, but this requires updating Python version in the docker
     # TODO: hidden_top_layers are hard-coded!

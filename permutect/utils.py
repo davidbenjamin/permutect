@@ -219,6 +219,12 @@ def index_2d_array(tens, idx0, idx1):
     return tens.view(-1)[flattened_indices]
 
 
+def index_4d_array(tens, idx0, idx1, idx2, idx3):
+    dim0, dim1, dim2, dim3 = tens.shape
+    flattened_indices = (idx0 * dim1 * dim2 * dim3) + (idx1 * dim2 * dim3) + (idx2 * dim3) + idx3
+    return tens.view(-1)[flattened_indices]
+
+
 # same but include a regularizer in case of zeros in the counts vector
 # regularizer has the dimension of one row of the input tensor
 def means_over_rows_with_regularizer(input_tensor: torch.Tensor, counts: torch.IntTensor, regularizer, regularizer_weight, keepdim: bool = False):

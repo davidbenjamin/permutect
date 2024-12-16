@@ -20,9 +20,9 @@ class ArtifactDataset(Dataset):
                  base_loader_num_workers=0,
                  base_loader_batch_size=8192):
         self.counts_by_source = base_dataset.counts_by_source
-        self.totals = base_dataset.totals
+        self.totals_sclt = base_dataset.totals_sclt
         self.source_totals = base_dataset.source_totals
-        self.weights = base_dataset.weights
+        self.weights_sclt = base_dataset.weights_sclt
         self.source_weights = base_dataset.source_weights
 
         self.artifact_data = []

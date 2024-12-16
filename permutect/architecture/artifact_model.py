@@ -21,6 +21,7 @@ from permutect.architecture.base_model import calculate_batch_weights, BaseModel
 from permutect.architecture.gradient_reversal.module import GradientReversal
 from permutect.architecture.mlp import MLP
 from permutect.architecture.monotonic import MonoDense
+from permutect.data.base_dataset import ALL_COUNTS_SENTINEL
 from permutect.data.base_datum import ArtifactBatch, DEFAULT_GPU_FLOAT, DEFAULT_CPU_FLOAT
 from permutect.data.artifact_dataset import ArtifactDataset
 from permutect import utils, constants
@@ -215,10 +216,13 @@ class ArtifactModel(nn.Module):
         train_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(train_optimizer, factor=0.2, patience=5,
             threshold=0.001, min_lr=(training_params.learning_rate / 100), verbose=True)
 
-        for idx, variation_type in enumerate(utils.Variation):
-            print(f"For variation type {variation_type.name}, there are {int(dataset.totals[-1][Label.ARTIFACT][idx].item())} \
-                artifacts, {int(dataset.totals[-1][Label.VARIANT][idx].item())} \
-                non-artifacts, and {int(dataset.totals[-1][Label.UNLABELED][idx].item())} unlabeled data.")
+        num_sources = len(dataset.totals_sclt)
+        for source in range(num_sources):
+            print(f"Data counts for source {source}:")
+            for var_type in utils.Variation:
+                print(f"Data counts for variant type {var_type.name}:")
+                for label in Label:
+                    print(f"{label.name}: {int(dataset.totals_sclt[source][ALL_COUNTS_SENTINEL][label][var_type].item())}")
 
         is_cuda = self._device.type == 'cuda'
         print(f"Is CUDA available? {is_cuda}")
