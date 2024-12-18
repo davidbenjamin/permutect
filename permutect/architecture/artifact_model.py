@@ -234,7 +234,6 @@ class ArtifactModel(nn.Module):
         valid_loader = dataset.make_data_loader([validation_fold_to_use], training_params.inference_batch_size, is_cuda, training_params.num_workers)
         print(f"Validation loader created, memory usage percent: {psutil.virtual_memory().percent:.1f}")
 
-        # TODO: left off here
         calibration_loader = train_loader if calibration_sources is None else \
             dataset.make_data_loader(dataset.all_but_one_fold(validation_fold_to_use), training_params.batch_size,
                                      is_cuda, training_params.num_workers, sources_to_use=calibration_sources)
@@ -260,7 +259,8 @@ class ArtifactModel(nn.Module):
                 source_prediction_loss_metrics = LossMetrics()  # based on calibrated logits
                 uncalibrated_loss_metrics = LossMetrics()  # based on uncalibrated logits
 
-                loader = train_loader if epoch_type == utils.Epoch.TRAIN else valid_loader
+                loader = calibration_loader if is_calibration_epoch else \
+                    (train_loader if epoch_type == utils.Epoch.TRAIN else valid_loader)
                 loader_iter = iter(loader)
 
                 next_batch_cpu = next(loader_iter)
@@ -347,6 +347,8 @@ class ArtifactModel(nn.Module):
             if is_last:
                 # collect data in order to do final calibration
                 print("collecting data for final calibration")
+
+                # TODO: should logit adjustments depend only on calibration loader?
                 evaluation_metrics, _ = self.collect_evaluation_data(dataset, train_loader, valid_loader, report_worst=False)
 
                 logit_adjustments_by_var_type_and_count_bin = evaluation_metrics.metrics[Epoch.VALID].calculate_logit_adjustments(use_harmonic_mean=False)
