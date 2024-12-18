@@ -189,7 +189,8 @@ class ArtifactModel(nn.Module):
             calibrated_logits += mask * self.calibration[n].forward(uncalibrated_logits, batch.get_ref_counts(), batch.get_alt_counts())
         return calibrated_logits, uncalibrated_logits, features
 
-    def learn(self, dataset: ArtifactDataset, training_params: TrainingParameters, summary_writer: SummaryWriter, validation_fold: int = None, epochs_per_evaluation: int = None):
+    def learn(self, dataset: ArtifactDataset, training_params: TrainingParameters, summary_writer: SummaryWriter,
+              validation_fold: int = None, epochs_per_evaluation: int = None, calibration_sources: List[int] = None):
         bce = nn.BCEWithLogitsLoss(reduction='none')  # no reduction because we may want to first multiply by weights for unbalanced data
         # cross entropy (with logit inputs) loss for adversarial source classification task
         ce = nn.CrossEntropyLoss(reduction='none')
@@ -232,6 +233,11 @@ class ArtifactModel(nn.Module):
         print(f"Train loader created, memory usage percent: {psutil.virtual_memory().percent:.1f}")
         valid_loader = dataset.make_data_loader([validation_fold_to_use], training_params.inference_batch_size, is_cuda, training_params.num_workers)
         print(f"Validation loader created, memory usage percent: {psutil.virtual_memory().percent:.1f}")
+
+        # TODO: left off here
+        calibration_loader = train_loader if calibration_sources is None else \
+            dataset.make_data_loader(dataset.all_but_one_fold(validation_fold_to_use), training_params.batch_size,
+                                     is_cuda, training_params.num_workers, sources_to_use=calibration_sources)
 
         first_epoch, last_epoch = 1, training_params.num_epochs + training_params.num_calibration_epochs
         for epoch in trange(1, last_epoch + 1, desc="Epoch"):

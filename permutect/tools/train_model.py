@@ -22,7 +22,7 @@ def train_artifact_model(hyperparams: ArtifactModelParameters, training_params: 
                          dataset: ArtifactDataset, calibration_sources: List[int] = None):
     model = ArtifactModel(params=hyperparams, num_base_features=dataset.num_base_features, num_ref_alt_features=dataset.num_ref_alt_features, device=utils.gpu_if_available())
     # TODO: magic constant
-    model.learn(dataset, training_params, summary_writer=summary_writer, epochs_per_evaluation=10)
+    model.learn(dataset, training_params, summary_writer=summary_writer, epochs_per_evaluation=10, calibration_sources=calibration_sources)
 
     for n, var_type in enumerate(Variation):
         cal_fig, cal_axes = model.calibration[n].plot_calibration()
