@@ -39,7 +39,7 @@ def calculate_batch_weights(batch, dataset, by_count: bool):
     # TODO: we need a parameter to control the relative weight of unlabeled loss to labeled loss
     # For batch index n, we want weight[n] = dataset.weights[alt_counts[n], labels[n], variant_types[n]]
     sources = batch.get_sources()
-    counts = batch.get_alt_counts() if by_count else torch.full(size=len(sources), fill_value=ALL_COUNTS_INDEX, dtype=torch.int)
+    counts = batch.get_alt_counts() if by_count else torch.full(size=(len(sources), ), fill_value=ALL_COUNTS_INDEX, dtype=torch.int)
     labels = batch.get_labels()
     variant_types = batch.get_variant_types()
 
@@ -51,7 +51,7 @@ def calculate_batch_weights(batch, dataset, by_count: bool):
 def calculate_batch_source_weights(batch, dataset, by_count: bool):
     # For batch index n, we want weight[n] = dataset.source_weights[sources[n], alt_counts[n], variant_types[n]]
     sources = batch.get_sources()
-    counts = batch.get_alt_counts() if by_count else torch.full(size=len(sources), fill_value=ALL_COUNTS_INDEX, dtype=torch.int)
+    counts = batch.get_alt_counts() if by_count else torch.full(size=(len(sources), ), fill_value=ALL_COUNTS_INDEX, dtype=torch.int)
     variant_types = batch.get_variant_types()
 
     return utils.index_3d_array(dataset.source_balancing_weights_sct, sources, counts, variant_types)
