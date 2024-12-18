@@ -92,39 +92,45 @@ class BaseDataset(Dataset):
             self.totals_sclt[source][ALL_COUNTS_INDEX][datum.label][variant_type_idx] += 1
             self.totals_sclt[source][datum.alt_count][datum.label][variant_type_idx] += 1
 
-        # weights that balance artifact and non-artifact loss for each source, count variation type independently
+        # general balancing idea: if total along some axis eg label is T and count for one particular label is C,
+        # assign weight T/C -- then effective count is (T/C)*C = T, which is independent of label
+        # we therefore need sums along certain axes:
+        totals_sct = np.sum(self.totals_sclt, axis=2)  # sum over label for label-balancing
+        labeled_totals_sct = totals_sct - self.totals_sclt[:, :, Label.UNLABELED, :]
+        totals_ct = np.sum(totals_sct, axis=0)  # sum over label and source for source-balancing
+        labeled_total = np.sum(labeled_totals_sct)
+
         # note: count == 0 (which never occurs as a real alt count) means aggregation over all alt counts
-        self.label_balancing_weights_sclt = np.zeros((self.max_source + 1, max_count + 1, len(Label), len(Variation)))
+        # thus if we ever sum over count (which we currently don't do), make sure to exclude count == 0
 
-        # balance the data between ARTIFACT, VARIANT, and UNLABELED labels within each source/count/variant type, separately
-        art_to_nonart_ratios_sct = ratio_with_pseudocount(self.totals_sclt[:, :, Label.ARTIFACT, :],
-                                                      self.totals_sclt[:, :, Label.VARIANT, :])
-        # eg: if there are 1000 artifact and 10 non-artifact SNVs, the ratio is 100, and artifacts get a weight of 1/sqrt(100) = 1/10
-        # while non-artifacts get a weight of 10 -- hence the effective count of each is 1000/10 = 10*10 = 100
-        self.label_balancing_weights_sclt[:, :, Label.VARIANT, :] = np.sqrt(art_to_nonart_ratios_sct)
-        self.label_balancing_weights_sclt[:, :, Label.ARTIFACT, :] = 1 / np.sqrt(art_to_nonart_ratios_sct)
+        self.label_balancing_weights_sclt = ratio_with_pseudocount(labeled_totals_sct[:, :, None, :], self.totals_sclt)
 
-        # unlabeled data are weighted down to have at most the same total weight as labeled data
-        # example, 1000 unlabeled SNVs and 100 labeled SNVs -- unlabeled weight is 100/1000 = 1/10
-        # example, 10 unlabeled and 100 labeled -- unlabeled weight is 1
-        effective_labeled_counts_sct = self.totals_sclt[:, :, Label.ARTIFACT, :] * self.label_balancing_weights_sclt[:, :, Label.ARTIFACT, :] + \
-                                   self.totals_sclt[:, :, Label.VARIANT, :] * self.label_balancing_weights_sclt[:, :, Label.VARIANT, :]
-        self.label_balancing_weights_sclt[:, :, Label.UNLABELED, :] = np.clip(
-            ratio_with_pseudocount(effective_labeled_counts_sct, self.totals_sclt[:, :, Label.UNLABELED, :]), 0, 1)
+        # next we want to normalize so that the average weight encountered on labeled data is 1 -- this way the learning rate
+        # parameter has a fixed meaning.
+        total_weight = np.sum(self.totals_sclt * self.label_balancing_weights_sclt)
+        total_supervised_weight = total_weight - np.sum(self.totals_sclt[:, :, Label.UNLABELED, :] * self.label_balancing_weights_sclt[:, :, Label.UNLABELED, :])
+        average_supervised_weight = total_supervised_weight / labeled_total
+
+        # after the following line, average label-balancing weight encountered on labeled data is 1
+        self.label_balancing_weights_sclt = self.label_balancing_weights_sclt / average_supervised_weight
+
+        # the balancing process can reduce the influence of unlabeled data to match that of labeled data, but we don't want to
+        # weight it strongly when there's little unlabeled data.  That is, if we have plenty of labeled data we are happy with
+        # supervised learning!
+        self.label_balancing_weights_sclt[:, :, Label.UNLABELED, :] = \
+            np.clip(self.label_balancing_weights_sclt[:, :, Label.UNLABELED, :], 0, 1)
+
+        # at this point, average labeled weight is 1 and weights balance artifacts with non-artifacts for each combination
+        # of source, count, and variant type
 
         # weights for adversarial source prediction task.  Balance over sources for each count and variant type
-        totals_sct = np.sum(self.totals_sclt, axis=2)    # sum over label
-        totals_ct = np.sum(totals_sct, axis=0)  # sum over source
+        self.source_balancing_weights_sct = ratio_with_pseudocount(totals_ct[None, :, :], totals_sct)
 
-        # contribution of each source to total data for each source, count, variant type
-        source_ratios = ratio_with_pseudocount(totals_ct[None, :, :], totals_sct)
-        self.source_balancing_weights_sct = np.sqrt(source_ratios)
-
-        # finally, normalize source prediction weights to have same total effective count.  Note that this is modulated
-        # downstream by set_alpha on the gradient reversal layer applied before source prediction
-        effective_label_counts = np.sum(self.label_balancing_weights_sclt * self.totals_sclt)
-        effective_source_counts = np.sum(self.source_balancing_weights_sct * totals_sct)
-        self.source_balancing_weights_sct = self.source_balancing_weights_sct * (effective_label_counts / effective_source_counts)
+        # we now normalize the source balancing weight to have the same total weights as supervised learning
+        # the average supervised count has been normalized to 1 so the total supervised weight is just the total labeled
+        # count.
+        total_source_balancing_weight = np.sum(totals_sct * self.source_balancing_weights_sct)
+        self.source_balancing_weights_sct = self.source_balancing_weights_sct * labeled_total / total_source_balancing_weight
 
         self.label_balancing_weights_sclt = torch.from_numpy(self.label_balancing_weights_sclt)
         self.source_balancing_weights_sct = torch.from_numpy(self.source_balancing_weights_sct)
