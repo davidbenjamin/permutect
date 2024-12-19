@@ -234,8 +234,12 @@ class ArtifactModel(nn.Module):
         valid_loader = dataset.make_data_loader([validation_fold_to_use], training_params.inference_batch_size, is_cuda, training_params.num_workers)
         print(f"Validation loader created, memory usage percent: {psutil.virtual_memory().percent:.1f}")
 
-        calibration_loader = train_loader if calibration_sources is None else \
+        calibration_train_loader = train_loader if calibration_sources is None else \
             dataset.make_data_loader(dataset.all_but_one_fold(validation_fold_to_use), training_params.batch_size,
+                                     is_cuda, training_params.num_workers, sources_to_use=calibration_sources)
+
+        calibration_valid_loader = valid_loader if calibration_sources is None else \
+            dataset.make_data_loader([validation_fold_to_use], training_params.inference_batch_size,
                                      is_cuda, training_params.num_workers, sources_to_use=calibration_sources)
 
         first_epoch, last_epoch = 1, training_params.num_epochs + training_params.num_calibration_epochs
@@ -259,7 +263,7 @@ class ArtifactModel(nn.Module):
                 source_prediction_loss_metrics = LossMetrics()  # based on calibrated logits
                 uncalibrated_loss_metrics = LossMetrics()  # based on uncalibrated logits
 
-                loader = calibration_loader if is_calibration_epoch else \
+                loader = calibration_train_loader if is_calibration_epoch else \
                     (train_loader if epoch_type == utils.Epoch.TRAIN else valid_loader)
                 loader_iter = iter(loader)
 
@@ -348,10 +352,13 @@ class ArtifactModel(nn.Module):
                 # collect data in order to do final calibration
                 print("collecting data for final calibration")
 
-                # TODO: should logit adjustments depend only on calibration loader?
-                evaluation_metrics, _ = self.collect_evaluation_data(dataset, train_loader, valid_loader, report_worst=False)
+                # TODO: does calibration on evaluation data work for an unlabeled (or unlabeled artifacts) source?
+                if calibration_sources is None:
+                    metrics_for_final_calibration, _ = self.collect_evaluation_data(dataset, train_loader, valid_loader, report_worst=False)
+                else:
+                    metrics_for_final_calibration, _ = self.collect_evaluation_data(dataset, calibration_train_loader, calibration_valid_loader, report_worst=False)
 
-                logit_adjustments_by_var_type_and_count_bin = evaluation_metrics.metrics[Epoch.VALID].calculate_logit_adjustments(use_harmonic_mean=False)
+                logit_adjustments_by_var_type_and_count_bin = metrics_for_final_calibration.metrics[Epoch.VALID].calculate_logit_adjustments(use_harmonic_mean=False)
                 print("here are the logit adjustments:")
                 for var_type_idx, var_type in enumerate(Variation):
                     adjustments_by_count_bin = logit_adjustments_by_var_type_and_count_bin[var_type]
