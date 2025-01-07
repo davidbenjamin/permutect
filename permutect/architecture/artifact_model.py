@@ -242,6 +242,11 @@ class ArtifactModel(nn.Module):
             dataset.make_data_loader([validation_fold_to_use], training_params.inference_batch_size,
                                      is_cuda, training_params.num_workers, sources_to_use=calibration_sources)
 
+        # imbalanced unlabeled data can exert a bias just like labeled data.  These parameters keep track of the proportion
+        # of unlabeled data that seem to be artifacts in order to weight losses appropriately.  Each source, count, and
+        # variant type has its own proportion, stored as a logit-transformed probability
+        unlabeled_artifact_proportion_logits_sct = torch.zeros_like(dataset.totals_sclt[:, :, Label.UNLABELED, :], requires_grad=True, device=self._device)
+        artifact_proportion_optimizer = torch.optim.AdamW([unlabeled_artifact_proportion_logits_sct], lr=training_params.learning_rate)
         first_epoch, last_epoch = 1, training_params.num_epochs + training_params.num_calibration_epochs
         for epoch in trange(1, last_epoch + 1, desc="Epoch"):
             start_of_epoch = time.time()
@@ -280,6 +285,11 @@ class ArtifactModel(nn.Module):
                     next_batch_cpu = next(loader_iter)
                     next_batch = next_batch_cpu.copy_to(self._device, self._dtype, non_blocking=is_cuda)
 
+                    sources = batch.get_sources()
+                    alt_counts = batch.get_alt_counts()
+                    variant_types = batch.get_variant_types()
+                    labels = batch.get_training_labels()
+
                     logits, precalibrated_logits, features = self.forward(batch)
 
                     # one-hot prediction of sources
@@ -289,7 +299,7 @@ class ArtifactModel(nn.Module):
                         # to achieve the adversarial task of distinguishing sources
                         source_prediction_logits = source_classifier.forward(source_gradient_reversal(features))
                         source_prediction_probs = torch.nn.functional.softmax(source_prediction_logits, dim=-1)
-                        source_prediction_targets = torch.nn.functional.one_hot(batch.get_sources().long(), num_sources)
+                        source_prediction_targets = torch.nn.functional.one_hot(sources.long(), num_sources)
                         source_prediction_losses = torch.sum(torch.square(source_prediction_probs - source_prediction_targets), dim=-1)
 
                         # TODO: always by count?
@@ -303,7 +313,6 @@ class ArtifactModel(nn.Module):
                     weights = calculate_batch_weights(batch_cpu, dataset, by_count=True)
                     weights = weights.to(device=self._device, dtype=self._dtype, non_blocking=True)
 
-                    labels = batch.get_training_labels()
                     uncalibrated_cross_entropies = bce(precalibrated_logits, labels)
                     calibrated_cross_entropies = bce(logits, labels)
                     labeled_losses = batch.get_is_labeled_mask() * (uncalibrated_cross_entropies + calibrated_cross_entropies) / 2
@@ -330,6 +339,12 @@ class ArtifactModel(nn.Module):
                     if epoch_type == utils.Epoch.TRAIN:
                         utils.backpropagate(train_optimizer, loss)
 
+                    # separately from backpropagating the model parameters, we also backpropagate our estimated proportions
+                    # of artifacts among unlabeled data.  Note that we detach the computed probabilities!!
+                    artifact_prop_logits = utils.index_3d_array(unlabeled_artifact_proportion_logits_sct, sources, alt_counts, variant_types)
+                    artifact_proportion_losses = (1 - batch.get_is_labeled_mask()) * bce(artifact_prop_logits, probabilities.detach())
+                    utils.backpropagate(artifact_proportion_optimizer, torch.sum(artifact_proportion_losses))
+
                 # done with one epoch type -- training or validation -- for this epoch
                 loss_metrics.write_to_summary_writer(epoch_type, epoch, summary_writer)
                 source_prediction_loss_metrics.write_to_summary_writer(epoch_type, epoch, summary_writer, prefix="source prediction")
@@ -352,7 +367,9 @@ class ArtifactModel(nn.Module):
                 # collect data in order to do final calibration
                 print("collecting data for final calibration")
 
-                # TODO: does calibration on evaluation data work for an unlabeled (or unlabeled artifacts) source?
+                # TODO: calibration on evaluation data doesn't work for an unlabeled (or unlabeled artifacts) source?
+                # in such a case we should skip the final calibration step (which admittedly is kind of hacky anyway) and
+                # perhaps instead rely on calibration epochs?
                 if calibration_sources is None:
                     metrics_for_final_calibration, _ = self.collect_evaluation_data(dataset, train_loader, valid_loader, report_worst=False)
                 else:
