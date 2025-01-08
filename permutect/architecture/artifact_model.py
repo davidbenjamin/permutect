@@ -242,12 +242,12 @@ class ArtifactModel(nn.Module):
             dataset.make_data_loader([validation_fold_to_use], training_params.inference_batch_size,
                                      is_cuda, training_params.num_workers, sources_to_use=calibration_sources)
 
-        totals_sclt = dataset.totals_sclt.clone().to(self._device)
+        totals_sclt = torch.from_numpy(dataset.totals_sclt).to(self._device)
 
         # imbalanced unlabeled data can exert a bias just like labeled data.  These parameters keep track of the proportion
         # of unlabeled data that seem to be artifacts in order to weight losses appropriately.  Each source, count, and
         # variant type has its own proportion, stored as a logit-transformed probability
-        unlabeled_artifact_proportion_logits_sct = torch.zeros_like(dataset.totals_sclt[:, :, Label.UNLABELED, :], requires_grad=True, device=self._device)
+        unlabeled_artifact_proportion_logits_sct = torch.zeros_like(totals_sclt[:, :, Label.UNLABELED, :], requires_grad=True, device=self._device)
         artifact_proportion_optimizer = torch.optim.AdamW([unlabeled_artifact_proportion_logits_sct], lr=training_params.learning_rate)
         first_epoch, last_epoch = 1, training_params.num_epochs + training_params.num_calibration_epochs
         for epoch in trange(1, last_epoch + 1, desc="Epoch"):
