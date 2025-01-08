@@ -303,6 +303,7 @@ class ArtifactModel(nn.Module):
                     alt_counts = batch.get_alt_counts()
                     variant_types = batch.get_variant_types()
                     labels = batch.get_training_labels()
+                    is_labeled_mask = batch.get_is_labeled_mask()
 
                     logits, precalibrated_logits, features = self.forward(batch)
 
@@ -323,10 +324,6 @@ class ArtifactModel(nn.Module):
                         source_prediction_losses = torch.zeros_like(logits, device=self._device)
                         source_prediction_weights = torch.zeros_like(logits, device=self._device)
 
-                    # TODO: we need a parameter to control the relative weight of unlabeled loss to labeled loss
-                    weights = calculate_batch_weights(batch_cpu, dataset, by_count=True)
-                    weights = weights.to(device=self._device, dtype=self._dtype, non_blocking=True)
-
                     uncalibrated_cross_entropies = bce(precalibrated_logits, labels)
                     calibrated_cross_entropies = bce(logits, labels)
                     labeled_losses = batch.get_is_labeled_mask() * (uncalibrated_cross_entropies + calibrated_cross_entropies) / 2
@@ -336,6 +333,17 @@ class ArtifactModel(nn.Module):
                     probabilities = torch.sigmoid(precalibrated_logits)
                     entropies = torch.nn.functional.binary_cross_entropy_with_logits(precalibrated_logits, probabilities, reduction='none')
                     unlabeled_losses = (1 - batch.get_is_labeled_mask()) * entropies
+
+                    # calculate label-balancing weights
+                    artifact_weights = utils.index_3d_array(artifact_weights_sct, sources, alt_counts, variant_types)
+                    nonartifact_weights = utils.index_3d_array(nonartifact_weights_sct, sources, alt_counts,
+                                                               variant_types)
+
+                    # is_artifact is 1 / 0 if labeled as artifact / nonartifact; otherwise it's the estimated probability
+                    # TODO: I bet some things from the batch still need to be moved to GPU.  Don't be surprised if
+                    # TODO: debugging is needed.
+                    is_artifact = is_labeled_mask * labels + (1 - is_labeled_mask) * probabilities.detach()
+                    weights = is_artifact * artifact_weights + (1 - is_artifact) * nonartifact_weights
 
                     # these losses include weights and take labeled vs unlabeled into account
                     losses = (labeled_losses + unlabeled_losses) * weights + (source_prediction_losses * source_prediction_weights)
