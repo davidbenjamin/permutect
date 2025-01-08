@@ -21,7 +21,7 @@ from permutect.architecture.base_model import calculate_batch_weights, BaseModel
 from permutect.architecture.gradient_reversal.module import GradientReversal
 from permutect.architecture.mlp import MLP
 from permutect.architecture.monotonic import MonoDense
-from permutect.data.base_dataset import ALL_COUNTS_INDEX
+from permutect.data.base_dataset import ALL_COUNTS_INDEX, ratio_with_pseudocount
 from permutect.data.base_datum import ArtifactBatch, DEFAULT_GPU_FLOAT, DEFAULT_CPU_FLOAT
 from permutect.data.artifact_dataset import ArtifactDataset
 from permutect import utils, constants
@@ -242,6 +242,8 @@ class ArtifactModel(nn.Module):
             dataset.make_data_loader([validation_fold_to_use], training_params.inference_batch_size,
                                      is_cuda, training_params.num_workers, sources_to_use=calibration_sources)
 
+        totals_sclt = dataset.totals_sclt.clone().to(self._device)
+
         # imbalanced unlabeled data can exert a bias just like labeled data.  These parameters keep track of the proportion
         # of unlabeled data that seem to be artifacts in order to weight losses appropriately.  Each source, count, and
         # variant type has its own proportion, stored as a logit-transformed probability
@@ -284,6 +286,18 @@ class ArtifactModel(nn.Module):
                     # Optimization: Asynchronously send the next batch to the device while the model does work
                     next_batch_cpu = next(loader_iter)
                     next_batch = next_batch_cpu.copy_to(self._device, self._dtype, non_blocking=is_cuda)
+
+                    # TODO: does this really need to be updated every batch?
+                    # effective totals are labeled plus estimated contributions from unlabeled
+                    unlabeled_artifact_proportions_sct = torch.sigmoid(unlabeled_artifact_proportion_logits_sct.detach())
+                    effective_artifact_totals_sct = totals_sclt[:, :, Label.ARTIFACT, :] + \
+                        unlabeled_artifact_proportions_sct * totals_sclt[:, :, Label.UNLABELED, :]
+                    effective_nonartifact_totals_sct = totals_sclt[:, :, Label.VARIANT, :] + \
+                        (1 - unlabeled_artifact_proportions_sct) * totals_sclt[:, :, Label.UNLABELED, :]
+                    totals_sct = effective_artifact_totals_sct + effective_nonartifact_totals_sct
+
+                    artifact_weights_sct = 0.5 * ratio_with_pseudocount(totals_sct, effective_artifact_totals_sct)
+                    nonartifact_weights_sct = 0.5 * ratio_with_pseudocount(totals_sct, effective_nonartifact_totals_sct)
 
                     sources = batch.get_sources()
                     alt_counts = batch.get_alt_counts()
