@@ -75,29 +75,24 @@ class Calibration(nn.Module):
         # logit is one feature, then the Gaussian comb for alt and ref counts is the other
         self.monotonic = MonoDense(1 + len(self.ref_centers) + len(self.alt_centers), hidden_layer_sizes + [1], 1, 0)
 
-        self.is_turned_on = True
-
         self.max_alt_count_for_adjustment = 20
-        # after training we compute one final calibration adjustment, which depends on alt count
-        # the nth element is the adjustment for alt count n
-        # note that this is NOT a learnable parameter!!!! It is *set* but not learned!!
-        self.final_adjustments = nn.Parameter(torch.zeros(self.max_alt_count_for_adjustment + 1), requires_grad=False)
+
+        # Final layer of calibration is a count-dependent linear shift.  This is particularly useful when calibrating only on
+        # a subset of data sources
+        self.final_adjustments = nn.Parameter(torch.zeros(self.max_alt_count_for_adjustment + 1), requires_grad=True)
 
     def calibrated_logits(self, logits_b: Tensor, ref_counts_b: Tensor, alt_counts_b: Tensor):
-        if self.is_turned_on:
-            logits_bc = torch.tanh(logits_b / self.max_input_logit)[:, None]
+        logits_bc = torch.tanh(logits_b / self.max_input_logit)[:, None]
 
-            ref_comb_bc = torch.softmax(-torch.square(ref_counts_b[:, None] - self.ref_centers[None, :]).float(), dim=1)
-            alt_comb_bc = torch.softmax(-torch.square(alt_counts_b[:, None] - self.alt_centers[None, :]).float(), dim=1)
-            input_2d = torch.hstack([logits_bc, ref_comb_bc, alt_comb_bc])
-            calibrated_b = self.monotonic.forward(input_2d).squeeze()
+        ref_comb_bc = torch.softmax(-torch.square(ref_counts_b[:, None] - self.ref_centers[None, :]).float(), dim=1)
+        alt_comb_bc = torch.softmax(-torch.square(alt_counts_b[:, None] - self.alt_centers[None, :]).float(), dim=1)
+        input_2d = torch.hstack([logits_bc, ref_comb_bc, alt_comb_bc])
+        calibrated_b = self.monotonic.forward(input_2d).squeeze()
 
-            counts_for_adjustment = torch.clamp(alt_counts_b, max=self.max_alt_count_for_adjustment).long()
-            adjustments = self.final_adjustments[counts_for_adjustment]
+        counts_for_adjustment = torch.clamp(alt_counts_b, max=self.max_alt_count_for_adjustment).long()
+        adjustments = self.final_adjustments[counts_for_adjustment]
 
-            return calibrated_b + adjustments
-        else:   # should never happen
-            return logits_b
+        return calibrated_b + adjustments
 
     def forward(self, logits, ref_counts: Tensor, alt_counts: Tensor):
         return self.calibrated_logits(logits, ref_counts, alt_counts)
