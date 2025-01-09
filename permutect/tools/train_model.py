@@ -25,7 +25,7 @@ def train_artifact_model(hyperparams: ArtifactModelParameters, training_params: 
     model.learn(dataset, training_params, summary_writer=summary_writer, epochs_per_evaluation=10, calibration_sources=calibration_sources)
 
     for n, var_type in enumerate(Variation):
-        cal_fig, cal_axes = model.calibration[n].plot_calibration(var_type)
+        cal_fig, cal_axes = model.calibration[n].plot_calibration()
         summary_writer.add_figure("calibration by count for " + var_type.name, cal_fig)
 
     return model
