@@ -153,6 +153,9 @@ class ArtifactModel(nn.Module):
     def calibration_parameters(self):
         return self.calibration.parameters()
 
+    def final_calibration_shift_parameters(self):
+        return [cal.final_adjustments for cal in self.calibration]
+
     def freeze_all(self):
         utils.freeze(self.parameters())
 
@@ -179,8 +182,6 @@ class ArtifactModel(nn.Module):
     def learn(self, dataset: ArtifactDataset, training_params: TrainingParameters, summary_writer: SummaryWriter,
               validation_fold: int = None, epochs_per_evaluation: int = None, calibration_sources: List[int] = None):
         bce = nn.BCEWithLogitsLoss(reduction='none')  # no reduction because we may want to first multiply by weights for unbalanced data
-        # cross entropy (with logit inputs) loss for adversarial source classification task
-        ce = nn.CrossEntropyLoss(reduction='none')
 
         num_sources = len(dataset.counts_by_source.keys())
         if num_sources == 1:
@@ -251,7 +252,8 @@ class ArtifactModel(nn.Module):
                 # in calibration epoch, freeze the model except for calibration
                 if is_calibration_epoch and epoch_type == utils.Epoch.TRAIN:
                     utils.freeze(self.parameters())
-                    utils.unfreeze(self.calibration_parameters())  # unfreeze calibration but everything else stays frozen
+                    #utils.unfreeze(self.calibration_parameters())  # unfreeze calibration but everything else stays frozen
+                    utils.unfreeze(self.final_calibration_shift_parameters())  # unfreeze final calibration shift but everything else stays frozen
 
                 loss_metrics = LossMetrics()    # based on calibrated logits
                 source_prediction_loss_metrics = LossMetrics()  # based on calibrated logits
