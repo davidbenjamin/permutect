@@ -326,6 +326,9 @@ class ArtifactModel(nn.Module):
 
                     uncalibrated_cross_entropies = bce(precalibrated_logits, labels)
                     calibrated_cross_entropies = bce(logits, labels)
+
+                    # TODO: investigate whether using the average of un-calibrated and calibrated cross entropies is
+                    # TODO: really the right thing to do
                     labeled_losses = batch.get_is_labeled_mask() * (uncalibrated_cross_entropies + calibrated_cross_entropies) / 2
 
                     # unlabeled loss: entropy regularization. We use the uncalibrated logits because otherwise entropy
@@ -381,40 +384,9 @@ class ArtifactModel(nn.Module):
                     print(f"Adversarial source prediction loss on unlabeled data for {epoch_type.name} epoch {epoch}: {source_prediction_loss_metrics.get_unlabeled_loss():.3f}")
             # done with training and validation for this epoch
             print(f"End of epoch {epoch}, memory usage percent: {psutil.virtual_memory().percent:.1f}, time elapsed(s): {time.time() - start_of_epoch:.2f}")
-            is_last = (epoch == last_epoch)
-            if (epochs_per_evaluation is not None and epoch % epochs_per_evaluation == 0) or is_last:
+            if (epochs_per_evaluation is not None and epoch % epochs_per_evaluation == 0) or (epoch == last_epoch):
                 print(f"performing evaluation on epoch {epoch}")
                 self.evaluate_model(epoch, dataset, train_loader, valid_loader, summary_writer, collect_embeddings=False, report_worst=False)
-            if is_last:
-                # collect data in order to do final calibration
-                print("collecting data for final calibration")
-
-                # TODO: calibration on evaluation data doesn't work for an unlabeled (or unlabeled artifacts) source?
-                # in such a case we should skip the final calibration step (which admittedly is kind of hacky anyway) and
-                # perhaps instead rely on calibration epochs?
-                if calibration_sources is None:
-                    metrics_for_final_calibration, _ = self.collect_evaluation_data(dataset, train_loader, valid_loader, report_worst=False)
-                else:
-                    metrics_for_final_calibration, _ = self.collect_evaluation_data(dataset, calibration_train_loader, calibration_valid_loader, report_worst=False)
-
-                logit_adjustments_by_var_type_and_count_bin = metrics_for_final_calibration.metrics[Epoch.VALID].calculate_logit_adjustments(use_harmonic_mean=False)
-                print("here are the logit adjustments:")
-                for var_type_idx, var_type in enumerate(Variation):
-                    adjustments_by_count_bin = logit_adjustments_by_var_type_and_count_bin[var_type]
-                    max_bin_idx = len(adjustments_by_count_bin) - 1
-                    max_count = multiple_of_three_bin_index_to_count(max_bin_idx)
-                    adjustments_by_count = torch.zeros(max_count + 1)
-                    for count in range(max_count + 1):
-                        bin_idx = multiple_of_three_bin_index(count)
-                        # negative sign because these are subtractive adjustments
-                        adjustments_by_count[count] = -adjustments_by_count_bin[bin_idx]
-                    print(f"for variant type {var_type.name} the adjustments are ")
-                    print(adjustments_by_count.tolist())
-                    self.calibration[var_type_idx].set_adjustments(adjustments_by_count)
-
-                # consider this an extra post-postprocessing/final calibration epoch, hence epoch+1
-                print("doing one final evaluation after the last logit adjustment")
-                self.evaluate_model(epoch + 1, dataset, train_loader, valid_loader, summary_writer, collect_embeddings=True, report_worst=True)
 
             # note that we have not learned the AF spectrum yet
         # done with training
