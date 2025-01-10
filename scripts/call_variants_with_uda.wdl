@@ -8,7 +8,7 @@ version 1.0
 
 import "https://api.firecloud.org/ga4gh/v1/tools/davidben:mutect2/versions/18/plain-WDL/descriptor" as m2
 import "https://api.firecloud.org/ga4gh/v1/tools/davidben:permutect-uda-dataset/versions/3/plain-WDL/descriptor" as uda
-import "https://api.firecloud.org/ga4gh/v1/tools/davidben:permutect-train-artifact-model/versions/13/plain-WDL/descriptor" as training
+import "https://api.firecloud.org/ga4gh/v1/tools/davidben:permutect-train-artifact-model/versions/14/plain-WDL/descriptor" as training
 import "https://api.firecloud.org/ga4gh/v1/tools/davidben:permutect-call-variants/versions/19/plain-WDL/descriptor" as calling
 
 workflow CallVariantsWithUDA {
@@ -155,13 +155,14 @@ workflow CallVariantsWithUDA {
             max_retries = 0
     }
 
-    # train an artifact model on the UDA dataset
+    # train an artifact model on the UDA dataset, using only the UDA target source for calibration
     call training.TrainPermutect {
         input:
             train_tar = PermutectUDADataset.uda_train_tar,
             base_model = base_model,
             num_epochs = num_epochs,
             num_calibration_epochs = num_calibration_epochs,
+            calibration_source = 1,
             batch_size = batch_size,
             inference_batch_size = inference_batch_size,
             num_workers = num_workers,
