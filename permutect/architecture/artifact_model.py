@@ -259,7 +259,7 @@ class ArtifactModel(nn.Module):
                 source_prediction_loss_metrics = LossMetrics()  # based on calibrated logits
                 uncalibrated_loss_metrics = LossMetrics()  # based on uncalibrated logits
 
-                loader = calibration_train_loader if is_calibration_epoch else \
+                loader = (calibration_train_loader if epoch_type == utils.Epoch.TRAIN else calibration_valid_loader) if is_calibration_epoch else \
                     (train_loader if epoch_type == utils.Epoch.TRAIN else valid_loader)
                 loader_iter = iter(loader)
 
