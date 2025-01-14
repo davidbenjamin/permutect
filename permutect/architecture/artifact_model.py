@@ -21,6 +21,7 @@ from permutect.architecture.base_model import calculate_batch_weights, BaseModel
 from permutect.architecture.gradient_reversal.module import GradientReversal
 from permutect.architecture.mlp import MLP
 from permutect.architecture.monotonic import MonoDense
+from permutect.data.base_dataset import ALL_COUNTS_INDEX, ratio_with_pseudocount
 from permutect.data.base_datum import ArtifactBatch, DEFAULT_GPU_FLOAT, DEFAULT_CPU_FLOAT
 from permutect.data.artifact_dataset import ArtifactDataset
 from permutect import utils, constants
@@ -74,37 +75,24 @@ class Calibration(nn.Module):
         # logit is one feature, then the Gaussian comb for alt and ref counts is the other
         self.monotonic = MonoDense(1 + len(self.ref_centers) + len(self.alt_centers), hidden_layer_sizes + [1], 1, 0)
 
-        self.is_turned_on = True
-
         self.max_alt_count_for_adjustment = 20
-        # after training we compute one final calibration adjustment, which depends on alt count
-        # the nth element is the adjustment for alt count n
-        # note that this is NOT a learnable parameter!!!! It is *set* but not learned!!
-        self.final_adjustments = nn.Parameter(torch.zeros(self.max_alt_count_for_adjustment + 1), requires_grad=False)
 
-    def set_adjustments(self, adjustments: torch.Tensor):
-        current_device, current_dtype = self.final_adjustments.device, self.final_adjustments.dtype
-        clipped_adjustments = adjustments[:len(self.final_adjustments)]
-        padding_needed = len(self.final_adjustments) - len(clipped_adjustments)
-        padded_adjustments = torch.hstack((clipped_adjustments, clipped_adjustments[-1] * torch.ones(padding_needed))) if padding_needed else clipped_adjustments
-        self.final_adjustments = nn.Parameter(padded_adjustments.to(device=current_device, dtype=current_dtype), requires_grad=False)
-        self.max_alt_count_for_adjustment = len(adjustments) - 1
+        # Final layer of calibration is a count-dependent linear shift.  This is particularly useful when calibrating only on
+        # a subset of data sources
+        self.final_adjustments = nn.Parameter(torch.zeros(self.max_alt_count_for_adjustment + 1), requires_grad=True)
 
     def calibrated_logits(self, logits_b: Tensor, ref_counts_b: Tensor, alt_counts_b: Tensor):
-        if self.is_turned_on:
-            logits_bc = torch.tanh(logits_b / self.max_input_logit)[:, None]
+        logits_bc = torch.tanh(logits_b / self.max_input_logit)[:, None]
 
-            ref_comb_bc = torch.softmax(-torch.square(ref_counts_b[:, None] - self.ref_centers[None, :]).float(), dim=1)
-            alt_comb_bc = torch.softmax(-torch.square(alt_counts_b[:, None] - self.alt_centers[None, :]).float(), dim=1)
-            input_2d = torch.hstack([logits_bc, ref_comb_bc, alt_comb_bc])
-            calibrated_b = self.monotonic.forward(input_2d).squeeze()
+        ref_comb_bc = torch.softmax(-torch.square(ref_counts_b[:, None] - self.ref_centers[None, :]).float(), dim=1)
+        alt_comb_bc = torch.softmax(-torch.square(alt_counts_b[:, None] - self.alt_centers[None, :]).float(), dim=1)
+        input_2d = torch.hstack([logits_bc, ref_comb_bc, alt_comb_bc])
+        calibrated_b = self.monotonic.forward(input_2d).squeeze()
 
-            counts_for_adjustment = torch.clamp(alt_counts_b, max=self.max_alt_count_for_adjustment).long()
-            adjustments = self.final_adjustments[counts_for_adjustment]
+        counts_for_adjustment = torch.clamp(alt_counts_b, max=self.max_alt_count_for_adjustment).long()
+        adjustments = self.final_adjustments[counts_for_adjustment]
 
-            return calibrated_b + adjustments
-        else:   # should never happen
-            return logits_b
+        return calibrated_b + adjustments
 
     def forward(self, logits, ref_counts: Tensor, alt_counts: Tensor):
         return self.calibrated_logits(logits, ref_counts, alt_counts)
@@ -165,6 +153,9 @@ class ArtifactModel(nn.Module):
     def calibration_parameters(self):
         return self.calibration.parameters()
 
+    def final_calibration_shift_parameters(self):
+        return [cal.final_adjustments for cal in self.calibration]
+
     def freeze_all(self):
         utils.freeze(self.parameters())
 
@@ -188,10 +179,9 @@ class ArtifactModel(nn.Module):
             calibrated_logits += mask * self.calibration[n].forward(uncalibrated_logits, batch.get_ref_counts(), batch.get_alt_counts())
         return calibrated_logits, uncalibrated_logits, features
 
-    def learn(self, dataset: ArtifactDataset, training_params: TrainingParameters, summary_writer: SummaryWriter, validation_fold: int = None, epochs_per_evaluation: int = None):
+    def learn(self, dataset: ArtifactDataset, training_params: TrainingParameters, summary_writer: SummaryWriter,
+              validation_fold: int = None, epochs_per_evaluation: int = None, calibration_sources: List[int] = None):
         bce = nn.BCEWithLogitsLoss(reduction='none')  # no reduction because we may want to first multiply by weights for unbalanced data
-        # cross entropy (with logit inputs) loss for adversarial source classification task
-        ce = nn.CrossEntropyLoss(reduction='none')
 
         num_sources = len(dataset.counts_by_source.keys())
         if num_sources == 1:
@@ -215,10 +205,13 @@ class ArtifactModel(nn.Module):
         train_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(train_optimizer, factor=0.2, patience=5,
             threshold=0.001, min_lr=(training_params.learning_rate / 100), verbose=True)
 
-        for idx, variation_type in enumerate(utils.Variation):
-            print(f"For variation type {variation_type.name}, there are {int(dataset.totals[-1][Label.ARTIFACT][idx].item())} \
-                artifacts, {int(dataset.totals[-1][Label.VARIANT][idx].item())} \
-                non-artifacts, and {int(dataset.totals[-1][Label.UNLABELED][idx].item())} unlabeled data.")
+        num_sources = len(dataset.totals_sclt)
+        for source in range(num_sources):
+            print(f"Data counts for source {source}:")
+            for var_type in utils.Variation:
+                print(f"Data counts for variant type {var_type.name}:")
+                for label in Label:
+                    print(f"{label.name}: {int(dataset.totals_sclt[source][ALL_COUNTS_INDEX][label][var_type].item())}")
 
         is_cuda = self._device.type == 'cuda'
         print(f"Is CUDA available? {is_cuda}")
@@ -229,6 +222,21 @@ class ArtifactModel(nn.Module):
         valid_loader = dataset.make_data_loader([validation_fold_to_use], training_params.inference_batch_size, is_cuda, training_params.num_workers)
         print(f"Validation loader created, memory usage percent: {psutil.virtual_memory().percent:.1f}")
 
+        calibration_train_loader = train_loader if calibration_sources is None else \
+            dataset.make_data_loader(dataset.all_but_one_fold(validation_fold_to_use), training_params.batch_size,
+                                     is_cuda, training_params.num_workers, sources_to_use=calibration_sources)
+
+        calibration_valid_loader = valid_loader if calibration_sources is None else \
+            dataset.make_data_loader([validation_fold_to_use], training_params.inference_batch_size,
+                                     is_cuda, training_params.num_workers, sources_to_use=calibration_sources)
+
+        totals_sclt = torch.from_numpy(dataset.totals_sclt).to(self._device)
+
+        # imbalanced unlabeled data can exert a bias just like labeled data.  These parameters keep track of the proportion
+        # of unlabeled data that seem to be artifacts in order to weight losses appropriately.  Each source, count, and
+        # variant type has its own proportion, stored as a logit-transformed probability
+        unlabeled_artifact_proportion_logits_sct = torch.zeros_like(totals_sclt[:, :, Label.UNLABELED, :], requires_grad=True, device=self._device)
+        artifact_proportion_optimizer = torch.optim.AdamW([unlabeled_artifact_proportion_logits_sct], lr=training_params.learning_rate)
         first_epoch, last_epoch = 1, training_params.num_epochs + training_params.num_calibration_epochs
         for epoch in trange(1, last_epoch + 1, desc="Epoch"):
             start_of_epoch = time.time()
@@ -244,13 +252,15 @@ class ArtifactModel(nn.Module):
                 # in calibration epoch, freeze the model except for calibration
                 if is_calibration_epoch and epoch_type == utils.Epoch.TRAIN:
                     utils.freeze(self.parameters())
-                    utils.unfreeze(self.calibration_parameters())  # unfreeze calibration but everything else stays frozen
+                    #utils.unfreeze(self.calibration_parameters())  # unfreeze calibration but everything else stays frozen
+                    utils.unfreeze(self.final_calibration_shift_parameters())  # unfreeze final calibration shift but everything else stays frozen
 
                 loss_metrics = LossMetrics()    # based on calibrated logits
                 source_prediction_loss_metrics = LossMetrics()  # based on calibrated logits
                 uncalibrated_loss_metrics = LossMetrics()  # based on uncalibrated logits
 
-                loader = train_loader if epoch_type == utils.Epoch.TRAIN else valid_loader
+                loader = (calibration_train_loader if epoch_type == utils.Epoch.TRAIN else calibration_valid_loader) if is_calibration_epoch else \
+                    (train_loader if epoch_type == utils.Epoch.TRAIN else valid_loader)
                 loader_iter = iter(loader)
 
                 next_batch_cpu = next(loader_iter)
@@ -266,6 +276,24 @@ class ArtifactModel(nn.Module):
                     next_batch_cpu = next(loader_iter)
                     next_batch = next_batch_cpu.copy_to(self._device, self._dtype, non_blocking=is_cuda)
 
+                    # TODO: does this really need to be updated every batch?
+                    # effective totals are labeled plus estimated contributions from unlabeled
+                    unlabeled_artifact_proportions_sct = torch.sigmoid(unlabeled_artifact_proportion_logits_sct.detach())
+                    effective_artifact_totals_sct = totals_sclt[:, :, Label.ARTIFACT, :] + \
+                        unlabeled_artifact_proportions_sct * totals_sclt[:, :, Label.UNLABELED, :]
+                    effective_nonartifact_totals_sct = totals_sclt[:, :, Label.VARIANT, :] + \
+                        (1 - unlabeled_artifact_proportions_sct) * totals_sclt[:, :, Label.UNLABELED, :]
+                    totals_sct = effective_artifact_totals_sct + effective_nonartifact_totals_sct
+
+                    artifact_weights_sct = 0.5 * ratio_with_pseudocount(totals_sct, effective_artifact_totals_sct)
+                    nonartifact_weights_sct = 0.5 * ratio_with_pseudocount(totals_sct, effective_nonartifact_totals_sct)
+
+                    sources = batch.get_sources()
+                    alt_counts = batch.get_alt_counts()
+                    variant_types = batch.get_variant_types()
+                    labels = batch.get_training_labels()
+                    is_labeled_mask = batch.get_is_labeled_mask()
+
                     logits, precalibrated_logits, features = self.forward(batch)
 
                     # one-hot prediction of sources
@@ -275,7 +303,7 @@ class ArtifactModel(nn.Module):
                         # to achieve the adversarial task of distinguishing sources
                         source_prediction_logits = source_classifier.forward(source_gradient_reversal(features))
                         source_prediction_probs = torch.nn.functional.softmax(source_prediction_logits, dim=-1)
-                        source_prediction_targets = torch.nn.functional.one_hot(batch.get_sources().long(), num_sources)
+                        source_prediction_targets = torch.nn.functional.one_hot(sources.long(), num_sources)
                         source_prediction_losses = torch.sum(torch.square(source_prediction_probs - source_prediction_targets), dim=-1)
 
                         # TODO: always by count?
@@ -285,13 +313,11 @@ class ArtifactModel(nn.Module):
                         source_prediction_losses = torch.zeros_like(logits, device=self._device)
                         source_prediction_weights = torch.zeros_like(logits, device=self._device)
 
-                    # TODO: we need a parameter to control the relative weight of unlabeled loss to labeled loss
-                    weights = calculate_batch_weights(batch_cpu, dataset, by_count=True)
-                    weights = weights.to(device=self._device, dtype=self._dtype, non_blocking=True)
-
-                    labels = batch.get_training_labels()
                     uncalibrated_cross_entropies = bce(precalibrated_logits, labels)
                     calibrated_cross_entropies = bce(logits, labels)
+
+                    # TODO: investigate whether using the average of un-calibrated and calibrated cross entropies is
+                    # TODO: really the right thing to do
                     labeled_losses = batch.get_is_labeled_mask() * (uncalibrated_cross_entropies + calibrated_cross_entropies) / 2
 
                     # unlabeled loss: entropy regularization. We use the uncalibrated logits because otherwise entropy
@@ -299,6 +325,17 @@ class ArtifactModel(nn.Module):
                     probabilities = torch.sigmoid(precalibrated_logits)
                     entropies = torch.nn.functional.binary_cross_entropy_with_logits(precalibrated_logits, probabilities, reduction='none')
                     unlabeled_losses = (1 - batch.get_is_labeled_mask()) * entropies
+
+                    # calculate label-balancing weights
+                    artifact_weights = utils.index_3d_array(artifact_weights_sct, sources, alt_counts, variant_types)
+                    nonartifact_weights = utils.index_3d_array(nonartifact_weights_sct, sources, alt_counts,
+                                                               variant_types)
+
+                    # is_artifact is 1 / 0 if labeled as artifact / nonartifact; otherwise it's the estimated probability
+                    # TODO: I bet some things from the batch still need to be moved to GPU.  Don't be surprised if
+                    # TODO: debugging is needed.
+                    is_artifact = is_labeled_mask * labels + (1 - is_labeled_mask) * probabilities.detach()
+                    weights = is_artifact * artifact_weights + (1 - is_artifact) * nonartifact_weights
 
                     # these losses include weights and take labeled vs unlabeled into account
                     losses = (labeled_losses + unlabeled_losses) * weights + (source_prediction_losses * source_prediction_weights)
@@ -316,6 +353,12 @@ class ArtifactModel(nn.Module):
                     if epoch_type == utils.Epoch.TRAIN:
                         utils.backpropagate(train_optimizer, loss)
 
+                    # separately from backpropagating the model parameters, we also backpropagate our estimated proportions
+                    # of artifacts among unlabeled data.  Note that we detach the computed probabilities!!
+                    artifact_prop_logits = utils.index_3d_array(unlabeled_artifact_proportion_logits_sct, sources, alt_counts, variant_types)
+                    artifact_proportion_losses = (1 - batch.get_is_labeled_mask()) * bce(artifact_prop_logits, probabilities.detach())
+                    utils.backpropagate(artifact_proportion_optimizer, torch.sum(artifact_proportion_losses))
+
                 # done with one epoch type -- training or validation -- for this epoch
                 loss_metrics.write_to_summary_writer(epoch_type, epoch, summary_writer)
                 source_prediction_loss_metrics.write_to_summary_writer(epoch_type, epoch, summary_writer, prefix="source prediction")
@@ -330,33 +373,9 @@ class ArtifactModel(nn.Module):
                     print(f"Adversarial source prediction loss on unlabeled data for {epoch_type.name} epoch {epoch}: {source_prediction_loss_metrics.get_unlabeled_loss():.3f}")
             # done with training and validation for this epoch
             print(f"End of epoch {epoch}, memory usage percent: {psutil.virtual_memory().percent:.1f}, time elapsed(s): {time.time() - start_of_epoch:.2f}")
-            is_last = (epoch == last_epoch)
-            if (epochs_per_evaluation is not None and epoch % epochs_per_evaluation == 0) or is_last:
+            if (epochs_per_evaluation is not None and epoch % epochs_per_evaluation == 0) or (epoch == last_epoch):
                 print(f"performing evaluation on epoch {epoch}")
                 self.evaluate_model(epoch, dataset, train_loader, valid_loader, summary_writer, collect_embeddings=False, report_worst=False)
-            if is_last:
-                # collect data in order to do final calibration
-                print("collecting data for final calibration")
-                evaluation_metrics, _ = self.collect_evaluation_data(dataset, train_loader, valid_loader, report_worst=False)
-
-                logit_adjustments_by_var_type_and_count_bin = evaluation_metrics.metrics[Epoch.VALID].calculate_logit_adjustments(use_harmonic_mean=False)
-                print("here are the logit adjustments:")
-                for var_type_idx, var_type in enumerate(Variation):
-                    adjustments_by_count_bin = logit_adjustments_by_var_type_and_count_bin[var_type]
-                    max_bin_idx = len(adjustments_by_count_bin) - 1
-                    max_count = multiple_of_three_bin_index_to_count(max_bin_idx)
-                    adjustments_by_count = torch.zeros(max_count + 1)
-                    for count in range(max_count + 1):
-                        bin_idx = multiple_of_three_bin_index(count)
-                        # negative sign because these are subtractive adjustments
-                        adjustments_by_count[count] = -adjustments_by_count_bin[bin_idx]
-                    print(f"for variant type {var_type.name} the adjustments are ")
-                    print(adjustments_by_count.tolist())
-                    self.calibration[var_type_idx].set_adjustments(adjustments_by_count)
-
-                # consider this an extra post-postprocessing/final calibration epoch, hence epoch+1
-                print("doing one final evaluation after the last logit adjustment")
-                self.evaluate_model(epoch + 1, dataset, train_loader, valid_loader, summary_writer, collect_embeddings=True, report_worst=True)
 
             # note that we have not learned the AF spectrum yet
         # done with training

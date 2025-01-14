@@ -18,7 +18,7 @@ from permutect.architecture.gated_mlp import GatedMLP, GatedRefAltMLP
 from permutect.architecture.gradient_reversal.module import GradientReversal
 from permutect.architecture.mlp import MLP
 from permutect.data.base_datum import BaseBatch, DEFAULT_GPU_FLOAT, DEFAULT_CPU_FLOAT
-from permutect.data.base_dataset import BaseDataset, ALL_COUNTS_SENTINEL
+from permutect.data.base_dataset import BaseDataset, ALL_COUNTS_INDEX
 from permutect.metrics.evaluation_metrics import LossMetrics, EmbeddingMetrics, round_up_to_nearest_three, MAX_COUNT
 from permutect.parameters import BaseModelParameters, TrainingParameters
 
@@ -38,24 +38,23 @@ def sums_over_chunks(tensor2d: torch.Tensor, chunk_size: int):
 def calculate_batch_weights(batch, dataset, by_count: bool):
     # TODO: we need a parameter to control the relative weight of unlabeled loss to labeled loss
     # For batch index n, we want weight[n] = dataset.weights[alt_counts[n], labels[n], variant_types[n]]
-    counts = batch.get_alt_counts()
+    sources = batch.get_sources()
+    counts = batch.get_alt_counts() if by_count else torch.full(size=(len(sources), ), fill_value=ALL_COUNTS_INDEX, dtype=torch.int)
     labels = batch.get_labels()
     variant_types = batch.get_variant_types()
 
-    return utils.index_3d_array(dataset.weights, counts, labels, variant_types) if by_count else \
-        utils.index_2d_array(dataset.weights[ALL_COUNTS_SENTINEL], labels, variant_types)
+    return utils.index_4d_array(dataset.label_balancing_weights_sclt, sources, counts, labels, variant_types)
 
 
 # note: this works for both BaseBatch/BaseDataset AND ArtifactBatch/ArtifactDataset
 # if by_count is True, each count is weighted separately for balanced loss within that count
 def calculate_batch_source_weights(batch, dataset, by_count: bool):
-    # For batch index n, we want weight[n] = dataset.source_weights[alt_counts[n], sources[n], variant_types[n]]
-    counts = batch.get_alt_counts()
+    # For batch index n, we want weight[n] = dataset.source_weights[sources[n], alt_counts[n], variant_types[n]]
     sources = batch.get_sources()
+    counts = batch.get_alt_counts() if by_count else torch.full(size=(len(sources), ), fill_value=ALL_COUNTS_INDEX, dtype=torch.int)
     variant_types = batch.get_variant_types()
 
-    return utils.index_3d_array(dataset.source_weights, counts, sources, variant_types) if by_count else \
-        utils.index_2d_array(dataset.source_weights[ALL_COUNTS_SENTINEL], sources, variant_types)
+    return utils.index_3d_array(dataset.source_balancing_weights_sct, sources, counts, variant_types)
 
 
 class LearningMethod(Enum):
@@ -464,10 +463,12 @@ def learn_base_model(base_model: BaseModel, dataset: BaseDataset, learning_metho
     is_cuda = base_model._device.type == 'cuda'
     print(f"Is CUDA available? {is_cuda}")
 
-    for idx, variation_type in enumerate(utils.Variation):
-        print(f"For variation type {variation_type.name}, there are {int(dataset.totals[ALL_COUNTS_SENTINEL][Label.ARTIFACT][idx].item())} \
-            artifacts, {int(dataset.totals[ALL_COUNTS_SENTINEL][Label.VARIANT][idx].item())} \
-            non-artifacts, and {int(dataset.totals[ALL_COUNTS_SENTINEL][Label.UNLABELED][idx].item())} unlabeled data.")
+    for source in range(dataset.max_source + 1):
+        print(f"Data counts for source {source}:")
+        for var_type in utils.Variation:
+            print(f"Data counts for variant type {var_type.name}:")
+            for label in Label:
+                print(f"{label.name}: {int(dataset.totals_sclt[source][ALL_COUNTS_INDEX][label][var_type].item())}")
 
     # TODO: use Python's match syntax, but this requires updating Python version in the docker
     # TODO: hidden_top_layers are hard-coded!

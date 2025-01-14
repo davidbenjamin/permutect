@@ -147,8 +147,10 @@ def generate_pruned_data_for_all_folds(base_dataset: BaseDataset, base_model: Ba
         artifact_dataset = ArtifactDataset(base_dataset, base_model, base_dataset.all_but_one_fold(pruning_fold))
 
         # sum is over variant types
-        label_art_frac = np.sum(artifact_dataset.totals[-1][Label.ARTIFACT]) / np.sum(artifact_dataset.totals[-1][Label.ARTIFACT] +
-                                                                        artifact_dataset.totals[-1][Label.VARIANT])
+        # TODO: this assumes we are only pruning a single-source (source == 0) dataset
+        # TODO: also -- is the -1 wrond?  I feel like it should be the ALL_COUNTS_SENTINEL, which is 0. . .
+        label_art_frac = np.sum(artifact_dataset.totals_sclt[0][-1][Label.ARTIFACT]) / np.sum(artifact_dataset.totals_sclt[0][-1][Label.ARTIFACT] +
+                                                                                           artifact_dataset.totals_sclt[0][-1][Label.VARIANT])
 
         # learn pruning thresholds on the held-out data
         pruning_artifact_dataset = ArtifactDataset(base_dataset, base_model, [pruning_fold])

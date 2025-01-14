@@ -339,8 +339,8 @@ class OneDimensionalData:
     def set_variant_type(self, variant_type: Variation):
         self.array[self.__class__.VAR_TYPE_IDX] = variant_type
 
-    def get_label(self):
-        return self.array[self.__class__.LABEL_IDX]
+    def get_label(self) -> int:
+        return round(self.array[self.__class__.LABEL_IDX])
 
     def set_label(self, label: Label):
         self.array[self.__class__.LABEL_IDX] = label
@@ -651,7 +651,7 @@ class ArtifactDatum:
     def get_variant_type(self) -> int:
         return self.one_dimensional_data.get_variant_type()
 
-    def get_label(self):
+    def get_label(self) -> int:
         return self.one_dimensional_data.get_label()
 
     def get_source(self) -> int:

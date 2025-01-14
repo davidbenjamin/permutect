@@ -1,4 +1,5 @@
 import argparse
+from typing import List
 
 import psutil
 import torch
@@ -17,10 +18,11 @@ from permutect.parameters import TrainingParameters, add_training_params_to_pars
 from permutect.utils import Variation, Label
 
 
-def train_artifact_model(hyperparams: ArtifactModelParameters, training_params: TrainingParameters, summary_writer: SummaryWriter, dataset: ArtifactDataset):
+def train_artifact_model(hyperparams: ArtifactModelParameters, training_params: TrainingParameters, summary_writer: SummaryWriter,
+                         dataset: ArtifactDataset, calibration_sources: List[int] = None):
     model = ArtifactModel(params=hyperparams, num_base_features=dataset.num_base_features, num_ref_alt_features=dataset.num_ref_alt_features, device=utils.gpu_if_available())
     # TODO: magic constant
-    model.learn(dataset, training_params, summary_writer=summary_writer, epochs_per_evaluation=10)
+    model.learn(dataset, training_params, summary_writer=summary_writer, epochs_per_evaluation=10, calibration_sources=calibration_sources)
 
     for n, var_type in enumerate(Variation):
         cal_fig, cal_axes = model.calibration[n].plot_calibration()
@@ -65,6 +67,8 @@ def parse_arguments():
     add_artifact_model_params_to_parser(parser)
     add_training_params_to_parser(parser)
 
+    parser.add_argument('--' + constants.CALIBRATION_SOURCES_NAME, nargs='+', default=None, type=int, required=False,
+                        help='which sources to use in calibration.  Default: use all sources.')
     parser.add_argument('--' + constants.LEARN_ARTIFACT_SPECTRA_NAME, action='store_true',
                         help='flag to include artifact priors and allele fraction spectra in saved output.  '
                              'This is worth doing if labeled training data is available but might work poorly '
@@ -89,6 +93,7 @@ def main_without_parsing(args):
     params = parse_artifact_model_params(args)
     training_params = parse_training_params(args)
     learn_artifact_spectra = getattr(args, constants.LEARN_ARTIFACT_SPECTRA_NAME)
+    calibration_sources = getattr(args, constants.CALIBRATION_SOURCES_NAME)
     genomic_span = getattr(args, constants.GENOMIC_SPAN_NAME)
 
     tensorboard_dir = getattr(args, constants.TENSORBOARD_DIR_NAME)
@@ -104,7 +109,8 @@ def main_without_parsing(args):
                                        base_loader_batch_size=training_params.inference_batch_size)
     print(f"Memory usage percent after creating ArtifactDataset: {psutil.virtual_memory().percent:.1f}")
 
-    model = train_artifact_model(hyperparams=params, training_params=training_params, summary_writer=summary_writer, dataset=artifact_dataset)
+    model = train_artifact_model(hyperparams=params, training_params=training_params, summary_writer=summary_writer,
+                                 dataset=artifact_dataset, calibration_sources=calibration_sources)
     print(f"Memory usage percent after training artifact model: {psutil.virtual_memory().percent:.1f}")
 
     artifact_log_priors, artifact_spectra = learn_artifact_priors_and_spectra(artifact_dataset, genomic_span) if learn_artifact_spectra else (None, None)

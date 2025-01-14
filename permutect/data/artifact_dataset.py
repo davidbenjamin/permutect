@@ -20,10 +20,9 @@ class ArtifactDataset(Dataset):
                  base_loader_num_workers=0,
                  base_loader_batch_size=8192):
         self.counts_by_source = base_dataset.counts_by_source
-        self.totals = base_dataset.totals
-        self.source_totals = base_dataset.source_totals
-        self.weights = base_dataset.weights
-        self.source_weights = base_dataset.source_weights
+        self.totals_sclt = base_dataset.totals_sclt
+        self.label_balancing_weights_sclt = base_dataset.label_balancing_weights_sclt
+        self.source_balancing_weights_sct = base_dataset.source_balancing_weights_sct
 
         self.artifact_data = []
         self.num_folds = base_dataset.num_folds
@@ -77,22 +76,26 @@ class ArtifactDataset(Dataset):
     def all_folds(self):
         return list(range(self.num_folds))
 
-    def make_data_loader(self, folds_to_use: List[int], batch_size: int, pin_memory=False, num_workers: int = 0, labeled_only: bool = False):
-        sampler = SemiSupervisedArtifactBatchSampler(self, batch_size, folds_to_use, labeled_only)
+    def make_data_loader(self, folds_to_use: List[int], batch_size: int, pin_memory=False, num_workers: int = 0, labeled_only: bool = False, sources_to_use: List[int] = None):
+        sampler = SemiSupervisedArtifactBatchSampler(self, batch_size, folds_to_use, labeled_only, sources_to_use)
         return DataLoader(dataset=self, batch_sampler=sampler, collate_fn=ArtifactBatch, pin_memory=pin_memory, num_workers=num_workers)
 
 
 # make ArtifactBatches that mix different ref, alt counts, labeled, unlabeled
 # with an option to emit only labeled data
 class SemiSupervisedArtifactBatchSampler(Sampler):
-    def __init__(self, dataset: ArtifactDataset, batch_size, folds_to_use: List[int], labeled_only: bool = False):
+    def __init__(self, dataset: ArtifactDataset, batch_size, folds_to_use: List[int], labeled_only: bool = False, sources_to_use: List[int] = None):
         # combine the index lists of all relevant folds
         self.indices_to_use = []
+        source_set = None if sources_to_use is None else set(sources_to_use)
 
         for fold in folds_to_use:
-            self.indices_to_use.extend(dataset.labeled_indices[fold])
-            if not labeled_only:
-                self.indices_to_use.extend(dataset.unlabeled_indices[fold])
+            indices_in_fold = dataset.labeled_indices[fold] if labeled_only else (dataset.labeled_indices[fold] + dataset.unlabeled_indices[fold])
+            if sources_to_use is None:
+                source_indices_in_fold = indices_in_fold
+            else:
+                source_indices_in_fold = [idx for idx in indices_in_fold if dataset[idx].get_source() in source_set]
+            self.indices_to_use.extend(source_indices_in_fold)
 
         self.batch_size = batch_size
         self.num_batches = math.ceil(len(self.indices_to_use) // self.batch_size)

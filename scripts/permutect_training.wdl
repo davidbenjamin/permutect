@@ -7,6 +7,7 @@ workflow TrainPermutect {
         File base_model
         Int num_epochs
         Int num_calibration_epochs
+        Int? calibration_source
         Int batch_size
         Int inference_batch_size
         Int? num_workers
@@ -34,6 +35,7 @@ workflow TrainPermutect {
             mem = mem,
             num_epochs = num_epochs,
             num_calibration_epochs = num_calibration_epochs,
+            calibration_source = calibration_source,
             batch_size = batch_size,
             inference_batch_size = inference_batch_size,
             num_workers = num_workers,
@@ -61,6 +63,7 @@ task TrainPermutect {
 
         Int num_epochs
         Int num_calibration_epochs
+        Int? calibration_source
         Int batch_size
         Int inference_batch_size
         Int? num_workers
@@ -100,6 +103,7 @@ task TrainPermutect {
             ~{"--num_workers " + num_workers} \
             --num_epochs ~{num_epochs} \
             --num_calibration_epochs ~{num_calibration_epochs} \
+            ~{"--calibration_sources " + calibration_source} \
             --output artifact.pt \
             --tensorboard_dir tensorboard \
             ~{"--genomic_span " + genomic_span} \
