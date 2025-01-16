@@ -21,7 +21,6 @@ Here is [the training code](experiment.html) for a gMLP model based autoregressi
 import torch
 from torch import nn
 
-from permutect import utils
 from permutect.sets.ragged_sets import RaggedSets
 
 
@@ -70,19 +69,19 @@ class GatedMLPBlock(nn.Module):
     # X is 2D, counts are the numbers of elements in each consecutive group of rows that form a self-attention group
     # that is, is X has 10 rows and counts = [2,3,5], elements 0-1, 2-4, and 5-9 form independent self-attention groups
     # In other words, all the reads of a batch are flattened together in X -- the batch information is in counts
-    def forward(self, x_re: torch.Tensor, counts: torch.IntTensor):
+    def forward(self, x_bre: RaggedSets) -> RaggedSets:
         """
         * `x_bre` is the input read embedding tensor of shape Batch x Reads x Embedding
         """
         # Norm, projection to d_ffn, and activation $Z = \sigma(XU)$
-        z_rd = self.activation(self.proj1(self.norm(x_re)))
+        z_brd = x_bre.apply_elementwise(self.norm).apply_elementwise(self.proj1).apply_elementwise(self.activation)
         # Spacial Gating Unit $\tilde{Z} = s(Z)$
-        gated_rd = self.sgu.forward(z_rd, counts)
+        gated_brd = self.sgu.forward(z_brd)
         # Final projection $Y = \tilde{Z}V$ back to embedding dimension
-        gated_re = self.proj2(gated_rd)
+        gated_bre = gated_brd.apply_elementwise(self.proj2)
 
         # Add the shortcut connection
-        return x_re + gated_re
+        return x_bre.add_elementwise(gated_bre)
 
 
 class SpacialGatingUnit(nn.Module):
@@ -116,16 +115,16 @@ class SpacialGatingUnit(nn.Module):
 
     # Z is 2D, counts are the numbers of elements in each consecutive group of rows that form a self-attention group
     # that is, is X has 10 rows and counts = [2,3,5], elements 0-1, 2-4, and 5-9 form independent self-attention groups
-    def forward(self, z_rd: torch.Tensor, counts: torch.IntTensor):
+    def forward(self, z_brd: RaggedSets) -> RaggedSets:
         # Split $Z$ into $Z_1$ and $Z_2$ over the hidden dimension and normalize $Z_2$ before $f_{W,b}(\cdot)$
-        z1_rd, z2_rd = torch.chunk(z_rd, 2, dim=-1)
-        z2_rd = self.norm(z2_rd)
+        z1_brd, z2_brd = z_brd.split_in_two_by_features()
+        z2_brd = z2_brd.apply_elementwise(self.norm)
 
-        # TODO: self.beta needs to multiply the mean field here!!!
-        z2_rd = 1 + self.alpha * z2_rd + utils.means_over_rows(z2_rd, counts, keepdim=True)
+        mean_field_bd = z2_brd.means_over_sets()
+        gate_brd = (self.alpha * z2_brd + 1).broadcast_add(mean_field_bd * self.beta)
 
         # $Z_1 \odot f_{W,b}(Z_2)$
-        return z1_rd * z2_rd
+        return z1_brd.multiply_elementwise(gate_brd)
 
 
 class GatedMLP(nn.Module):
@@ -136,10 +135,11 @@ class GatedMLP(nn.Module):
 
     # X is 2D, counts are the numbers of elements in each consecutive group of rows that form a self-attention group
     # that is, is X has 10 rows and counts = [2,3,5], elements 0-1, 2-4, and 5-9 form independent self-attention groups
-    def forward(self, x, counts):
+    def forward(self, x_bre: RaggedSets) -> RaggedSets:
+        block: GatedMLPBlock
         for block in self.blocks:
-            x = block.forward(x, counts)
-        return x
+            x_bre = block.forward(x_bre)
+        return x_bre
 
 
 class GatedRefAltMLPBlock(nn.Module):

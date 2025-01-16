@@ -197,14 +197,6 @@ def sums_over_rows(input_tensor: torch.Tensor, counts: torch.IntTensor):
     return relevant_sums
 
 
-# same but divide by the counts to get means
-def means_over_rows(input_tensor: torch.Tensor, counts: torch.IntTensor, keepdim: bool = False):
-    extra_dims = (1,) * (input_tensor.dim() - 1)
-    result = sums_over_rows(input_tensor, counts) / counts.view(-1, *extra_dims)
-
-    return torch.repeat_interleave(result, dim=0, repeats=counts) if keepdim else result
-
-
 # given 3d tensor T_ijk and 1D index tensors I, J, K, return the 1D tensor:
 # result[n] = T[I[n], J[n], K[n]]
 def index_3d_array(tens, idx0, idx1, idx2):
@@ -223,18 +215,6 @@ def index_4d_array(tens, idx0, idx1, idx2, idx3):
     dim0, dim1, dim2, dim3 = tens.shape
     flattened_indices = (idx0 * dim1 * dim2 * dim3) + (idx1 * dim2 * dim3) + (idx2 * dim3) + idx3
     return tens.view(-1)[flattened_indices]
-
-
-# same but include a regularizer in case of zeros in the counts vector
-# regularizer has the dimension of one row of the input tensor
-def means_over_rows_with_regularizer(input_tensor: torch.Tensor, counts: torch.IntTensor, regularizer, regularizer_weight, keepdim: bool = False):
-    extra_dims = (1,) * (input_tensor.dim() - 1)
-
-    regularized_sums = sums_over_rows(input_tensor, counts) + (regularizer_weight * regularizer)[None, :]
-    regularized_counts = counts + regularizer_weight
-    result = regularized_sums / regularized_counts.view(-1, *extra_dims)
-
-    return torch.repeat_interleave(result, dim=0, repeats=counts) if keepdim else result
 
 
 class StreamingAverage:
