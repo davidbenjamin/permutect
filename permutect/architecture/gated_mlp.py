@@ -18,8 +18,6 @@ Here is [the training code](experiment.html) for a gMLP model based autoregressi
 # copied from https://github.com/labmlai/annotated_deep_learning_paper_implementations/blob/master/labml_nn/transformers/gmlp/__init__.py
 # then modified for the symmetric case
 
-from typing import Optional
-
 import torch
 from torch import nn
 
