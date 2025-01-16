@@ -37,7 +37,7 @@ class RaggedSets:
         construct, converting from sizes to bounds
         """
         zero_prepend = torch.zeros(1, device=sizes_b.device, dtype=torch.long)
-        with_zero = torch.cat(zero_prepend, sizes_b.to(dtype=torch.long))
+        with_zero = torch.cat((zero_prepend, sizes_b.to(dtype=torch.long)))
         bounds_b = torch.cumsum(with_zero)
         return cls(flattened_tensor_nf, bounds_b)
 
