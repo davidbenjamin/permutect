@@ -38,7 +38,7 @@ class RaggedSets:
         """
         zero_prepend = torch.zeros(1, device=sizes_b.device, dtype=torch.long)
         with_zero = torch.cat((zero_prepend, sizes_b.to(dtype=torch.long)))
-        bounds_b = torch.cumsum(with_zero)
+        bounds_b = torch.cumsum(with_zero, dim=0)
         return cls(flattened_tensor_nf, bounds_b)
 
     def get_sizes(self) -> torch.LongTensor:
