@@ -11,7 +11,7 @@ WORKDIR /
 COPY requirements.txt /
 COPY setup.py /
 RUN pip install --no-cache-dir -r /requirements.txt
-RUN pip install torch-scatter
+RUN pip install torch-scatter -f https://data.pyg.org/whl/torch-2.1.0+cu121.html
 
 ADD permutect/ /permutect
 
