@@ -168,10 +168,11 @@ class BaseModel(torch.nn.Module):
         reads_info_seq_re = torch.hstack((read_embeddings_re, info_and_seq_re))
 
         # TODO: might be a bug if every datum in batch has zero ref reads?
-        ref_bre = RaggedSets(reads_info_seq_re[:total_ref], ref_counts)
-        alt_bre = RaggedSets(reads_info_seq_re[total_ref:], alt_counts)
+        ref_bre = RaggedSets.from_flattened_tensor_and_sizes(reads_info_seq_re[:total_ref], ref_counts)
+        alt_bre = RaggedSets.from_flattened_tensor_and_sizes(reads_info_seq_re[total_ref:], alt_counts)
         _, transformed_alt_bre = self.ref_alt_reads_encoder.forward(ref_bre, alt_bre)
 
+        # TODO: don't switch to flattened just yet -- add methods to RaggedSets
         transformed_alt_re = transformed_alt_bre.flattened_tensor_nf
 
         alt_weights_r = 1 + weight_range * (1 - 2 * torch.rand(total_alt, device=self._device, dtype=self._dtype))
