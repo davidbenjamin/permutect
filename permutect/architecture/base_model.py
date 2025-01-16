@@ -82,7 +82,7 @@ class LearningMethod(Enum):
     MARS = "MARS"
 
 
-def make_gated_ref_alt_mlp_encoder(input_dimension: int, params: BaseModelParameters):
+def make_gated_ref_alt_mlp_encoder(input_dimension: int, params: BaseModelParameters) -> GatedRefAltMLP:
     return GatedRefAltMLP(d_model=input_dimension, d_ffn=params.self_attention_hidden_dimension, num_blocks=params.num_self_attention_layers)
 
 
@@ -170,7 +170,6 @@ class BaseModel(torch.nn.Module):
         ref_reads_info_seq_re = reads_info_seq_re[:total_ref]
         alt_reads_info_seq_re = reads_info_seq_re[total_ref:]
 
-        # TODO: make sure it handles ref count = 0 case
         transformed_ref_re, transformed_alt_re = self.ref_alt_reads_encoder.forward(ref_reads_info_seq_re, alt_reads_info_seq_re, ref_counts, alt_counts)
 
         alt_weights_r = 1 + weight_range * (1 - 2 * torch.rand(total_alt, device=self._device, dtype=self._dtype))

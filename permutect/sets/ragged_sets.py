@@ -2,7 +2,7 @@ import torch
 from torch_scatter import segment_csr
 
 # in Python 3.11 this would be from typing import Self
-from typing import TypeVar
+from typing import TypeVar, Iterable
 ThisClass = TypeVar('ThisClass', bound='RaggedSets')
 
 
@@ -44,6 +44,9 @@ class RaggedSets:
     def get_sizes(self) -> torch.LongTensor:
         return torch.diff(self.bounds_b)
 
+    def batch_size(self) -> int:
+        return len(self.bounds_b) - 1
+
     def expand_from_b_to_n(self, tensor_bf: torch.Tensor) -> torch.Tensor:
         """
         given input tensor tensor_bf with values for each set in the batch, expand by repeating so that
@@ -64,6 +67,22 @@ class RaggedSets:
         """
         return RaggedSets(func.forward(self.flattened_tensor_nf), self.bounds_b)
 
+    # override the * operator for elementwise multiplication
+    # works for numeric scalars and torch Tensors of compatible shape
+    def __mul__(self, other) -> ThisClass:
+        return RaggedSets(self.flattened_tensor_nf * other, self.bounds_b)
+
+    def __rmul__(self, other) -> ThisClass:
+        return self.__mul__(other)
+
+    # override the + operator for elementwise addition
+    # works for numeric scalars and torch Tensors of compatible shape
+    def __add__(self, other) -> ThisClass:
+        return RaggedSets(self.flattened_tensor_nf + other, self.bounds_b)
+
+    def __radd__(self, other) -> ThisClass:
+        return self.__add__(other)
+
     def multiply_elementwise(self, other: ThisClass) -> ThisClass:
         """
         elementwise multiplication of two RaggedSets.  They need to have the same sizes, which we don't check for.
@@ -71,6 +90,33 @@ class RaggedSets:
         Implementation is trivial since X_bsf * Y_bsf is equivalent to X_nf * Y_nf
         """
         return RaggedSets(self.flattened_tensor_nf * other.flattened_tensor_nf, self.bounds_b)
+
+    def add_elementwise(self, other: ThisClass) -> ThisClass:
+        """
+        elementwise addition of two RaggedSets.  They need to have the same sizes, which we don't check for.
+
+        Implementation is trivial since X_bsf * Y_bsf is equivalent to X_nf * Y_nf
+        """
+        return RaggedSets(self.flattened_tensor_nf + other.flattened_tensor_nf, self.bounds_b)
+
+    def broadcast_add(self, other_bf: torch.Tensor) -> ThisClass:
+        """
+        given a 2D tensor Z_bf with same batch size and feature size, broadcast the addition over batches.  That is,
+        result_bsf = X_bsf + other_bf
+
+        Implement in our flattened representation by expanding the other to other_bsf, then adding elementwise
+        """
+        assert len(other_bf) == self.batch_size()
+        assert self.flattened_tensor_nf.shape[-1] == other_bf.shape[-1]
+        other_bsf = self.expand_from_b_to_n(other_bf)
+        return self.add_elementwise(other_bsf)
+
+    def chunk_over_features(self, num_chunks) -> Iterable[ThisClass]:
+        chunks = torch.chunk(self.flattened_tensor_nf, chunks=num_chunks, dim=-1)
+        return (RaggedSets(chunk, self.bounds_b) for chunk in chunks)
+
+    def split_in_two_by_features(self) -> tuple[ThisClass, ThisClass]:
+        return self.chunk_over_features(num_chunks=2)
 
     def softmax_within_sets(self) -> ThisClass:
         """
