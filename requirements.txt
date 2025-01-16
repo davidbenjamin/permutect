@@ -1,5 +1,6 @@
 torch == 2.1.0
 tensorboard~=2.8.0
+torch-scatter>=2.1.2
 numpy >= 1.26.2
 tqdm~=4.66.1
 setuptools>=57.0.0
