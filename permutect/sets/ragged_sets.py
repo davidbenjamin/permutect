@@ -109,7 +109,7 @@ class RaggedSets:
         assert len(other_bf) == self.batch_size()
         assert self.flattened_tensor_nf.shape[-1] == other_bf.shape[-1]
         other_bsf = self.expand_from_b_to_n(other_bf)
-        return self.add_elementwise(other_bsf)
+        return self + other_bsf
 
     def chunk_over_features(self, num_chunks) -> Iterable[ThisClass]:
         chunks = torch.chunk(self.flattened_tensor_nf, chunks=num_chunks, dim=-1)
@@ -153,5 +153,5 @@ class RaggedSets:
         reg_bf = 0 if regularizer_f is None else (regularizer_weight * regularizer_f).view(1, -1)
         regularized_sums_bf = sums_bf + reg_bf
         regularized_sizes_b = self.get_sizes() + regularizer_weight
-        means_bf = regularized_sums_bf / regularized_sizes_b.view(1, -1)
+        means_bf = regularized_sums_bf / regularized_sizes_b.view(-1, 1)
         return means_bf
