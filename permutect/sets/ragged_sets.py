@@ -155,3 +155,10 @@ class RaggedSets:
         regularized_sizes_b = self.get_sizes() + regularizer_weight
         means_bf = regularized_sums_bf / regularized_sizes_b.view(-1, 1)
         return means_bf
+
+    def sums_over_sets(self) -> torch.Tensor:
+        """
+        sum of elements of each set. Returns a 2D tensor of shape Batch size x Feature size
+        """
+        sums_bf = segment_csr(self.flattened_tensor_nf, self.bounds_b, reduce="sum")
+        return sums_bf
