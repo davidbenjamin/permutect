@@ -18,12 +18,10 @@ Here is [the training code](experiment.html) for a gMLP model based autoregressi
 # copied from https://github.com/labmlai/annotated_deep_learning_paper_implementations/blob/master/labml_nn/transformers/gmlp/__init__.py
 # then modified for the symmetric case
 
-from typing import Optional
-
 import torch
 from torch import nn
 
-from permutect import utils
+from permutect.sets.ragged_sets import RaggedSets
 
 
 class GatedMLPBlock(nn.Module):
@@ -71,19 +69,19 @@ class GatedMLPBlock(nn.Module):
     # X is 2D, counts are the numbers of elements in each consecutive group of rows that form a self-attention group
     # that is, is X has 10 rows and counts = [2,3,5], elements 0-1, 2-4, and 5-9 form independent self-attention groups
     # In other words, all the reads of a batch are flattened together in X -- the batch information is in counts
-    def forward(self, x_re: torch.Tensor, counts: torch.IntTensor):
+    def forward(self, x_bre: RaggedSets) -> RaggedSets:
         """
         * `x_bre` is the input read embedding tensor of shape Batch x Reads x Embedding
         """
         # Norm, projection to d_ffn, and activation $Z = \sigma(XU)$
-        z_rd = self.activation(self.proj1(self.norm(x_re)))
+        z_brd = x_bre.apply_elementwise(self.norm).apply_elementwise(self.proj1).apply_elementwise(self.activation)
         # Spacial Gating Unit $\tilde{Z} = s(Z)$
-        gated_rd = self.sgu.forward(z_rd, counts)
+        gated_brd = self.sgu.forward(z_brd)
         # Final projection $Y = \tilde{Z}V$ back to embedding dimension
-        gated_re = self.proj2(gated_rd)
+        gated_bre = gated_brd.apply_elementwise(self.proj2)
 
         # Add the shortcut connection
-        return x_re + gated_re
+        return x_bre.add_elementwise(gated_bre)
 
 
 class SpacialGatingUnit(nn.Module):
@@ -117,16 +115,16 @@ class SpacialGatingUnit(nn.Module):
 
     # Z is 2D, counts are the numbers of elements in each consecutive group of rows that form a self-attention group
     # that is, is X has 10 rows and counts = [2,3,5], elements 0-1, 2-4, and 5-9 form independent self-attention groups
-    def forward(self, z_rd: torch.Tensor, counts: torch.IntTensor):
+    def forward(self, z_brd: RaggedSets) -> RaggedSets:
         # Split $Z$ into $Z_1$ and $Z_2$ over the hidden dimension and normalize $Z_2$ before $f_{W,b}(\cdot)$
-        z1_rd, z2_rd = torch.chunk(z_rd, 2, dim=-1)
-        z2_rd = self.norm(z2_rd)
+        z1_brd, z2_brd = z_brd.split_in_two_by_features()
+        z2_brd = z2_brd.apply_elementwise(self.norm)
 
-        # TODO: self.beta needs to multiply the mean field here!!!
-        z2_rd = 1 + self.alpha * z2_rd + utils.means_over_rows(z2_rd, counts, keepdim=True)
+        mean_field_bd = z2_brd.means_over_sets()
+        gate_brd = (self.alpha * z2_brd + 1).broadcast_add(mean_field_bd * self.beta)
 
         # $Z_1 \odot f_{W,b}(Z_2)$
-        return z1_rd * z2_rd
+        return z1_brd.multiply_elementwise(gate_brd)
 
 
 class GatedMLP(nn.Module):
@@ -137,10 +135,11 @@ class GatedMLP(nn.Module):
 
     # X is 2D, counts are the numbers of elements in each consecutive group of rows that form a self-attention group
     # that is, is X has 10 rows and counts = [2,3,5], elements 0-1, 2-4, and 5-9 form independent self-attention groups
-    def forward(self, x, counts):
+    def forward(self, x_bre: RaggedSets) -> RaggedSets:
+        block: GatedMLPBlock
         for block in self.blocks:
-            x = block.forward(x, counts)
-        return x
+            x_bre = block.forward(x_bre)
+        return x_bre
 
 
 class GatedRefAltMLPBlock(nn.Module):
@@ -172,22 +171,26 @@ class GatedRefAltMLPBlock(nn.Module):
         # *gMLP* block as a replacement for the [Transformer Layer](../models.html#Encoder).
         self.size = d_model
 
-    def forward(self, ref_re: torch.Tensor, alt_re: torch.Tensor, ref_counts: torch.IntTensor, alt_counts: torch.IntTensor):
+    def forward(self, ref_brf: RaggedSets, alt_brf: RaggedSets) -> tuple[RaggedSets, RaggedSets]:
         """
+        :param ref_brf: reference read data indexed (conceptually) by batch, read within set, feature
+        :param alt_brf: similar for alt read data
+        :return: transformed ref and alt sets
         * `x_bre` is the input read embedding tensor of shape Batch x Reads x Embedding
         """
         # Norm, projection to d_ffn, and activation $Z = \sigma(XU)$
-        zref_rd = self.activation(self.proj1_ref(self.norm(ref_re)))
-        zalt_rd = self.activation(self.proj1_alt(self.norm(alt_re)))
+        zref_brd = ref_brf.apply_elementwise(self.norm).apply_elementwise(self.proj1_ref).apply_elementwise(self.activation)
+        zalt_brd = alt_brf.apply_elementwise(self.norm).apply_elementwise(self.proj1_alt).apply_elementwise(self.activation)
 
         # Spacial Gating Unit $\tilde{Z} = s(Z)$
-        gated_ref_rd, gated_alt_rd = self.sgu.forward(zref_rd, zalt_rd, ref_counts, alt_counts)
+        gated_ref_brd, gated_alt_brd = self.sgu.forward(zref_brd, zalt_brd)
+
         # Final projection $Y = \tilde{Z}V$ back to embedding dimension
-        gated_ref_re = self.proj2_ref(gated_ref_rd)
-        gated_alt_re = self.proj2_alt(gated_alt_rd)
+        gated_ref_bre = gated_ref_brd.apply_elementwise(self.proj2_ref)
+        gated_alt_bre = gated_alt_brd.apply_elementwise(self.proj2_alt)
 
         # Add the shortcut connection
-        return ref_re + gated_ref_re, alt_re + gated_alt_re
+        return ref_brf.add_elementwise(gated_ref_bre), alt_brf.add_elementwise(gated_alt_bre)
 
 
 class SpacialGatingUnitRefAlt(nn.Module):
@@ -214,29 +217,27 @@ class SpacialGatingUnitRefAlt(nn.Module):
         self.ref_regularizer = nn.Parameter(0.1 * torch.ones(d_z // 2))
         self.regularizer_weight_pre_exp = nn.Parameter(torch.log(torch.tensor(0.1)))
 
-    def forward(self, zref_rd: torch.Tensor, zalt_rd: torch.Tensor, ref_counts: torch.IntTensor, alt_counts: torch.IntTensor):
+    def forward(self, zref_brd: RaggedSets, zalt_brd: RaggedSets) -> tuple[RaggedSets, RaggedSets]:
 
         # Split $Z$ into $Z_1$ and $Z_2$ over the hidden dimension and normalize $Z_2$ before $f_{W,b}(\cdot)$
-        z1_ref_rd, z2_ref_rd = torch.chunk(zref_rd, 2, dim=-1)
-        z1_alt_rd, z2_alt_rd = torch.chunk(zalt_rd, 2, dim=-1)
-        z2_ref_rd = self.norm(z2_ref_rd)
-        z2_alt_rd = self.norm(z2_alt_rd)
+        z1_ref_brd, z2_ref_brd = zref_brd.split_in_two_by_features()
+        z1_alt_brd, z2_alt_brd = zalt_brd.split_in_two_by_features()
+        z2_ref_brd = z2_ref_brd.apply_elementwise(self.norm)
+        z2_alt_brd = z2_alt_brd.apply_elementwise(self.norm)
 
-        # these are means by variant -- need repeat_interleave to make them by-read
-        ref_mean_field_vd = utils.means_over_rows_with_regularizer(z2_ref_rd, ref_counts, self.ref_regularizer, torch.exp(self.regularizer_weight_pre_exp) + 0.25)
-        alt_mean_field_vd = utils.means_over_rows(z2_alt_rd, alt_counts)
-
-        ref_mean_field_on_ref_rd = torch.repeat_interleave(ref_mean_field_vd, dim=0, repeats=ref_counts)
-        ref_mean_field_on_alt_rd = torch.repeat_interleave(ref_mean_field_vd, dim=0, repeats=alt_counts)
-        alt_mean_field_on_alt_rd = torch.repeat_interleave(alt_mean_field_vd, dim=0, repeats=alt_counts)
+        reg_weight = torch.exp(self.regularizer_weight_pre_exp) + 0.25
+        # means over reads for each variant (batch index)
+        ref_mean_field_bd = z2_ref_brd.means_over_sets(regularizer_f=self.ref_regularizer, regularizer_weight=reg_weight)
+        alt_mean_field_bd = z2_alt_brd.means_over_sets()
 
         # same as above except now there is an additional term for the ref mean field influence on alt
         # maybe later also let alt mean field influence ref
-        z2_ref_rd = 1 + self.alpha_ref * z2_ref_rd + self.beta_ref * ref_mean_field_on_ref_rd
-        z2_alt_rd = 1 + self.alpha_alt * z2_alt_rd + self.beta_alt * alt_mean_field_on_alt_rd + self.gamma * ref_mean_field_on_alt_rd
+        ref_gate_brd = (z2_ref_brd * self.alpha_ref + 1).broadcast_add(self.beta_ref * ref_mean_field_bd)
+        alt_gate_brd = (z2_alt_brd * self.alpha_alt + 1).broadcast_add(self.beta_alt * alt_mean_field_bd).\
+            broadcast_add(self.gamma * ref_mean_field_bd)
 
         # $Z_1 \odot f_{W,b}(Z_2)$
-        return z1_ref_rd * z2_ref_rd, z1_alt_rd * z2_alt_rd
+        return z1_ref_brd.multiply_elementwise(ref_gate_brd), z1_alt_brd.multiply_elementwise(alt_gate_brd)
 
 
 class GatedRefAltMLP(nn.Module):
@@ -245,7 +246,13 @@ class GatedRefAltMLP(nn.Module):
 
         self.blocks = nn.ModuleList([GatedRefAltMLPBlock(d_model, d_ffn) for _ in range(num_blocks)])
 
-    def forward(self, ref, alt, ref_counts, alt_counts):
+    def forward(self, ref_brf: RaggedSets, alt_brf: RaggedSets) -> tuple[RaggedSets, RaggedSets]:
+        """
+        :param ref_brf: reference read data indexed (conceptually) by batch, read within set, feature
+        :param alt_brf: similar for alt read data
+        :return: transformed ref and alt sets
+        """
+        block: GatedRefAltMLPBlock
         for block in self.blocks:
-            ref, alt = block(ref, alt, ref_counts, alt_counts)
-        return ref, alt
+            ref_brf, alt_brf = block.forward(ref_brf, alt_brf)
+        return ref_brf, alt_brf
