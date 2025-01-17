@@ -1,3 +1,9 @@
+import torch
+from typing import List
+
+from permutect.architecture.mlp import MLP
+from permutect.sets.ragged_sets import RaggedSets
+
 '''
 Pytorch module that takes in 2D set tensor X of shape (N, F) and 1D counts tensor Counts, where N is the total *flattened*
 number of elements in a batch, summed over all sets.
@@ -29,20 +35,26 @@ this inspires the appropriate initialization.  It can also express featurewise m
 is multiplication by a large constant such that the softmax essentially picks out only the largest s for each b and f.  It can also
 compute the featurewise variance by calculating second moments in g_1 and averaging.
 
-Given the raggedness of X_bsf the implementation is non-trivial. g_1 and g_2 are straightforward because they can act on
-the flattened X_nf -- the flattened index n works exactly like the two indices b,s.  Likewise g_3 has no special difficulty because
-it acts after pooling.  The difficult part is the ragged softmax and the sum over s.  If we have flattened tensor Z_nd and wish
-to take the softmax over the subsets implied by Counts_b we need:
-
-softmax = exp(Z_nd) / sum_over_s (exp(Z_nd))
-
-note that I have already implemented the sum over s in my utils package.
-
-This is not numerically stable, though.  A first improvement would be to subtract the maximum over all n for each d before
-exponentiating.  This would not affect the result.  However, it would be better to subtract, for each b,d the maximum over
-all s.
-
-It seems as if the pytorch_scatter package has a function, segment_csr, that does this:
-https://pytorch-scatter.readthedocs.io/en/latest/functions/segment_csr.html
-
+Given the raggedness of X_bsf the implementation is non-trivial. Fortunately, I wrote a RaggedSets class to handle all this!
 '''
+
+
+class SetPooling(torch.nn.Module):
+    def __init__(self, input_dim: int, mlp_layers: List[int], final_mlp_layers: List[int], batch_normalize: bool = False, dropout_p: float = 0):
+        super(SetPooling, self).__init__()
+        # TODO: layer norm??
+        self.mlp1 = MLP([input_dim] + mlp_layers, batch_normalize, dropout_p)
+        self.mlp2 = MLP([input_dim] + mlp_layers, batch_normalize, dropout_p)
+
+        self.mlp3 = MLP([self.mlp1.output_dimension()] + final_mlp_layers, batch_normalize, dropout_p)
+
+    def forward(self, x_bsf: RaggedSets) -> torch.Tensor:
+        values_bsd = x_bsf.apply_elementwise(self.mlp1)
+        weights_bsd = x_bsf.apply_elementwise(self.mlp2).softmax_within_sets()
+
+        weighted_values_bd = values_bsd.multiply_elementwise(weights_bsd).sums_over_sets()
+        return self.mlp3.forward(weighted_values_bd)
+
+    def output_dimension(self) -> int:
+        return self.mlp3.output_dimension()
+

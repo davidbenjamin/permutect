@@ -17,6 +17,7 @@ from permutect.architecture.dna_sequence_convolution import DNASequenceConvoluti
 from permutect.architecture.gated_mlp import GatedMLP, GatedRefAltMLP
 from permutect.architecture.gradient_reversal.module import GradientReversal
 from permutect.architecture.mlp import MLP
+from permutect.architecture.set_pooling import SetPooling
 from permutect.data.base_datum import BaseBatch, DEFAULT_GPU_FLOAT, DEFAULT_CPU_FLOAT
 from permutect.data.base_dataset import BaseDataset, ALL_COUNTS_INDEX
 from permutect.metrics.evaluation_metrics import LossMetrics, EmbeddingMetrics, round_up_to_nearest_three, MAX_COUNT
@@ -126,8 +127,11 @@ class BaseModel(torch.nn.Module):
         self.ref_alt_reads_encoder = make_gated_ref_alt_mlp_encoder(embedding_dim, params)
 
         # after encoding alt reads (along with info and ref seq embeddings and with self-attention to ref reads)
-        # pass through another MLP
-        self.aggregation = MLP([embedding_dim] + params.aggregation_layers, batch_normalize=params.batch_normalize, dropout_p=params.dropout_p)
+        # aggregate encoded sets in a permutation-invariant way
+        # TODO: hard-coded magic constant!!!!!
+        aggregation_hidden_layers = [-2, -2]
+        self.aggregation = SetPooling(input_dim=embedding_dim, mlp_layers=aggregation_hidden_layers,
+            final_mlp_layers=params.aggregation_layers, batch_normalize=params.batch_normalize, dropout_p=params.dropout_p)
 
         self.to(device=self._device, dtype=self._dtype)
 
@@ -172,7 +176,8 @@ class BaseModel(torch.nn.Module):
         alt_bre = RaggedSets.from_flattened_tensor_and_sizes(reads_info_seq_re[total_ref:], alt_counts)
         _, transformed_alt_bre = self.ref_alt_reads_encoder.forward(ref_bre, alt_bre)
 
-        # TODO: don't switch to flattened just yet -- add methods to RaggedSets
+        # TODO: this old code has the random weighting logic which might still be valuable
+        """
         transformed_alt_re = transformed_alt_bre.flattened_tensor_nf
 
         alt_weights_r = 1 + weight_range * (1 - 2 * torch.rand(total_alt, device=self._device, dtype=self._dtype))
@@ -182,10 +187,10 @@ class BaseModel(torch.nn.Module):
         normalized_alt_weights_r = alt_weights_r / torch.repeat_interleave(alt_wt_sums_v, repeats=alt_counts, dim=0)
 
         alt_means_ve = utils.sums_over_rows(transformed_alt_re * normalized_alt_weights_r[:,None], alt_counts)
+        """
+        result_be = self.aggregation.forward(transformed_alt_bre)
 
-        result_ve = self.aggregation.forward(alt_means_ve)
-
-        return result_ve, ref_seq_embeddings_ve # ref seq embeddings are useful later
+        return result_be, ref_seq_embeddings_ve # ref seq embeddings are useful later
 
     def make_dict_for_saving(self, prefix: str = ""):
         return {(prefix + constants.STATE_DICT_NAME): self.state_dict(),
