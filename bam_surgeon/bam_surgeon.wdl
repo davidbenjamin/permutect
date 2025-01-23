@@ -75,10 +75,10 @@ task RandomSitesAndAddVariants {
             bed_file=~{target_regions_bed}
         else
             echo "input intervals must be converted to bed format"
-            java -jar picard.jar IntervalListToBed I=~{target_regions_bed} O=bed_regions.bed
+            java -jar /picard.jar IntervalListToBed I=~{target_regions_bed} O=bed_regions.bed
             bed_file=bed_regions.bed
         fi
-        
+
         python3 /bamsurgeon/scripts/randomsites.py --genome ~{ref_fasta} --bed $bedfile \
             --seed ~{snv_seed} --numpicks ~{num_snvs} --avoidN snv > addsnv_input.bed
 
@@ -90,7 +90,7 @@ task RandomSitesAndAddVariants {
             --snvfrac 0.2 \
             --haplosize 50 \
             –ignoresnps –tagreads –ignorepileup \
-            –picardjar picard.jar \
+            –picardjar /picard.jar \
             –aligner mem \
             –minmutreads 1 –seed 1 \
             –o snv.bam --vcf snvs.vcf
@@ -104,7 +104,7 @@ task RandomSitesAndAddVariants {
             --snvfrac 0.2 \
             --haplosize 50 \
             –tagreads –ignorepileup \
-            –picardjar picard.jar \
+            –picardjar /picard.jar \
             –aligner mem \
             –minmutreads 1 –seed 1 \
             –o snv_indel.bam --vcf indels.vcf
@@ -113,7 +113,7 @@ task RandomSitesAndAddVariants {
 
         samtools index snv_indel_sorted.bam
 
-        java -jar picard.jar MergeVcfs I=snvs.vcf I=indels.vcf O=variants.vcf
+        java -jar /picard.jar MergeVcfs I=snvs.vcf I=indels.vcf O=variants.vcf
   >>>
 
   runtime {
