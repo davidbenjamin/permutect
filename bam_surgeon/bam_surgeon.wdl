@@ -58,7 +58,7 @@ task RandomSitesAndAddVariants {
         String bam_surgeon_docker
         Int preemptible_tries = 0
         Int cpu = 4
-        Int disk_space = 100
+        Int disk_space = 500
         Int mem = 8
     }
 
@@ -67,13 +67,15 @@ task RandomSitesAndAddVariants {
     Int mem_mb = mem * 1000
 
     command <<<
-        python3 bamsurgeon/scripts/randomsites.py –g ~{ref_fasta} –b ~{target_regions_bed} \
+        echo $PWD
+        
+        python3 /bamsurgeon/scripts/randomsites.py –g ~{ref_fasta} –b ~{target_regions_bed} \
             –n ~{num_snvs} –avoidN –s ~{snv_seed} snv > addsnv_input.bed
 
-        python3 bamsurgeon/scripts/randomsites.py –g ~{ref_fasta} –b ~{target_regions_bed} \
+        python3 /bamsurgeon/scripts/randomsites.py –g ~{ref_fasta} –b ~{target_regions_bed} \
             –n ~{num_indels} –avoidN –s ~{indel_seed} indel > addindel_input.bed
 
-        python3 bamsurgeon/bin/addsnv.py –r ~{ref_fasta} –-bamfile ~{base_bam} --varfile addsnv_input.bed \
+        python3 /bamsurgeon/bin/addsnv.py –r ~{ref_fasta} –-bamfile ~{base_bam} --varfile addsnv_input.bed \
             --mutfrac ~{somatic_allele_fraction} \
             --snvfrac 0.2 \
             --haplosize 50 \
@@ -87,7 +89,7 @@ task RandomSitesAndAddVariants {
 
         samtools index snv_sorted.bam
 
-        python3 bamsurgeon/bin/addindel.py –r ~{ref_fasta} –-bamfile snv_sorted.bam --varfile addindel_input.bed \
+        python3 /bamsurgeon/bin/addindel.py –r ~{ref_fasta} –-bamfile snv_sorted.bam --varfile addindel_input.bed \
             --mutfrac ~{somatic_allele_fraction} \
             --snvfrac 0.2 \
             --haplosize 50 \
