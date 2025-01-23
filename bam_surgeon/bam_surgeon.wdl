@@ -79,10 +79,10 @@ task RandomSitesAndAddVariants {
             bed_file=bed_regions.bed
         fi
 
-        python3 /bamsurgeon/scripts/randomsites.py --genome ~{ref_fasta} --bed $bedfile \
+        python3 /bamsurgeon/scripts/randomsites.py --genome ~{ref_fasta} --bed $bed_file \
             --seed ~{snv_seed} --numpicks ~{num_snvs} --avoidN snv > addsnv_input.bed
 
-        python3 /bamsurgeon/scripts/randomsites.py --genome ~{ref_fasta} --bed $bedfile \
+        python3 /bamsurgeon/scripts/randomsites.py --genome ~{ref_fasta} --bed $bed_file \
             --seed ~{indel_seed} --numpicks ~{num_indels} --avoidN indel > addindel_input.bed
 
         python3 /bamsurgeon/bin/addsnv.py –r ~{ref_fasta} –-bamfile ~{base_bam} --varfile addsnv_input.bed \
