@@ -85,29 +85,33 @@ task RandomSitesAndAddVariants {
         python3 /bamsurgeon/scripts/randomsites.py --genome ~{ref_fasta} --bed $bed_file \
             --seed ~{indel_seed} --numpicks ~{num_indels} --avoidN indel > addindel_input.bed
 
-        python3 /bamsurgeon/bin/addsnv.py –r ~{ref_fasta} –-bamfile ~{base_bam} --varfile addsnv_input.bed \
-            --mutfrac ~{somatic_allele_fraction} \
+        python3 /bamsurgeon/bin/addsnv.py --varfile addsnv_input.bed --bamfile ~{base_bam} --reference ~{ref_fasta} \
+            --outbam snv.bam \
             --snvfrac 0.2 \
+            --mutfrac ~{somatic_allele_fraction} \
             --haplosize 50 \
-            –ignoresnps –tagreads –ignorepileup \
-            –picardjar /picard.jar \
-            –aligner mem \
-            –minmutreads 1 –seed 1 \
-            –o snv.bam --vcf snvs.vcf
+            --picardjar /picard.jar
+            --minmutreads 2 \
+            --ignoresnps --tagreads --ignorepileup \
+            --aligner mem \
+            --seed 1 \
+            --vcf snvs.vcf
 
         samtools sort -@ ~{cpu} --output-fmt BAM snv.bam > snv_sorted.bam
 
         samtools index snv_sorted.bam
 
-        python3 /bamsurgeon/bin/addindel.py –r ~{ref_fasta} –-bamfile snv_sorted.bam --varfile addindel_input.bed \
-            --mutfrac ~{somatic_allele_fraction} \
+        python3 /bamsurgeon/bin/addindel.py --varfile addindel_input.bed --bamfile snv_sorted.bam --reference ~{ref_fasta} \
+            --outbam snv_indel.bam \
             --snvfrac 0.2 \
+            --mutfrac ~{somatic_allele_fraction} \
             --haplosize 50 \
-            –tagreads –ignorepileup \
-            –picardjar /picard.jar \
-            –aligner mem \
-            –minmutreads 1 –seed 1 \
-            –o snv_indel.bam --vcf indels.vcf
+            --picardjar /picard.jar
+            --minmutreads 2 \
+            --ignoresnps --tagreads --ignorepileup \
+            --aligner mem \
+            --seed 1 \
+            --vcf indels.vcf
 
         samtools sort -@ ~{cpu} --output-fmt BAM snv_indel.bam > snv_indel_sorted.bam
 
