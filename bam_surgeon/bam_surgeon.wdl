@@ -90,7 +90,7 @@ task RandomSitesAndAddVariants {
             --snvfrac 0.2 \
             --mutfrac ~{somatic_allele_fraction} \
             --haplosize 50 \
-            --picardjar /picard.jar
+            --picardjar /picard.jar \
             --minmutreads 2 \
             --ignoresnps --tagreads --ignorepileup \
             --aligner mem \
@@ -106,7 +106,7 @@ task RandomSitesAndAddVariants {
             --snvfrac 0.2 \
             --mutfrac ~{somatic_allele_fraction} \
             --haplosize 50 \
-            --picardjar /picard.jar
+            --picardjar /picard.jar \
             --minmutreads 2 \
             --ignoresnps --tagreads --ignorepileup \
             --aligner mem \
