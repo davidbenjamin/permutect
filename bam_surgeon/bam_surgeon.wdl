@@ -69,12 +69,22 @@ task RandomSitesAndAddVariants {
     command <<<
         echo $PWD
 
-        python3 /bamsurgeon/scripts/randomsites.py --genome ~{ref_fasta} --bed ~{target_regions_bed} \
+        # if the inout intervals are not a bed file we need to convert
+        if [[ ~{target_regions_bed} == *.bed ]]; then
+            echo "input intervals file is already in bed format"
+            bed_file=~{target_regions_bed}
+        else
+            echo "input intervals must be converted to bed format"
+            java -jar picard.jar IntervalListToBed I=~{target_regions_bed} O=bed_regions.bed
+            bed_file=bed_regions.bed
+        fi
+        
+        python3 /bamsurgeon/scripts/randomsites.py --genome ~{ref_fasta} --bed $bedfile \
             --seed ~{snv_seed} --numpicks ~{num_snvs} --avoidN snv > addsnv_input.bed
 
-        python3 /bamsurgeon/scripts/randomsites.py --genome ~{ref_fasta} --bed ~{target_regions_bed} \
+        python3 /bamsurgeon/scripts/randomsites.py --genome ~{ref_fasta} --bed $bedfile \
             --seed ~{indel_seed} --numpicks ~{num_indels} --avoidN indel > addindel_input.bed
-        
+
         python3 /bamsurgeon/bin/addsnv.py –r ~{ref_fasta} –-bamfile ~{base_bam} --varfile addsnv_input.bed \
             --mutfrac ~{somatic_allele_fraction} \
             --snvfrac 0.2 \
