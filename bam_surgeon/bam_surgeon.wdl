@@ -69,11 +69,9 @@ task RandomSitesAndAddVariants {
     command <<<
         echo $PWD
 
-        python3 /bamsurgeon/scripts/randomsites.py snv –g ~{ref_fasta} –b ~{target_regions_bed} \
-            –n ~{num_snvs} –avoidN –s ~{snv_seed} > addsnv_input.bed
+        python3 /bamsurgeon/scripts/randomsites.py –g ~{ref_fasta} –b ~{target_regions_bed} –n ~{num_snvs} –avoidN –s ~{snv_seed} snv > addsnv_input.bed
 
-        python3 /bamsurgeon/scripts/randomsites.py indel –g ~{ref_fasta} –b ~{target_regions_bed} \
-            –n ~{num_indels} –avoidN –s ~{indel_seed} > addindel_input.bed
+        python3 /bamsurgeon/scripts/randomsites.py –g ~{ref_fasta} –b ~{target_regions_bed} –n ~{num_indels} –avoidN –s ~{indel_seed} indel > addindel_input.bed
 
         python3 /bamsurgeon/bin/addsnv.py –r ~{ref_fasta} –-bamfile ~{base_bam} --varfile addsnv_input.bed \
             --mutfrac ~{somatic_allele_fraction} \
