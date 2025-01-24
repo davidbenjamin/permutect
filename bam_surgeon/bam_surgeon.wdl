@@ -79,6 +79,9 @@ task RandomSitesAndAddVariants {
             bed_file=bed_regions.bed
         fi
 
+        # super annoying: bam surgeon expects bam index to end in .bam.bai, not just .bai
+        mv ~{base_bam_index} ~{base_bam}.bai
+
         python3 /bamsurgeon/scripts/randomsites.py --genome ~{ref_fasta} --bed $bed_file \
             --seed ~{snv_seed} --numpicks ~{num_snvs} --avoidN snv > addsnv_input.bed
 
