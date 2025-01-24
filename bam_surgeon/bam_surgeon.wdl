@@ -69,6 +69,9 @@ task RandomSitesAndAddVariants {
     command <<<
         echo $PWD
 
+        # calls to BWA within bam surgeon require not not ref fasta, dict, but other auxiliary files
+        bwa index ~{ref_fasta}
+
         # if the inout intervals are not a bed file we need to convert
         if [[ ~{target_regions_bed} == *.bed ]]; then
             echo "input intervals file is already in bed format"
