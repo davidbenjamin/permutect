@@ -10,6 +10,7 @@ from torch.utils.tensorboard import SummaryWriter
 from tqdm.autonotebook import trange, tqdm
 
 from permutect import utils, constants
+from permutect.architecture.artifact_model import ArtifactModel
 from permutect.architecture.dna_sequence_convolution import DNASequenceConvolution
 from permutect.architecture.gated_mlp import GatedRefAltMLP
 from permutect.architecture.gradient_reversal.module import GradientReversal
@@ -101,14 +102,14 @@ class BaseModel(torch.nn.Module):
         # after encoding alt reads (along with info and ref seq embeddings and with self-attention to ref reads)
         # aggregate encoded sets in a permutation-invariant way
         # TODO: hard-coded magic constant!!!!!
-        aggregation_hidden_layers = [-2, -2]
-        self.aggregation = SetPooling(input_dim=embedding_dim, mlp_layers=aggregation_hidden_layers,
-            final_mlp_layers=params.aggregation_layers, batch_normalize=params.batch_normalize, dropout_p=params.dropout_p)
+        set_pooling_hidden_layers = [-2, -2]
+        self.set_pooling = SetPooling(input_dim=embedding_dim, mlp_layers=set_pooling_hidden_layers,
+                                      final_mlp_layers=params.aggregation_layers, batch_normalize=params.batch_normalize, dropout_p=params.dropout_p)
 
         self.to(device=self._device, dtype=self._dtype)
 
     def output_dimension(self) -> int:
-        return self.aggregation.output_dimension()
+        return self.set_pooling.output_dimension()
 
     def ref_alt_seq_embedding_dimension(self) -> int:
         return self.ref_seq_cnn.output_dimension()
@@ -160,7 +161,7 @@ class BaseModel(torch.nn.Module):
 
         alt_means_ve = utils.sums_over_rows(transformed_alt_re * normalized_alt_weights_r[:,None], alt_counts)
         """
-        result_be = self.aggregation.forward(transformed_alt_bre)
+        result_be = self.set_pooling.forward(transformed_alt_bre)
 
         return result_be, ref_seq_embeddings_ve # ref seq embeddings are useful later
 
@@ -218,9 +219,10 @@ def permute_columns_independently(mat: torch.Tensor):
     return result
 
 
+# TODO: GOTTA DO SOMETHING WITH THE ARTIFACT MODEL!!!!!
 # artifact model parameters are for simultaneously training an artifact model on top of the base model
 # to measure quality, especially in unsupervised training when the loss metric isn't directly related to accuracy or cross-entropy
-def learn_base_model(base_model: BaseModel, dataset: BaseDataset, training_params: TrainingParameters,
+def learn_base_model(base_model: BaseModel, artifact_model: ArtifactModel, dataset: BaseDataset, training_params: TrainingParameters,
                      summary_writer: SummaryWriter, validation_fold: int = None):
     print(f"Memory usage percent: {psutil.virtual_memory().percent:.1f}")
     is_cuda = base_model._device.type == 'cuda'

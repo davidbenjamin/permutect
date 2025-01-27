@@ -26,7 +26,7 @@ from permutect.data.artifact_dataset import ArtifactDataset
 from permutect import utils, constants
 from permutect.metrics.evaluation_metrics import LossMetrics, EvaluationMetrics, MAX_COUNT, round_up_to_nearest_three, \
     EmbeddingMetrics
-from permutect.parameters import TrainingParameters, ArtifactModelParameters, ModelParameters
+from permutect.parameters import TrainingParameters, ModelParameters
 from permutect.utils import Variation, Epoch, Label
 from permutect.metrics import plotting
 
@@ -133,12 +133,9 @@ class ArtifactModel(nn.Module):
         self.num_base_features = num_base_features
         self.params = params
 
-        # feature layers before the domain adaptation source classifier splits from the artifact classifier
-        self.feature_layers = MLP([num_base_features] + params.aggregation_layers, batch_normalize=params.batch_normalize, dropout_p=params.dropout_p)
-
         # TODO: artifact classifier hidden layers are hard-coded!!!
         # The [1] is for the output logit
-        self.artifact_classifier = MLP([self.feature_layers.output_dimension()] + [-1, -1, 1], batch_normalize=params.batch_normalize, dropout_p=params.dropout_p)
+        self.artifact_classifier = MLP([self.num_base_features] + [-1, -1, 1], batch_normalize=params.batch_normalize, dropout_p=params.dropout_p)
 
         # one Calibration module for each variant type; that is, calibration depends on both count and type
         self.calibration = nn.ModuleList([Calibration(params.calibration_layers) for variant_type in Variation])
@@ -146,7 +143,7 @@ class ArtifactModel(nn.Module):
         self.to(device=self._device, dtype=self._dtype)
 
     def training_parameters(self):
-        return chain(self.feature_layers.parameters(), self.artifact_classifier.parameters(), self.calibration.parameters())
+        return chain(self.artifact_classifier.parameters(), self.calibration.parameters())
 
     def calibration_parameters(self):
         return self.calibration.parameters()
@@ -167,13 +164,12 @@ class ArtifactModel(nn.Module):
 
     def forward_from_parts(self, representations_2d: torch.Tensor, ref_counts: torch.IntTensor, alt_counts: torch.IntTensor,
                            variant_types: torch.IntTensor):
-        features = self.feature_layers.forward(representations_2d)
-        uncalibrated_logits = self.artifact_classifier.forward(features).view(-1)
+        uncalibrated_logits = self.artifact_classifier.forward(representations_2d).view(-1)
         calibrated_logits = torch.zeros_like(uncalibrated_logits, device=self._device)
         for n, _ in enumerate(Variation):
             mask = (variant_types == n)
             calibrated_logits += mask * self.calibration[n].forward(uncalibrated_logits, ref_counts, alt_counts)
-        return calibrated_logits, uncalibrated_logits, features
+        return calibrated_logits, uncalibrated_logits
 
     def forward_from_base_model(self, representations_2d: torch.Tensor, base_batch: BaseBatch):
         return self.forward_from_parts(representations_2d, base_batch.get_ref_counts(), base_batch.get_alt_counts(), base_batch.get_variant_types())
@@ -196,7 +192,7 @@ class ArtifactModel(nn.Module):
             assert sources_list[-1] == num_sources - 1, f"sources should be 0, 1, 2. . . without gaps, but sources are {sources_list}."
 
             print(f"Training data come from multiple sources, with counts {dataset.counts_by_source}.")
-        source_classifier = MLP([self.feature_layers.output_dimension()] + [-1, -1, num_sources],
+        source_classifier = MLP([self.num_base_features] + [-1, -1, num_sources],
                                     batch_normalize=self.params.batch_normalize, dropout_p=self.params.dropout_p)
         source_classifier.to(device=self._device, dtype=self._dtype)
         source_gradient_reversal = GradientReversal(alpha=0.01)  # initialize as barely active
@@ -297,14 +293,14 @@ class ArtifactModel(nn.Module):
                     labels = batch.get_training_labels()
                     is_labeled_mask = batch.get_is_labeled_mask()
 
-                    logits, precalibrated_logits, features = self.forward(batch)
+                    logits, precalibrated_logits = self.forward(batch)
 
                     # one-hot prediction of sources
                     if num_sources > 1:
                         # gradient reversal means parameters before the features try to maximize source prediction loss, i.e. features
                         # try to forget the source, while parameters after the features try to minimize it, i.e. they try
                         # to achieve the adversarial task of distinguishing sources
-                        source_prediction_logits = source_classifier.forward(source_gradient_reversal(features))
+                        source_prediction_logits = source_classifier.forward(source_gradient_reversal(batch.get_representations_2d()))
                         source_prediction_probs = torch.nn.functional.softmax(source_prediction_logits, dim=-1)
                         source_prediction_targets = torch.nn.functional.one_hot(sources.long(), num_sources)
                         source_prediction_losses = torch.sum(torch.square(source_prediction_probs - source_prediction_targets), dim=-1)
@@ -409,7 +405,7 @@ class ArtifactModel(nn.Module):
                 weights = calculate_batch_weights(batch_cpu, dataset, by_count=True)
                 weights = weights.to(dtype=self._dtype)     # not sent to GPU!
 
-                logits, _, _ = self.forward(batch)
+                logits, _ = self.forward(batch)
                 # logits are calculated on the GPU (when available), so we must detach AND send back to CPU (if applicable)
                 pred = logits.detach().cpu()
 
@@ -470,7 +466,7 @@ class ArtifactModel(nn.Module):
 
             for n, batch_cpu in pbar:
                 batch = batch_cpu.copy_to(self._device, self._dtype, non_blocking=self._device.type == 'cuda')
-                logits, _, _ = self.forward(batch)
+                logits, _ = self.forward(batch)
                 pred = logits.detach().cpu()
                 labels = batch_cpu.get_training_labels()
                 correct = ((pred > 0) == (labels > 0.5)).tolist()

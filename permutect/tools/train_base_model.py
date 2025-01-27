@@ -6,18 +6,8 @@ from permutect import constants, utils
 from permutect.architecture.artifact_model import ArtifactModel
 from permutect.architecture.base_model import BaseModel, learn_base_model
 from permutect.architecture.model_io import load_models, save
-from permutect.parameters import ModelParameters, TrainingParameters, parse_training_params, \
-    parse_model_params, add_model_params_to_parser, add_training_params_to_parser
+from permutect.parameters import parse_training_params, parse_model_params, add_model_params_to_parser, add_training_params_to_parser
 from permutect.data.base_dataset import BaseDataset
-
-
-def train_base_model(params: ModelParameters, training_params: TrainingParameters,
-                     summary_writer: SummaryWriter, dataset: BaseDataset, pretrained_model: BaseModel = None) -> BaseModel:
-    base_model = pretrained_model if (pretrained_model is not None) else \
-        BaseModel(params=params, num_read_features=dataset.num_read_features, num_info_features=dataset.num_info_features,
-                  ref_sequence_length=dataset.ref_sequence_length, device=utils.gpu_if_available())
-    learn_base_model(base_model, dataset, training_params, summary_writer=summary_writer)
-    return base_model
 
 
 def main_without_parsing(args):
@@ -40,9 +30,7 @@ def main_without_parsing(args):
     artifact_model = saved_artifact_model if (saved_artifact_model is not None) else \
         ArtifactModel(params=params, num_base_features=base_model.output_dimension(), device=utils.gpu_if_available())
 
-
-    # TODO: this method needs to learn artifact model, too
-    learn_base_model(base_model, dataset, training_params, summary_writer=summary_writer)
+    learn_base_model(base_model, artifact_model, dataset, training_params, summary_writer=summary_writer)
     summary_writer.close()
     save(path=getattr(args, constants.OUTPUT_NAME), base_model=base_model, artifact_model=artifact_model)
 
