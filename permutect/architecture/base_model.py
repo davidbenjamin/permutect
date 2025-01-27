@@ -18,7 +18,7 @@ from permutect.architecture.set_pooling import SetPooling
 from permutect.data.base_datum import BaseBatch, DEFAULT_GPU_FLOAT, DEFAULT_CPU_FLOAT
 from permutect.data.base_dataset import BaseDataset, ALL_COUNTS_INDEX
 from permutect.metrics.evaluation_metrics import LossMetrics, EmbeddingMetrics, round_up_to_nearest_three, MAX_COUNT
-from permutect.parameters import BaseModelParameters, TrainingParameters
+from permutect.parameters import ModelParameters, TrainingParameters
 
 
 # group rows into consecutive chunks to yield a 3D tensor, average over dim=1 to get
@@ -56,7 +56,7 @@ def calculate_batch_source_weights(batch, dataset, by_count: bool):
     return utils.index_3d_array(dataset.source_balancing_weights_sct, sources, counts, variant_types)
 
 
-def make_gated_ref_alt_mlp_encoder(input_dimension: int, params: BaseModelParameters) -> GatedRefAltMLP:
+def make_gated_ref_alt_mlp_encoder(input_dimension: int, params: ModelParameters) -> GatedRefAltMLP:
     return GatedRefAltMLP(d_model=input_dimension, d_ffn=params.self_attention_hidden_dimension, num_blocks=params.num_self_attention_layers)
 
 
@@ -81,7 +81,7 @@ class BaseModel(torch.nn.Module):
     because we have different output layers for each variant type.
     """
 
-    def __init__(self, params: BaseModelParameters, num_read_features: int, num_info_features: int, ref_sequence_length: int, device=utils.gpu_if_available()):
+    def __init__(self, params: ModelParameters, num_read_features: int, num_info_features: int, ref_sequence_length: int, device=utils.gpu_if_available()):
         super(BaseModel, self).__init__()
 
         self._device = device
@@ -182,7 +182,7 @@ class BaseModelLearningStrategy(ABC):
 
 
 class BaseModelSemiSupervisedLoss(torch.nn.Module, BaseModelLearningStrategy):
-    def __init__(self, input_dim: int, hidden_top_layers: List[int], params: BaseModelParameters):
+    def __init__(self, input_dim: int, hidden_top_layers: List[int], params: ModelParameters):
         super(BaseModelSemiSupervisedLoss, self).__init__()
 
         self.bce = torch.nn.BCEWithLogitsLoss(reduction='none')  # no reduction because we may want to first multiply by weights for unbalanced data

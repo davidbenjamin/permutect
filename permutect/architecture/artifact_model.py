@@ -26,7 +26,7 @@ from permutect.data.artifact_dataset import ArtifactDataset
 from permutect import utils, constants
 from permutect.metrics.evaluation_metrics import LossMetrics, EvaluationMetrics, MAX_COUNT, round_up_to_nearest_three, \
     EmbeddingMetrics
-from permutect.parameters import TrainingParameters, ArtifactModelParameters
+from permutect.parameters import TrainingParameters, ArtifactModelParameters, ModelParameters
 from permutect.utils import Variation, Epoch, Label
 from permutect.metrics import plotting
 
@@ -125,7 +125,7 @@ class ArtifactModel(nn.Module):
     because we have different output layers for each variant type.
     """
 
-    def __init__(self, params: ArtifactModelParameters, num_base_features: int, num_ref_alt_features: int, device=utils.gpu_if_available()):
+    def __init__(self, params: ModelParameters, num_base_features: int, num_ref_alt_features: int, device=utils.gpu_if_available()):
         super(ArtifactModel, self).__init__()
 
         self._device = device

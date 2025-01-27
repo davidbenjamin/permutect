@@ -5,12 +5,12 @@ from torch.utils.tensorboard import SummaryWriter
 from permutect import constants, utils
 from permutect.architecture.base_model import BaseModel, learn_base_model
 from permutect.architecture.model_io import load_models, save
-from permutect.parameters import BaseModelParameters, TrainingParameters, parse_training_params, \
-    parse_base_model_params, add_base_model_params_to_parser, add_training_params_to_parser
+from permutect.parameters import ModelParameters, TrainingParameters, parse_training_params, \
+    parse_model_params, add_model_params_to_parser, add_training_params_to_parser
 from permutect.data.base_dataset import BaseDataset
 
 
-def train_base_model(params: BaseModelParameters, training_params: TrainingParameters,
+def train_base_model(params: ModelParameters, training_params: TrainingParameters,
                      summary_writer: SummaryWriter, dataset: BaseDataset, pretrained_model: BaseModel = None) -> BaseModel:
     base_model = pretrained_model if (pretrained_model is not None) else \
         BaseModel(params=params, num_read_features=dataset.num_read_features, num_info_features=dataset.num_info_features,
@@ -20,7 +20,7 @@ def train_base_model(params: BaseModelParameters, training_params: TrainingParam
 
 
 def main_without_parsing(args):
-    params = parse_base_model_params(args)
+    params = parse_model_params(args)
     training_params = parse_training_params(args)
 
     tarfile_data = getattr(args, constants.TRAIN_TAR_NAME)
@@ -32,6 +32,10 @@ def main_without_parsing(args):
     tensorboard_dir = getattr(args, constants.TENSORBOARD_DIR_NAME)
     summary_writer = SummaryWriter(tensorboard_dir)
     dataset = BaseDataset(data_tarfile=tarfile_data, num_folds=10)
+
+    # TODO: here is a rough guide to initializing the artifact model:
+    #model = ArtifactModel(params=hyperparams, num_base_features=dataset.num_base_features, num_ref_alt_features=dataset.num_ref_alt_features, device=utils.gpu_if_available())
+    # TODO: end of guide
 
     # TODO: pretrained model should be both base AND artifact!!
     model = train_base_model(params=params, dataset=dataset, training_params=training_params,
@@ -45,7 +49,7 @@ def main_without_parsing(args):
 
 def parse_arguments():
     parser = argparse.ArgumentParser(description='train the Permutect read set representation model')
-    add_base_model_params_to_parser(parser)
+    add_model_params_to_parser(parser)
     add_training_params_to_parser(parser)
 
     parser.add_argument('--' + constants.TRAIN_TAR_NAME, type=str, required=True,

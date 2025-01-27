@@ -19,10 +19,9 @@ from permutect import constants, utils
 from permutect.architecture.artifact_model import ArtifactModel
 from permutect.data.base_datum import ArtifactDatum, ArtifactBatch
 from permutect.data.artifact_dataset import ArtifactDataset
-from permutect.parameters import ArtifactModelParameters, parse_artifact_model_params, \
-    add_artifact_model_params_to_parser, add_training_params_to_parser
+from permutect.parameters import add_training_params_to_parser, TrainingParameters
 from permutect.data.base_dataset import BaseDataset
-from permutect.tools.train_model import TrainingParameters, parse_training_params
+from permutect.tools.train_model import parse_training_params
 from permutect.utils import Label
 
 NUM_FOLDS = 3
@@ -134,7 +133,7 @@ def generated_pruned_data_for_fold(art_threshold: float, nonart_threshold: float
 
 
 def generate_pruned_data_for_all_folds(base_dataset: BaseDataset, base_model: BaseModel,
-                                       training_params: TrainingParameters, params: ArtifactModelParameters, tensorboard_dir):
+                                       training_params: TrainingParameters, artifact_model: ArtifactModel, tensorboard_dir):
     # for each fold in turn, train an artifact model on all other folds and prune the chosen fold
     use_gpu = torch.cuda.is_available()
     device = torch.device('cuda' if use_gpu else 'cpu')
@@ -149,7 +148,7 @@ def generate_pruned_data_for_all_folds(base_dataset: BaseDataset, base_model: Ba
 
         # sum is over variant types
         # TODO: this assumes we are only pruning a single-source (source == 0) dataset
-        # TODO: also -- is the -1 wrond?  I feel like it should be the ALL_COUNTS_SENTINEL, which is 0. . .
+        # TODO: also -- is the -1 wrong?  I feel like it should be the ALL_COUNTS_SENTINEL, which is 0. . .
         label_art_frac = np.sum(artifact_dataset.totals_sclt[0][-1][Label.ARTIFACT]) / np.sum(artifact_dataset.totals_sclt[0][-1][Label.ARTIFACT] +
                                                                                            artifact_dataset.totals_sclt[0][-1][Label.VARIANT])
 
@@ -157,15 +156,14 @@ def generate_pruned_data_for_all_folds(base_dataset: BaseDataset, base_model: Ba
         pruning_artifact_dataset = ArtifactDataset(base_dataset, base_model, [pruning_fold])
         labeled_only_pruning_loader = pruning_artifact_dataset.make_data_loader(pruning_artifact_dataset.all_folds(),
             training_params.batch_size, use_gpu, training_params.num_workers, labeled_only=True)
-        model = ArtifactModel(params=params, num_base_features=artifact_dataset.num_base_features, num_ref_alt_features=base_model.ref_alt_seq_embedding_dimension(), device=device).float()
-        model.learn(artifact_dataset, training_params, summary_writer=summary_writer)
+        artifact_model.learn(artifact_dataset, training_params, summary_writer=summary_writer)
 
         # TODO: maybe this should be done by variant type and/or count
-        art_threshold, nonart_threshold = calculate_pruning_thresholds(labeled_only_pruning_loader, model, label_art_frac, training_params)
+        art_threshold, nonart_threshold = calculate_pruning_thresholds(labeled_only_pruning_loader, artifact_model, label_art_frac, training_params)
 
         # unlike when learning thresholds, we load labeled and unlabeled data here
         pruning_base_data_loader = base_dataset.make_data_loader([pruning_fold], training_params.batch_size, use_gpu, training_params.num_epochs)
-        for passing_base_datum in generated_pruned_data_for_fold(art_threshold, nonart_threshold, pruning_base_data_loader, base_model, model):
+        for passing_base_datum in generated_pruned_data_for_fold(art_threshold, nonart_threshold, pruning_base_data_loader, base_model, artifact_model):
             yield passing_base_datum
 
 
@@ -204,7 +202,6 @@ def make_pruned_training_dataset(pruned_data_buffer_generator, pruned_tarfile):
 def parse_arguments():
     parser = argparse.ArgumentParser(description='train the Mutect3 artifact model')
 
-    add_artifact_model_params_to_parser(parser)
     add_training_params_to_parser(parser)
 
     parser.add_argument('--' + constants.CHUNK_SIZE_NAME, type=int, default=int(2e9), required=False,
@@ -222,7 +219,6 @@ def parse_arguments():
 
 
 def main_without_parsing(args):
-    params = parse_artifact_model_params(args)
     training_params = parse_training_params(args)
 
     tensorboard_dir = getattr(args, constants.TENSORBOARD_DIR_NAME)
@@ -237,7 +233,7 @@ def main_without_parsing(args):
     base_dataset = BaseDataset(data_tarfile=original_tarfile, num_folds=NUM_FOLDS)
 
     # generate ReadSets passing pruning
-    pruned_data_generator = generate_pruned_data_for_all_folds(base_dataset, base_model, training_params, params, tensorboard_dir)
+    pruned_data_generator = generate_pruned_data_for_all_folds(base_dataset, base_model, training_params, artifact_model, tensorboard_dir)
 
     # generate List[ReadSet]s passing pruning
     pruned_data_buffer_generator = generate_pruned_data_buffers(pruned_data_generator, chunk_size)

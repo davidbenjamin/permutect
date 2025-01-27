@@ -16,6 +16,7 @@ workflow TrainPermutectBaseModel {
         Int num_self_attention_layers
         Array[Int] info_layers
         Array[Int] aggregation_layers
+        Array[Int] calibration_layers
         Array[String] ref_seq_layer_strings
         String? extra_args
         Int? gpu_count
@@ -44,6 +45,7 @@ workflow TrainPermutectBaseModel {
             num_self_attention_layers = num_self_attention_layers,
             info_layers = info_layers,
             aggregation_layers = aggregation_layers,
+            calibration_layers = calibration_layers,
             ref_seq_layer_strings = ref_seq_layer_strings,
             extra_args = extra_args
     }
@@ -72,6 +74,7 @@ task TrainPermutectBase {
         Int num_self_attention_layers
         Array[Int] info_layers
         Array[Int] aggregation_layers
+        Array[Int] calibration_layers
         Array[String] ref_seq_layer_strings
 
         String? extra_args
@@ -99,6 +102,7 @@ task TrainPermutectBase {
             --num_self_attention_layers ~{num_self_attention_layers} \
             --info_layers ~{sep=' ' info_layers} \
             --aggregation_layers ~{sep=' ' aggregation_layers} \
+            --calibration_layers ~{sep=' ' calibration_layers} \
             --ref_seq_layer_strings ~{sep=' ' ref_seq_layer_strings} \
             --dropout_p ~{dropout_p} \
             --reweighting_range ~{reweighting_range} \
