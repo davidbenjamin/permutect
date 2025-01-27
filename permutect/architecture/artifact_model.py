@@ -22,7 +22,7 @@ from permutect.architecture.gradient_reversal.module import GradientReversal
 from permutect.architecture.mlp import MLP
 from permutect.architecture.monotonic import MonoDense
 from permutect.data.base_dataset import ALL_COUNTS_INDEX, ratio_with_pseudocount
-from permutect.data.base_datum import ArtifactBatch, DEFAULT_GPU_FLOAT, DEFAULT_CPU_FLOAT
+from permutect.data.base_datum import ArtifactBatch, DEFAULT_GPU_FLOAT, DEFAULT_CPU_FLOAT, BaseBatch
 from permutect.data.artifact_dataset import ArtifactDataset
 from permutect import utils, constants
 from permutect.metrics.evaluation_metrics import LossMetrics, EvaluationMetrics, MAX_COUNT, round_up_to_nearest_three, \
@@ -167,17 +167,22 @@ class ArtifactModel(nn.Module):
         else:
             self.freeze_all()
 
-    # returns 1D tensor of length batch_size of log odds ratio (logits) between artifact and non-artifact
-    def forward(self, batch: ArtifactBatch):
-        # batch has already gotten copy_to(self._device, self._dtype)
-        features = self.feature_layers.forward(batch.get_representations_2d())
-        uncalibrated_logits = self.artifact_classifier.forward(features).reshape(batch.size())
+    def forward_from_parts(self, representations_2d: torch.Tensor, ref_counts: torch.IntTensor, alt_counts: torch.IntTensor,
+                           variant_types: torch.IntTensor):
+        features = self.feature_layers.forward(representations_2d)
+        uncalibrated_logits = self.artifact_classifier.forward(features).view(-1)
         calibrated_logits = torch.zeros_like(uncalibrated_logits, device=self._device)
-        variant_types = batch.get_variant_types()
         for n, _ in enumerate(Variation):
             mask = (variant_types == n)
-            calibrated_logits += mask * self.calibration[n].forward(uncalibrated_logits, batch.get_ref_counts(), batch.get_alt_counts())
+            calibrated_logits += mask * self.calibration[n].forward(uncalibrated_logits, ref_counts, alt_counts)
         return calibrated_logits, uncalibrated_logits, features
+
+    def forward_from_base_model(self, representations_2d: torch.Tensor, base_batch: BaseBatch):
+        return self.forward_from_parts(representations_2d, base_batch.get_ref_counts(), base_batch.get_alt_counts(), base_batch.get_variant_types())
+
+    # returns 1D tensor of length batch_size of log odds ratio (logits) between artifact and non-artifact
+    def forward(self, batch: ArtifactBatch):
+        return self.forward_from_parts(batch.get_representations_2d(), batch.get_ref_counts(), batch.get_alt_counts(), batch.get_variant_types())
 
     def learn(self, dataset: ArtifactDataset, training_params: TrainingParameters, summary_writer: SummaryWriter,
               validation_fold: int = None, epochs_per_evaluation: int = None, calibration_sources: List[int] = None):
