@@ -59,31 +59,6 @@ def calculate_batch_source_weights(batch, dataset, by_count: bool):
     return utils.index_3d_array(dataset.source_balancing_weights_sct, sources, counts, variant_types)
 
 
-class LearningMethod(Enum):
-    # train the embedding by minimizing cross-entropy loss of binary predictor on labeled data
-    SUPERVISED = "SUPERVISED"
-
-    # same but use entropy regularization loss on unlabeled data
-    SEMISUPERVISED = "SEMISUPERVISED"
-
-    # TODO: IMPLEMENT THIS
-    # optimize a clustering model with center triplet loss
-    SUPERVISED_CLUSTERING = "SUPERVISED_CLUSTERING"
-
-    # TODO: IMPLEMENT THIS
-    # modify data via a finite set of affine transformations and train the embedding to recognize which was applied
-    AFFINE_TRANSFORMATION = "AFFINE"
-
-    # modify data via a finite set of affine transformations and train the embedding to recognize which was applied
-    MASK_PREDICTION = "MASK_PREDICTION"
-
-    AUTOENCODER = "AUTOENCODER"
-
-    DEEPSAD = "DEEPSAD"
-
-    MARS = "MARS"
-
-
 def make_gated_ref_alt_mlp_encoder(input_dimension: int, params: BaseModelParameters) -> GatedRefAltMLP:
     return GatedRefAltMLP(d_model=input_dimension, d_ffn=params.self_attention_hidden_dimension, num_blocks=params.num_self_attention_layers)
 
@@ -271,200 +246,9 @@ def permute_columns_independently(mat: torch.Tensor):
     return result
 
 
-# randomly choose read features to "mask" -- where a masked feature is permuted randomly over all the reads in the batch.
-# this essentially means drawing masked features from the empirical marginal distribution
-# the pretext self-supervision task is, for each datum, to predict which features were masked
-# note that this basically means destroy correlations for a random selection of features
-class BaseModelMaskPredictionLoss(torch.nn.Module, BaseModelLearningStrategy):
-    def __init__(self, num_read_features: int, base_model_output_dim: int, hidden_top_layers: List[int], params: BaseModelParameters):
-        super(BaseModelMaskPredictionLoss, self).__init__()
-
-        self.num_read_features = num_read_features
-
-        self.bce = torch.nn.BCEWithLogitsLoss(reduction='none')  # no reduction because we may want to first multiply by weights for unbalanced data
-
-        # go from base model output representation to artifact logit for supervised loss
-        self.mask_predictor = MLP([base_model_output_dim] + hidden_top_layers + [num_read_features], batch_normalize=params.batch_normalize, dropout_p=params.dropout_p)
-
-    def loss_function(self, base_model: BaseModel, base_batch: BaseBatch, base_model_representations):
-        # TODO: this is broken now that batches have mixed counts
-        '''ref_count, alt_count = base_batch.ref_count, base_batch.alt_count
-        total_ref, total_alt = ref_count * base_batch.size(), alt_count * base_batch.size()
-
-        alt_reads_2d = base_batch.get_reads_2d()[total_ref:]
-        permuted_reads = permute_columns_independently(base_batch.get_reads_2d())
-        permuted_alt_reads = permuted_reads[:total_alt]
-
-        datum_mask = torch.bernoulli(0.1 * torch.ones(base_batch.size(), self.num_read_features))
-
-        # each read within a datum gets the same mask
-        reads_mask = torch.repeat_interleave(datum_mask, repeats=alt_count, dim=0)
-
-        original_reads_2d = base_batch.reads_2d
-        modified_alt_reads = alt_reads_2d * (1 - reads_mask) + permuted_alt_reads * reads_mask
-        base_batch.reads_2d = torch.vstack((original_reads_2d[:total_ref], modified_alt_reads))
-
-        # TODO: is there any reason to fix the batch with base_batch.reads_2d = original_reads_2d?
-
-        # shape is batch size x num read features, each entry being a logit for "was this feature masked in this datum?"
-        mask_prediction_logits = self.mask_predictor.forward(base_model_representations)
-
-        # by batch index and feature
-        losses_bf = self.bce(mask_prediction_logits, datum_mask)
-        return torch.mean(losses_bf, dim=1)   # average over read features
-        '''
-        pass
-
-    # I don't like implicit forward!!
-    def forward(self):
-        pass
-
-
-# chamfer distance between two 3D tensors B x N1 x E and B x N2 x E, where B is the batch size, N1/2 are the number
-# of items in the two sets, and E is the dimensionality of each item
-# returns a 1D tensor of length B
-def chamfer_distance(set1_bne, set2_bne):
-    diffs_bnne = torch.unsqueeze(set1_bne, dim=2) - torch.unsqueeze(set2_bne, dim=1)
-    l1_dists_bnn = torch.mean(torch.abs(diffs_bnne), dim=-1)
-
-    chamfer_dists12_bn = torch.min(l1_dists_bnn, dim=-2).values
-    chamfer_dists21_bn = torch.min(l1_dists_bnn, dim=-1).values
-    symmetric_chamfer_b = torch.mean(chamfer_dists12_bn, dim=-1) + torch.mean(chamfer_dists21_bn, dim=-1)
-    return symmetric_chamfer_b
-
-
-# self-supervision approach where we use the base model embedding to regenerate the set and use Chamfer distance as the
-# reconstruction error.  We regenerate the set via the Transformer Set Prediction Network approach of Kosiorek et al -- seed a set
-# of N reads by concatenated the embedding with N random vectors, then map it so the final reconstructed set with transformers.
-class BaseModelAutoencoderLoss(torch.nn.Module, BaseModelLearningStrategy):
-    def __init__(self, read_dim: int, hidden_top_layers: List[int], params: BaseModelParameters):
-        super(BaseModelAutoencoderLoss, self).__init__()
-        self.base_model_output_dimension = params.output_dimension()
-
-        # TODO: explore making random seed dimension different from the base model embedding dimension
-        self.random_seed_dimension = self.base_model_output_dimension
-        self.transformer_dimension = self.base_model_output_dimension + self.random_seed_dimension
-
-        # TODO: maybe also a parameter to scale the random vectors?
-
-        # TODO: should these decoder params be the same as the base model encoder params?  It seems reasonable.
-
-        # TODO: this is broken -- use the ref_alt_encoder
-        #self.alt_decoder = make_gated_mlp_encoder(self.transformer_dimension, params)
-        #self.ref_decoder = make_gated_mlp_encoder(self.transformer_dimension, params)
-
-        self.mapping_back_to_reads = MLP([self.transformer_dimension] + hidden_top_layers + [read_dim])
-
-    def loss_function(self, base_model: BaseModel, base_batch: BaseBatch, base_model_representations):
-        # TODO: this is broken now that batches have mixed counts
-        '''var_count, alt_count, ref_count = base_batch.size(), base_batch.alt_count, base_batch.ref_count
-
-        total_ref, total_alt = ref_count * var_count, alt_count * var_count
-
-        representations_ve = base_model_representations
-        random_alt_seeds_vre = torch.randn(var_count, alt_count, self.random_seed_dimension)
-        random_ref_seeds_vre = torch.randn(var_count, ref_count, self.random_seed_dimension) if ref_count > 0 else None
-        alt_representations_vre = torch.unsqueeze(representations_ve, dim=1).expand(-1, alt_count, -1) # repeat over the dummy read index
-        ref_representations_vre = torch.unsqueeze(representations_ve, dim=1).expand(-1, ref_count, -1)
-
-        alt_vre = torch.cat((alt_representations_vre, random_alt_seeds_vre), dim=-1)
-        ref_vre = torch.cat((ref_representations_vre, random_ref_seeds_vre), dim=-1) if ref_count > 0 else None
-
-        # TODO: update these to reflect mixed-count batches.  Gated MLPs now take inputs flattened over batch dimension
-        # TODO: and have an extra input of ref and alt read counts
-        decoded_alt_vre = self.alt_decoder.forward(alt_vre)
-        decoded_ref_vre = self.ref_decoder.forward(ref_vre) if ref_count > 0 else None
-
-        decoded_alt_re = torch.reshape(decoded_alt_vre, (var_count * alt_count, -1))
-        decoded_ref_re = torch.reshape(decoded_ref_vre, (var_count * ref_count, -1)) if ref_count > 0 else None
-
-        # the raw read tensors are quantile normalized with Gaussian output
-        reconstructed_alt_vre = torch.reshape(self.mapping_back_to_reads(decoded_alt_re),(var_count, alt_count, -1))
-        reconstructed_ref_vre = torch.reshape(self.mapping_back_to_reads(decoded_ref_re), (var_count, ref_count, -1)) if ref_count > 0 else None
-
-        original_alt_vre = base_batch.get_reads_2d()[total_ref:].reshape(var_count, alt_count, -1)
-        original_ref_vre = base_batch.get_reads_2d()[:total_ref].reshape(var_count, ref_count, -1) if ref_count > 0 else None
-
-        alt_chamfer_dist = chamfer_distance(original_alt_vre, reconstructed_alt_vre)
-        ref_chamfer_dist = chamfer_distance(original_ref_vre, reconstructed_ref_vre) if ref_count > 0 else 0
-        return alt_chamfer_dist + ref_chamfer_dist
-        '''
-        pass
-
-    # I don't like implicit forward!!
-    def forward(self):
-        pass
-
-
-class BaseModelDeepSADLoss(torch.nn.Module, BaseModelLearningStrategy):
-    def __init__(self, embedding_dim: int):
-        super(BaseModelDeepSADLoss, self).__init__()
-        self.embedding_dim = embedding_dim
-        self.normal_centroid = Parameter(torch.zeros(embedding_dim))
-
-    # normal embeddings should cluster near the origin and artifact embeddings should be far
-    def loss_function(self, base_model: BaseModel, base_batch: BaseBatch, base_model_representations):
-        dist_squared = torch.square(torch.norm(base_model_representations - self.normal_centroid, dim=1))
-
-        # labels are 1 for artifact, 0 otherwise.  We convert to +1 if normal, -1 if artifact
-        # DeepSAD assumes most unlabeled data are normal and so the unlabeled loss is identical to the normal loss, that is,
-        # squared Euclidean distance from the centroid
-        signs = (1 - 2 * base_batch.get_training_labels()) * base_batch.get_is_labeled_mask() + 1 * (1 - base_batch.get_is_labeled_mask())
-
-        # distance squared for normal and unlabeled, inverse distance squared for artifact
-        return dist_squared ** signs
-
-    # I don't like implicit forward!!
-    def forward(self):
-        pass
-
-
-class BaseModelMARSLoss(torch.nn.Module, BaseModelLearningStrategy):
-    def __init__(self, embedding_dim: int):
-        super(BaseModelMARSLoss, self).__init__()
-        self.embedding_dim = embedding_dim
-        # TODO: magic constants!!!!!
-        self.num_normal_clusters = 3
-        self.num_artifact_clusters = 5
-
-        # weight of centroid-centroid loss vs embedding-centroid loss
-        self.tau = 0.2
-
-        # ce denotes indexing by cluster, then embedding dimension
-        self.centroids_ce = Parameter(torch.zeros((self.num_normal_clusters + self.num_artifact_clusters, embedding_dim)))
-
-    # normal embeddings should cluster near the origin and artifact embeddings should be far
-    def loss_function(self, base_model: BaseModel, base_batch: BaseBatch, base_model_representations):
-        embeddings_be = base_model_representations
-        seps_bce = torch.unsqueeze(embeddings_be, dim=1) - torch.unsqueeze(self.centroids_ce, dim=0)
-        dist_squared_bc = torch.square(torch.norm(seps_bce, dim=-1))
-
-        normal_dist_squared_b = torch.min(dist_squared_bc[:, :self.num_normal_clusters], dim=-1).values
-        artifact_dist_squared_b = torch.min(dist_squared_bc[:, self.num_normal_clusters:], dim=-1).values
-        min_dist_squared_b = torch.min(dist_squared_bc, dim=-1).values
-
-        # closest centroid with correct label is labeled, otherwise just the closest centroid
-        labeled_losses_b = (base_batch.get_training_labels() * artifact_dist_squared_b + (1 - base_batch.get_training_labels()) * normal_dist_squared_b)
-        unlabeled_losses_b = min_dist_squared_b
-        embedding_centroid_losses_b =  base_batch.get_is_labeled_mask() * labeled_losses_b + (1 - base_batch.get_is_labeled_mask()) * unlabeled_losses_b
-
-        # average distance between centroids
-        centroid_seps_cce = torch.unsqueeze(self.centroids_ce, dim=0) - torch.unsqueeze(self.centroids_ce, dim=1)
-        centroid_dist_squared_cc = torch.square(torch.norm(centroid_seps_cce, dim=-1))
-        centroid_centroid_loss = torch.mean(centroid_dist_squared_cc)
-
-        # TODO: need to control arbitrarily negative loss achieved by making an unused centroid go far away from the others
-        # note that broadcasting the subtraction means the centroid-centroid loss is repeated once for each datum in the batch
-        return embedding_centroid_losses_b - self.tau * centroid_centroid_loss
-
-    # I don't like implicit forward!!
-    def forward(self):
-        pass
-
-
 # artifact model parameters are for simultaneously training an artifact model on top of the base model
 # to measure quality, especially in unsupervised training when the loss metric isn't directly related to accuracy or cross-entropy
-def learn_base_model(base_model: BaseModel, dataset: BaseDataset, learning_method: LearningMethod, training_params: TrainingParameters,
+def learn_base_model(base_model: BaseModel, dataset: BaseDataset, training_params: TrainingParameters,
                      summary_writer: SummaryWriter, validation_fold: int = None):
     print(f"Memory usage percent: {psutil.virtual_memory().percent:.1f}")
     is_cuda = base_model._device.type == 'cuda'
@@ -477,21 +261,9 @@ def learn_base_model(base_model: BaseModel, dataset: BaseDataset, learning_metho
             for label in Label:
                 print(f"{label.name}: {int(dataset.totals_sclt[source][ALL_COUNTS_INDEX][label][var_type].item())}")
 
-    # TODO: use Python's match syntax, but this requires updating Python version in the docker
     # TODO: hidden_top_layers are hard-coded!
-    if learning_method == LearningMethod.SUPERVISED or learning_method == LearningMethod.SEMISUPERVISED:
-        learning_strategy = BaseModelSemiSupervisedLoss(input_dim=base_model.output_dimension(), hidden_top_layers=[30,-1,-1,-1,10], params=base_model._params)
-    elif learning_method == LearningMethod.MASK_PREDICTION:
-        learning_strategy = BaseModelMaskPredictionLoss(num_read_features=dataset.num_read_features,
-                                                        base_model_output_dim=base_model.output_dimension(), hidden_top_layers=[10,10,10], params=base_model._params)
-    elif learning_method == LearningMethod.AUTOENCODER:
-        learning_strategy = BaseModelAutoencoderLoss(read_dim=dataset.num_read_features, hidden_top_layers=[20,20,20], params=base_model._params)
-    elif learning_method == LearningMethod.DEEPSAD:
-        learning_strategy = BaseModelDeepSADLoss(embedding_dim=base_model.output_dimension())
-    elif learning_method == LearningMethod.MARS:
-        learning_strategy = BaseModelMARSLoss(embedding_dim=base_model.output_dimension())
-    else:
-        raise Exception("not implemented yet")
+    learning_strategy = BaseModelSemiSupervisedLoss(input_dim=base_model.output_dimension(), hidden_top_layers=[30,-1,-1,-1,10], params=base_model._params)
+
     learning_strategy.to(device=base_model._device, dtype=base_model._dtype)
 
     # adversarial loss to learn features that forget the alt count

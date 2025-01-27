@@ -21,8 +21,6 @@ READ_LAYERS_NAME = 'read_layers'
 SELF_ATTENTION_HIDDEN_DIMENSION_NAME = 'self_attention_hidden_dimension'
 NUM_SELF_ATTENTION_LAYERS_NAME = 'num_self_attention_layers'
 
-LEARNING_METHOD_NAME = 'learning_method'
-
 INFO_LAYERS_NAME = 'info_layers'
 AGGREGATION_LAYERS_NAME = 'aggregation_layers'
 CALIBRATION_LAYERS_NAME = 'calibration_layers'

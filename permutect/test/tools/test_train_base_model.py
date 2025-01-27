@@ -28,8 +28,6 @@ def test_train_base_model():
     setattr(train_model_args, constants.DROPOUT_P_NAME, 0.0)
     setattr(train_model_args, constants.BATCH_NORMALIZE_NAME, False)
 
-    setattr(train_model_args, constants.LEARNING_METHOD_NAME, 'SEMISUPERVISED')
-
     # Training data inputs
     setattr(train_model_args, constants.TRAIN_TAR_NAME, training_data_tarfile)
     setattr(train_model_args, constants.PRETRAINED_MODEL_NAME, None)
