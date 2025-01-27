@@ -111,10 +111,9 @@ task RandomSitesAndAddVariants {
             --outbam snv_indel.bam \
             --snvfrac 0.2 \
             --mutfrac ~{somatic_allele_fraction} \
-            --haplosize 50 \
             --picardjar /picard.jar \
             --minmutreads 2 \
-            --ignoresnps --tagreads --ignorepileup \
+            --tagreads --ignorepileup \
             --aligner mem \
             --seed 1 \
             --vcf indels.vcf
@@ -123,7 +122,12 @@ task RandomSitesAndAddVariants {
 
         samtools index snv_indel_sorted.bam
 
-        java -jar /picard.jar MergeVcfs I=snvs.vcf I=indels.vcf O=variants.vcf
+        # apparently the --vcf bam surgeon argument is just a prefix
+        ls *.vcf
+        
+        snv_vcf=`ls snvs.vcf*`
+        indel_vcf=`ls indels.vcf*`
+        java -jar /picard.jar MergeVcfs I=${snv_vcf} I=${indel_vcf} O=variants.vcf
   >>>
 
   runtime {
