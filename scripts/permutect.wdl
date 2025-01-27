@@ -165,7 +165,7 @@ workflow Permutect {
         genomic_span=`grep "callable" ~{mutect_stats} | while read name value; do echo $value; done`
 
         filter_variants --input ~{mutect2_vcf} --test_dataset ~{test_dataset} \
-            --permutect_model ~{permutect_model} \
+            --saved_model ~{permutect_model} \
             --contigs_table ~{contigs_table} \
             --output permutect-filtered.vcf \
             --tensorboard_dir tensorboard \

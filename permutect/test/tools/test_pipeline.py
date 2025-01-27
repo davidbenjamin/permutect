@@ -15,6 +15,8 @@ def test_on_dream1():
 
     # Intermediate and Output Files
     training_data_tarfile = tempfile.NamedTemporaryFile()
+
+    # TODO: not just artifact model
     saved_artifact_model = tempfile.NamedTemporaryFile()
     training_tensorboard_dir = tempfile.TemporaryDirectory()
     filtering_tensorboard_dir = tempfile.TemporaryDirectory()
@@ -72,7 +74,7 @@ def test_on_dream1():
     filtering_args = Namespace()
     setattr(filtering_args, constants.INPUT_NAME, mutect2_vcf)
     setattr(filtering_args, constants.TEST_DATASET_NAME, filtering_dataset)
-    setattr(filtering_args, constants.M3_MODEL_NAME, saved_artifact_model.name)
+    setattr(filtering_args, constants.SAVED_MODEL_NAME, saved_artifact_model.name)
     setattr(filtering_args, constants.OUTPUT_NAME, filtered_mutect3_vcf.name)
     setattr(filtering_args, constants.TENSORBOARD_DIR_NAME, filtering_tensorboard_dir.name)
     setattr(filtering_args, constants.BATCH_SIZE_NAME, 64)

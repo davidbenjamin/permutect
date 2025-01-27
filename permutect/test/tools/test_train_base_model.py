@@ -4,8 +4,8 @@ from argparse import Namespace
 from tensorboard.backend.event_processing.event_accumulator import EventAccumulator
 
 from permutect import constants
+from permutect.architecture.model_io import load_models
 from permutect.tools import train_base_model
-from permutect.architecture.base_model import load_base_model
 
 
 def test_train_base_model():
@@ -30,7 +30,7 @@ def test_train_base_model():
 
     # Training data inputs
     setattr(train_model_args, constants.TRAIN_TAR_NAME, training_data_tarfile)
-    setattr(train_model_args, constants.PRETRAINED_MODEL_NAME, None)
+    setattr(train_model_args, constants.SAVED_MODEL_NAME, None)
 
     # training hyperparameters
     setattr(train_model_args, constants.REWEIGHTING_RANGE_NAME, 0.3)
@@ -51,4 +51,4 @@ def test_train_base_model():
     events = EventAccumulator(training_tensorboard_dir.name)
     events.Reload()
 
-    loaded_base_model = load_base_model(saved_base_model)
+    loaded_base_model, loaded_artifact_model, _, _ = load_models(saved_base_model)

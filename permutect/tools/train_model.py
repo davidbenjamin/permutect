@@ -9,7 +9,7 @@ from permutect import constants, utils
 from permutect.architecture.artifact_model import ArtifactModel
 from permutect.architecture.artifact_spectra import ArtifactSpectra
 from permutect.architecture.posterior_model import plot_artifact_spectra
-from permutect.architecture.base_model import load_base_model
+from permutect.architecture.model_io import save
 from permutect.data.base_dataset import BaseDataset
 from permutect.data.artifact_dataset import ArtifactDataset
 from permutect.data.base_datum import ArtifactDatum
@@ -81,7 +81,7 @@ def parse_arguments():
     # inputs and outputs
     parser.add_argument('--' + constants.TRAIN_TAR_NAME, type=str, required=True,
                         help='tarfile of training/validation datasets produced by preprocess_dataset.py')
-    parser.add_argument('--' + constants.BASE_MODEL_NAME, type=str, help='Base model from train_base_model.py')
+    parser.add_argument('--' + constants.SAVED_MODEL_NAME, type=str, help='Base model from train_base_model.py')
     parser.add_argument('--' + constants.OUTPUT_NAME, type=str, required=True, help='path to output saved model file')
     parser.add_argument('--' + constants.TENSORBOARD_DIR_NAME, type=str, default='tensorboard', required=False,
                         help='path to output tensorboard directory')
@@ -99,7 +99,7 @@ def main_without_parsing(args):
     tensorboard_dir = getattr(args, constants.TENSORBOARD_DIR_NAME)
     summary_writer = SummaryWriter(tensorboard_dir)
 
-    base_model = load_base_model(getattr(args, constants.BASE_MODEL_NAME))
+    base_model = load_base_model(getattr(args, constants.SAVED_MODEL_NAME))
     print(f"Memory usage percent before creating BaseDataset: {psutil.virtual_memory().percent:.1f}")
     base_dataset = BaseDataset(data_tarfile=getattr(args, constants.TRAIN_TAR_NAME), num_folds=10)
     print(f"Memory usage percent before creating ArtifactDataset: {psutil.virtual_memory().percent:.1f}")
@@ -119,7 +119,8 @@ def main_without_parsing(args):
         summary_writer.add_figure("Artifact AF Spectra", art_spectra_fig)
 
     summary_writer.close()
-    model.save_with_base_model(base_model, getattr(args, constants.OUTPUT_NAME), artifact_log_priors, artifact_spectra)
+    save(path=getattr(args, constants.OUTPUT_NAME), base_model=base_model, artifact_model=model,
+         artifact_log_priors=artifact_log_priors, artifact_spectra=artifact_spectra)
 
 
 def main():

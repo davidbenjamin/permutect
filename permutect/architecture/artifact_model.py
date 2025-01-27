@@ -8,7 +8,6 @@ from typing import List
 import psutil
 import torch
 from torch import nn, Tensor
-import numpy as np
 from torch.utils.tensorboard import SummaryWriter
 from queue import PriorityQueue
 
@@ -17,7 +16,7 @@ from tqdm.autonotebook import trange, tqdm
 from itertools import chain
 from matplotlib import pyplot as plt
 
-from permutect.architecture.base_model import calculate_batch_weights, BaseModel, base_model_from_saved_dict, calculate_batch_source_weights
+from permutect.architecture.base_model import calculate_batch_weights, calculate_batch_source_weights
 from permutect.architecture.gradient_reversal.module import GradientReversal
 from permutect.architecture.mlp import MLP
 from permutect.architecture.monotonic import MonoDense
@@ -26,7 +25,7 @@ from permutect.data.base_datum import ArtifactBatch, DEFAULT_GPU_FLOAT, DEFAULT_
 from permutect.data.artifact_dataset import ArtifactDataset
 from permutect import utils, constants
 from permutect.metrics.evaluation_metrics import LossMetrics, EvaluationMetrics, MAX_COUNT, round_up_to_nearest_three, \
-    EmbeddingMetrics, multiple_of_three_bin_index_to_count, multiple_of_three_bin_index
+    EmbeddingMetrics
 from permutect.parameters import TrainingParameters, ArtifactModelParameters
 from permutect.utils import Variation, Epoch, Label
 from permutect.metrics import plotting
@@ -500,36 +499,4 @@ class ArtifactModel(nn.Module):
                 (prefix + constants.ARTIFACT_LOG_PRIORS_NAME): artifact_log_priors,
                 (prefix + constants.ARTIFACT_SPECTRA_STATE_DICT_NAME): artifact_spectra.state_dict()}
 
-    def save(self, path, artifact_log_priors, artifact_spectra, prefix: str = "artifact"):
-        torch.save(self.make_dict_for_saving(artifact_log_priors, artifact_spectra, prefix), path)
-
-    def save_with_base_model(self, base_model: BaseModel, path, artifact_log_priors, artifact_spectra):
-        artifact_dict = self.make_dict_for_saving(artifact_log_priors, artifact_spectra, prefix="artifact")
-        base_dict = base_model.make_dict_for_saving(prefix="base")
-        torch.save({**artifact_dict, **base_dict}, path)
-
-
-def artifact_model_from_saved_dict(saved, prefix: str = "artifact"):
-    model_params = saved[prefix + constants.HYPERPARAMS_NAME]
-    num_base_features = saved[prefix + constants.NUM_BASE_FEATURES_NAME]
-    num_ref_alt_features = saved[prefix + constants.NUM_REF_ALT_FEATURES_NAME]
-    model = ArtifactModel(model_params, num_base_features, num_ref_alt_features)
-    model.load_state_dict(saved[prefix + constants.STATE_DICT_NAME])
-
-    artifact_log_priors = saved[prefix + constants.ARTIFACT_LOG_PRIORS_NAME]  # possibly None
-    artifact_spectra_state_dict = saved[prefix + constants.ARTIFACT_SPECTRA_STATE_DICT_NAME]  # possibly None
-    return model, artifact_log_priors, artifact_spectra_state_dict
-
-
-# log artifact priors and artifact spectra may be None
-def load_artifact_model(path,  device, prefix: str = "artifact") -> ArtifactModel:
-    saved = torch.load(path, map_location=device)
-    return artifact_model_from_saved_dict(saved, prefix)
-
-
-def load_base_model_and_artifact_model(path, device) -> ArtifactModel:
-    saved = torch.load(path, map_location=device)
-    base_model = base_model_from_saved_dict(saved, prefix="base")
-    artifact_model, artifact_log_priors, artifact_spectra = artifact_model_from_saved_dict(saved, prefix="artifact")
-    return base_model, artifact_model, artifact_log_priors, artifact_spectra
 

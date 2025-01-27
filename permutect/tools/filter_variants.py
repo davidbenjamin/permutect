@@ -11,7 +11,8 @@ from torch.utils.tensorboard import SummaryWriter
 from tqdm.autonotebook import tqdm
 
 from permutect import constants, utils
-from permutect.architecture.artifact_model import ArtifactModel, load_base_model_and_artifact_model
+from permutect.architecture.artifact_model import ArtifactModel
+from permutect.architecture.model_io import load_models
 from permutect.architecture.posterior_model import PosteriorModel
 from permutect.architecture.base_model import BaseModel
 from permutect.data import base_dataset, plain_text_data, base_datum
@@ -74,7 +75,7 @@ def parse_arguments():
     parser.add_argument('--' + constants.INPUT_NAME, required=True, help='unfiltered input Mutect2 VCF')
     parser.add_argument('--' + constants.TEST_DATASET_NAME, required=True,
                         help='plain text dataset file corresponding to variants in input VCF')
-    parser.add_argument('--' + constants.M3_MODEL_NAME, required=True, help='trained Permutect model from train_model.py')
+    parser.add_argument('--' + constants.SAVED_MODEL_NAME, required=True, help='trained Permutect model from train_model.py')
     parser.add_argument('--' + constants.CONTIGS_TABLE_NAME, required=True, help='table of contig names vs integer indices')
     parser.add_argument('--' + constants.OUTPUT_NAME, required=True, help='path to output filtered VCF')
     parser.add_argument('--' + constants.TENSORBOARD_DIR_NAME, type=str, default='tensorboard', required=False, help='path to output tensorboard')
@@ -133,7 +134,7 @@ def get_segmentation(segments_file) -> defaultdict:
 
 
 def main_without_parsing(args):
-    make_filtered_vcf(saved_artifact_model_path=getattr(args, constants.M3_MODEL_NAME),
+    make_filtered_vcf(saved_model_path=getattr(args, constants.SAVED_MODEL_NAME),
                       initial_log_variant_prior=getattr(args, constants.INITIAL_LOG_VARIANT_PRIOR_NAME),
                       initial_log_artifact_prior=getattr(args, constants.INITIAL_LOG_ARTIFACT_PRIOR_NAME),
                       test_dataset_file=getattr(args, constants.TEST_DATASET_NAME),
@@ -154,7 +155,7 @@ def main_without_parsing(args):
                       normal_segmentation=get_segmentation(getattr(args, constants.NORMAL_MAF_SEGMENTS_NAME)))
 
 
-def make_filtered_vcf(saved_artifact_model_path, initial_log_variant_prior: float, initial_log_artifact_prior: float,
+def make_filtered_vcf(saved_model_path, initial_log_variant_prior: float, initial_log_artifact_prior: float,
                       test_dataset_file, contigs_table, input_vcf, output_vcf, batch_size: int, num_workers: int, chunk_size: int, num_spectrum_iterations: int,
                       spectrum_learning_rate: float, tensorboard_dir, genomic_span: int, germline_mode: bool = False, no_germline_mode: bool = False, het_beta: float = None,
                       segmentation=defaultdict(IntervalTree), normal_segmentation=defaultdict(IntervalTree)):
@@ -166,8 +167,7 @@ def make_filtered_vcf(saved_artifact_model_path, initial_log_variant_prior: floa
             contig_index_to_name_map[int(index)] = contig
 
     device = utils.gpu_if_available()
-    base_model, artifact_model, artifact_log_priors, artifact_spectra_state_dict = \
-        load_base_model_and_artifact_model(saved_artifact_model_path, device=device)
+    base_model, artifact_model, artifact_log_priors, artifact_spectra_state_dict = load_models(saved_model_path, device=device)
 
     posterior_model = PosteriorModel(initial_log_variant_prior, initial_log_artifact_prior, no_germline_mode=no_germline_mode, num_base_features=artifact_model.num_base_features, het_beta=het_beta)
     posterior_data_loader = make_posterior_data_loader(test_dataset_file, input_vcf, contig_index_to_name_map,

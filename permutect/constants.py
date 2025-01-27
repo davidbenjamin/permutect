@@ -60,6 +60,4 @@ GERMLINE_MODE_NAME = 'germline_mode'
 NO_GERMLINE_MODE_NAME = 'no_germline_mode'
 HET_BETA_NAME = 'het_beta'
 
-BASE_MODEL_NAME = 'base_model'
-M3_MODEL_NAME = 'permutect_model'
-PRETRAINED_MODEL_NAME = 'pretrained_model'
+SAVED_MODEL_NAME = 'saved_model'

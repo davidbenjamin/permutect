@@ -6,7 +6,8 @@ from typing import List
 
 import psutil
 
-from permutect.architecture.base_model import load_base_model, BaseModel
+from permutect.architecture.base_model import BaseModel
+from permutect.architecture.model_io import load_models
 from permutect.data import base_datum
 from tqdm.autonotebook import tqdm
 
@@ -212,7 +213,7 @@ def parse_arguments():
     # input / output
     parser.add_argument('--' + constants.TRAIN_TAR_NAME, type=str, required=True,
                         help='tarfile of training/validation datasets produced by preprocess_dataset.py')
-    parser.add_argument('--' + constants.BASE_MODEL_NAME, type=str, help='Base model from train_base_model.py')
+    parser.add_argument('--' + constants.SAVED_MODEL_NAME, type=str, help='Base model from train_base_model.py')
     parser.add_argument('--' + constants.OUTPUT_NAME, type=str, required=True, help='path to pruned dataset file')
     parser.add_argument('--' + constants.TENSORBOARD_DIR_NAME, type=str, default='tensorboard', required=False,
                         help='path to output tensorboard directory')
@@ -229,7 +230,10 @@ def main_without_parsing(args):
     chunk_size = getattr(args, constants.CHUNK_SIZE_NAME)
     original_tarfile = getattr(args, constants.TRAIN_TAR_NAME)
 
-    base_model = load_base_model(getattr(args, constants.BASE_MODEL_NAME))
+    # TODO: currently this saved artifact model is not used at all and we learn it from scratch, keeping only
+    # the pre-trained base model
+    base_model, artifact_model, _, _ = load_models(getattr(args, constants.SAVED_MODEL_NAME))
+
     base_dataset = BaseDataset(data_tarfile=original_tarfile, num_folds=NUM_FOLDS)
 
     # generate ReadSets passing pruning

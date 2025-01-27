@@ -3,7 +3,8 @@ import argparse
 from torch.utils.tensorboard import SummaryWriter
 
 from permutect import constants, utils
-from permutect.architecture.base_model import BaseModel, load_base_model, learn_base_model
+from permutect.architecture.base_model import BaseModel, learn_base_model
+from permutect.architecture.model_io import load_models, save
 from permutect.parameters import BaseModelParameters, TrainingParameters, parse_training_params, \
     parse_base_model_params, add_base_model_params_to_parser, add_training_params_to_parser
 from permutect.data.base_dataset import BaseDataset
@@ -23,17 +24,24 @@ def main_without_parsing(args):
     training_params = parse_training_params(args)
 
     tarfile_data = getattr(args, constants.TRAIN_TAR_NAME)
-    pretrained_model_path = getattr(args, constants.PRETRAINED_MODEL_NAME)
-    pretrained_model = None if pretrained_model_path is None else load_base_model(pretrained_model_path)
+    saved_model_path = getattr(args, constants.SAVED_MODEL_NAME)    # optional pretrained model to use as initialization
+
+    saved_base_model, saved_artifact_model, _, _ = (None, None, None, None) if saved_model_path is None else \
+        load_models(saved_model_path)
+
     tensorboard_dir = getattr(args, constants.TENSORBOARD_DIR_NAME)
     summary_writer = SummaryWriter(tensorboard_dir)
     dataset = BaseDataset(data_tarfile=tarfile_data, num_folds=10)
 
+    # TODO: pretrained model should be both base AND artifact!!
     model = train_base_model(params=params, dataset=dataset, training_params=training_params,
-                             summary_writer=summary_writer, pretrained_model=pretrained_model)
+                             summary_writer=summary_writer, pretrained_model=saved_base_model)
 
     summary_writer.close()
-    model.save(getattr(args, constants.OUTPUT_NAME))
+
+    # TODO: use model_io save base AND artifact method
+    save(path=getattr(args, constants.OUTPUT_NAME), base_model=model, artifact_model=artifact_model)
+
 
 def parse_arguments():
     parser = argparse.ArgumentParser(description='train the Permutect read set representation model')

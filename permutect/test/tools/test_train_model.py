@@ -3,8 +3,8 @@ from argparse import Namespace
 
 from tensorboard.backend.event_processing.event_accumulator import EventAccumulator
 from permutect import constants, utils
+from permutect.architecture.model_io import load_models
 from permutect.tools import train_model
-from permutect.architecture.artifact_model import load_artifact_model
 
 
 def test_train_model():
@@ -13,7 +13,7 @@ def test_train_model():
     base_model = '/Users/davidben/mutect3/permutect/integration-tests/singular-10-Mb/base-model.pt'
 
     # Outputs
-    saved_artifact_model = tempfile.NamedTemporaryFile()
+    saved_model = tempfile.NamedTemporaryFile()
     training_tensorboard_dir = tempfile.TemporaryDirectory()
 
     # STEP 2: train a model
@@ -28,7 +28,7 @@ def test_train_model():
 
     # Training data inputs
     setattr(train_model_args, constants.TRAIN_TAR_NAME, training_data_tarfile)
-    setattr(train_model_args, constants.BASE_MODEL_NAME, base_model)
+    setattr(train_model_args, constants.SAVED_MODEL_NAME, base_model)
 
     # training hyperparameters
     setattr(train_model_args, constants.BATCH_SIZE_NAME, 64)
@@ -40,7 +40,7 @@ def test_train_model():
     setattr(train_model_args, constants.WEIGHT_DECAY_NAME, 0.01)
 
     # path to saved model
-    setattr(train_model_args, constants.OUTPUT_NAME, saved_artifact_model.name)
+    setattr(train_model_args, constants.OUTPUT_NAME, saved_model.name)
     setattr(train_model_args, constants.TENSORBOARD_DIR_NAME, training_tensorboard_dir.name)
 
     train_model.main_without_parsing(train_model_args)
@@ -49,7 +49,8 @@ def test_train_model():
     events.Reload()
 
     device = utils.gpu_if_available()
-    loaded_artifact_model, artifact_log_priors, artifact_spectra_state_dict = load_artifact_model(saved_artifact_model, device=device)
+    loaded_base_model, loaded_artifact_model, artifact_log_priors, artifact_spectra_state_dict = load_models(saved_model, device=device)
+
     assert artifact_log_priors is not None
     assert artifact_spectra_state_dict is not None
 

@@ -27,7 +27,7 @@ def test_prune_dataset():
 
     # Training data inputs
     setattr(prune_dataset_args, constants.TRAIN_TAR_NAME, training_data_tarfile)
-    setattr(prune_dataset_args, constants.BASE_MODEL_NAME, base_model)
+    setattr(prune_dataset_args, constants.SAVED_MODEL_NAME, base_model)
 
     setattr(prune_dataset_args, constants.CHUNK_SIZE_NAME, 2e9)
 
