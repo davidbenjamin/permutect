@@ -7,7 +7,6 @@ NUM_INFO_FEATURES_NAME = 'num_info_features'
 REF_SEQUENCE_LENGTH_NAME = 'ref_sequence_length'
 HIDDEN_LAYERS_NAME = 'hidden_layers'
 NUM_BASE_FEATURES_NAME = 'num_base_features'
-NUM_REF_ALT_FEATURES_NAME = 'num_ref_alt_features'
 
 SOURCES_NAME = 'sources'
 SOURCE_NAME = 'source'

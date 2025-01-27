@@ -29,7 +29,6 @@ class ArtifactDataset(Dataset):
         self.labeled_indices = [[] for _ in range(self.num_folds)]  # one list for each fold
         self.unlabeled_indices = [[] for _ in range(self.num_folds)]    # ditto
         self.num_base_features = base_model.output_dimension()
-        self.num_ref_alt_features = base_model.ref_alt_seq_embedding_dimension()
 
         index = 0
 

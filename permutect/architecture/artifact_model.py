@@ -125,13 +125,12 @@ class ArtifactModel(nn.Module):
     because we have different output layers for each variant type.
     """
 
-    def __init__(self, params: ModelParameters, num_base_features: int, num_ref_alt_features: int, device=utils.gpu_if_available()):
+    def __init__(self, params: ModelParameters, num_base_features: int, device=utils.gpu_if_available()):
         super(ArtifactModel, self).__init__()
 
         self._device = device
         self._dtype = DEFAULT_GPU_FLOAT if device != torch.device("cpu") else DEFAULT_CPU_FLOAT
         self.num_base_features = num_base_features
-        self.num_ref_alt_features = num_ref_alt_features
         self.params = params
 
         # feature layers before the domain adaptation source classifier splits from the artifact classifier
@@ -494,7 +493,6 @@ class ArtifactModel(nn.Module):
     def make_dict_for_saving(self, artifact_log_priors, artifact_spectra, prefix: str = "artifact"):
         return {(prefix + constants.STATE_DICT_NAME): self.state_dict(),
                 (prefix + constants.NUM_BASE_FEATURES_NAME): self.num_base_features,
-                (prefix + constants.NUM_REF_ALT_FEATURES_NAME): self.num_ref_alt_features,
                 (prefix + constants.HYPERPARAMS_NAME): self.params,
                 (prefix + constants.ARTIFACT_LOG_PRIORS_NAME): artifact_log_priors,
                 (prefix + constants.ARTIFACT_SPECTRA_STATE_DICT_NAME): artifact_spectra.state_dict()}

@@ -3,6 +3,7 @@ import argparse
 from torch.utils.tensorboard import SummaryWriter
 
 from permutect import constants, utils
+from permutect.architecture.artifact_model import ArtifactModel
 from permutect.architecture.base_model import BaseModel, learn_base_model
 from permutect.architecture.model_io import load_models, save
 from permutect.parameters import ModelParameters, TrainingParameters, parse_training_params, \
@@ -33,18 +34,17 @@ def main_without_parsing(args):
     summary_writer = SummaryWriter(tensorboard_dir)
     dataset = BaseDataset(data_tarfile=tarfile_data, num_folds=10)
 
-    # TODO: here is a rough guide to initializing the artifact model:
-    #model = ArtifactModel(params=hyperparams, num_base_features=dataset.num_base_features, num_ref_alt_features=dataset.num_ref_alt_features, device=utils.gpu_if_available())
-    # TODO: end of guide
+    base_model = saved_base_model if (saved_base_model is not None) else \
+            BaseModel(params=params, num_read_features=dataset.num_read_features, num_info_features=dataset.num_info_features,
+                      ref_sequence_length=dataset.ref_sequence_length, device=utils.gpu_if_available())
+    artifact_model = saved_artifact_model if (saved_artifact_model is not None) else \
+        ArtifactModel(params=params, num_base_features=base_model.output_dimension(), device=utils.gpu_if_available())
 
-    # TODO: pretrained model should be both base AND artifact!!
-    model = train_base_model(params=params, dataset=dataset, training_params=training_params,
-                             summary_writer=summary_writer, pretrained_model=saved_base_model)
 
+    # TODO: this method needs to learn artifact model, too
+    learn_base_model(base_model, dataset, training_params, summary_writer=summary_writer)
     summary_writer.close()
-
-    # TODO: use model_io save base AND artifact method
-    save(path=getattr(args, constants.OUTPUT_NAME), base_model=model, artifact_model=artifact_model)
+    save(path=getattr(args, constants.OUTPUT_NAME), base_model=base_model, artifact_model=artifact_model)
 
 
 def parse_arguments():

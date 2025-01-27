@@ -33,7 +33,7 @@ def train_model_and_write_summary(hyperparams: ModelParameters, training_params:
                                   data: Iterable[BaseDatum], summary_writer: SummaryWriter = None):
     dataset = BaseDataset(data=data)
     big_dataset = BigReadSetDataset(batch_size=training_params.batch_size, dataset=dataset, num_workers=2)
-    model = ArtifactModel(params=hyperparams, num_read_features=dataset.num_read_features(), num_info_features=dataset.num_info_features(), ref_sequence_length=dataset.ref_sequence_length()).float()
+    model = ArtifactModel(params=hyperparams).float()
 
     model.learn(big_dataset, training_params.num_epochs, training_params.num_calibration_epochs, summary_writer=summary_writer,
                 reweighting_range=training_params.reweighting_range, hyperparams=hyperparams)
@@ -49,7 +49,7 @@ def test_big_data():
 
     with tempfile.TemporaryDirectory() as tensorboard_dir:
         summary_writer = SummaryWriter(tensorboard_dir)
-        model = ArtifactModel(params=params, num_read_features=big_dataset.num_read_features, num_info_features=big_dataset.num_info_features, ref_sequence_length=big_dataset.ref_sequence_length).float()
+        model = ArtifactModel(params=params).float()
         model.learn(big_dataset, training_params.num_epochs, training_params.num_calibration_epochs, summary_writer=summary_writer,
                     reweighting_range=training_params.reweighting_range, hyperparams=params)
         model.evaluate_model_after_training({"training": big_dataset.generate_batches(utils.Epoch.TRAIN)}, summary_writer)

@@ -40,8 +40,7 @@ def _base_model_from_saved_dict(saved, prefix: str = "", device: torch.device = 
 def _artifact_model_from_saved_dict(saved, prefix: str = "artifact"):
     model_params = saved[prefix + constants.HYPERPARAMS_NAME]
     num_base_features = saved[prefix + constants.NUM_BASE_FEATURES_NAME]
-    num_ref_alt_features = saved[prefix + constants.NUM_REF_ALT_FEATURES_NAME]
-    model = ArtifactModel(model_params, num_base_features, num_ref_alt_features)
+    model = ArtifactModel(model_params, num_base_features)
     model.load_state_dict(saved[prefix + constants.STATE_DICT_NAME])
 
     artifact_log_priors = saved[prefix + constants.ARTIFACT_LOG_PRIORS_NAME]  # possibly None
