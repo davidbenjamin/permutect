@@ -190,13 +190,38 @@ class BaseModel(torch.nn.Module):
     def logits_from_artifact_batch(self, batch: ArtifactBatch):
         return self.forward_from_parts(batch.get_representations_2d(), batch.get_ref_counts(), batch.get_alt_counts(), batch.get_variant_types())
 
-    # TODO: save the parts that formerly belonged to the artifact model, too!!
-    def make_dict_for_saving(self, prefix: str = ""):
-        return {(prefix + constants.STATE_DICT_NAME): self.state_dict(),
-                (prefix + constants.HYPERPARAMS_NAME): self._params,
-                (prefix + constants.NUM_READ_FEATURES_NAME): self.read_embedding.input_dimension(),
-                (prefix + constants.NUM_INFO_FEATURES_NAME): self.info_embedding.input_dimension(),
-                (prefix + constants.REF_SEQUENCE_LENGTH_NAME): self.ref_sequence_length()}
+    def make_dict_for_saving(self, artifact_log_priors=None, artifact_spectra=None):
+        return {constants.STATE_DICT_NAME: self.state_dict(),
+                constants.HYPERPARAMS_NAME: self._params,
+                constants.NUM_READ_FEATURES_NAME: self.read_embedding.input_dimension(),
+                constants.NUM_INFO_FEATURES_NAME: self.info_embedding.input_dimension(),
+                constants.REF_SEQUENCE_LENGTH_NAME: self.ref_sequence_length(),
+                constants.ARTIFACT_LOG_PRIORS_NAME: artifact_log_priors,
+                constants.ARTIFACT_SPECTRA_STATE_DICT_NAME: artifact_spectra.state_dict() if artifact_spectra is not None else None}
+
+    # save a model, optionally with artifact log priors and spectra
+    def save_model(self, path, artifact_log_priors=None, artifact_spectra=None):
+        torch.save(self.make_dict_for_saving(artifact_log_priors, artifact_spectra), path)
+
+
+def load_model(path, device: torch.device = utils.gpu_if_available()):
+    saved = torch.load(path, map_location=device)
+    hyperparams = saved[constants.HYPERPARAMS_NAME]
+    num_read_features = saved[constants.NUM_READ_FEATURES_NAME]
+    num_info_features = saved[constants.NUM_INFO_FEATURES_NAME]
+    ref_sequence_length = saved[constants.REF_SEQUENCE_LENGTH_NAME]
+
+    model = BaseModel(hyperparams, num_read_features=num_read_features, num_info_features=num_info_features,
+                      ref_sequence_length=ref_sequence_length, device=device)
+    model.load_state_dict(saved[constants.STATE_DICT_NAME])
+
+    # in case the state dict had the wrong dtype for the device we're on now eg base model was pretrained on GPU
+    # and we're now on CPU
+    model.to(model._dtype)
+    artifact_log_priors = saved[constants.ARTIFACT_LOG_PRIORS_NAME]  # possibly None
+    artifact_spectra_state_dict = saved[constants.ARTIFACT_SPECTRA_STATE_DICT_NAME]  # possibly None
+
+    return model, artifact_log_priors, artifact_spectra_state_dict
 
 
 def permute_columns_independently(mat: torch.Tensor):
