@@ -28,7 +28,7 @@ class ArtifactDataset(Dataset):
         self.num_folds = base_dataset.num_folds
         self.labeled_indices = [[] for _ in range(self.num_folds)]  # one list for each fold
         self.unlabeled_indices = [[] for _ in range(self.num_folds)]    # ditto
-        self.num_base_features = base_model.output_dimension()
+        self.num_base_features = base_model.pooling_dimension()
 
         index = 0
 

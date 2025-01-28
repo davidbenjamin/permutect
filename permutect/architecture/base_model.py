@@ -1,6 +1,3 @@
-from abc import ABC, abstractmethod
-from typing import List
-
 import torch
 from torch.utils.tensorboard import SummaryWriter
 from tqdm.autonotebook import tqdm
@@ -98,7 +95,7 @@ class BaseModel(torch.nn.Module):
 
         self.to(device=self._device, dtype=self._dtype)
 
-    def output_dimension(self) -> int:
+    def pooling_dimension(self) -> int:
         return self.set_pooling.output_dimension()
 
     def ref_alt_seq_embedding_dimension(self) -> int:

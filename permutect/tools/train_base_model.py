@@ -29,7 +29,7 @@ def main_without_parsing(args):
             BaseModel(params=params, num_read_features=dataset.num_read_features, num_info_features=dataset.num_info_features,
                       ref_sequence_length=dataset.ref_sequence_length, device=utils.gpu_if_available())
     artifact_model = saved_artifact_model if (saved_artifact_model is not None) else \
-        ArtifactModel(params=params, num_base_features=base_model.output_dimension(), device=utils.gpu_if_available())
+        ArtifactModel(params=params, num_base_features=base_model.pooling_dimension(), device=utils.gpu_if_available())
 
     learn_base_model(base_model, artifact_model, dataset, training_params, summary_writer=summary_writer)
     summary_writer.close()

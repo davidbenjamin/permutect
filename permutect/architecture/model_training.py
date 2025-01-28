@@ -36,7 +36,7 @@ def learn_base_model(base_model: BaseModel, artifact_model: ArtifactModel, datas
 
     # adversarial loss to learn features that forget the alt count
     alt_count_gradient_reversal = GradientReversal(alpha=0.01)  #initialize as barely active
-    alt_count_predictor = MLP([base_model.output_dimension()] + [30, -1, -1, -1, 1]).to(device=base_model._device, dtype=base_model._dtype)
+    alt_count_predictor = MLP([base_model.pooling_dimension()] + [30, -1, -1, -1, 1]).to(device=base_model._device, dtype=base_model._dtype)
     alt_count_loss_func = torch.nn.MSELoss(reduction='none')
     alt_count_adversarial_metrics = LossMetrics()
 
@@ -47,7 +47,7 @@ def learn_base_model(base_model: BaseModel, artifact_model: ArtifactModel, datas
     train_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
         train_optimizer, factor=0.2, patience=5, threshold=0.001, min_lr=(training_params.learning_rate/100), verbose=True)
 
-    classifier_on_top = MLP([base_model.output_dimension()] + [30, -1, -1, -1, 10] + [1])\
+    classifier_on_top = MLP([base_model.pooling_dimension()] + [30, -1, -1, -1, 10] + [1])\
         .to(device=base_model._device, dtype=base_model._dtype)
     bce = torch.nn.BCEWithLogitsLoss(reduction='none')
 
