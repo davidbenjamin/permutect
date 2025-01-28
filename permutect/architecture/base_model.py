@@ -1,13 +1,17 @@
+from itertools import chain
+
 import torch
+from torch import nn
 from torch.utils.tensorboard import SummaryWriter
 from tqdm.autonotebook import tqdm
 
 from permutect import utils, constants
+from permutect.architecture.calibration import Calibration
 from permutect.architecture.dna_sequence_convolution import DNASequenceConvolution
 from permutect.architecture.gated_mlp import GatedRefAltMLP
 from permutect.architecture.mlp import MLP
 from permutect.architecture.set_pooling import SetPooling
-from permutect.data.base_datum import BaseBatch, DEFAULT_GPU_FLOAT, DEFAULT_CPU_FLOAT
+from permutect.data.base_datum import BaseBatch, DEFAULT_GPU_FLOAT, DEFAULT_CPU_FLOAT, ArtifactBatch
 from permutect.data.base_dataset import ALL_COUNTS_INDEX
 from permutect.metrics.evaluation_metrics import EmbeddingMetrics, round_up_to_nearest_three, MAX_COUNT
 from permutect.parameters import ModelParameters
@@ -93,6 +97,14 @@ class BaseModel(torch.nn.Module):
         self.set_pooling = SetPooling(input_dim=embedding_dim, mlp_layers=set_pooling_hidden_layers,
                                       final_mlp_layers=params.aggregation_layers, batch_normalize=params.batch_normalize, dropout_p=params.dropout_p)
 
+        # TODO: artifact classifier hidden layers are hard-coded!!!
+        # The [1] is for the output logit
+        self.artifact_classifier = MLP([self.set_pooling.output_dimension()] + [-1, -1, 1], batch_normalize=params.batch_normalize,
+                                       dropout_p=params.dropout_p)
+
+        # one Calibration module for each variant type; that is, calibration depends on both count and type
+        self.calibration = nn.ModuleList([Calibration(params.calibration_layers) for variant_type in Variation])
+
         self.to(device=self._device, dtype=self._dtype)
 
     def pooling_dimension(self) -> int:
@@ -103,6 +115,15 @@ class BaseModel(torch.nn.Module):
 
     def ref_sequence_length(self) -> int:
         return self._ref_sequence_length
+
+    def post_pooling_parameters(self):
+        return chain(self.artifact_classifier.parameters(), self.calibration.parameters())
+
+    def calibration_parameters(self):
+        return self.calibration.parameters()
+
+    def final_calibration_shift_parameters(self):
+        return [cal.final_adjustments for cal in self.calibration]
 
     def set_epoch_type(self, epoch_type: utils.Epoch):
         if epoch_type == utils.Epoch.TRAIN:
@@ -116,6 +137,7 @@ class BaseModel(torch.nn.Module):
     def forward(self, batch: BaseBatch):
         pass
 
+    # TODO: perhaps rename to calculate_features?
     # here 'v' means "variant index within a batch", 'r' means "read index within a variant or the batch", 'e' means "index within an embedding"
     # so, for example, "re" means a 2D tensor with all reads in the batch stacked and "vre" means a 3D tensor indexed
     # first by variant within the batch, then the read
@@ -152,6 +174,23 @@ class BaseModel(torch.nn.Module):
 
         return result_be, ref_seq_embeddings_ve # ref seq embeddings are useful later
 
+    def logits_from_features(self, representations_2d: torch.Tensor, ref_counts: torch.IntTensor, alt_counts: torch.IntTensor,
+                           variant_types: torch.IntTensor):
+        uncalibrated_logits = self.artifact_classifier.forward(representations_2d).view(-1)
+        calibrated_logits = torch.zeros_like(uncalibrated_logits, device=self._device)
+        for n, _ in enumerate(Variation):
+            mask = (variant_types == n)
+            calibrated_logits += mask * self.calibration[n].forward(uncalibrated_logits, ref_counts, alt_counts)
+        return calibrated_logits, uncalibrated_logits
+
+    def logits_from_base_batch(self, representations_2d: torch.Tensor, base_batch: BaseBatch):
+        return self.forward_from_parts(representations_2d, base_batch.get_ref_counts(), base_batch.get_alt_counts(), base_batch.get_variant_types())
+
+    # returns 1D tensor of length batch_size of log odds ratio (logits) between artifact and non-artifact
+    def logits_from_artifact_batch(self, batch: ArtifactBatch):
+        return self.forward_from_parts(batch.get_representations_2d(), batch.get_ref_counts(), batch.get_alt_counts(), batch.get_variant_types())
+
+    # TODO: save the parts that formerly belonged to the artifact model, too!!
     def make_dict_for_saving(self, prefix: str = ""):
         return {(prefix + constants.STATE_DICT_NAME): self.state_dict(),
                 (prefix + constants.HYPERPARAMS_NAME): self._params,
