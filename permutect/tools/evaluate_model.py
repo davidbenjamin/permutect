@@ -1,7 +1,7 @@
 import argparse
 from torch.utils.tensorboard import SummaryWriter
-from permutect import constants, utils
-from permutect.architecture.model_io import load_models
+from permutect import constants
+from permutect.architecture.permutect_model import load_model
 from permutect.data.base_dataset import BaseDataset
 
 
@@ -27,11 +27,11 @@ def main_without_parsing(args):
     num_workers = getattr(args, constants.NUM_WORKERS_NAME)
 
     dataset = BaseDataset(data_tarfile=data_tarfile, num_folds=10)
-    device = utils.gpu_if_available()
-    base_model, artifact_model, _, _ = load_models(saved_model, device=device)
+    model, _, _ = load_model(saved_model)
 
     summary_writer = SummaryWriter(tensorboard_dir)
-    artifact_model.evaluate_model_after_training(dataset, batch_size, num_workers, summary_writer)
+    # TODO: this has been broken for a long time, since it expects an artifact dataset, not a base dataset!!!!
+    model.evaluate_model_after_training(dataset, batch_size, num_workers, summary_writer)
 
 
 def main():

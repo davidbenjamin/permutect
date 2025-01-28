@@ -6,8 +6,9 @@ from torch.utils.tensorboard import SummaryWriter
 
 from permutect import constants, utils
 from permutect.architecture.artifact_spectra import ArtifactSpectra
+from permutect.architecture.model_training import train_on_artifact_dataset
+from permutect.architecture.permutect_model import load_model
 from permutect.architecture.posterior_model import plot_artifact_spectra
-from permutect.architecture.model_io import save, load_models
 from permutect.data.base_dataset import BaseDataset
 from permutect.data.artifact_dataset import ArtifactDataset
 from permutect.data.base_datum import ArtifactDatum
@@ -82,21 +83,20 @@ def main_without_parsing(args):
     summary_writer = SummaryWriter(tensorboard_dir)
 
     # base and artifact models have already been trained.  We're just refining it here.
-    base_model, artifact_model, _, _ = load_models(getattr(args, constants.SAVED_MODEL_NAME))
+    model, _, _ = load_model(getattr(args, constants.SAVED_MODEL_NAME))
     print(f"Memory usage percent before creating BaseDataset: {psutil.virtual_memory().percent:.1f}")
     base_dataset = BaseDataset(data_tarfile=getattr(args, constants.TRAIN_TAR_NAME), num_folds=10)
     print(f"Memory usage percent before creating ArtifactDataset: {psutil.virtual_memory().percent:.1f}")
     artifact_dataset = ArtifactDataset(base_dataset,
-                                       base_model,
+                                       model,
                                        base_loader_num_workers=training_params.num_workers,
                                        base_loader_batch_size=training_params.inference_batch_size)
     print(f"Memory usage percent after creating ArtifactDataset: {psutil.virtual_memory().percent:.1f}")
 
-    artifact_model.learn(artifact_dataset, training_params, summary_writer=summary_writer, epochs_per_evaluation=10,
-                calibration_sources=calibration_sources)
+    train_on_artifact_dataset(model, artifact_dataset, training_params, summary_writer, epochs_per_evaluation=10, calibration_sources=calibration_sources)
 
     for n, var_type in enumerate(Variation):
-        cal_fig, cal_axes = artifact_model.calibration[n].plot_calibration()
+        cal_fig, cal_axes = model.calibration[n].plot_calibration()
         summary_writer.add_figure("calibration by count for " + var_type.name, cal_fig)
 
     print(f"Memory usage percent after training artifact model: {psutil.virtual_memory().percent:.1f}")
@@ -107,8 +107,9 @@ def main_without_parsing(args):
         summary_writer.add_figure("Artifact AF Spectra", art_spectra_fig)
 
     summary_writer.close()
-    save(path=getattr(args, constants.OUTPUT_NAME), base_model=base_model, artifact_model=artifact_model,
-         artifact_log_priors=artifact_log_priors, artifact_spectra=artifact_spectra)
+
+    # TODO: this will only be correct once we use the full base model, not the separate artifact model
+    model.save_model(path=getattr(args, constants.OUTPUT_NAME), artifact_log_priors=artifact_log_priors, artifact_spectra=artifact_spectra)
 
 
 def main():

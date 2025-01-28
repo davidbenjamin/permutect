@@ -12,9 +12,8 @@ from tqdm.autonotebook import tqdm
 
 from permutect import constants, utils
 from permutect.architecture.artifact_model import ArtifactModel
-from permutect.architecture.model_io import load_models
 from permutect.architecture.posterior_model import PosteriorModel
-from permutect.architecture.permutect_model import PermutectModel
+from permutect.architecture.permutect_model import PermutectModel, load_model
 from permutect.data import base_dataset, plain_text_data, base_datum
 from permutect.data.base_datum import Variant
 from permutect.data.posterior import PosteriorDataset, PosteriorDatum, PosteriorBatch
@@ -167,11 +166,11 @@ def make_filtered_vcf(saved_model_path, initial_log_variant_prior: float, initia
             contig_index_to_name_map[int(index)] = contig
 
     device = utils.gpu_if_available()
-    base_model, artifact_model, artifact_log_priors, artifact_spectra_state_dict = load_models(saved_model_path, device=device)
+    model, artifact_log_priors, artifact_spectra_state_dict = load_model(saved_model_path, device=device)
 
-    posterior_model = PosteriorModel(initial_log_variant_prior, initial_log_artifact_prior, no_germline_mode=no_germline_mode, num_base_features=artifact_model.num_base_features, het_beta=het_beta)
+    posterior_model = PosteriorModel(initial_log_variant_prior, initial_log_artifact_prior, no_germline_mode=no_germline_mode, num_base_features=model.pooling_dimension(), het_beta=het_beta)
     posterior_data_loader = make_posterior_data_loader(test_dataset_file, input_vcf, contig_index_to_name_map,
-        base_model, artifact_model, batch_size, num_workers=num_workers, chunk_size=chunk_size, segmentation=segmentation, normal_segmentation=normal_segmentation)
+        model, batch_size, num_workers=num_workers, chunk_size=chunk_size, segmentation=segmentation, normal_segmentation=normal_segmentation)
 
     print("Learning AF spectra")
     summary_writer = SummaryWriter(tensorboard_dir)
@@ -190,7 +189,7 @@ def make_filtered_vcf(saved_model_path, initial_log_variant_prior: float, initia
 
 
 @torch.inference_mode()
-def make_posterior_data_loader(dataset_file, input_vcf, contig_index_to_name_map, base_model: PermutectModel, artifact_model: ArtifactModel,
+def make_posterior_data_loader(dataset_file, input_vcf, contig_index_to_name_map, model: PermutectModel,
                                batch_size: int, num_workers: int, chunk_size: int, segmentation=defaultdict(IntervalTree), normal_segmentation=defaultdict(IntervalTree)):
     print("Reading test dataset")
 
@@ -214,15 +213,15 @@ def make_posterior_data_loader(dataset_file, input_vcf, contig_index_to_name_map
         print(f"Memory usage percent before creating BaseDataset: {psutil.virtual_memory().percent:.1f}")
         raw_dataset = base_dataset.BaseDataset(data_in_ram=list_of_base_data)
         print(f"Memory usage percent before creating ArtifactDataset: {psutil.virtual_memory().percent:.1f}")
-        artifact_dataset = ArtifactDataset(raw_dataset, base_model)
+        artifact_dataset = ArtifactDataset(raw_dataset, model)
         print(f"Memory usage percent after creating ArtifactDataset: {psutil.virtual_memory().percent:.1f}")
         artifact_loader = artifact_dataset.make_data_loader(artifact_dataset.all_folds(), batch_size, pin_memory=torch.cuda.is_available(), num_workers=num_workers)
 
         print("creating posterior data for this chunk...")
         pbar = tqdm(enumerate(artifact_loader), mininterval=60)
         for n, artifact_batch_cpu in pbar:
-            artifact_batch = artifact_batch_cpu.copy_to(device=artifact_model._device, dtype=artifact_model._dtype, non_blocking=artifact_model._device.type == 'cuda')
-            artifact_logits, _ = artifact_model.forward(batch=artifact_batch)
+            artifact_batch = artifact_batch_cpu.copy_to(device=model._device, dtype=model._dtype, non_blocking=model._device.type == 'cuda')
+            artifact_logits, _ = model.logits_from_artifact_batch(batch=artifact_batch)
 
             labels = [(Label.ARTIFACT if label > 0.5 else Label.VARIANT) if is_labeled > 0.5 else Label.UNLABELED for (label, is_labeled) in zip(artifact_batch.get_training_labels(), artifact_batch.get_is_labeled_mask())]
 

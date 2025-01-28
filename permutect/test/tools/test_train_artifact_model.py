@@ -2,12 +2,12 @@ import tempfile
 from argparse import Namespace
 
 from tensorboard.backend.event_processing.event_accumulator import EventAccumulator
-from permutect import constants, utils
-from permutect.architecture.model_io import load_models
+from permutect import constants
+from permutect.architecture.permutect_model import load_model
 from permutect.tools import train_model
 
 
-def test_train_model():
+def test_train_artifact_model():
     # Inputs
     training_data_tarfile = '/Users/davidben/mutect3/permutect/integration-tests/singular-10-Mb/preprocessed-dataset.tar'
     base_model = '/Users/davidben/mutect3/permutect/integration-tests/singular-10-Mb/base-model.pt'
@@ -48,8 +48,7 @@ def test_train_model():
     events = EventAccumulator(training_tensorboard_dir.name)
     events.Reload()
 
-    device = utils.gpu_if_available()
-    loaded_base_model, loaded_artifact_model, artifact_log_priors, artifact_spectra_state_dict = load_models(saved_model, device=device)
+    loaded_model, artifact_log_priors, artifact_spectra_state_dict = load_model(saved_model)
 
     assert artifact_log_priors is not None
     assert artifact_spectra_state_dict is not None

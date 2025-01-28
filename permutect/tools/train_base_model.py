@@ -4,9 +4,8 @@ from torch.utils.tensorboard import SummaryWriter
 
 from permutect import constants, utils
 from permutect.architecture.artifact_model import ArtifactModel
-from permutect.architecture.permutect_model import PermutectModel
+from permutect.architecture.permutect_model import PermutectModel, load_model
 from permutect.architecture.model_training import learn_base_model
-from permutect.architecture.model_io import load_models, save
 from permutect.parameters import parse_training_params, parse_model_params, add_model_params_to_parser, add_training_params_to_parser
 from permutect.data.base_dataset import BaseDataset
 
@@ -18,22 +17,21 @@ def main_without_parsing(args):
     tarfile_data = getattr(args, constants.TRAIN_TAR_NAME)
     saved_model_path = getattr(args, constants.SAVED_MODEL_NAME)    # optional pretrained model to use as initialization
 
-    saved_base_model, saved_artifact_model, _, _ = (None, None, None, None) if saved_model_path is None else \
-        load_models(saved_model_path)
+    saved_model, _, _ = (None, None, None) if saved_model_path is None else load_model(saved_model_path)
 
     tensorboard_dir = getattr(args, constants.TENSORBOARD_DIR_NAME)
     summary_writer = SummaryWriter(tensorboard_dir)
     dataset = BaseDataset(data_tarfile=tarfile_data, num_folds=10)
 
-    base_model = saved_base_model if (saved_base_model is not None) else \
+    model = saved_model if (saved_model is not None) else \
             PermutectModel(params=params, num_read_features=dataset.num_read_features, num_info_features=dataset.num_info_features,
                            ref_sequence_length=dataset.ref_sequence_length, device=utils.gpu_if_available())
-    artifact_model = saved_artifact_model if (saved_artifact_model is not None) else \
-        ArtifactModel(params=params, num_base_features=base_model.pooling_dimension(), device=utils.gpu_if_available())
 
-    learn_base_model(base_model, artifact_model, dataset, training_params, summary_writer=summary_writer)
+    learn_base_model(model, dataset, training_params, summary_writer=summary_writer)
     summary_writer.close()
-    save(path=getattr(args, constants.OUTPUT_NAME), base_model=base_model, artifact_model=artifact_model)
+
+    # TODO: this is currently wrong because we are using the separate artifact model, not the full model
+    model.save_model(path=getattr(args, constants.OUTPUT_NAME))
 
 
 def parse_arguments():
