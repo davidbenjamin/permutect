@@ -5,7 +5,7 @@ from itertools import chain
 import psutil
 import torch
 from torch.utils.tensorboard import SummaryWriter
-from tqdm.notebook import trange, tqdm
+from tqdm import trange, tqdm
 
 from permutect import utils
 from permutect.architecture.artifact_model import ArtifactModel

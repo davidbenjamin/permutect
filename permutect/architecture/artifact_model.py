@@ -491,6 +491,6 @@ class ArtifactModel(nn.Module):
                 (prefix + constants.NUM_BASE_FEATURES_NAME): self.num_base_features,
                 (prefix + constants.HYPERPARAMS_NAME): self.params,
                 (prefix + constants.ARTIFACT_LOG_PRIORS_NAME): artifact_log_priors,
-                (prefix + constants.ARTIFACT_SPECTRA_STATE_DICT_NAME): artifact_spectra.state_dict()}
+                (prefix + constants.ARTIFACT_SPECTRA_STATE_DICT_NAME): artifact_spectra.state_dict() if artifact_spectra is not None else None}
 
 

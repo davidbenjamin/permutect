@@ -48,7 +48,7 @@ def _artifact_model_from_saved_dict(saved, prefix: str = "artifact"):
     return model, artifact_log_priors, artifact_spectra_state_dict
 
 
-def load_models(path, device):
+def load_models(path, device=utils.gpu_if_available()):
     saved = torch.load(path, map_location=device)
     base_model = _base_model_from_saved_dict(saved, prefix=BASE_PREFIX)
     artifact_model, artifact_log_priors, artifact_spectra = _artifact_model_from_saved_dict(saved, prefix=ARTIFACT_PREFIX)
