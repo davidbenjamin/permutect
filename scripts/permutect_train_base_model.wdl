@@ -51,7 +51,7 @@ workflow TrainPermutectBaseModel {
     }
 
     output {
-        File base_model = TrainPermutectBase.base_model
+        File permutect_model = TrainPermutectBase.permutect_model
         File training_tensorboard_tar = TrainPermutectBase.tensorboard_tar
     }
 }
@@ -110,7 +110,7 @@ task TrainPermutectBase {
             --inference_batch_size ~{inference_batch_size} \
             ~{"--num_workers " + num_workers} \
             --num_epochs ~{num_epochs} \
-            --output base_model.pt \
+            --output permutect_model.pt \
             --tensorboard_dir tensorboard \
             ~{extra_args}
 
@@ -132,7 +132,7 @@ task TrainPermutectBase {
     }
 
     output {
-        File base_model = "base_model.pt"
+        File permutect_model = "permutect_model.pt"
         File tensorboard_tar = "tensorboard.tar"
     }
 }

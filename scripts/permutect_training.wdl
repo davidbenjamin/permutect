@@ -44,7 +44,7 @@ workflow TrainPermutect {
 
 
     output {
-        File artifact_model = TrainPermutect.artifact_model
+        File permutect_model = TrainPermutect.permutect_model
         File training_tensorboard_tar = TrainPermutect.tensorboard_tar
     }
 }
@@ -92,7 +92,7 @@ task TrainPermutect {
             --num_epochs ~{num_epochs} \
             --num_calibration_epochs ~{num_calibration_epochs} \
             ~{"--calibration_sources " + calibration_source} \
-            --output artifact.pt \
+            --output permutect_model.pt \
             --tensorboard_dir tensorboard \
             ~{"--genomic_span " + genomic_span} \
             ~{learn_artifact_cmd} \
@@ -116,7 +116,7 @@ task TrainPermutect {
     }
 
     output {
-        File artifact_model = "artifact.pt"
+        File permutect_model = "permutect_model.pt"
         File tensorboard_tar = "tensorboard.tar"
     }
 }
