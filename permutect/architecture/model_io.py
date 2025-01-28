@@ -7,14 +7,14 @@ import torch
 
 from permutect import utils, constants
 from permutect.architecture.artifact_model import ArtifactModel
-from permutect.architecture.base_model import BaseModel
+from permutect.architecture.permutect_model import PermutectModel
 
 BASE_PREFIX = "base"
 ARTIFACT_PREFIX = "artifact"
 
 
 # save a base model AND artifact model (optionally with artifact log priors and spectra) together
-def save(path, base_model: BaseModel, artifact_model: ArtifactModel, artifact_log_priors=None, artifact_spectra=None):
+def save(path, base_model: PermutectModel, artifact_model: ArtifactModel, artifact_log_priors=None, artifact_spectra=None):
     base_dict = base_model.make_dict_for_saving(prefix=BASE_PREFIX)
     artifact_dict = artifact_model.make_dict_for_saving(artifact_log_priors, artifact_spectra, prefix=ARTIFACT_PREFIX)
     torch.save({**artifact_dict, **base_dict}, path)
@@ -26,8 +26,8 @@ def _base_model_from_saved_dict(saved, prefix: str = "", device: torch.device = 
     num_info_features = saved[prefix + constants.NUM_INFO_FEATURES_NAME]
     ref_sequence_length = saved[prefix + constants.REF_SEQUENCE_LENGTH_NAME]
 
-    model = BaseModel(hyperparams, num_read_features=num_read_features, num_info_features=num_info_features,
-                      ref_sequence_length=ref_sequence_length, device=device)
+    model = PermutectModel(hyperparams, num_read_features=num_read_features, num_info_features=num_info_features,
+                           ref_sequence_length=ref_sequence_length, device=device)
     model.load_state_dict(saved[prefix + constants.STATE_DICT_NAME])
 
     # in case the state dict had the wrong dtype for the device we're on now eg base model was pretrained on GPU

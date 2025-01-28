@@ -9,7 +9,7 @@ from tqdm import trange, tqdm
 
 from permutect import utils
 from permutect.architecture.artifact_model import ArtifactModel
-from permutect.architecture.base_model import BaseModel, calculate_batch_weights, \
+from permutect.architecture.permutect_model import PermutectModel, calculate_batch_weights, \
     record_embeddings
 from permutect.architecture.gradient_reversal.module import GradientReversal
 from permutect.architecture.mlp import MLP
@@ -19,7 +19,7 @@ from permutect.parameters import TrainingParameters
 from permutect.utils import Label
 
 
-def learn_base_model(base_model: BaseModel, artifact_model: ArtifactModel, dataset: BaseDataset, training_params: TrainingParameters,
+def learn_base_model(base_model: PermutectModel, artifact_model: ArtifactModel, dataset: BaseDataset, training_params: TrainingParameters,
                      summary_writer: SummaryWriter, validation_fold: int = None):
     print(f"Memory usage percent: {psutil.virtual_memory().percent:.1f}")
     is_cuda = base_model._device.type == 'cuda'

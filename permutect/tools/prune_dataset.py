@@ -6,7 +6,7 @@ from typing import List
 
 import psutil
 
-from permutect.architecture.base_model import BaseModel
+from permutect.architecture.permutect_model import PermutectModel
 from permutect.architecture.model_io import load_models
 from permutect.data import base_datum
 from tqdm.autonotebook import tqdm
@@ -108,7 +108,7 @@ def calculate_pruning_thresholds(labeled_only_pruning_loader, artifact_model: Ar
 
 # generates BaseDatum(s) from the original dataset that *pass* the pruning thresholds
 def generated_pruned_data_for_fold(art_threshold: float, nonart_threshold: float, pruning_base_data_loader,
-                                   base_model: BaseModel, artifact_model: ArtifactModel) -> List[int]:
+                                   base_model: PermutectModel, artifact_model: ArtifactModel) -> List[int]:
     print("pruning the dataset")
     pbar = tqdm(enumerate(pruning_base_data_loader), mininterval=60)
     for n, base_batch in pbar:
@@ -132,7 +132,7 @@ def generated_pruned_data_for_fold(art_threshold: float, nonart_threshold: float
                 yield datum # this is a ReadSet
 
 
-def generate_pruned_data_for_all_folds(base_dataset: BaseDataset, base_model: BaseModel,
+def generate_pruned_data_for_all_folds(base_dataset: BaseDataset, base_model: PermutectModel,
                                        training_params: TrainingParameters, artifact_model: ArtifactModel, tensorboard_dir):
     # for each fold in turn, train an artifact model on all other folds and prune the chosen fold
     use_gpu = torch.cuda.is_available()

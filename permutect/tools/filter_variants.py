@@ -14,7 +14,7 @@ from permutect import constants, utils
 from permutect.architecture.artifact_model import ArtifactModel
 from permutect.architecture.model_io import load_models
 from permutect.architecture.posterior_model import PosteriorModel
-from permutect.architecture.base_model import BaseModel
+from permutect.architecture.permutect_model import PermutectModel
 from permutect.data import base_dataset, plain_text_data, base_datum
 from permutect.data.base_datum import Variant
 from permutect.data.posterior import PosteriorDataset, PosteriorDatum, PosteriorBatch
@@ -190,7 +190,7 @@ def make_filtered_vcf(saved_model_path, initial_log_variant_prior: float, initia
 
 
 @torch.inference_mode()
-def make_posterior_data_loader(dataset_file, input_vcf, contig_index_to_name_map, base_model: BaseModel, artifact_model: ArtifactModel,
+def make_posterior_data_loader(dataset_file, input_vcf, contig_index_to_name_map, base_model: PermutectModel, artifact_model: ArtifactModel,
                                batch_size: int, num_workers: int, chunk_size: int, segmentation=defaultdict(IntervalTree), normal_segmentation=defaultdict(IntervalTree)):
     print("Reading test dataset")
 

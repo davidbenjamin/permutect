@@ -6,7 +6,7 @@ import torch
 from tqdm.autonotebook import tqdm
 from torch.utils.data import Dataset, DataLoader, Sampler
 
-from permutect.architecture.base_model import BaseModel
+from permutect.architecture.permutect_model import PermutectModel
 from permutect.data.base_datum import ArtifactDatum, ArtifactBatch
 from permutect.data.base_dataset import BaseDataset, chunk
 
@@ -15,7 +15,7 @@ from permutect.data.base_dataset import BaseDataset, chunk
 # of RepresentationReadSets
 class ArtifactDataset(Dataset):
     def __init__(self, base_dataset: BaseDataset,
-                 base_model: BaseModel,
+                 base_model: PermutectModel,
                  folds_to_use: List[int] = None,
                  base_loader_num_workers=0,
                  base_loader_batch_size=8192):

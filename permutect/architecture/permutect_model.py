@@ -52,7 +52,7 @@ def make_gated_ref_alt_mlp_encoder(input_dimension: int, params: ModelParameters
     return GatedRefAltMLP(d_model=input_dimension, d_ffn=params.self_attention_hidden_dimension, num_blocks=params.num_self_attention_layers)
 
 
-class BaseModel(torch.nn.Module):
+class PermutectModel(torch.nn.Module):
     """
     DeepSets framework for reads and variant info.  We embed each read and concatenate the mean ref read
     embedding, mean alt read embedding, and variant info embedding, then apply an aggregation function to
@@ -74,7 +74,7 @@ class BaseModel(torch.nn.Module):
     """
 
     def __init__(self, params: ModelParameters, num_read_features: int, num_info_features: int, ref_sequence_length: int, device=utils.gpu_if_available()):
-        super(BaseModel, self).__init__()
+        super(PermutectModel, self).__init__()
 
         self._device = device
         self._dtype = DEFAULT_GPU_FLOAT if device != torch.device("cpu") else DEFAULT_CPU_FLOAT
@@ -211,8 +211,8 @@ def load_model(path, device: torch.device = utils.gpu_if_available()):
     num_info_features = saved[constants.NUM_INFO_FEATURES_NAME]
     ref_sequence_length = saved[constants.REF_SEQUENCE_LENGTH_NAME]
 
-    model = BaseModel(hyperparams, num_read_features=num_read_features, num_info_features=num_info_features,
-                      ref_sequence_length=ref_sequence_length, device=device)
+    model = PermutectModel(hyperparams, num_read_features=num_read_features, num_info_features=num_info_features,
+                           ref_sequence_length=ref_sequence_length, device=device)
     model.load_state_dict(saved[constants.STATE_DICT_NAME])
 
     # in case the state dict had the wrong dtype for the device we're on now eg base model was pretrained on GPU
@@ -237,7 +237,7 @@ def permute_columns_independently(mat: torch.Tensor):
 
 
 # after training for visualizing clustering etc of base model embeddings
-def record_embeddings(base_model: BaseModel, loader, summary_writer: SummaryWriter):
+def record_embeddings(base_model: PermutectModel, loader, summary_writer: SummaryWriter):
     # base_model.freeze_all() whoops -- it doesn't have freeze_all
     embedding_metrics = EmbeddingMetrics()
     ref_alt_seq_metrics = EmbeddingMetrics()

@@ -4,7 +4,7 @@ from torch.utils.tensorboard import SummaryWriter
 
 from permutect import constants, utils
 from permutect.architecture.artifact_model import ArtifactModel
-from permutect.architecture.base_model import BaseModel
+from permutect.architecture.permutect_model import PermutectModel
 from permutect.architecture.model_training import learn_base_model
 from permutect.architecture.model_io import load_models, save
 from permutect.parameters import parse_training_params, parse_model_params, add_model_params_to_parser, add_training_params_to_parser
@@ -26,8 +26,8 @@ def main_without_parsing(args):
     dataset = BaseDataset(data_tarfile=tarfile_data, num_folds=10)
 
     base_model = saved_base_model if (saved_base_model is not None) else \
-            BaseModel(params=params, num_read_features=dataset.num_read_features, num_info_features=dataset.num_info_features,
-                      ref_sequence_length=dataset.ref_sequence_length, device=utils.gpu_if_available())
+            PermutectModel(params=params, num_read_features=dataset.num_read_features, num_info_features=dataset.num_info_features,
+                           ref_sequence_length=dataset.ref_sequence_length, device=utils.gpu_if_available())
     artifact_model = saved_artifact_model if (saved_artifact_model is not None) else \
         ArtifactModel(params=params, num_base_features=base_model.pooling_dimension(), device=utils.gpu_if_available())
 

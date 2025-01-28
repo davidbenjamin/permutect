@@ -15,7 +15,7 @@ from queue import PriorityQueue
 from tqdm.autonotebook import trange, tqdm
 from itertools import chain
 
-from permutect.architecture.base_model import calculate_batch_weights, calculate_batch_source_weights
+from permutect.architecture.permutect_model import calculate_batch_weights, calculate_batch_source_weights
 from permutect.architecture.calibration import Calibration
 from permutect.architecture.gradient_reversal.module import GradientReversal
 from permutect.architecture.mlp import MLP
