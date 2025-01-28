@@ -4,7 +4,8 @@ from torch.utils.tensorboard import SummaryWriter
 
 from permutect import constants, utils
 from permutect.architecture.artifact_model import ArtifactModel
-from permutect.architecture.base_model import BaseModel, learn_base_model
+from permutect.architecture.base_model import BaseModel
+from permutect.architecture.model_training import learn_base_model
 from permutect.architecture.model_io import load_models, save
 from permutect.parameters import parse_training_params, parse_model_params, add_model_params_to_parser, add_training_params_to_parser
 from permutect.data.base_dataset import BaseDataset
