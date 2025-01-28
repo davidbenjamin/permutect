@@ -163,40 +163,6 @@ class BaseModel(torch.nn.Module):
                 (prefix + constants.REF_SEQUENCE_LENGTH_NAME): self.ref_sequence_length()}
 
 
-# outputs a 1D tensor of losses over the batch.  We assume it needs the representations of the batch data from the base
-# model.  We nonetheless also use the model as an input because there are some learning strategies that involve
-# computing representations of a modified batch.
-class BaseModelLearningStrategy(ABC):
-    @abstractmethod
-    def loss_function(self, base_model: BaseModel, base_batch: BaseBatch, base_model_representations: torch.Tensor):
-        pass
-
-
-class BaseModelSemiSupervisedLoss(torch.nn.Module, BaseModelLearningStrategy):
-    def __init__(self, input_dim: int, hidden_top_layers: List[int], params: ModelParameters):
-        super(BaseModelSemiSupervisedLoss, self).__init__()
-
-        self.bce = torch.nn.BCEWithLogitsLoss(reduction='none')  # no reduction because we may want to first multiply by weights for unbalanced data
-
-        # go from base model output representation to artifact logit for supervised loss
-        self.logit_predictor = MLP([input_dim] + hidden_top_layers + [1], batch_normalize=params.batch_normalize, dropout_p=params.dropout_p)
-
-    def loss_function(self, base_model: BaseModel, base_batch: BaseBatch, base_model_representations: torch.Tensor):
-        logits = self.logit_predictor.forward(base_model_representations).reshape((base_batch.size()))
-        labels = base_batch.get_training_labels()
-
-        # base batch always has labels, but for unlabeled elements these labels are meaningless and is_labeled_mask is zero
-        cross_entropies = self.bce(logits, labels)
-        probabilities = torch.sigmoid(logits)
-        entropies = self.bce(logits, probabilities)
-
-        return base_batch.get_is_labeled_mask() * cross_entropies + (1 - base_batch.get_is_labeled_mask()) * entropies
-
-    # I don't like implicit forward!!
-    def forward(self):
-        pass
-
-
 def permute_columns_independently(mat: torch.Tensor):
     assert mat.dim() == 2
     num_rows, num_cols = mat.size()

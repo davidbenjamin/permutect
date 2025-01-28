@@ -9,7 +9,7 @@ from tqdm import trange, tqdm
 
 from permutect import utils
 from permutect.architecture.artifact_model import ArtifactModel
-from permutect.architecture.base_model import BaseModel, BaseModelSemiSupervisedLoss, calculate_batch_weights, \
+from permutect.architecture.base_model import BaseModel, calculate_batch_weights, \
     record_embeddings
 from permutect.architecture.gradient_reversal.module import GradientReversal
 from permutect.architecture.mlp import MLP
@@ -32,10 +32,7 @@ def learn_base_model(base_model: BaseModel, artifact_model: ArtifactModel, datas
             for label in Label:
                 print(f"{label.name}: {int(dataset.totals_sclt[source][ALL_COUNTS_INDEX][label][var_type].item())}")
 
-    # TODO: hidden_top_layers are hard-coded!
-    learning_strategy = BaseModelSemiSupervisedLoss(input_dim=base_model.output_dimension(), hidden_top_layers=[30,-1,-1,-1,10], params=base_model._params)
-
-    learning_strategy.to(device=base_model._device, dtype=base_model._dtype)
+    artifact_model.to(device=base_model._device, dtype=base_model._dtype)
 
     # adversarial loss to learn features that forget the alt count
     alt_count_gradient_reversal = GradientReversal(alpha=0.01)  #initialize as barely active
@@ -44,7 +41,7 @@ def learn_base_model(base_model: BaseModel, artifact_model: ArtifactModel, datas
     alt_count_adversarial_metrics = LossMetrics()
 
     # TODO: fused = is_cuda?
-    train_optimizer = torch.optim.AdamW(chain(base_model.parameters(), learning_strategy.parameters(), alt_count_predictor.parameters()),
+    train_optimizer = torch.optim.AdamW(chain(base_model.parameters(), artifact_model.parameters(), alt_count_predictor.parameters()),
                                         lr=training_params.learning_rate, weight_decay=training_params.weight_decay)
     # train scheduler needs to be given the thing that's supposed to decrease at the end of each epoch
     train_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
@@ -52,7 +49,7 @@ def learn_base_model(base_model: BaseModel, artifact_model: ArtifactModel, datas
 
     classifier_on_top = MLP([base_model.output_dimension()] + [30, -1, -1, -1, 10] + [1])\
         .to(device=base_model._device, dtype=base_model._dtype)
-    classifier_bce = torch.nn.BCEWithLogitsLoss(reduction='none')
+    bce = torch.nn.BCEWithLogitsLoss(reduction='none')
 
     classifier_optimizer = torch.optim.AdamW(classifier_on_top.parameters(),
                                              lr=training_params.learning_rate,
@@ -89,42 +86,43 @@ def learn_base_model(base_model: BaseModel, artifact_model: ArtifactModel, datas
                 next_batch_cpu = next(loader_iter)
                 next_batch = next_batch_cpu.copy_to(base_model._device, non_blocking=is_cuda)
 
-                # TODO: we need a parameter to control the relative weight of unlabeled loss to labeled loss
+                # TODO: use the weight-balancing scheme that artifact model training uses
                 weights = calculate_batch_weights(batch_cpu, dataset, by_count=True)
                 weights = weights.to(device=base_model._device, dtype=base_model._dtype, non_blocking=True)
 
-                # unused output is the embedding of ref and alt alleles with context
                 representations, _ = base_model.calculate_representations(batch, weight_range=base_model._params.reweighting_range)
-                losses = learning_strategy.loss_function(base_model, batch, representations)
+                calibrated_logits, uncalibrated_logits = artifact_model.forward_from_base_model(representations, batch)
 
-                if losses is None:
-                    continue
+                # TODO: code duplication with artifact model training
+                # TODO: should we use calibrated logits?
+                # base batch always has labels, but for unlabeled elements these labels are meaningless and is_labeled_mask is zero
+                cross_entropies = bce(uncalibrated_logits, batch.get_training_labels())
+                probabilities = torch.sigmoid(uncalibrated_logits)
+                entropies = bce(uncalibrated_logits, probabilities)
 
-                loss_metrics.record_losses(losses.detach(), batch, weights)
+                semisupervised_losses = batch.get_is_labeled_mask() * cross_entropies + (1 - batch.get_is_labeled_mask()) * entropies
+
+                loss_metrics.record_losses(semisupervised_losses.detach(), batch, weights)
 
                 # gradient reversal means parameters before the representation try to maximize alt count prediction loss, i.e. features
                 # try to forget alt count, while parameters after the representation try to minimize it, i.e. they try
                 # to achieve the adversarial task
                 alt_count_pred = torch.sigmoid(alt_count_predictor.forward(alt_count_gradient_reversal(representations)).squeeze())
+
+                # TODO: use nonlinear transformation of counts
                 alt_count_target = batch.get_alt_counts().to(dtype=alt_count_pred.dtype)/20
                 alt_count_losses = alt_count_loss_func(alt_count_pred, alt_count_target)
-
                 alt_count_adversarial_metrics.record_losses(alt_count_losses.detach(), batch, weights=torch.ones_like(alt_count_losses))
 
-                loss = torch.sum((weights * losses) + alt_count_losses)
-
-                classification_logits = classifier_on_top.forward(representations.detach()).reshape(batch.size())
-                classification_losses = classifier_bce(classification_logits, batch.get_training_labels())
-                classification_loss = torch.sum(batch.get_is_labeled_mask() * weights * classification_losses)
-                classifier_metrics.record_losses(classification_losses.detach(), batch, batch.get_is_labeled_mask() * weights)
+                loss = torch.sum((weights * semisupervised_losses) + alt_count_losses)
+                classifier_metrics.record_losses(semisupervised_losses.detach(), batch, batch.get_is_labeled_mask() * weights)
 
                 if epoch_type == utils.Epoch.TRAIN:
                     utils.backpropagate(train_optimizer, loss)
-                    utils.backpropagate(classifier_optimizer, classification_loss)
 
             # done with one epoch type -- training or validation -- for this epoch
             loss_metrics.write_to_summary_writer(epoch_type, epoch, summary_writer)
-            classifier_metrics.write_to_summary_writer(epoch_type, epoch, summary_writer, prefix="auxiliary-classifier-")
+            classifier_metrics.write_to_summary_writer(epoch_type, epoch, summary_writer, prefix="classifier")
             alt_count_adversarial_metrics.write_to_summary_writer(epoch_type, epoch, summary_writer, prefix="alt-count-adversarial-predictor")
 
             if epoch_type == utils.Epoch.TRAIN:
