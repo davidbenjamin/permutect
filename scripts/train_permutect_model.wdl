@@ -94,7 +94,7 @@ task TrainPermutect {
     command <<<
         set -e
 
-        train_base_model \
+        train_permutect_model \
             --train_tar ~{train_tar} \
             ~{"--saved_model " + pretrained_model} \
             --read_layers ~{sep=' ' read_layers} \

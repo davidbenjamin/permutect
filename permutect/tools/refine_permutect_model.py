@@ -65,7 +65,7 @@ def parse_arguments():
     # inputs and outputs
     parser.add_argument('--' + constants.TRAIN_TAR_NAME, type=str, required=True,
                         help='tarfile of training/validation datasets produced by preprocess_dataset.py')
-    parser.add_argument('--' + constants.SAVED_MODEL_NAME, type=str, help='Base model from train_base_model.py')
+    parser.add_argument('--' + constants.SAVED_MODEL_NAME, type=str, help='Base model from train_permutect_model.py')
     parser.add_argument('--' + constants.OUTPUT_NAME, type=str, required=True, help='path to output saved model file')
     parser.add_argument('--' + constants.TENSORBOARD_DIR_NAME, type=str, default='tensorboard', required=False,
                         help='path to output tensorboard directory')

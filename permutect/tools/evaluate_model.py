@@ -10,7 +10,7 @@ def parse_arguments():
     parser = argparse.ArgumentParser()
     parser.add_argument('--' + constants.EVALUATION_TAR_NAME, type=str, required=True,
                         help='tarfile of evaluation datasets produced by preprocess_dataset.py')
-    parser.add_argument('--' + constants.SAVED_MODEL_NAME, required=True, help='trained Permutect model from train_artifact_model.py')
+    parser.add_argument('--' + constants.SAVED_MODEL_NAME, required=True, help='trained Permutect model from refine_permutect_model.py')
     parser.add_argument('--' + constants.TENSORBOARD_DIR_NAME, type=str, default='tensorboard', required=False, help='path to output tensorboard')
     parser.add_argument('--' + constants.BATCH_SIZE_NAME, type=int, default=64, required=False, help='batch size')
     parser.add_argument('--' + constants.NUM_WORKERS_NAME, type=int, default=0, required=False,

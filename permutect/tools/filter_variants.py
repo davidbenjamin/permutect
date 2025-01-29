@@ -73,7 +73,7 @@ def parse_arguments():
     parser.add_argument('--' + constants.INPUT_NAME, required=True, help='unfiltered input Mutect2 VCF')
     parser.add_argument('--' + constants.TEST_DATASET_NAME, required=True,
                         help='plain text dataset file corresponding to variants in input VCF')
-    parser.add_argument('--' + constants.SAVED_MODEL_NAME, required=True, help='trained Permutect model from train_artifact_model.py')
+    parser.add_argument('--' + constants.SAVED_MODEL_NAME, required=True, help='trained Permutect model from refine_permutect_model.py')
     parser.add_argument('--' + constants.CONTIGS_TABLE_NAME, required=True, help='table of contig names vs integer indices')
     parser.add_argument('--' + constants.OUTPUT_NAME, required=True, help='path to output filtered VCF')
     parser.add_argument('--' + constants.TENSORBOARD_DIR_NAME, type=str, default='tensorboard', required=False, help='path to output tensorboard')

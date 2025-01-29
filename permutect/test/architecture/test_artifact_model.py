@@ -3,7 +3,7 @@ from permutect.data.base_dataset import BaseDataset, make_test_data_loader
 from permutect.data.base_datum import BaseDatum
 from typing import Iterable
 from permutect.parameters import ArtifactModelParameters, ModelParameters
-from permutect.tools.train_artifact_model import TrainingParameters
+from permutect.tools.refine_permutect_model import TrainingParameters
 
 from tensorboard.backend.event_processing.event_accumulator import EventAccumulator
 import tempfile

@@ -1,7 +1,7 @@
 version 1.0
 
 
-workflow TrainPermutect {
+workflow RefinePermutectModel {
     input {
         File train_tar
         File saved_model
@@ -22,7 +22,7 @@ workflow TrainPermutect {
         Int? mem
     }
 
-    call TrainPermutect {
+    call RefinePermutect {
         input:
             train_tar = train_tar,
             saved_model = saved_model,
@@ -44,13 +44,13 @@ workflow TrainPermutect {
 
 
     output {
-        File permutect_model = TrainPermutect.permutect_model
-        File training_tensorboard_tar = TrainPermutect.tensorboard_tar
+        File permutect_model = RefinePermutect.permutect_model
+        File training_tensorboard_tar = RefinePermutect.tensorboard_tar
     }
 }
 
 
-task TrainPermutect {
+task RefinePermutect {
     input {
         File train_tar
         File saved_model
@@ -83,7 +83,7 @@ task TrainPermutect {
     command <<<
         set -e
 
-        train_model \
+        refine_permutect_model \
             --train_tar ~{train_tar} \
             --saved_model ~{saved_model} \
             --batch_size ~{batch_size} \

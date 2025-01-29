@@ -9,8 +9,8 @@ setup(
     license="Apache license version 2.0",
     packages=find_packages(),
     entry_points={
-        'console_scripts': ['train_model=permutect.tools.train_model:main',
-                            'train_base_model=permutect.tools.train_base_model:main',
+        'console_scripts': ['refine_permutect_model=permutect.tools.refine_permutect_model:main',
+                            'train_permutect_model=permutect.tools.train_permutect_model:main',
                             'filter_variants=permutect.tools.filter_variants:main',
                             'preprocess_dataset=permutect.tools.preprocess_dataset:main',
                             'edit_dataset=permutect.tools.edit_dataset:main',
