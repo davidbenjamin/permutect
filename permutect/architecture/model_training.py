@@ -27,8 +27,8 @@ from permutect.utils import Label, Variation, Epoch
 WORST_OFFENDERS_QUEUE_SIZE = 100
 
 
-def learn_base_model(model: PermutectModel, dataset: BaseDataset, training_params: TrainingParameters,
-                     summary_writer: SummaryWriter, validation_fold: int = None):
+def train_permutect_model(model: PermutectModel, dataset: BaseDataset, training_params: TrainingParameters,
+                          summary_writer: SummaryWriter, validation_fold: int = None):
     print(f"Memory usage percent: {psutil.virtual_memory().percent:.1f}")
     is_cuda = model._device.type == 'cuda'
     print(f"Is CUDA available? {is_cuda}")

@@ -4,7 +4,7 @@ from torch.utils.tensorboard import SummaryWriter
 
 from permutect import constants, utils
 from permutect.architecture.permutect_model import PermutectModel, load_model
-from permutect.architecture.model_training import learn_base_model
+from permutect.architecture.model_training import train_permutect_model
 from permutect.parameters import parse_training_params, parse_model_params, add_model_params_to_parser, add_training_params_to_parser
 from permutect.data.base_dataset import BaseDataset
 
@@ -26,7 +26,7 @@ def main_without_parsing(args):
             PermutectModel(params=params, num_read_features=dataset.num_read_features, num_info_features=dataset.num_info_features,
                            ref_sequence_length=dataset.ref_sequence_length, device=utils.gpu_if_available())
 
-    learn_base_model(model, dataset, training_params, summary_writer=summary_writer)
+    train_permutect_model(model, dataset, training_params, summary_writer=summary_writer)
     summary_writer.close()
 
     # TODO: this is currently wrong because we are using the separate artifact model, not the full model

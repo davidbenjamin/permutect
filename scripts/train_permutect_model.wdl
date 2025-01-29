@@ -1,7 +1,7 @@
 version 1.0
 
 
-workflow TrainPermutectBaseModel {
+workflow TrainPermutectModel {
     input {
         File train_tar
         File? pretrained_model
@@ -26,7 +26,7 @@ workflow TrainPermutectBaseModel {
         Int? max_retries
     }
 
-    call TrainPermutectBase {
+    call TrainPermutect {
         input:
             train_tar = train_tar,
             pretrained_model = pretrained_model,
@@ -51,13 +51,13 @@ workflow TrainPermutectBaseModel {
     }
 
     output {
-        File permutect_model = TrainPermutectBase.permutect_model
-        File training_tensorboard_tar = TrainPermutectBase.tensorboard_tar
+        File permutect_model = TrainPermutect.permutect_model
+        File training_tensorboard_tar = TrainPermutect.tensorboard_tar
     }
 }
 
 
-task TrainPermutectBase {
+task TrainPermutect {
     input {
         File train_tar
         File? pretrained_model

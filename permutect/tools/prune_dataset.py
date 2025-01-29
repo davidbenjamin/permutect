@@ -16,7 +16,6 @@ import torch
 from torch.utils.tensorboard import SummaryWriter
 
 from permutect import constants, utils
-from permutect.data.base_datum import ArtifactDatum, ArtifactBatch
 from permutect.data.artifact_dataset import ArtifactDataset
 from permutect.parameters import add_training_params_to_parser, TrainingParameters
 from permutect.data.base_dataset import BaseDataset
@@ -113,9 +112,7 @@ def generated_pruned_data_for_fold(art_threshold: float, nonart_threshold: float
         # apply the representation model AND the artifact model to go from the original read set to artifact logits
         representation, _ = model.calculate_representations(base_batch)
 
-        artifact_batch = ArtifactBatch([ArtifactDatum(rs, rep) for rs, rep in zip(base_batch.original_list(), representation.detach())])
-
-        art_logits, _ = model.logits_from_artifact_batch(artifact_batch)
+        art_logits, _ = model.logits_from_base_batch(representation, base_batch)
         art_probs = torch.sigmoid(art_logits.detach())
         art_label_mask = (base_batch.get_training_labels() > 0.5)
         is_labeled_mask = (base_batch.get_is_labeled_mask() > 0.5)
