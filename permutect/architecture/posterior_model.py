@@ -200,9 +200,9 @@ class PosteriorModel(torch.nn.Module):
         sufficient evidence was found to emit test data.  Without this parameter (i.e. if it were set to zero) we would
         underestimate the frequency of sequencing error, hence overestimate the prior probability of variation.
         :param artifact_spectra_state_dict: (possibly None) if given, pretrained parameters of self.artifact_spectra
-        from train_model.py.  In this case we make sure to freeze this part of the model
+        from train_artifact_model.py.  In this case we make sure to freeze this part of the model
         :param artifact_log_priors: (possibly None) 1D tensor with length len(utils.Variation) containing log prior probabilities
-        of artifacts for each variation type, from train_model.py.  If given, freeze these parameters.
+        of artifacts for each variation type, from train_artifact_model.py.  If given, freeze these parameters.
         :return:
         """
         spectra_and_prior_params = chain(self.somatic_spectrum.parameters(), self.artifact_spectra.parameters(),

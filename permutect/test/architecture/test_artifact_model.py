@@ -5,7 +5,7 @@ from typing import Iterable
 from permutect.architecture.artifact_model import ArtifactModel
 from permutect.parameters import ArtifactModelParameters, ModelParameters
 from permutect import utils
-from permutect.tools.train_model import TrainingParameters
+from permutect.tools.train_artifact_model import TrainingParameters
 
 from tensorboard.backend.event_processing.event_accumulator import EventAccumulator
 import tempfile

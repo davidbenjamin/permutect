@@ -11,7 +11,7 @@ from permutect.data.base_datum import ArtifactDatum, ArtifactBatch
 from permutect.data.base_dataset import BaseDataset, chunk
 
 
-# given a ReadSetDataset, apply a BaseModel to get an ArtifactDataset (in RAM, maybe implement memory map later)
+# given a BaseDataset, apply a BaseModel to get an ArtifactDataset (in RAM, maybe implement memory map later)
 # of RepresentationReadSets
 class ArtifactDataset(Dataset):
     def __init__(self, base_dataset: BaseDataset,

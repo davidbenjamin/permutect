@@ -3,7 +3,6 @@ import argparse
 from torch.utils.tensorboard import SummaryWriter
 
 from permutect import constants, utils
-from permutect.architecture.artifact_model import ArtifactModel
 from permutect.architecture.permutect_model import PermutectModel, load_model
 from permutect.architecture.model_training import learn_base_model
 from permutect.parameters import parse_training_params, parse_model_params, add_model_params_to_parser, add_training_params_to_parser

@@ -20,7 +20,7 @@ from permutect.data.base_datum import ArtifactDatum, ArtifactBatch
 from permutect.data.artifact_dataset import ArtifactDataset
 from permutect.parameters import add_training_params_to_parser, TrainingParameters
 from permutect.data.base_dataset import BaseDataset
-from permutect.tools.train_model import parse_training_params
+from permutect.tools.train_artifact_model import parse_training_params
 from permutect.utils import Label
 
 NUM_FOLDS = 3

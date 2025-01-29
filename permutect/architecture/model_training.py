@@ -1,6 +1,8 @@
 import math
 import time
+from collections import defaultdict
 from itertools import chain
+from queue import PriorityQueue
 from typing import List
 
 import psutil
@@ -16,9 +18,13 @@ from permutect.architecture.gradient_reversal.module import GradientReversal
 from permutect.architecture.mlp import MLP
 from permutect.data.artifact_dataset import ArtifactDataset
 from permutect.data.base_dataset import BaseDataset, ALL_COUNTS_INDEX, ratio_with_pseudocount
-from permutect.metrics.evaluation_metrics import LossMetrics
+from permutect.data.base_datum import ArtifactBatch
+from permutect.metrics.evaluation_metrics import LossMetrics, EmbeddingMetrics, round_up_to_nearest_three, MAX_COUNT, \
+    EvaluationMetrics
 from permutect.parameters import TrainingParameters
-from permutect.utils import Label
+from permutect.utils import Label, Variation, Epoch
+
+WORST_OFFENDERS_QUEUE_SIZE = 100
 
 
 def learn_base_model(model: PermutectModel, dataset: BaseDataset, training_params: TrainingParameters,
@@ -329,7 +335,119 @@ def train_on_artifact_dataset(model: PermutectModel, dataset: ArtifactDataset, t
         print(f"End of epoch {epoch}, memory usage percent: {psutil.virtual_memory().percent:.1f}, time elapsed(s): {time.time() - start_of_epoch:.2f}")
         if (epochs_per_evaluation is not None and epoch % epochs_per_evaluation == 0) or (epoch == last_epoch):
             print(f"performing evaluation on epoch {epoch}")
-            model.evaluate_model(epoch, dataset, train_loader, valid_loader, summary_writer, collect_embeddings=False, report_worst=False)
+            evaluate_model(model, epoch, dataset, train_loader, valid_loader, summary_writer, collect_embeddings=False, report_worst=False)
 
         # note that we have not learned the AF spectrum yet
     # done with training
+
+
+@torch.inference_mode()
+def collect_evaluation_data(model: PermutectModel, dataset: ArtifactDataset, train_loader, valid_loader, report_worst: bool):
+    # the keys are tuples of (true label -- 1 for variant, 0 for artifact; rounded alt count)
+    worst_offenders_by_truth_and_alt_count = defaultdict(lambda: PriorityQueue(WORST_OFFENDERS_QUEUE_SIZE))
+
+    evaluation_metrics = EvaluationMetrics()
+    epoch_types = [Epoch.TRAIN, Epoch.VALID]
+    for epoch_type in epoch_types:
+        assert epoch_type == Epoch.TRAIN or epoch_type == Epoch.VALID  # not doing TEST here
+        loader = train_loader if epoch_type == Epoch.TRAIN else valid_loader
+        pbar = tqdm(enumerate(loader), mininterval=60)
+
+        batch_cpu: ArtifactBatch
+        for n, batch_cpu in pbar:
+            batch = batch_cpu.copy_to(model._device, model._dtype, non_blocking=model._device.type == 'cuda')
+
+            # these are the same weights used in training
+            # TODO: we need a parameter to control the relative weight of unlabeled loss to labeled loss
+            weights = calculate_batch_weights(batch_cpu, dataset, by_count=True)
+            weights = weights.to(dtype=model._dtype)     # not sent to GPU!
+
+            logits, _ = model.logits_from_artifact_batch(batch)
+            # logits are calculated on the GPU (when available), so we must detach AND send back to CPU (if applicable)
+            pred = logits.detach().cpu()
+
+            # note that for metrics we use batch_cpu
+            labels = batch_cpu.get_training_labels()
+            correct = ((pred > 0) == (labels > 0.5)).tolist()
+
+            for variant_type, predicted_logit, source, int_label, correct_call, alt_count, variant, weight in zip(
+                    batch_cpu.get_variant_types().tolist(), pred.tolist(), batch.get_sources().tolist(), batch_cpu.get_labels().tolist(), correct,
+                    batch_cpu.get_alt_counts().tolist(), batch_cpu.get_variants(), weights.tolist()):
+                label = Label(int_label)
+                evaluation_metrics.record_call(epoch_type, variant_type, predicted_logit, label, correct_call,
+                                               alt_count, weight, source=source)
+
+                if (label != Label.UNLABELED) and report_worst and not correct_call:
+                    rounded_count = round_up_to_nearest_three(alt_count)
+                    label_name = Label.ARTIFACT.name if label > 0.5 else Label.VARIANT.name
+                    confidence = abs(predicted_logit)
+
+                    # the 0th aka highest priority element in the queue is the one with the lowest confidence
+                    pqueue = worst_offenders_by_truth_and_alt_count[(label_name, rounded_count)]
+
+                    # clear space if this confidence is more egregious
+                    if pqueue.full() and pqueue.queue[0][0] < confidence:
+                        pqueue.get()  # discards the least confident bad call
+
+                    if not pqueue.full():  # if space was cleared or if it wasn't full already
+                        pqueue.put((confidence, str(variant.contig) + ":" + str(
+                            variant.position) + ':' + variant.ref + "->" + variant.alt))
+        # done with this epoch type
+    # done collecting data
+    return evaluation_metrics, worst_offenders_by_truth_and_alt_count
+
+
+@torch.inference_mode()
+def evaluate_model(model: PermutectModel, epoch: int, dataset: ArtifactDataset, train_loader, valid_loader,
+    summary_writer: SummaryWriter, collect_embeddings: bool = False, report_worst: bool = False):
+
+    # self.freeze_all()
+    evaluation_metrics, worst_offenders_by_truth_and_alt_count = collect_evaluation_data(model, dataset, train_loader, valid_loader, report_worst)
+    evaluation_metrics.make_plots(summary_writer, epoch=epoch)
+
+    if report_worst:
+        for (true_label, rounded_count), pqueue in worst_offenders_by_truth_and_alt_count.items():
+            tag = "True label: " + true_label + ", rounded alt count: " + str(rounded_count)
+
+            lines = []
+            while not pqueue.empty():   # this goes from least to most egregious, FYI
+                confidence, var_string = pqueue.get()
+                lines.append(f"{var_string} ({confidence:.2f})")
+
+            summary_writer.add_text(tag, "\n".join(lines), global_step=epoch)
+
+    if collect_embeddings:
+        embedding_metrics = EmbeddingMetrics()
+
+        # now go over just the validation data and generate feature vectors / metadata for tensorboard projectors (UMAP)
+        pbar = tqdm(enumerate(valid_loader), mininterval=60)
+
+        for n, batch_cpu in pbar:
+            batch = batch_cpu.copy_to(model._device, model._dtype, non_blocking=model._device.type == 'cuda')
+            logits, _ = model.logits_from_artifact_batch(batch)
+            pred = logits.detach().cpu()
+            labels = batch_cpu.get_training_labels()
+            correct = ((pred > 0) == (labels > 0.5)).tolist()
+
+            label_strings = [("artifact" if label > 0.5 else "non-artifact") if is_labeled > 0.5 else "unlabeled"
+                             for (label, is_labeled) in zip(labels.tolist(), batch_cpu.get_is_labeled_mask().tolist())]
+
+            correct_strings = [str(correctness) if is_labeled > 0.5 else "-1"
+                             for (correctness, is_labeled) in zip(correct, batch_cpu.get_is_labeled_mask().tolist())]
+
+            for (metrics, embedding) in [(embedding_metrics, batch_cpu.get_representations_2d().detach())]:
+                metrics.label_metadata.extend(label_strings)
+                metrics.correct_metadata.extend(correct_strings)
+                metrics.type_metadata.extend([Variation(idx).name for idx in batch_cpu.get_variant_types().tolist()])
+                metrics.truncated_count_metadata.extend([str(round_up_to_nearest_three(min(MAX_COUNT, alt_count))) for alt_count in batch_cpu.get_alt_counts().tolist()])
+                metrics.representations.append(embedding)
+        embedding_metrics.output_to_summary_writer(summary_writer, epoch=epoch)
+    # done collecting data
+
+
+# TODO: these were copied from artifact model and probably could use some refactoring
+def evaluate_model_after_training(model: PermutectModel, dataset: ArtifactDataset, batch_size, num_workers, summary_writer: SummaryWriter):
+    train_loader = dataset.make_data_loader(dataset.all_but_the_last_fold(), batch_size, model._device.type == 'cuda', num_workers)
+    valid_loader = dataset.make_data_loader(dataset.last_fold_only(), batch_size, model._device.type == 'cuda', num_workers)
+    evaluate_model(model, None, dataset, train_loader, valid_loader, summary_writer, collect_embeddings=True, report_worst=True)
+
