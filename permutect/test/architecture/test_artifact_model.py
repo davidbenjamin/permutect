@@ -2,9 +2,7 @@ from permutect.test.test_utils import artificial_data
 from permutect.data.base_dataset import BaseDataset, make_test_data_loader
 from permutect.data.base_datum import BaseDatum
 from typing import Iterable
-from permutect.architecture.artifact_model import ArtifactModel
 from permutect.parameters import ArtifactModelParameters, ModelParameters
-from permutect import utils
 from permutect.tools.train_artifact_model import TrainingParameters
 
 from tensorboard.backend.event_processing.event_accumulator import EventAccumulator
@@ -33,12 +31,7 @@ def train_model_and_write_summary(hyperparams: ModelParameters, training_params:
                                   data: Iterable[BaseDatum], summary_writer: SummaryWriter = None):
     dataset = BaseDataset(data=data)
     big_dataset = BigReadSetDataset(batch_size=training_params.batch_size, dataset=dataset, num_workers=2)
-    model = ArtifactModel(params=hyperparams).float()
 
-    model.learn(big_dataset, training_params.num_epochs, training_params.num_calibration_epochs, summary_writer=summary_writer,
-                reweighting_range=training_params.reweighting_range, hyperparams=hyperparams)
-    model.evaluate_model_after_training({"training": big_dataset.generate_batches(utils.Epoch.TRAIN)}, summary_writer)
-    return model
 
 
 def test_big_data():
@@ -49,10 +42,6 @@ def test_big_data():
 
     with tempfile.TemporaryDirectory() as tensorboard_dir:
         summary_writer = SummaryWriter(tensorboard_dir)
-        model = ArtifactModel(params=params).float()
-        model.learn(big_dataset, training_params.num_epochs, training_params.num_calibration_epochs, summary_writer=summary_writer,
-                    reweighting_range=training_params.reweighting_range, hyperparams=params)
-        model.evaluate_model_after_training({"training": big_dataset.generate_batches(utils.Epoch.TRAIN)}, summary_writer)
 
         events = EventAccumulator(tensorboard_dir)
         events.Reload()

@@ -11,7 +11,6 @@ from torch.utils.tensorboard import SummaryWriter
 from tqdm.autonotebook import tqdm
 
 from permutect import constants, utils
-from permutect.architecture.artifact_model import ArtifactModel
 from permutect.architecture.posterior_model import PosteriorModel
 from permutect.architecture.permutect_model import PermutectModel, load_model
 from permutect.data import base_dataset, plain_text_data, base_datum
