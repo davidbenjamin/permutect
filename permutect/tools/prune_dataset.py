@@ -6,7 +6,8 @@ from typing import List
 
 import psutil
 
-from permutect.architecture.base_model import load_base_model, BaseModel
+from permutect.architecture.model_training import train_on_artifact_dataset
+from permutect.architecture.permutect_model import PermutectModel, load_model
 from permutect.data import base_datum
 from tqdm.autonotebook import tqdm
 
@@ -15,20 +16,17 @@ import torch
 from torch.utils.tensorboard import SummaryWriter
 
 from permutect import constants, utils
-from permutect.architecture.artifact_model import ArtifactModel
-from permutect.data.base_datum import ArtifactDatum, ArtifactBatch
 from permutect.data.artifact_dataset import ArtifactDataset
-from permutect.parameters import ArtifactModelParameters, parse_artifact_model_params, \
-    add_artifact_model_params_to_parser, add_training_params_to_parser
+from permutect.parameters import add_training_params_to_parser, TrainingParameters
 from permutect.data.base_dataset import BaseDataset
-from permutect.tools.train_model import TrainingParameters, parse_training_params
+from permutect.tools.refine_permutect_model import parse_training_params
 from permutect.utils import Label
 
 NUM_FOLDS = 3
 
 
 # labeled only pruning loader must be constructed with options to emit batches of all-labeled data
-def calculate_pruning_thresholds(labeled_only_pruning_loader, artifact_model: ArtifactModel, label_art_frac: float, training_params: TrainingParameters) -> List[int]:
+def calculate_pruning_thresholds(labeled_only_pruning_loader, model: PermutectModel, label_art_frac: float, training_params: TrainingParameters) -> List[int]:
     for fold in range(NUM_FOLDS):
         average_artifact_confidence, average_nonartifact_confidence = utils.StreamingAverage(), utils.StreamingAverage()
         # TODO: eventually this should all be segregated by variant type and maybe also alt count
@@ -40,7 +38,7 @@ def calculate_pruning_thresholds(labeled_only_pruning_loader, artifact_model: Ar
         for n, batch in pbar:
             # TODO: should we use likelihoods as in evaluation or posteriors as in training???
             # TODO: does it even matter??
-            art_logits, _, _ = artifact_model.forward(batch)
+            art_logits, _ = model.logits_from_artifact_batch(batch)
             art_probs = torch.sigmoid(art_logits.detach())
 
             labels = batch.get_training_labels()
@@ -62,7 +60,7 @@ def calculate_pruning_thresholds(labeled_only_pruning_loader, artifact_model: Ar
         nonart_conf_threshold = average_nonartifact_confidence.get()
         pbar = tqdm(enumerate(labeled_only_pruning_loader), mininterval=60)
         for n, batch in pbar:
-            predicted_artifact_logits, _, _ = artifact_model.forward(batch)
+            predicted_artifact_logits, _ = model.logits_from_artifact_batch(batch)
             predicted_artifact_probs = torch.sigmoid(predicted_artifact_logits.detach())
 
             conf_art_mask = predicted_artifact_probs >= art_conf_threshold
@@ -107,17 +105,14 @@ def calculate_pruning_thresholds(labeled_only_pruning_loader, artifact_model: Ar
 
 
 # generates BaseDatum(s) from the original dataset that *pass* the pruning thresholds
-def generated_pruned_data_for_fold(art_threshold: float, nonart_threshold: float, pruning_base_data_loader,
-                                   base_model: BaseModel, artifact_model: ArtifactModel) -> List[int]:
+def generated_pruned_data_for_fold(art_threshold: float, nonart_threshold: float, pruning_base_data_loader, model: PermutectModel) -> List[int]:
     print("pruning the dataset")
     pbar = tqdm(enumerate(pruning_base_data_loader), mininterval=60)
     for n, base_batch in pbar:
         # apply the representation model AND the artifact model to go from the original read set to artifact logits
-        representation, _ = base_model.calculate_representations(base_batch)
+        representation, _ = model.calculate_representations(base_batch)
 
-        artifact_batch = ArtifactBatch([ArtifactDatum(rs, rep) for rs, rep in zip(base_batch.original_list(), representation.detach())])
-
-        art_logits, _, _ = artifact_model.forward(artifact_batch)
+        art_logits, _ = model.logits_from_base_batch(representation, base_batch)
         art_probs = torch.sigmoid(art_logits.detach())
         art_label_mask = (base_batch.get_training_labels() > 0.5)
         is_labeled_mask = (base_batch.get_is_labeled_mask() > 0.5)
@@ -132,11 +127,9 @@ def generated_pruned_data_for_fold(art_threshold: float, nonart_threshold: float
                 yield datum # this is a ReadSet
 
 
-def generate_pruned_data_for_all_folds(base_dataset: BaseDataset, base_model: BaseModel,
-                                       training_params: TrainingParameters, params: ArtifactModelParameters, tensorboard_dir):
+def generate_pruned_data_for_all_folds(base_dataset: BaseDataset, model: PermutectModel, training_params: TrainingParameters, tensorboard_dir):
     # for each fold in turn, train an artifact model on all other folds and prune the chosen fold
     use_gpu = torch.cuda.is_available()
-    device = torch.device('cuda' if use_gpu else 'cpu')
 
     for pruning_fold in range(NUM_FOLDS):
         summary_writer = SummaryWriter(tensorboard_dir + "/fold_" + str(pruning_fold))
@@ -144,27 +137,27 @@ def generate_pruned_data_for_all_folds(base_dataset: BaseDataset, base_model: Ba
         print(f"Memory usage percent: {psutil.virtual_memory().percent:.3f}")
 
         # learn an artifact model with the pruning data held out
-        artifact_dataset = ArtifactDataset(base_dataset, base_model, base_dataset.all_but_one_fold(pruning_fold))
+        artifact_dataset = ArtifactDataset(base_dataset, model, base_dataset.all_but_one_fold(pruning_fold))
 
         # sum is over variant types
         # TODO: this assumes we are only pruning a single-source (source == 0) dataset
-        # TODO: also -- is the -1 wrond?  I feel like it should be the ALL_COUNTS_SENTINEL, which is 0. . .
+        # TODO: also -- is the -1 wrong?  I feel like it should be the ALL_COUNTS_SENTINEL, which is 0. . .
         label_art_frac = np.sum(artifact_dataset.totals_sclt[0][-1][Label.ARTIFACT]) / np.sum(artifact_dataset.totals_sclt[0][-1][Label.ARTIFACT] +
                                                                                            artifact_dataset.totals_sclt[0][-1][Label.VARIANT])
 
         # learn pruning thresholds on the held-out data
-        pruning_artifact_dataset = ArtifactDataset(base_dataset, base_model, [pruning_fold])
+        pruning_artifact_dataset = ArtifactDataset(base_dataset, model, [pruning_fold])
         labeled_only_pruning_loader = pruning_artifact_dataset.make_data_loader(pruning_artifact_dataset.all_folds(),
             training_params.batch_size, use_gpu, training_params.num_workers, labeled_only=True)
-        model = ArtifactModel(params=params, num_base_features=artifact_dataset.num_base_features, num_ref_alt_features=base_model.ref_alt_seq_embedding_dimension(), device=device).float()
-        model.learn(artifact_dataset, training_params, summary_writer=summary_writer)
+
+        train_on_artifact_dataset(model, artifact_dataset, training_params, summary_writer=summary_writer)
 
         # TODO: maybe this should be done by variant type and/or count
         art_threshold, nonart_threshold = calculate_pruning_thresholds(labeled_only_pruning_loader, model, label_art_frac, training_params)
 
         # unlike when learning thresholds, we load labeled and unlabeled data here
         pruning_base_data_loader = base_dataset.make_data_loader([pruning_fold], training_params.batch_size, use_gpu, training_params.num_epochs)
-        for passing_base_datum in generated_pruned_data_for_fold(art_threshold, nonart_threshold, pruning_base_data_loader, base_model, model):
+        for passing_base_datum in generated_pruned_data_for_fold(art_threshold, nonart_threshold, pruning_base_data_loader, model):
             yield passing_base_datum
 
 
@@ -203,7 +196,6 @@ def make_pruned_training_dataset(pruned_data_buffer_generator, pruned_tarfile):
 def parse_arguments():
     parser = argparse.ArgumentParser(description='train the Mutect3 artifact model')
 
-    add_artifact_model_params_to_parser(parser)
     add_training_params_to_parser(parser)
 
     parser.add_argument('--' + constants.CHUNK_SIZE_NAME, type=int, default=int(2e9), required=False,
@@ -212,7 +204,7 @@ def parse_arguments():
     # input / output
     parser.add_argument('--' + constants.TRAIN_TAR_NAME, type=str, required=True,
                         help='tarfile of training/validation datasets produced by preprocess_dataset.py')
-    parser.add_argument('--' + constants.BASE_MODEL_NAME, type=str, help='Base model from train_base_model.py')
+    parser.add_argument('--' + constants.SAVED_MODEL_NAME, type=str, help='Base model from train_permutect_model.py')
     parser.add_argument('--' + constants.OUTPUT_NAME, type=str, required=True, help='path to pruned dataset file')
     parser.add_argument('--' + constants.TENSORBOARD_DIR_NAME, type=str, default='tensorboard', required=False,
                         help='path to output tensorboard directory')
@@ -221,7 +213,6 @@ def parse_arguments():
 
 
 def main_without_parsing(args):
-    params = parse_artifact_model_params(args)
     training_params = parse_training_params(args)
 
     tensorboard_dir = getattr(args, constants.TENSORBOARD_DIR_NAME)
@@ -229,11 +220,12 @@ def main_without_parsing(args):
     chunk_size = getattr(args, constants.CHUNK_SIZE_NAME)
     original_tarfile = getattr(args, constants.TRAIN_TAR_NAME)
 
-    base_model = load_base_model(getattr(args, constants.BASE_MODEL_NAME))
+    model,  _, _ = load_model(getattr(args, constants.SAVED_MODEL_NAME))
+
     base_dataset = BaseDataset(data_tarfile=original_tarfile, num_folds=NUM_FOLDS)
 
     # generate ReadSets passing pruning
-    pruned_data_generator = generate_pruned_data_for_all_folds(base_dataset, base_model, training_params, params, tensorboard_dir)
+    pruned_data_generator = generate_pruned_data_for_all_folds(base_dataset, model, training_params, tensorboard_dir)
 
     # generate List[ReadSet]s passing pruning
     pruned_data_buffer_generator = generate_pruned_data_buffers(pruned_data_generator, chunk_size)

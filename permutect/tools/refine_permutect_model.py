@@ -1,34 +1,19 @@
 import argparse
-from typing import List
 
 import psutil
 import torch
 from torch.utils.tensorboard import SummaryWriter
 
 from permutect import constants, utils
-from permutect.architecture.artifact_model import ArtifactModel
 from permutect.architecture.artifact_spectra import ArtifactSpectra
+from permutect.architecture.model_training import train_on_artifact_dataset
+from permutect.architecture.permutect_model import load_model
 from permutect.architecture.posterior_model import plot_artifact_spectra
-from permutect.architecture.base_model import load_base_model
 from permutect.data.base_dataset import BaseDataset
 from permutect.data.artifact_dataset import ArtifactDataset
 from permutect.data.base_datum import ArtifactDatum
-from permutect.parameters import TrainingParameters, add_training_params_to_parser, parse_training_params, \
-    ArtifactModelParameters, parse_artifact_model_params, add_artifact_model_params_to_parser
+from permutect.parameters import add_training_params_to_parser, parse_training_params
 from permutect.utils import Variation, Label
-
-
-def train_artifact_model(hyperparams: ArtifactModelParameters, training_params: TrainingParameters, summary_writer: SummaryWriter,
-                         dataset: ArtifactDataset, calibration_sources: List[int] = None):
-    model = ArtifactModel(params=hyperparams, num_base_features=dataset.num_base_features, num_ref_alt_features=dataset.num_ref_alt_features, device=utils.gpu_if_available())
-    # TODO: magic constant
-    model.learn(dataset, training_params, summary_writer=summary_writer, epochs_per_evaluation=10, calibration_sources=calibration_sources)
-
-    for n, var_type in enumerate(Variation):
-        cal_fig, cal_axes = model.calibration[n].plot_calibration()
-        summary_writer.add_figure("calibration by count for " + var_type.name, cal_fig)
-
-    return model
 
 
 def learn_artifact_priors_and_spectra(artifact_dataset: ArtifactDataset, genomic_span_of_data: int):
@@ -64,7 +49,6 @@ def learn_artifact_priors_and_spectra(artifact_dataset: ArtifactDataset, genomic
 def parse_arguments():
     parser = argparse.ArgumentParser(description='train the Permutect artifact model')
 
-    add_artifact_model_params_to_parser(parser)
     add_training_params_to_parser(parser)
 
     parser.add_argument('--' + constants.CALIBRATION_SOURCES_NAME, nargs='+', default=None, type=int, required=False,
@@ -81,7 +65,7 @@ def parse_arguments():
     # inputs and outputs
     parser.add_argument('--' + constants.TRAIN_TAR_NAME, type=str, required=True,
                         help='tarfile of training/validation datasets produced by preprocess_dataset.py')
-    parser.add_argument('--' + constants.BASE_MODEL_NAME, type=str, help='Base model from train_base_model.py')
+    parser.add_argument('--' + constants.SAVED_MODEL_NAME, type=str, help='Base model from train_permutect_model.py')
     parser.add_argument('--' + constants.OUTPUT_NAME, type=str, required=True, help='path to output saved model file')
     parser.add_argument('--' + constants.TENSORBOARD_DIR_NAME, type=str, default='tensorboard', required=False,
                         help='path to output tensorboard directory')
@@ -90,7 +74,6 @@ def parse_arguments():
 
 
 def main_without_parsing(args):
-    params = parse_artifact_model_params(args)
     training_params = parse_training_params(args)
     learn_artifact_spectra = getattr(args, constants.LEARN_ARTIFACT_SPECTRA_NAME)
     calibration_sources = getattr(args, constants.CALIBRATION_SOURCES_NAME)
@@ -99,18 +82,23 @@ def main_without_parsing(args):
     tensorboard_dir = getattr(args, constants.TENSORBOARD_DIR_NAME)
     summary_writer = SummaryWriter(tensorboard_dir)
 
-    base_model = load_base_model(getattr(args, constants.BASE_MODEL_NAME))
+    # base and artifact models have already been trained.  We're just refining it here.
+    model, _, _ = load_model(getattr(args, constants.SAVED_MODEL_NAME))
     print(f"Memory usage percent before creating BaseDataset: {psutil.virtual_memory().percent:.1f}")
     base_dataset = BaseDataset(data_tarfile=getattr(args, constants.TRAIN_TAR_NAME), num_folds=10)
     print(f"Memory usage percent before creating ArtifactDataset: {psutil.virtual_memory().percent:.1f}")
     artifact_dataset = ArtifactDataset(base_dataset,
-                                       base_model,
+                                       model,
                                        base_loader_num_workers=training_params.num_workers,
                                        base_loader_batch_size=training_params.inference_batch_size)
     print(f"Memory usage percent after creating ArtifactDataset: {psutil.virtual_memory().percent:.1f}")
 
-    model = train_artifact_model(hyperparams=params, training_params=training_params, summary_writer=summary_writer,
-                                 dataset=artifact_dataset, calibration_sources=calibration_sources)
+    train_on_artifact_dataset(model, artifact_dataset, training_params, summary_writer, epochs_per_evaluation=10, calibration_sources=calibration_sources)
+
+    for n, var_type in enumerate(Variation):
+        cal_fig, cal_axes = model.calibration[n].plot_calibration()
+        summary_writer.add_figure("calibration by count for " + var_type.name, cal_fig)
+
     print(f"Memory usage percent after training artifact model: {psutil.virtual_memory().percent:.1f}")
 
     artifact_log_priors, artifact_spectra = learn_artifact_priors_and_spectra(artifact_dataset, genomic_span) if learn_artifact_spectra else (None, None)
@@ -119,7 +107,9 @@ def main_without_parsing(args):
         summary_writer.add_figure("Artifact AF Spectra", art_spectra_fig)
 
     summary_writer.close()
-    model.save_with_base_model(base_model, getattr(args, constants.OUTPUT_NAME), artifact_log_priors, artifact_spectra)
+
+    # TODO: this will only be correct once we use the full base model, not the separate artifact model
+    model.save_model(path=getattr(args, constants.OUTPUT_NAME), artifact_log_priors=artifact_log_priors, artifact_spectra=artifact_spectra)
 
 
 def main():

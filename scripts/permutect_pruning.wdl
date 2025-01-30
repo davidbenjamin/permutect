@@ -4,16 +4,13 @@ version 1.0
 workflow PrunePermutect {
     input {
         File train_tar
-        File base_model
+        File saved_model
         Int num_epochs
         Int num_calibration_epochs
         Int batch_size
         Int inference_batch_size
         Int chunk_size
         Int? num_workers
-        Float dropout_p
-        Array[Int] aggregation_layers
-        Array[Int] calibration_layers
         String? train_m3_extra_args
 
         String permutect_docker
@@ -24,7 +21,7 @@ workflow PrunePermutect {
     call PrunePermutect {
         input:
             train_tar = train_tar,
-            base_model = base_model,
+            saved_model = saved_model,
             permutect_docker = permutect_docker,
             preemptible = preemptible,
             max_retries = max_retries,
@@ -34,9 +31,6 @@ workflow PrunePermutect {
             inference_batch_size = inference_batch_size,
             chunk_size = chunk_size,
             num_workers = num_workers,
-            dropout_p = dropout_p,
-            aggregation_layers = aggregation_layers,
-            calibration_layers = calibration_layers,
             extra_args = train_m3_extra_args
     }
 
@@ -50,7 +44,7 @@ workflow PrunePermutect {
 task PrunePermutect {
     input {
         File train_tar
-        File base_model
+        File saved_model
 
         Int num_epochs
         Int num_calibration_epochs
@@ -58,10 +52,6 @@ task PrunePermutect {
         Int inference_batch_size
         Int chunk_size
         Int? num_workers
-        Float dropout_p
-        Array[Int] aggregation_layers
-        Array[Int] calibration_layers
-
         String? extra_args
 
         String permutect_docker
@@ -81,10 +71,7 @@ task PrunePermutect {
 
         prune_dataset \
             --train_tar ~{train_tar} \
-            --base_model ~{base_model} \
-            --aggregation_layers ~{sep=' ' aggregation_layers} \
-            --calibration_layers ~{sep=' ' calibration_layers} \
-            --dropout_p ~{dropout_p} \
+            --saved_model ~{saved_model} \
             --batch_size ~{batch_size} \
             --inference_batch_size ~{inference_batch_size} \
             --chunk_size ~{chunk_size} \
