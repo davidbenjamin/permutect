@@ -6,6 +6,7 @@ from torch.utils.tensorboard import SummaryWriter
 from tqdm.autonotebook import tqdm
 
 from permutect import utils, constants
+from permutect.architecture.adversarial import Adversarial
 from permutect.architecture.calibration import Calibration
 from permutect.architecture.dna_sequence_convolution import DNASequenceConvolution
 from permutect.architecture.gated_mlp import GatedRefAltMLP
@@ -106,7 +107,20 @@ class PermutectModel(torch.nn.Module):
         # one Calibration module for each variant type; that is, calibration depends on both count and type
         self.calibration = nn.ModuleList([Calibration(params.calibration_layers) for variant_type in Variation])
 
+        self.alt_count_predictor = Adversarial(MLP([self.pooling_dimension()] + [30, -1, -1, -1, 1]), adversarial_strength=0.01)
+
+        # used for unlabeled domain adaptation -- needs to be reset depending on the number of sources, as well as
+        # the particular sources used in training.  Note that we initialize as a trivial model with 1 source
+        self.source_predictor = Adversarial(MLP([self.pooling_dimension()] + [1], batch_normalize=params.batch_normalize,
+                dropout_p=params.dropout_p), adversarial_strength=0.01)
+
         self.to(device=self._device, dtype=self._dtype)
+
+    def reset_source_predictor(self, num_sources: int = 1):
+        source_prediction_hidden_layers = [] if num_sources == 1 else [-1, -1]
+        layers = [self.pooling_dimension()] + source_prediction_hidden_layers + [num_sources]
+        self.source_predictor = Adversarial(MLP(layers, batch_normalize=self._params.batch_normalize,
+            dropout_p=self._params.dropout_p), adversarial_strength=0.01).to(device=self._device, dtype=self._dtype)
 
     def pooling_dimension(self) -> int:
         return self.set_pooling.output_dimension()
@@ -202,6 +216,7 @@ class PermutectModel(torch.nn.Module):
 
     # save a model, optionally with artifact log priors and spectra
     def save_model(self, path, artifact_log_priors=None, artifact_spectra=None):
+        self.reset_source_predictor()   # this way it's always the same in save/load to avoid state_dict mismatches
         torch.save(self.make_dict_for_saving(artifact_log_priors, artifact_spectra), path)
 
 

@@ -11,6 +11,7 @@ from torch.utils.tensorboard import SummaryWriter
 from tqdm import trange, tqdm
 
 from permutect import utils
+from permutect.architecture.adversarial import Adversarial
 from permutect.architecture.permutect_model import PermutectModel, calculate_batch_weights, record_embeddings, \
     calculate_batch_source_weights
 from permutect.architecture.gradient_reversal.module import GradientReversal
@@ -36,15 +37,10 @@ def train_permutect_model(model: PermutectModel, dataset: BaseDataset, training_
 
     dataset.report_totals()
 
-    # adversarial loss to learn features that forget the alt count
-    alt_count_gradient_reversal = GradientReversal(alpha=0.01)  #initialize as barely active
-    alt_count_predictor = MLP([model.pooling_dimension()] + [30, -1, -1, -1, 1]).to(device=device, dtype=dtype)
     alt_count_loss_func = torch.nn.MSELoss(reduction='none')
     alt_count_adversarial_metrics = LossMetrics()
 
-    # TODO: fused = is_cuda?
-    train_optimizer = torch.optim.AdamW(chain(model.parameters(), alt_count_predictor.parameters()),
-                                        lr=training_params.learning_rate, weight_decay=training_params.weight_decay)
+    train_optimizer = torch.optim.AdamW(model.parameters(), lr=training_params.learning_rate, weight_decay=training_params.weight_decay)
     # train scheduler needs to be given the thing that's supposed to decrease at the end of each epoch
     train_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
         train_optimizer, factor=0.2, patience=5, threshold=0.001, min_lr=(training_params.learning_rate/100), verbose=True)
@@ -56,9 +52,7 @@ def train_permutect_model(model: PermutectModel, dataset: BaseDataset, training_
     train_loader, valid_loader = dataset.make_train_and_valid_loaders(validation_fold_to_use, training_params.batch_size, is_cuda, training_params.num_workers)
 
     for epoch in trange(1, training_params.num_epochs + 1, desc="Epoch"):
-        p = epoch - 1
-        new_alpha = (2/(1 + math.exp(-0.1*p))) - 1
-        alt_count_gradient_reversal.set_alpha(new_alpha) # alpha increases linearly
+        model.alt_count_predictor.set_adversarial_strength((2/(1 + math.exp(-0.1*(epoch - 1)))) - 1) # alpha increases linearly
         start_epoch = time.time()
         report_memory_usage(f"Start of epoch {epoch}")
         for epoch_type in (Epoch.TRAIN, Epoch.VALID):
@@ -83,15 +77,10 @@ def train_permutect_model(model: PermutectModel, dataset: BaseDataset, training_
                 entropies = bce(uncalibrated_logits, probabilities)
 
                 semisupervised_losses = batch.get_is_labeled_mask() * cross_entropies + (1 - batch.get_is_labeled_mask()) * entropies
-
                 loss_metrics.record_losses(semisupervised_losses.detach(), batch, weights)
 
-                # gradient reversal means parameters before the representation try to maximize alt count prediction loss, i.e. features
-                # try to forget alt count, while parameters after the representation try to minimize it, i.e. they try
-                # to achieve the adversarial task
-                alt_count_pred = torch.sigmoid(alt_count_predictor.forward(alt_count_gradient_reversal(representations)).squeeze())
-
                 # TODO: use nonlinear transformation of counts
+                alt_count_pred = torch.sigmoid(model.alt_count_predictor.adversarial_forward(representations).squeeze())
                 alt_count_target = batch.get_alt_counts().to(dtype=alt_count_pred.dtype)/20
                 alt_count_losses = alt_count_loss_func(alt_count_pred, alt_count_target)
                 alt_count_adversarial_metrics.record_losses(alt_count_losses.detach(), batch, weights=torch.ones_like(alt_count_losses))
@@ -127,26 +116,10 @@ def train_on_artifact_dataset(model: PermutectModel, dataset: ArtifactDataset, t
     device, dtype = model._device, model._dtype
     bce = nn.BCEWithLogitsLoss(reduction='none')  # no reduction because we may want to first multiply by weights for unbalanced data
 
-    num_sources = len(dataset.counts_by_source.keys())
-    if num_sources == 1:
-        print("Training data come from a single source (this could be multiple files with the same source annotation applied in preprocessing)")
-    else:
-        sources_list = list(dataset.counts_by_source.keys())
-        sources_list.sort()
-        assert sources_list[0] == 0, "There is no source 0"
-        assert sources_list[-1] == num_sources - 1, f"sources should be 0, 1, 2. . . without gaps, but sources are {sources_list}."
+    num_sources = dataset.validate_sources()
+    model.reset_source_predictor(num_sources)
 
-        print(f"Training data come from multiple sources, with counts {dataset.counts_by_source}.")
-    # TODO: source classifier should just belong to the model, perhaps?
-    source_classifier = MLP([model.pooling_dimension()] + [-1, -1, num_sources],
-                                batch_normalize=model._params.batch_normalize, dropout_p=model._params.dropout_p)
-    source_classifier.to(device=device, dtype=dtype)
-    source_gradient_reversal = GradientReversal(alpha=0.01)  # initialize as barely active
-    source_gradient_reversal.to(device=device, dtype=dtype)
-
-    # TODO: fused = is_cuda?
-    train_optimizer = torch.optim.AdamW(chain(model.parameters(), source_classifier.parameters()), lr=training_params.learning_rate,
-                                        weight_decay=training_params.weight_decay)
+    train_optimizer = torch.optim.AdamW(model.parameters(), lr=training_params.learning_rate, weight_decay=training_params.weight_decay)
     train_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(train_optimizer, factor=0.2, patience=5,
         threshold=0.001, min_lr=(training_params.learning_rate / 100), verbose=True)
 
@@ -188,9 +161,7 @@ def train_on_artifact_dataset(model: PermutectModel, dataset: ArtifactDataset, t
         report_memory_usage(f"Epoch {epoch}.")
         is_calibration_epoch = epoch > training_params.num_epochs
 
-        p = epoch - 1
-        new_alpha = (2 / (1 + math.exp(-0.1 * p))) - 1
-        source_gradient_reversal.set_alpha(new_alpha)
+        model.source_predictor.set_adversarial_strength((2 / (1 + math.exp(-0.1 * (epoch - 1)))) - 1)
 
         for epoch_type in [Epoch.TRAIN, Epoch.VALID]:
             model.set_epoch_type(epoch_type)
@@ -230,10 +201,7 @@ def train_on_artifact_dataset(model: PermutectModel, dataset: ArtifactDataset, t
 
                 # one-hot prediction of sources
                 if num_sources > 1:
-                    # gradient reversal means parameters before the features try to maximize source prediction loss, i.e. features
-                    # try to forget the source, while parameters after the features try to minimize it, i.e. they try
-                    # to achieve the adversarial task of distinguishing sources
-                    source_prediction_logits = source_classifier.forward(source_gradient_reversal(batch.get_representations_2d()))
+                    source_prediction_logits = model.source_predictor.adversarial_forward(batch.get_representations_2d())
                     source_prediction_probs = torch.nn.functional.softmax(source_prediction_logits, dim=-1)
                     source_prediction_targets = torch.nn.functional.one_hot(sources.long(), num_sources)
                     source_prediction_losses = torch.sum(torch.square(source_prediction_probs - source_prediction_targets), dim=-1)
