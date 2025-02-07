@@ -17,6 +17,7 @@ from torch.utils.tensorboard import SummaryWriter
 
 from permutect import constants, utils
 from permutect.data.artifact_dataset import ArtifactDataset
+from permutect.data.prefetch_generator import prefetch_generator
 from permutect.parameters import add_training_params_to_parser, TrainingParameters
 from permutect.data.base_dataset import BaseDataset
 from permutect.tools.refine_permutect_model import parse_training_params
@@ -34,8 +35,7 @@ def calculate_pruning_thresholds(labeled_only_pruning_loader, model: PermutectMo
         # the 0th/1st element is a list of predicted probabilities that data labeled as non-artifact/artifact are actually non-artifact/artifact
         probs_of_agreeing_with_label = [[],[]]
         print("calculating average confidence and gathering predicted probabilities")
-        pbar = tqdm(enumerate(labeled_only_pruning_loader), mininterval=60)
-        for n, batch in pbar:
+        for batch, batch_cpu in tqdm(prefetch_generator(labeled_only_pruning_loader), mininterval=60, total=len(labeled_only_pruning_loader)):
             # TODO: should we use likelihoods as in evaluation or posteriors as in training???
             # TODO: does it even matter??
             art_logits, _ = model.logits_from_artifact_batch(batch)
@@ -58,8 +58,7 @@ def calculate_pruning_thresholds(labeled_only_pruning_loader, model: PermutectMo
         confusion = [[0, 0], [0, 0]]
         art_conf_threshold = average_artifact_confidence.get()
         nonart_conf_threshold = average_nonartifact_confidence.get()
-        pbar = tqdm(enumerate(labeled_only_pruning_loader), mininterval=60)
-        for n, batch in pbar:
+        for batch, batch_cpu in tqdm(prefetch_generator(labeled_only_pruning_loader), mininterval=60, total=len(labeled_only_pruning_loader)):
             predicted_artifact_logits, _ = model.logits_from_artifact_batch(batch)
             predicted_artifact_probs = torch.sigmoid(predicted_artifact_logits.detach())
 
@@ -107,8 +106,7 @@ def calculate_pruning_thresholds(labeled_only_pruning_loader, model: PermutectMo
 # generates BaseDatum(s) from the original dataset that *pass* the pruning thresholds
 def generated_pruned_data_for_fold(art_threshold: float, nonart_threshold: float, pruning_base_data_loader, model: PermutectModel) -> List[int]:
     print("pruning the dataset")
-    pbar = tqdm(enumerate(pruning_base_data_loader), mininterval=60)
-    for n, base_batch in pbar:
+    for base_batch, base_batch_cpu in tqdm(prefetch_generator(pruning_base_data_loader), mininterval=60, total=len(pruning_base_data_loader)):
         # apply the representation model AND the artifact model to go from the original read set to artifact logits
         representation, _ = model.calculate_representations(base_batch)
 

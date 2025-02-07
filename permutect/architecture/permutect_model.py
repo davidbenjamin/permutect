@@ -13,6 +13,7 @@ from permutect.architecture.mlp import MLP
 from permutect.architecture.set_pooling import SetPooling
 from permutect.data.base_datum import BaseBatch, DEFAULT_GPU_FLOAT, DEFAULT_CPU_FLOAT, ArtifactBatch
 from permutect.data.base_dataset import ALL_COUNTS_INDEX
+from permutect.data.prefetch_generator import prefetch_generator
 from permutect.metrics.evaluation_metrics import EmbeddingMetrics, round_up_to_nearest_three, MAX_COUNT
 from permutect.parameters import ModelParameters
 from permutect.sets.ragged_sets import RaggedSets
@@ -242,9 +243,9 @@ def record_embeddings(base_model: PermutectModel, loader, summary_writer: Summar
     embedding_metrics = EmbeddingMetrics()
     ref_alt_seq_metrics = EmbeddingMetrics()
 
-    pbar = tqdm(enumerate(loader), mininterval=60)
-    for n, batch_cpu in pbar:
-        batch = batch_cpu.copy_to(base_model._device, non_blocking=base_model._device.type=='cuda')
+    batch: BaseBatch
+    batch_cpu: BaseBatch
+    for batch, batch_cpu in tqdm(prefetch_generator(loader), mininterval=60, total=len(loader)):
         representations, ref_alt_seq_embeddings = base_model.calculate_representations(batch, weight_range=base_model._params.reweighting_range)
 
         representations = representations.cpu()

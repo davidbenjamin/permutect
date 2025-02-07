@@ -213,7 +213,7 @@ class SemiSupervisedBatchSampler(Sampler):
             self.indices_to_use.extend(source_indices_in_fold)
 
         self.batch_size = batch_size
-        self.num_batches = math.ceil(len(self.indices_to_use) // self.batch_size)
+        self.num_batches = math.ceil(len(self.indices_to_use) / self.batch_size)
 
     def __iter__(self):
         batches = []    # list of lists of indices -- each sublist is a batch

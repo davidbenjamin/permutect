@@ -577,13 +577,14 @@ class BaseBatch:
 
         return self
 
-    def copy_to(self, device, non_blocking):
+    def copy_to(self, device, dtype):
+        is_cuda = device.type == 'cuda'
         # For all non-tensor attributes, shallow copy is sufficient
         new_batch = copy.copy(self)
-        new_batch.ref_sequences_2d = self.ref_sequences_2d.to(device, non_blocking=non_blocking)
-        new_batch.reads_2d = self.reads_2d.to(device, non_blocking=non_blocking)
-        new_batch.info_2d = self.info_2d.to(device, non_blocking=non_blocking)
-        new_batch.int_tensor = self.int_tensor.to(device, non_blocking=non_blocking)
+        new_batch.ref_sequences_2d = self.ref_sequences_2d.to(device=device, dtype=dtype, non_blocking=is_cuda)
+        new_batch.reads_2d = self.reads_2d.to(device=device, dtype=dtype, non_blocking=is_cuda)
+        new_batch.info_2d = self.info_2d.to(device=device, dtype=dtype, non_blocking=is_cuda)
+        new_batch.int_tensor = self.int_tensor.to(device=device, non_blocking=is_cuda)
         return new_batch
 
     def original_list(self):
@@ -717,12 +718,13 @@ class ArtifactBatch:
         self.other_stuff_array = self.other_stuff_array.pin_memory()
         return self
 
-    def copy_to(self, device, dtype, non_blocking):
+    def copy_to(self, device, dtype):
+        is_cuda = device.type == 'cuda'
         # For all non-tensor attributes, shallow copy is sufficient
         # note that variants_array and counts_and_seq_lks_array are not used in training and are never sent to GPU
         new_batch = copy.copy(self)
-        new_batch.representations_2d = self.representations_2d.to(device=device, dtype=dtype, non_blocking=non_blocking)
-        new_batch.other_stuff_array = self.other_stuff_array.to(device, dtype=dtype, non_blocking=non_blocking)
+        new_batch.representations_2d = self.representations_2d.to(device=device, dtype=dtype, non_blocking=is_cuda)
+        new_batch.other_stuff_array = self.other_stuff_array.to(device, dtype=dtype, non_blocking=is_cuda)
 
         return new_batch
 

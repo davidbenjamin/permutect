@@ -14,6 +14,7 @@ from permutect.architecture.normal_seq_error_spectrum import NormalSeqErrorSpect
 from permutect.architecture.somatic_spectrum import SomaticSpectrum
 from permutect.data.base_datum import DEFAULT_GPU_FLOAT, DEFAULT_CPU_FLOAT
 from permutect.data.posterior import PosteriorBatch
+from permutect.data.prefetch_generator import prefetch_generator
 from permutect.metrics import plotting
 from permutect.utils import Variation, Call
 from permutect.metrics.evaluation_metrics import MAX_COUNT, NUM_COUNT_BINS, multiple_of_three_bin_index, multiple_of_three_bin_index_to_count
@@ -220,10 +221,9 @@ class PosteriorModel(torch.nn.Module):
             depths_lb = []
             types_lb = []
 
-            pbar = tqdm(enumerate(posterior_loader), mininterval=10)
+            batch: PosteriorBatch
             batch_cpu: PosteriorBatch
-            for n, batch_cpu in pbar:
-                batch = batch_cpu.copy_to(self._device, self._dtype, non_blocking=self._device.type == 'cuda')
+            for batch, batch_cpu in tqdm(prefetch_generator(posterior_loader), mininterval=10, total=len(posterior_loader)):
                 relative_posteriors = self.log_relative_posteriors(batch)
                 log_evidence = torch.logsumexp(relative_posteriors, dim=1)
 
@@ -304,15 +304,15 @@ class PosteriorModel(torch.nn.Module):
 
     # map of Variant type to probability threshold that maximizes F1 score
     # loader is a Dataloader whose collate_fn is the PosteriorBatch constructor
-    def calculate_probability_thresholds(self, loader, summary_writer: SummaryWriter = None, germline_mode: bool = False):
+    def calculate_probability_thresholds(self, posterior_loader, summary_writer: SummaryWriter = None, germline_mode: bool = False):
         self.train(False)
         error_probs_by_type = {var_type: [] for var_type in Variation}   # includes both artifact and seq errors
 
         error_probs_by_type_by_cnt = {var_type: [[] for _ in range(NUM_COUNT_BINS)] for var_type in Variation}
 
-        pbar = tqdm(enumerate(loader), mininterval=10)
-        for n, batch_cpu in pbar:
-            batch = batch_cpu.copy_to(self._device, self._dtype, non_blocking=self._device.type == 'cuda')
+        batch: PosteriorBatch
+        batch_cpu: PosteriorBatch
+        for batch, batch_cpu in tqdm(prefetch_generator(posterior_loader), mininterval=10, total=len(posterior_loader)):
             alt_counts = batch_cpu.get_alt_counts().tolist()
             # 0th column is true variant, subtract it from 1 to get error prob
             error_probs = self.error_probabilities(batch, germline_mode).cpu().tolist()

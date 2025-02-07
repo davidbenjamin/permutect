@@ -7,12 +7,15 @@ from tqdm.autonotebook import tqdm
 from torch.utils.data import Dataset, DataLoader, Sampler
 
 from permutect.architecture.permutect_model import PermutectModel
-from permutect.data.base_datum import ArtifactDatum, ArtifactBatch
+from permutect.data.base_datum import ArtifactDatum, ArtifactBatch, BaseBatch
 from permutect.data.base_dataset import BaseDataset, chunk
 
 
 # given a BaseDataset, apply a BaseModel to get an ArtifactDataset (in RAM, maybe implement memory map later)
 # of RepresentationReadSets
+from permutect.data.prefetch_generator import prefetch_generator
+
+
 class ArtifactDataset(Dataset):
     def __init__(self, base_dataset: BaseDataset,
                  model: PermutectModel,
@@ -40,9 +43,9 @@ class ArtifactDataset(Dataset):
         is_cuda = model._device.type == 'cuda'
         print(f"Is base model using CUDA? {is_cuda}")
 
-        pbar = tqdm(enumerate(loader), mininterval=60)
-        for n, base_batch_cpu in pbar:
-            base_batch = base_batch_cpu.copy_to(model._device, non_blocking=is_cuda)
+        base_batch: BaseBatch
+        base_batch_cpu: BaseBatch
+        for base_batch, base_batch_cpu in tqdm(prefetch_generator(loader), mininterval=60, total=len(loader)):
             with torch.inference_mode():
                 representations, _ = model.calculate_representations(base_batch)
 

@@ -91,13 +91,14 @@ class PosteriorBatch:
         return self
 
     # dtype is just for floats!!! Better not convert the int tensor to a float accidentally!
-    def copy_to(self, device, dtype, non_blocking):
+    def copy_to(self, device, dtype):
+        is_cuda = device.type == 'cuda'
         # For all non-tensor attributes, shallow copy is sufficient
         new_batch = copy.copy(self)
 
-        new_batch.embeddings = self.embeddings.to(device=device, dtype=dtype, non_blocking=non_blocking)
-        new_batch.int_tensor = self.int_tensor.to(device=device, non_blocking=non_blocking)
-        new_batch.float_tensor = self.float_tensor.to(device=device, dtype=dtype, non_blocking=non_blocking)
+        new_batch.embeddings = self.embeddings.to(device=device, dtype=dtype, non_blocking=is_cuda)
+        new_batch.int_tensor = self.int_tensor.to(device=device, non_blocking=is_cuda)
+        new_batch.float_tensor = self.float_tensor.to(device=device, dtype=dtype, non_blocking=is_cuda)
 
         return new_batch
 

@@ -17,6 +17,7 @@ from permutect.data import base_dataset, plain_text_data, base_datum
 from permutect.data.base_datum import Variant
 from permutect.data.posterior import PosteriorDataset, PosteriorDatum, PosteriorBatch
 from permutect.data.artifact_dataset import ArtifactDataset
+from permutect.data.prefetch_generator import prefetch_generator
 from permutect.metrics.evaluation_metrics import EvaluationMetrics, PosteriorResult, EmbeddingMetrics, \
     round_up_to_nearest_three, MAX_COUNT
 from permutect.utils import Call, find_variant_type, Label, Variation, Epoch, trim_alleles_on_right
@@ -217,14 +218,12 @@ def make_posterior_data_loader(dataset_file, input_vcf, contig_index_to_name_map
         artifact_loader = artifact_dataset.make_data_loader(artifact_dataset.all_folds(), batch_size, pin_memory=torch.cuda.is_available(), num_workers=num_workers)
 
         print("creating posterior data for this chunk...")
-        pbar = tqdm(enumerate(artifact_loader), mininterval=60)
-        for n, artifact_batch_cpu in pbar:
-            artifact_batch = artifact_batch_cpu.copy_to(device=model._device, dtype=model._dtype, non_blocking=model._device.type == 'cuda')
+        for artifact_batch, artifact_batch_cpu in tqdm(prefetch_generator(artifact_loader), mininterval=60, total=len(artifact_loader)):
             artifact_logits, _ = model.logits_from_artifact_batch(batch=artifact_batch)
 
             labels = [(Label.ARTIFACT if label > 0.5 else Label.VARIANT) if is_labeled > 0.5 else Label.UNLABELED for (label, is_labeled) in zip(artifact_batch.get_training_labels(), artifact_batch.get_is_labeled_mask())]
 
-            for variant,counts_and_seq_lks, logit, label, embedding in zip(artifact_batch_cpu.get_variants(),
+            for variant, counts_and_seq_lks, logit, label, embedding in zip(artifact_batch_cpu.get_variants(),
                                                                artifact_batch_cpu.get_counts_and_seq_lks(),
                                                                artifact_logits.detach().tolist(),
                                                                labels,
@@ -258,10 +257,9 @@ def apply_filtering_to_vcf(input_vcf, output_vcf, contig_index_to_name_map, erro
     passing_call_type = Call.GERMLINE if germline_mode else Call.SOMATIC
     encoding_to_posterior_results = {}
 
-    pbar = tqdm(enumerate(posterior_loader), mininterval=60)
+    batch: PosteriorBatch
     batch_cpu: PosteriorBatch
-    for n, batch_cpu in pbar:
-        batch = batch_cpu.copy_to(device=posterior_model._device, dtype=posterior_model._dtype, non_blocking=posterior_model._device.type == 'cuda')
+    for batch, batch_cpu in tqdm(prefetch_generator(posterior_loader), mininterval=60, total=len(posterior_loader)):
         # posterior, along with intermediate tensors for debugging/interpretation
         log_priors, spectra_lls, normal_lls, log_posteriors = \
             posterior_model.log_posterior_and_ingredients(batch)
