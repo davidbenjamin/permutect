@@ -264,7 +264,7 @@ class ParentDatum:
     NORMAL_SEQ_ERROR_LOG_LK_IDX = 16
 
     NUM_SCALAR_ELEMENTS = NORMAL_SEQ_ERROR_LOG_LK_IDX + 1
-    REF_SEQ_START_IDX = NUM_SCALAR_ELEMENTS
+    REF_SEQ_START_IDX = 17
 
     # after these come the variable-length sub-arrays (not within a single dataset, but in principle variable length for
     # different versions of Permutect or different sequencing) for the reference sequence context and the info tensor
@@ -307,7 +307,7 @@ class ParentDatum:
         ref_seq_start = ParentDatum.REF_SEQ_START_IDX
         ref_seq_end = ref_seq_start + ref_seq_length
         info_end = ref_seq_end + info_length
-        result.array[ref_seq_start:ref_seq_end] = np.int64(ref_seq_array * ParentDatum.FLOAT_TO_LONG_MULTIPLIER)
+        result.array[ref_seq_start:ref_seq_end] = ref_seq_array # ref seq array is uint8
         result.array[ref_seq_end:info_end] = np.int64(info_array * ParentDatum.FLOAT_TO_LONG_MULTIPLIER)
 
         return result
@@ -376,7 +376,7 @@ class ParentDatum:
         start = ParentDatum.REF_SEQ_START_IDX
         ref_seq_length = self.array[ParentDatum.REF_SEQ_LENGTH_IDX]
         assert ref_seq_length > 0, "trying to get ref seq array when none exists"
-        return self.array[start:start + ref_seq_length] / ParentDatum.FLOAT_TO_LONG_MULTIPLIER
+        return self.array[start:start + ref_seq_length]
 
     def get_info_1d(self) -> np.ndarray:
         start = ParentDatum.REF_SEQ_START_IDX + self.array[ParentDatum.REF_SEQ_LENGTH_IDX]
