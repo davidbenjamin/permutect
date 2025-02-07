@@ -388,8 +388,9 @@ class ParentDatum:
     # we do this in preprocessing when adding extra info to the info from GATK.
     # this method should not otherwise be used!!!
     def set_info_1d(self, new_info: np.ndarray):
+        new_info_as_long = np.int64(new_info * ParentDatum.FLOAT_TO_LONG_MULTIPLIER)
         old_info_start = ParentDatum.REF_SEQ_START_IDX + self.array[ParentDatum.REF_SEQ_LENGTH_IDX]
-        self.array = np.hstack((self.array[:old_info_start], new_info))
+        self.array = np.hstack((self.array[:old_info_start], new_info_as_long))
         self.array[ParentDatum.INFO_LENGTH_IDX] = len(new_info)
 
     def get_array_1d(self) -> np.ndarray:
