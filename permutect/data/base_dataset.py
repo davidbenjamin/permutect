@@ -152,6 +152,14 @@ class BaseDataset(Dataset):
         else:
             return self._data[index]
 
+    def report_totals(self):
+        for source in range(self.max_source + 1):
+            print(f"Data counts for source {source}:")
+            for var_type in utils.Variation:
+                print(f"Data counts for variant type {var_type.name}:")
+                for label in Label:
+                    print(f"{label.name}: {int(self.totals_sclt[source][ALL_COUNTS_INDEX][label][var_type].item())}")
+
     # it is often convenient to arbitrarily use the last fold for validation
     def last_fold_only(self):
         return [self.num_folds - 1]  # use the last fold for validation
@@ -168,6 +176,11 @@ class BaseDataset(Dataset):
     def make_data_loader(self, folds_to_use: List[int], batch_size: int, pin_memory=False, num_workers: int = 0, sources_to_use: List[int] = None):
         sampler = SemiSupervisedBatchSampler(self, batch_size, folds_to_use, sources_to_use)
         return DataLoader(dataset=self, batch_sampler=sampler, collate_fn=BaseBatch, pin_memory=pin_memory, num_workers=num_workers)
+
+    def make_train_and_valid_loaders(self, validation_fold: int, batch_size: int, is_cuda: bool, num_workers: int, sources_to_use: List[int] = None):
+        train_loader = self.make_data_loader(self.all_but_one_fold(validation_fold), batch_size, is_cuda, num_workers, sources_to_use)
+        valid_loader = self.make_data_loader([validation_fold], batch_size, is_cuda, num_workers, sources_to_use)
+        return train_loader, valid_loader
 
 
 # from a generator that yields BaseDatum(s), create a generator that yields the two numpy arrays needed to reconstruct the datum

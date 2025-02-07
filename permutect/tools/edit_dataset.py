@@ -4,7 +4,6 @@ import tarfile
 import tempfile
 from enum import Enum
 
-import psutil
 import torch.utils.data
 
 from permutect.data import base_datum
@@ -12,7 +11,7 @@ from tqdm.autonotebook import tqdm
 
 from permutect import constants
 from permutect.data.base_dataset import BaseDataset
-from permutect.utils import Label
+from permutect.utils import Label, report_memory_usage
 
 
 class EditType(Enum):
@@ -64,7 +63,7 @@ def generate_output_data_buffers(output_data_generator, max_bytes_per_chunk: int
         buffer.append(datum)
         bytes_in_buffer += datum.size_in_bytes()
         if bytes_in_buffer > max_bytes_per_chunk:
-            print(f"Memory usage percent: {psutil.virtual_memory().percent:.1f}")
+            report_memory_usage()
             print(f"{bytes_in_buffer} bytes in chunk")
             yield buffer
             buffer, bytes_in_buffer = [], 0

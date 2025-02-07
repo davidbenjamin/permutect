@@ -1,9 +1,14 @@
 import enum
+import psutil
 import numpy as np
 import cyvcf2
 import tarfile
 import os
 import torch
+
+
+def report_memory_usage(message: str = ""):
+    print(f"{message}  Memory usage: {psutil.virtual_memory().percent:.1f}%")
 
 
 class ConsistentValue:

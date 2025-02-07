@@ -33,13 +33,11 @@ GTCCTGGACACGCTGTTGGCC
 from typing import List
 
 import numpy as np
-import psutil
 from sklearn.preprocessing import QuantileTransformer
 
-from permutect import utils
 from permutect.data.base_datum import BaseDatum, Variant, CountsAndSeqLks, DEFAULT_NUMPY_FLOAT
 
-from permutect.utils import Label, Variation
+from permutect.utils import Label, Variation, report_memory_usage
 
 MAX_VALUE = 10000
 EPSILON = 0.00001
@@ -113,7 +111,7 @@ def generate_normalized_data(dataset_files, max_bytes_per_chunk: int, sources: L
             buffer.append(base_datum)
             bytes_in_buffer += base_datum.size_in_bytes()
             if bytes_in_buffer > max_bytes_per_chunk:
-                print(f"Memory usage percent: {psutil.virtual_memory().percent:.1f}")
+                report_memory_usage()
                 print(f"{bytes_in_buffer} bytes in chunk")
 
                 normalize_buffer(buffer, read_quantile_transform, info_quantile_transform)
