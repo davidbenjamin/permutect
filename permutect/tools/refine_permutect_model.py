@@ -1,6 +1,5 @@
 import argparse
 
-import psutil
 import torch
 from torch.utils.tensorboard import SummaryWriter
 
@@ -13,7 +12,7 @@ from permutect.data.base_dataset import BaseDataset
 from permutect.data.artifact_dataset import ArtifactDataset
 from permutect.data.base_datum import ArtifactDatum
 from permutect.parameters import add_training_params_to_parser, parse_training_params
-from permutect.utils import Variation, Label
+from permutect.utils import Variation, Label, report_memory_usage
 
 
 def learn_artifact_priors_and_spectra(artifact_dataset: ArtifactDataset, genomic_span_of_data: int):
@@ -84,14 +83,14 @@ def main_without_parsing(args):
 
     # base and artifact models have already been trained.  We're just refining it here.
     model, _, _ = load_model(getattr(args, constants.SAVED_MODEL_NAME))
-    print(f"Memory usage percent before creating BaseDataset: {psutil.virtual_memory().percent:.1f}")
+    report_memory_usage("Creating BaseDataset.")
     base_dataset = BaseDataset(data_tarfile=getattr(args, constants.TRAIN_TAR_NAME), num_folds=10)
-    print(f"Memory usage percent before creating ArtifactDataset: {psutil.virtual_memory().percent:.1f}")
+    report_memory_usage("Creating ArtifactDataset.")
     artifact_dataset = ArtifactDataset(base_dataset,
                                        model,
                                        base_loader_num_workers=training_params.num_workers,
                                        base_loader_batch_size=training_params.inference_batch_size)
-    print(f"Memory usage percent after creating ArtifactDataset: {psutil.virtual_memory().percent:.1f}")
+    report_memory_usage("Finished creating ArtifactDataset.")
 
     train_on_artifact_dataset(model, artifact_dataset, training_params, summary_writer, epochs_per_evaluation=10, calibration_sources=calibration_sources)
 
@@ -99,7 +98,7 @@ def main_without_parsing(args):
         cal_fig, cal_axes = model.calibration[n].plot_calibration()
         summary_writer.add_figure("calibration by count for " + var_type.name, cal_fig)
 
-    print(f"Memory usage percent after training artifact model: {psutil.virtual_memory().percent:.1f}")
+    report_memory_usage("Finished training.")
 
     artifact_log_priors, artifact_spectra = learn_artifact_priors_and_spectra(artifact_dataset, genomic_span) if learn_artifact_spectra else (None, None)
     if artifact_spectra is not None:

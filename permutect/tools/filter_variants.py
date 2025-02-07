@@ -4,7 +4,6 @@ from collections import defaultdict
 from typing import Set
 
 import cyvcf2
-import psutil
 import torch
 from intervaltree import IntervalTree
 from torch.utils.tensorboard import SummaryWriter
@@ -20,7 +19,7 @@ from permutect.data.artifact_dataset import ArtifactDataset
 from permutect.data.prefetch_generator import prefetch_generator
 from permutect.metrics.evaluation_metrics import EvaluationMetrics, PosteriorResult, EmbeddingMetrics, \
     round_up_to_nearest_three, MAX_COUNT
-from permutect.utils import Call, find_variant_type, Label, Variation, Epoch, trim_alleles_on_right
+from permutect.utils import Call, find_variant_type, Label, Variation, Epoch, trim_alleles_on_right, report_memory_usage
 
 TRUSTED_M2_FILTERS = {'contamination'}
 
@@ -207,14 +206,14 @@ def make_posterior_data_loader(dataset_file, input_vcf, contig_index_to_name_map
     # pass through the plain text dataset, normalizing and creating ReadSetDatasets as we go, running the artifact model
     # to get artifact logits, which we record in a dict keyed by variant strings.  These will later be added to PosteriorDatum objects.
     print("reading dataset and calculating artifact logits")
-    print(f"Memory usage percent before loading data: {psutil.virtual_memory().percent:.1f}")
+    report_memory_usage("Loading data.")
     posterior_data = []
     for list_of_base_data in plain_text_data.generate_normalized_data([dataset_file], chunk_size):
-        print(f"Memory usage percent before creating BaseDataset: {psutil.virtual_memory().percent:.1f}")
+        report_memory_usage("Creating BaseDataset.")
         raw_dataset = base_dataset.BaseDataset(data_in_ram=list_of_base_data)
-        print(f"Memory usage percent before creating ArtifactDataset: {psutil.virtual_memory().percent:.1f}")
+        report_memory_usage("Creating ArtifactDataset.")
         artifact_dataset = ArtifactDataset(raw_dataset, model)
-        print(f"Memory usage percent after creating ArtifactDataset: {psutil.virtual_memory().percent:.1f}")
+        report_memory_usage("Finished creating ArtifactDataset.")
         artifact_loader = artifact_dataset.make_data_loader(artifact_dataset.all_folds(), batch_size, pin_memory=torch.cuda.is_available(), num_workers=num_workers)
 
         print("creating posterior data for this chunk...")
@@ -245,7 +244,7 @@ def make_posterior_data_loader(dataset_file, input_vcf, contig_index_to_name_map
 
     print(f"Size of filtering dataset: {len(posterior_data)}")
     posterior_dataset = PosteriorDataset(posterior_data)
-    print(f"Memory usage percent after creating PosteriorDataset: {psutil.virtual_memory().percent:.1f}")
+    report_memory_usage("Finished creating PosteriorDataset.")
     return posterior_dataset.make_data_loader(batch_size, pin_memory=torch.cuda.is_available(), num_workers=num_workers)
 
 

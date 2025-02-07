@@ -85,6 +85,9 @@ class LossMetrics:
     def get_unlabeled_loss(self) -> float:
         return self.unlabeled_loss.get()
 
+    def report_losses(self, message: str):
+        print(f"{message} Labeled loss: {self.get_labeled_loss():.3f}, unlabeled loss: {self.get_unlabeled_loss():.3f}.")
+
     def write_to_summary_writer(self, epoch_type: Epoch, epoch: int, summary_writer: SummaryWriter, prefix: str = ""):
         if not self.labeled_loss.is_empty():
             summary_writer.add_scalar(prefix + epoch_type.name + "/Labeled Loss", self.labeled_loss.get(), epoch)

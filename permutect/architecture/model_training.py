@@ -5,7 +5,6 @@ from itertools import chain
 from queue import PriorityQueue
 from typing import List
 
-import psutil
 import torch
 from torch import nn
 from torch.utils.tensorboard import SummaryWriter
@@ -23,27 +22,23 @@ from permutect.data.prefetch_generator import prefetch_generator
 from permutect.metrics.evaluation_metrics import LossMetrics, EmbeddingMetrics, round_up_to_nearest_three, MAX_COUNT, \
     EvaluationMetrics
 from permutect.parameters import TrainingParameters
-from permutect.utils import Label, Variation, Epoch
+from permutect.utils import Label, Variation, Epoch, report_memory_usage, index_3d_array, backpropagate
 
 WORST_OFFENDERS_QUEUE_SIZE = 100
 
 
 def train_permutect_model(model: PermutectModel, dataset: BaseDataset, training_params: TrainingParameters,
                           summary_writer: SummaryWriter, validation_fold: int = None):
-    print(f"Memory usage percent: {psutil.virtual_memory().percent:.1f}")
-    is_cuda = model._device.type == 'cuda'
+    report_memory_usage("Beginning training.")
+    device, dtype = model._device, model._dtype
+    is_cuda = device.type == 'cuda'
     print(f"Is CUDA available? {is_cuda}")
 
-    for source in range(dataset.max_source + 1):
-        print(f"Data counts for source {source}:")
-        for var_type in utils.Variation:
-            print(f"Data counts for variant type {var_type.name}:")
-            for label in Label:
-                print(f"{label.name}: {int(dataset.totals_sclt[source][ALL_COUNTS_INDEX][label][var_type].item())}")
+    dataset.report_totals()
 
     # adversarial loss to learn features that forget the alt count
     alt_count_gradient_reversal = GradientReversal(alpha=0.01)  #initialize as barely active
-    alt_count_predictor = MLP([model.pooling_dimension()] + [30, -1, -1, -1, 1]).to(device=model._device, dtype=model._dtype)
+    alt_count_predictor = MLP([model.pooling_dimension()] + [30, -1, -1, -1, 1]).to(device=device, dtype=dtype)
     alt_count_loss_func = torch.nn.MSELoss(reduction='none')
     alt_count_adversarial_metrics = LossMetrics()
 
@@ -58,25 +53,24 @@ def train_permutect_model(model: PermutectModel, dataset: BaseDataset, training_
     classifier_metrics = LossMetrics()
 
     validation_fold_to_use = (dataset.num_folds - 1) if validation_fold is None else validation_fold
-    train_loader = dataset.make_data_loader(dataset.all_but_one_fold(validation_fold_to_use), training_params.batch_size, is_cuda, training_params.num_workers)
-    valid_loader = dataset.make_data_loader([validation_fold_to_use], training_params.batch_size, is_cuda, training_params.num_workers)
+    train_loader, valid_loader = dataset.make_train_and_valid_loaders(validation_fold_to_use, training_params.batch_size, is_cuda, training_params.num_workers)
 
     for epoch in trange(1, training_params.num_epochs + 1, desc="Epoch"):
         p = epoch - 1
         new_alpha = (2/(1 + math.exp(-0.1*p))) - 1
         alt_count_gradient_reversal.set_alpha(new_alpha) # alpha increases linearly
         start_epoch = time.time()
-        print(f"Start of epoch {epoch}, memory usage percent: {psutil.virtual_memory().percent:.1f}")
-        for epoch_type in (utils.Epoch.TRAIN, utils.Epoch.VALID):
+        report_memory_usage(f"Start of epoch {epoch}")
+        for epoch_type in (Epoch.TRAIN, Epoch.VALID):
             model.set_epoch_type(epoch_type)
             loss_metrics = LossMetrics()
 
-            loader = train_loader if epoch_type == utils.Epoch.TRAIN else valid_loader
+            loader = train_loader if epoch_type == Epoch.TRAIN else valid_loader
 
             for batch, batch_cpu in tqdm(prefetch_generator(loader), mininterval=60, total=len(loader)):
                 # TODO: use the weight-balancing scheme that artifact model training uses
                 weights = calculate_batch_weights(batch_cpu, dataset, by_count=True)
-                weights = weights.to(device=model._device, dtype=model._dtype, non_blocking=True)
+                weights = weights.to(device=device, dtype=dtype, non_blocking=True)
 
                 representations, _ = model.calculate_representations(batch, weight_range=model._params.reweighting_range)
                 calibrated_logits, uncalibrated_logits = model.logits_from_base_batch(representations, batch)
@@ -105,21 +99,22 @@ def train_permutect_model(model: PermutectModel, dataset: BaseDataset, training_
                 loss = torch.sum((weights * semisupervised_losses) + alt_count_losses)
                 classifier_metrics.record_losses(semisupervised_losses.detach(), batch, batch.get_is_labeled_mask() * weights)
 
-                if epoch_type == utils.Epoch.TRAIN:
-                    utils.backpropagate(train_optimizer, loss)
+                if epoch_type == Epoch.TRAIN:
+                    backpropagate(train_optimizer, loss)
 
             # done with one epoch type -- training or validation -- for this epoch
             loss_metrics.write_to_summary_writer(epoch_type, epoch, summary_writer)
             classifier_metrics.write_to_summary_writer(epoch_type, epoch, summary_writer, prefix="classifier")
             alt_count_adversarial_metrics.write_to_summary_writer(epoch_type, epoch, summary_writer, prefix="alt-count-adversarial-predictor")
 
-            if epoch_type == utils.Epoch.TRAIN:
+            if epoch_type == Epoch.TRAIN:
                 train_scheduler.step(loss_metrics.get_labeled_loss())
 
-            print(f"Labeled base model loss for {epoch_type.name} epoch {epoch}: {loss_metrics.get_labeled_loss():.3f}")
-            print(f"Labeled auxiliary classifier loss for {epoch_type.name} epoch {epoch}: {classifier_metrics.get_labeled_loss():.3f}")
-            print(f"Alt count adversarial loss for {epoch_type.name} epoch {epoch}: {alt_count_adversarial_metrics.get_labeled_loss():.3f}")
-        print(f"End of epoch {epoch}, memory usage percent: {psutil.virtual_memory().percent:.1f}, time elapsed(s): {time.time() - start_epoch:.2f}")
+            loss_metrics.report_losses(f"Semisupervised loss for {epoch_type.name} epoch {epoch}.")
+            loss_metrics.report_losses(f"Auiliary classifier loss for {epoch_type.name} epoch {epoch}.")
+            alt_count_adversarial_metrics.report_losses(f"Alt count prediction loss for {epoch_type.name} epoch {epoch}.")
+        report_memory_usage(f"End of epoch {epoch}.")
+        print(f"time elapsed(s): {time.time() - start_epoch:.1f}")
         # done with training and validation for this epoch
         # note that we have not learned the AF spectrum yet
     # done with training
@@ -129,6 +124,7 @@ def train_permutect_model(model: PermutectModel, dataset: BaseDataset, training_
 
 def train_on_artifact_dataset(model: PermutectModel, dataset: ArtifactDataset, training_params: TrainingParameters, summary_writer: SummaryWriter,
           validation_fold: int = None, epochs_per_evaluation: int = None, calibration_sources: List[int] = None):
+    device, dtype = model._device, model._dtype
     bce = nn.BCEWithLogitsLoss(reduction='none')  # no reduction because we may want to first multiply by weights for unbalanced data
 
     num_sources = len(dataset.counts_by_source.keys())
@@ -144,9 +140,9 @@ def train_on_artifact_dataset(model: PermutectModel, dataset: ArtifactDataset, t
     # TODO: source classifier should just belong to the model, perhaps?
     source_classifier = MLP([model.pooling_dimension()] + [-1, -1, num_sources],
                                 batch_normalize=model._params.batch_normalize, dropout_p=model._params.dropout_p)
-    source_classifier.to(device=model._device, dtype=model._dtype)
+    source_classifier.to(device=device, dtype=dtype)
     source_gradient_reversal = GradientReversal(alpha=0.01)  # initialize as barely active
-    source_gradient_reversal.to(device=model._device, dtype=model._dtype)
+    source_gradient_reversal.to(device=device, dtype=dtype)
 
     # TODO: fused = is_cuda?
     train_optimizer = torch.optim.AdamW(chain(model.parameters(), source_classifier.parameters()), lr=training_params.learning_rate,
@@ -157,19 +153,19 @@ def train_on_artifact_dataset(model: PermutectModel, dataset: ArtifactDataset, t
     num_sources = len(dataset.totals_sclt)
     for source in range(num_sources):
         print(f"Data counts for source {source}:")
-        for var_type in utils.Variation:
+        for var_type in Variation:
             print(f"Data counts for variant type {var_type.name}:")
             for label in Label:
                 print(f"{label.name}: {int(dataset.totals_sclt[source][ALL_COUNTS_INDEX][label][var_type].item())}")
 
-    is_cuda = model._device.type == 'cuda'
+    is_cuda = device.type == 'cuda'
     print(f"Is CUDA available? {is_cuda}")
 
     validation_fold_to_use = (dataset.num_folds - 1) if validation_fold is None else validation_fold
     train_loader = dataset.make_data_loader(dataset.all_but_one_fold(validation_fold_to_use), training_params.batch_size, is_cuda, training_params.num_workers)
-    print(f"Train loader created, memory usage percent: {psutil.virtual_memory().percent:.1f}")
+    report_memory_usage(f"Train loader created.")
     valid_loader = dataset.make_data_loader([validation_fold_to_use], training_params.inference_batch_size, is_cuda, training_params.num_workers)
-    print(f"Validation loader created, memory usage percent: {psutil.virtual_memory().percent:.1f}")
+    report_memory_usage(f"Validation loader created.")
 
     calibration_train_loader = train_loader if calibration_sources is None else \
         dataset.make_data_loader(dataset.all_but_one_fold(validation_fold_to_use), training_params.batch_size,
@@ -179,27 +175,27 @@ def train_on_artifact_dataset(model: PermutectModel, dataset: ArtifactDataset, t
         dataset.make_data_loader([validation_fold_to_use], training_params.inference_batch_size,
                                  is_cuda, training_params.num_workers, sources_to_use=calibration_sources)
 
-    totals_sclt = torch.from_numpy(dataset.totals_sclt).to(model._device)
+    totals_sclt = torch.from_numpy(dataset.totals_sclt).to(device)
 
     # imbalanced unlabeled data can exert a bias just like labeled data.  These parameters keep track of the proportion
     # of unlabeled data that seem to be artifacts in order to weight losses appropriately.  Each source, count, and
     # variant type has its own proportion, stored as a logit-transformed probability
-    unlabeled_artifact_proportion_logits_sct = torch.zeros_like(totals_sclt[:, :, Label.UNLABELED, :], requires_grad=True, device=model._device)
+    unlabeled_artifact_proportion_logits_sct = torch.zeros_like(totals_sclt[:, :, Label.UNLABELED, :], requires_grad=True, device=device)
     artifact_proportion_optimizer = torch.optim.AdamW([unlabeled_artifact_proportion_logits_sct], lr=training_params.learning_rate)
     first_epoch, last_epoch = 1, training_params.num_epochs + training_params.num_calibration_epochs
     for epoch in trange(1, last_epoch + 1, desc="Epoch"):
         start_of_epoch = time.time()
-        print(f"Epoch {epoch}, memory usage percent: {psutil.virtual_memory().percent:.1f}")
+        report_memory_usage(f"Epoch {epoch}.")
         is_calibration_epoch = epoch > training_params.num_epochs
 
         p = epoch - 1
         new_alpha = (2 / (1 + math.exp(-0.1 * p))) - 1
         source_gradient_reversal.set_alpha(new_alpha)
 
-        for epoch_type in [utils.Epoch.TRAIN, utils.Epoch.VALID]:
+        for epoch_type in [Epoch.TRAIN, Epoch.VALID]:
             model.set_epoch_type(epoch_type)
             # in calibration epoch, freeze the model except for calibration
-            if is_calibration_epoch and epoch_type == utils.Epoch.TRAIN:
+            if is_calibration_epoch and epoch_type == Epoch.TRAIN:
                 utils.freeze(model.parameters())
                 #utils.unfreeze(self.calibration_parameters())  # unfreeze calibration but everything else stays frozen
                 utils.unfreeze(model.final_calibration_shift_parameters())  # unfreeze final calibration shift but everything else stays frozen
@@ -208,8 +204,8 @@ def train_on_artifact_dataset(model: PermutectModel, dataset: ArtifactDataset, t
             source_prediction_loss_metrics = LossMetrics()  # based on calibrated logits
             uncalibrated_loss_metrics = LossMetrics()  # based on uncalibrated logits
 
-            loader = (calibration_train_loader if epoch_type == utils.Epoch.TRAIN else calibration_valid_loader) if is_calibration_epoch else \
-                (train_loader if epoch_type == utils.Epoch.TRAIN else valid_loader)
+            loader = (calibration_train_loader if epoch_type == Epoch.TRAIN else calibration_valid_loader) if is_calibration_epoch else \
+                (train_loader if epoch_type == Epoch.TRAIN else valid_loader)
 
             for batch, batch_cpu in tqdm(prefetch_generator(loader), mininterval=60, total=len(loader)):
                 # TODO: does this really need to be updated every batch?
@@ -244,10 +240,10 @@ def train_on_artifact_dataset(model: PermutectModel, dataset: ArtifactDataset, t
 
                     # TODO: always by count?
                     source_prediction_weights = calculate_batch_source_weights(batch_cpu, dataset, by_count=is_calibration_epoch)
-                    source_prediction_weights = source_prediction_weights.to(device=model._device, dtype=model._dtype, non_blocking=True)
+                    source_prediction_weights = source_prediction_weights.to(device=device, dtype=dtype, non_blocking=True)
                 else:
-                    source_prediction_losses = torch.zeros_like(logits, device=model._device)
-                    source_prediction_weights = torch.zeros_like(logits, device=model._device)
+                    source_prediction_losses = torch.zeros_like(logits, device=device)
+                    source_prediction_weights = torch.zeros_like(logits, device=device)
 
                 uncalibrated_cross_entropies = bce(precalibrated_logits, labels)
                 calibrated_cross_entropies = bce(logits, labels)
@@ -263,8 +259,8 @@ def train_on_artifact_dataset(model: PermutectModel, dataset: ArtifactDataset, t
                 unlabeled_losses = (1 - batch.get_is_labeled_mask()) * entropies
 
                 # calculate label-balancing weights
-                artifact_weights = utils.index_3d_array(artifact_weights_sct, sources, alt_counts, variant_types)
-                nonartifact_weights = utils.index_3d_array(nonartifact_weights_sct, sources, alt_counts,
+                artifact_weights = index_3d_array(artifact_weights_sct, sources, alt_counts, variant_types)
+                nonartifact_weights = index_3d_array(nonartifact_weights_sct, sources, alt_counts,
                                                            variant_types)
 
                 # is_artifact is 1 / 0 if labeled as artifact / nonartifact; otherwise it's the estimated probability
@@ -286,29 +282,29 @@ def train_on_artifact_dataset(model: PermutectModel, dataset: ArtifactDataset, t
 
                 # calibration epochs freeze the model up to calibration, so I wonder if a purely unlabeled batch
                 # would cause lack of gradient problems. . .
-                if epoch_type == utils.Epoch.TRAIN:
-                    utils.backpropagate(train_optimizer, loss)
+                if epoch_type == Epoch.TRAIN:
+                    backpropagate(train_optimizer, loss)
 
                 # separately from backpropagating the model parameters, we also backpropagate our estimated proportions
                 # of artifacts among unlabeled data.  Note that we detach the computed probabilities!!
-                artifact_prop_logits = utils.index_3d_array(unlabeled_artifact_proportion_logits_sct, sources, alt_counts, variant_types)
+                artifact_prop_logits = index_3d_array(unlabeled_artifact_proportion_logits_sct, sources, alt_counts, variant_types)
                 artifact_proportion_losses = (1 - batch.get_is_labeled_mask()) * bce(artifact_prop_logits, probabilities.detach())
-                utils.backpropagate(artifact_proportion_optimizer, torch.sum(artifact_proportion_losses))
+                backpropagate(artifact_proportion_optimizer, torch.sum(artifact_proportion_losses))
 
             # done with one epoch type -- training or validation -- for this epoch
             loss_metrics.write_to_summary_writer(epoch_type, epoch, summary_writer)
             source_prediction_loss_metrics.write_to_summary_writer(epoch_type, epoch, summary_writer, prefix="source prediction")
             uncalibrated_loss_metrics.write_to_summary_writer(epoch_type, epoch, summary_writer, prefix="uncalibrated")
-            if epoch_type == utils.Epoch.TRAIN:
+            if epoch_type == Epoch.TRAIN:
                 train_scheduler.step(loss_metrics.get_labeled_loss())
 
-            print(f"Labeled loss for {epoch_type.name} epoch {epoch}: {loss_metrics.get_labeled_loss():.3f}")
-            print(f"Unlabeled loss for {epoch_type.name} epoch {epoch}: {uncalibrated_loss_metrics.get_unlabeled_loss():.3f}")
-            if num_sources > 1:
-                print(f"Adversarial source prediction loss on labeled data for {epoch_type.name} epoch {epoch}: {source_prediction_loss_metrics.get_labeled_loss():.3f}")
-                print(f"Adversarial source prediction loss on unlabeled data for {epoch_type.name} epoch {epoch}: {source_prediction_loss_metrics.get_unlabeled_loss():.3f}")
+            print(f"Losses for {epoch_type.name} epoch {epoch}.")
+            loss_metrics.report_losses("Semisupervised loss.")
+            uncalibrated_loss_metrics.report_losses("Uncalibrated loss.")
+            source_prediction_loss_metrics.report_losses("Source prediction loss.")
         # done with training and validation for this epoch
-        print(f"End of epoch {epoch}, memory usage percent: {psutil.virtual_memory().percent:.1f}, time elapsed(s): {time.time() - start_of_epoch:.2f}")
+        report_memory_usage(f"End of epoch {epoch}.")
+        print(f"Time elapsed(s): {time.time() - start_of_epoch:.1f}")
         if (epochs_per_evaluation is not None and epoch % epochs_per_evaluation == 0) or (epoch == last_epoch):
             print(f"performing evaluation on epoch {epoch}")
             evaluate_model(model, epoch, dataset, train_loader, valid_loader, summary_writer, collect_embeddings=False, report_worst=False)

@@ -4,8 +4,6 @@ import tarfile
 import tempfile
 from typing import List
 
-import psutil
-
 from permutect.architecture.model_training import train_on_artifact_dataset
 from permutect.architecture.permutect_model import PermutectModel, load_model
 from permutect.data import base_datum
@@ -21,7 +19,7 @@ from permutect.data.prefetch_generator import prefetch_generator
 from permutect.parameters import add_training_params_to_parser, TrainingParameters
 from permutect.data.base_dataset import BaseDataset
 from permutect.tools.refine_permutect_model import parse_training_params
-from permutect.utils import Label
+from permutect.utils import Label, report_memory_usage
 
 NUM_FOLDS = 3
 
@@ -131,8 +129,7 @@ def generate_pruned_data_for_all_folds(base_dataset: BaseDataset, model: Permute
 
     for pruning_fold in range(NUM_FOLDS):
         summary_writer = SummaryWriter(tensorboard_dir + "/fold_" + str(pruning_fold))
-        print(f"Pruning data from fold {pruning_fold} of {NUM_FOLDS}")
-        print(f"Memory usage percent: {psutil.virtual_memory().percent:.3f}")
+        report_memory_usage(f"Pruning data from fold {pruning_fold} of {NUM_FOLDS}.")
 
         # learn an artifact model with the pruning data held out
         artifact_dataset = ArtifactDataset(base_dataset, model, base_dataset.all_but_one_fold(pruning_fold))
@@ -168,8 +165,7 @@ def generate_pruned_data_buffers(pruned_data_generator, max_bytes_per_chunk: int
         buffer.append(datum)
         bytes_in_buffer += datum.size_in_bytes()
         if bytes_in_buffer > max_bytes_per_chunk:
-            print(f"Memory usage percent: {psutil.virtual_memory().percent:.1f}")
-            print(f"{bytes_in_buffer} bytes in chunk")
+            report_memory_usage(f"{bytes_in_buffer} bytes in chunk.")
             yield buffer
             buffer, bytes_in_buffer = [], 0
 
