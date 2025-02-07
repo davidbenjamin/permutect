@@ -65,7 +65,7 @@ def read_data(dataset_file, only_artifacts: bool = False, source: int=0):
             ref_allele, alt_allele = mutation.strip().split("->")
 
             ref_sequence_string = file.readline().strip()
-            gatk_info_tensor = line_to_tensor(file.readline())
+            gatk_info_array = line_to_tensor(file.readline())
             ref_tensor_size, alt_tensor_size, normal_ref_tensor_size, normal_alt_tensor_size = map(int, file.readline().strip().split())
 
             # the first column is read group index, which we currently discard
@@ -77,15 +77,18 @@ def read_data(dataset_file, only_artifacts: bool = False, source: int=0):
             # normal_alt_tensor = read_2d_tensor(file, normal_alt_tensor_size)  # not currently used
             # round down normal tensors as well
 
-            depth, alt_count, normal_depth, normal_alt_count = read_integers(file.readline())
+            original_depth, original_alt_count, original_normal_depth, original_normal_alt_count = read_integers(file.readline())
             seq_error_log_lk = read_float(file.readline())
             normal_seq_error_log_lk = read_float(file.readline())
 
             if alt_tensor_size > 0 and passes_label_filter:
-                variant = Variant(contig, position, ref_allele, alt_allele)
-                counts_and_seq_lks = CountsAndSeqLks(depth, alt_count, normal_depth, normal_alt_count, seq_error_log_lk, normal_seq_error_log_lk)
-                yield BaseDatum.from_gatk(ref_sequence_string, Variation.get_type(ref_allele, alt_allele), ref_tensor,
-                                          alt_tensor, gatk_info_tensor, label, source, variant, counts_and_seq_lks)
+                yield BaseDatum.from_gatk(label=label, variant_type=Variation.get_type(ref_allele, alt_allele), source=source,
+                    original_depth=original_depth, original_alt_count=original_alt_count,
+                    original_normal_depth=original_normal_depth, original_normal_alt_count=original_normal_alt_count,
+                    contig=contig, position=position, ref_allele=ref_allele, alt_allele=alt_allele,
+                    seq_error_log_lk=seq_error_log_lk, normal_seq_error_log_lk=normal_seq_error_log_lk,
+                    ref_sequence_string=ref_sequence_string, gatk_info_array=gatk_info_array,
+                    ref_tensor=ref_tensor, alt_tensor=alt_tensor)
 
 
 # if sources is None, source is set to zero

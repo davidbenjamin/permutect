@@ -6,7 +6,6 @@ from typing import List
 
 from permutect.architecture.model_training import train_on_artifact_dataset
 from permutect.architecture.permutect_model import PermutectModel, load_model
-from permutect.data import base_datum
 from tqdm.autonotebook import tqdm
 
 import numpy as np
@@ -15,6 +14,7 @@ from torch.utils.tensorboard import SummaryWriter
 
 from permutect import constants, utils
 from permutect.data.artifact_dataset import ArtifactDataset
+from permutect.data.base_datum import BaseDatum
 from permutect.data.prefetch_generator import prefetch_generator
 from permutect.parameters import add_training_params_to_parser, TrainingParameters
 from permutect.data.base_dataset import BaseDataset
@@ -178,7 +178,7 @@ def make_pruned_training_dataset(pruned_data_buffer_generator, pruned_tarfile):
     pruned_data_files = []
     for base_data_list in pruned_data_buffer_generator:
         with tempfile.NamedTemporaryFile(delete=False) as train_data_file:
-            base_datum.save_list_base_data(base_data_list, train_data_file)
+            BaseDatum.save_list(base_data_list, train_data_file)
             pruned_data_files.append(train_data_file.name)
 
     # bundle them in a tarfile

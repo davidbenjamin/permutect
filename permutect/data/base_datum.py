@@ -185,11 +185,11 @@ def decompose_str_unit(indel_bases: str):
     return indel_bases, 1
 
 
-def get_str_info_array(ref_sequence_string: str, variant: Variant):
+def get_str_info_array(ref_sequence_string: str, ref_allele: str, alt_allele: str):
     assert len(ref_sequence_string) % 2 == 1, "must be odd length to have well-defined middle"
     middle_idx = (len(ref_sequence_string) - 1) // 2
 
-    ref, alt = variant.ref, variant.alt
+    ref, alt = ref_allele, alt_allele
 
     insertion_length = max(len(alt) - len(ref), 0)
     deletion_length = max(len(ref) - len(alt), 0)
@@ -295,7 +295,7 @@ class ParentDatum:
     def make_datum_without_reads(cls, label: Label, variant_type: Variation, source: int,
         original_depth: int, original_alt_count: int, original_normal_depth: int, original_normal_alt_count: int,
         contig: int, position: int, ref_allele: str, alt_allele: str,
-        seq_error_log_lk: float, normal_seq_error_log_lk: float, ref_seq_array: np.ndarray, info_array: np.ndarray):
+        seq_error_log_lk: float, normal_seq_error_log_lk: float, ref_seq_array: np.ndarray, info_array: np.ndarray) -> ParentDatum:
         """
         We are careful about our float to long conversions here and in the getters!
         """
@@ -327,6 +327,8 @@ class ParentDatum:
         info_end = ref_seq_end + info_length
         result.array[ref_seq_start:ref_seq_end] = np.int64(ref_seq_array * ParentDatum.FLOAT_TO_LONG_MULTIPLIER)
         result.array[ref_seq_end:info_end] = np.int64(info_array * ParentDatum.FLOAT_TO_LONG_MULTIPLIER)
+
+        return result
 
     def get_ref_count(self) -> int:
         return self.array[ParentDatum.REF_COUNT_IDX]
@@ -438,13 +440,28 @@ class BaseDatum(ParentDatum):
 
     # gatk_info tensor comes from GATK and does not include one-hot encoding of variant type
     @classmethod
-    def from_gatk(cls, ref_sequence_string: str, variant_type: Variation, ref_tensor: np.ndarray, alt_tensor: np.ndarray,
-                 gatk_info_tensor: np.ndarray, label: Label, source: int, variant: Variant, counts_and_seq_lks: CountsAndSeqLks = None):
+    def from_gatk(cls, label: Label, variant_type: Variation, source: int,
+            original_depth: int, original_alt_count: int, original_normal_depth: int, original_normal_alt_count: int,
+            contig: int, position: int, ref_allele: str, alt_allele: str,
+            seq_error_log_lk: float, normal_seq_error_log_lk: float,
+            ref_sequence_string: str, gatk_info_array: np.ndarray,
+            ref_tensor: np.ndarray, alt_tensor: np.ndarray):
+        str_info = get_str_info_array(ref_sequence_string, ref_allele, alt_allele)
+        info_array = np.hstack([gatk_info_array, str_info])
+        ref_seq_array = make_1d_sequence_tensor(ref_sequence_string)
         read_tensor = np.vstack([ref_tensor, alt_tensor]) if ref_tensor is not None else alt_tensor
-        alt_count = len(alt_tensor)
-        str_info = get_str_info_array(ref_sequence_string, variant)
-        info_tensor = np.hstack([gatk_info_tensor, str_info])
-        result = cls(read_tensor, make_1d_sequence_tensor(ref_sequence_string), alt_count, info_tensor, variant_type, label, source, variant, counts_and_seq_lks)
+
+        parent_datum = ParentDatum.make_datum_without_reads(label=label, variant_type=variant_type, source=source,
+            original_depth=original_depth, original_alt_count=original_alt_count, original_normal_depth=original_normal_depth,
+            original_normal_alt_count=original_normal_alt_count,
+            contig=contig, position=position, ref_allele=ref_allele, alt_allele=alt_allele,
+            seq_error_log_lk=seq_error_log_lk, normal_seq_error_log_lk=normal_seq_error_log_lk,
+            ref_seq_array=ref_seq_array, info_array=info_array)
+        # ref and alt counts need to be set manually.  Everything else is handled in the ParentDatum constructor
+        parent_datum.array[ParentDatum.REF_COUNT_IDX] = 0 if ref_tensor is None else len(ref_tensor)
+        parent_datum.array[ParentDatum.ALT_COUNT_IDX] = 0 if alt_tensor is None else len(alt_tensor)
+
+        result = cls(parent_datum_array=parent_datum.get_array_1d(), reads_2d=read_tensor)
         result.set_reads_dtype(np.float16)
         return result
 
@@ -497,40 +514,29 @@ class BaseDatum(ParentDatum):
             assert alt_array[middle_idx + 1] != ref_array[middle_idx + 1]
         return ref_array[:len(original_ref_array)], alt_array[:len(original_ref_array)] # this clipping may be redundant
 
+    @classmethod
+    def save_list(cls, base_data: List[BaseDatum], file):
+        read_tensors = np.vstack([datum.get_reads_2d() for datum in base_data])
+        other_stuff = np.vstack([datum.get_array_1d() for datum in base_data])
+        torch.save([read_tensors, other_stuff], file)
 
-def save_list_base_data(base_data: List[BaseDatum], file):
-    """
-    note that torch.save works fine with numpy data
-    :param base_data:
-    :param file:
-    :return:
-    """
-    read_tensors = np.vstack([datum.get_reads_2d() for datum in base_data])
-    other_stuff = np.vstack([datum.get_array_1d() for datum in base_data])
-    torch.save([read_tensors, other_stuff], file)
+    @classmethod
+    def load_list(cls, file) -> List[BaseDatum]:
+        # these are vstacked -- see save method above
+        read_tensors, other_stuffs = torch.load(file)
 
+        result = []
+        read_start_row = 0
+        for parent_datum_array in other_stuffs:
+            parent_datum = ParentDatum(parent_datum_array)
+            read_count = parent_datum.get_ref_count() + parent_datum.get_alt_count()
+            read_end_row = read_start_row + read_count
 
-def load_list_of_base_data(file) -> List[BaseDatum]:
-    """
-    file is torch, output is converted back to numpy
-    :param file:
-    :return:
-    """
-    # these are vstacked -- see save method above
-    read_tensors, other_stuffs = torch.load(file)
+            base_datum = BaseDatum(parent_datum_array=parent_datum_array, reads_2d=read_tensors[read_start_row:read_end_row])
+            read_start_row = read_end_row
+            result.append(base_datum)
 
-    result = []
-    read_start_row = 0
-    for parent_datum_array in other_stuffs:
-        parent_datum = ParentDatum(parent_datum_array)
-        read_count = parent_datum.get_ref_count() + parent_datum.get_alt_count()
-        read_end_row = read_start_row+read_count
-
-        base_datum = BaseDatum(parent_datum_array=parent_datum_array, reads_2d=read_tensors[read_start_row:read_end_row])
-        read_start_row = read_end_row
-        result.append(base_datum)
-
-    return result
+        return result
 
 
 class BaseBatch:

@@ -5,7 +5,6 @@ import random
 import tarfile
 import tempfile
 from collections import defaultdict
-from itertools import chain
 from typing import Iterable, List
 
 import numpy as np
@@ -15,7 +14,7 @@ from torch.utils.data.sampler import Sampler
 
 from mmap_ninja.ragged import RaggedMmap
 from permutect import utils
-from permutect.data.base_datum import BaseDatum, BaseBatch, load_list_of_base_data, OneDimensionalData
+from permutect.data.base_datum import BaseDatum, BaseBatch
 from permutect.utils import Label, MutableInt, Variation
 
 TENSORS_PER_BASE_DATUM = 2  # 1) 2D reads (ref and alt), 1) 1D concatenated stuff
@@ -195,7 +194,7 @@ def make_base_data_generator_from_tarfile(data_tarfile):
     data_files = [os.path.abspath(os.path.join(temp_dir.name, p)) for p in os.listdir(temp_dir.name)]
 
     for file in data_files:
-        for datum in load_list_of_base_data(file):
+        for datum in BaseDatum.load_list(file):
             yield datum
 
 
