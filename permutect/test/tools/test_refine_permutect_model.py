@@ -10,7 +10,7 @@ from permutect.tools import refine_permutect_model
 def test_refine_permutect_model():
     # Inputs
     training_data_tarfile = '/Users/davidben/mutect3/permutect/integration-tests/singular-10-Mb/preprocessed-dataset.tar'
-    pretrained_model = '/Users/davidben/mutect3/permutect/integration-tests/singular-10-Mb/base-model.pt'
+    pretrained_model = '/Users/davidben/mutect3/permutect/integration-tests/singular-10-Mb/permutect-model.pt'
 
     # Outputs
     saved_model = tempfile.NamedTemporaryFile()
