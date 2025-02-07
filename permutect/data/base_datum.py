@@ -345,6 +345,9 @@ class ParentDatum:
     def get_label(self) -> int:
         return self.array[ParentDatum.LABEL_IDX]
 
+    def is_labeled(self):
+        return self.get_label() != Label.UNLABELED
+
     def set_label(self, label: Label):
         self.array[ParentDatum.LABEL_IDX] = label
 
@@ -421,12 +424,6 @@ class ParentDatum:
 
 
 class BaseDatum(ParentDatum):
-    """
-    :param ref_sequence_1d  1D uint8 tensor of bases centered at the alignment start of the variant in form eg ACTG -> [0,1,3,2]
-    :param reads_2d   2D tensor, each row corresponding to one read; first all the ref reads, then all the alt reads
-    :param info_array_1d  1D tensor of information about the variant as a whole
-    :param label        an object of the Label enum artifact, non-artifact, unlabeled
-    """
     def __init__(self, parent_datum_array: np.ndarray, reads_2d: np.ndarray):
         super().__init__(parent_datum_array)
         self.reads_2d = reads_2d
@@ -567,11 +564,13 @@ class BaseBatch:
         ref_alt_bcl = torch.stack(ref_alt)
 
         self.ref_sequences_2d = ref_alt_bcl
+        # TODO: probably easier just to stack the entire ParentDatum LongTensor
 
         list_of_ref_tensors = [item.get_ref_reads_2d() for item in data]
         list_of_alt_tensors = [item.get_alt_reads_2d() for item in data]
         self.reads_2d = torch.from_numpy(np.vstack(list_of_ref_tensors + list_of_alt_tensors))
         self.info_2d = torch.from_numpy(np.vstack([base_datum.get_info_1d() for base_datum in data]))
+
 
         ref_counts = IntTensor([len(datum.reads_2d) - datum.alt_count for datum in data])
         alt_counts = IntTensor([datum.alt_count for datum in data])
@@ -641,52 +640,27 @@ class BaseBatch:
         return self._size
 
 
-class ArtifactDatum:
+class ArtifactDatum(ParentDatum):
     """
     """
-    def __init__(self, base_datum: BaseDatum, representation: Tensor):
+    def __init__(self, parent_datum_array: np.ndarray, representation: Tensor):
+        super().__init__(parent_datum_array)
         # Note: if changing any of the data fields below, make sure to modify the size_in_bytes() method below accordingly!
         assert representation.dim() == 1
         self.representation = torch.clamp(representation, MIN_FLOAT_16, MAX_FLOAT_16)
-        self.one_dimensional_data = base_datum.copy_without_ref_seq_and_info()
-        self.set_dtype(np.float16)
+        self.set_features_dtype(np.float16)
 
-    def set_dtype(self, dtype):
-        self.representation = self.representation.to(torch.float16)
-        self.one_dimensional_data.set_reads_dtype(dtype)
-
-    def get_ref_count(self) -> int:
-        return self.one_dimensional_data.get_ref_count()
-
-    def get_alt_count(self) -> int:
-        return self.one_dimensional_data.get_alt_count()
-
-    def get_depth(self) -> int:
-        return self.one_dimensional_data.get_counts_and_seq_lks().depth
-
-    def get_variant_type(self) -> int:
-        return self.one_dimensional_data.get_variant_type()
-
-    def get_label(self) -> int:
-        return self.one_dimensional_data.get_label()
-
-    def get_source(self) -> int:
-        return self.one_dimensional_data.get_source()
+    def set_features_dtype(self, dtype):
+        self.representation = self.representation.to(dtype)
 
     def size_in_bytes(self):
-        return self.representation.nbytes + self.one_dimensional_data.get_nbytes()
-
-    def get_1d_data(self) -> OneDimensionalData:
-        return self.one_dimensional_data
-
-    def is_labeled(self):
-        return self.get_label() != Label.UNLABELED
+        return self.get_nbytes() + self.representation.nbytes
 
 
 class ArtifactBatch:
     def __init__(self, data: List[ArtifactDatum]):
         self.representations_2d = torch.vstack([item.representation for item in data])
-        self.other_stuff_array = torch.from_numpy(np.vstack([d.get_1d_data().to_np_array() for d in data]))
+        self.other_stuff_array = torch.from_numpy(np.vstack([d.get_array_1d() for d in data]))
         self._size = len(data)
 
     def get_variants(self) -> List[Variant]:
