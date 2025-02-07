@@ -9,16 +9,16 @@ class GradientReversal(Function):
         pass
 
     @staticmethod
-    def forward(ctx, x, alpha):
-        ctx.save_for_backward(x, alpha)
+    def forward(ctx, x, alpha: float = 1.0):
+        ctx.save_for_backward(x)
+        ctx.alpha = alpha
         return x
 
     @staticmethod
     def backward(ctx, grad_output):
         grad_input = None
-        _, alpha = ctx.saved_tensors
         if ctx.needs_input_grad[0]:
-            grad_input = - alpha * grad_output
+            grad_input = - ctx.alpha * grad_output
         return grad_input, None
 
 

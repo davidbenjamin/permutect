@@ -78,6 +78,19 @@ class ArtifactDataset(Dataset):
     def all_folds(self):
         return list(range(self.num_folds))
 
+    def validate_sources(self) -> int:
+        num_sources = len(self.counts_by_source.keys())
+        if num_sources == 1:
+            print("Data come from a single source")
+        else:
+            sources_list = list(self.counts_by_source.keys())
+            sources_list.sort()
+            assert sources_list[0] == 0, "There is no source 0"
+            assert sources_list[1] == num_sources - 1, f"sources should be 0, 1, 2. . . without gaps, but sources are {sources_list}."
+
+            print(f"Data come from multiple sources, with counts {self.counts_by_source}.")
+        return num_sources
+
     def make_data_loader(self, folds_to_use: List[int], batch_size: int, pin_memory=False, num_workers: int = 0, labeled_only: bool = False, sources_to_use: List[int] = None):
         sampler = SemiSupervisedArtifactBatchSampler(self, batch_size, folds_to_use, labeled_only, sources_to_use)
         return DataLoader(dataset=self, batch_sampler=sampler, collate_fn=ArtifactBatch, pin_memory=pin_memory, num_workers=num_workers)
