@@ -232,24 +232,6 @@ class CountsAndSeqLks:
         return cls(round(np_array[0]), round(np_array[1]), round(np_array[2]), round(np_array[3]), float(np_array[4]), float(np_array[5]))
 
 
-class TensorSizes:
-    LENGTH = 4
-
-    def __init__(self, ref_count: int, alt_count: int, ref_sequence_length: int, info_tensor_length: int):
-        self.ref_count = ref_count
-        self.alt_count = alt_count
-        self.ref_sequence_length = ref_sequence_length
-        self.info_tensor_length = info_tensor_length
-
-    def to_np_array(self):
-        return np.array([self.ref_count, self.alt_count, self.ref_sequence_length, self.info_tensor_length])
-
-    @classmethod
-    def from_np_array(cls, np_array: np.ndarray):
-        assert len(np_array) == cls.LENGTH
-        return cls(round(np_array[0]), round(np_array[1]), round(np_array[2]), round(np_array[3]))
-
-
 class ParentDatum:
     """
     contains data that apply to a candidate mutation as a whole i.e. not the read sets.  These are organized into a single
