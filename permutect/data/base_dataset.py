@@ -135,8 +135,8 @@ class BaseDataset(Dataset):
         self.label_balancing_weights_sclt = torch.from_numpy(self.label_balancing_weights_sclt)
         self.source_balancing_weights_sct = torch.from_numpy(self.source_balancing_weights_sct)
         self.num_read_features = self[0].get_reads_2d().shape[1]
-        self.num_info_features = len(self[0].get_info_tensor_1d())
-        self.ref_sequence_length = len(self[0].get_ref_sequence_1d())
+        self.num_info_features = len(self[0].get_info_1d())
+        self.ref_sequence_length = len(self[0].get_ref_seq_1d())
 
     def __len__(self):
         return len(self._data) // TENSORS_PER_BASE_DATUM if self._memory_map_mode else len(self._data)
@@ -144,11 +144,7 @@ class BaseDataset(Dataset):
     def __getitem__(self, index):
         if self._memory_map_mode:
             bottom_index = index * TENSORS_PER_BASE_DATUM
-            other_stuff = OneDimensionalData.from_np_array(self._data[bottom_index + 1])
-
-            return BaseDatum(reads_2d=self._data[bottom_index], ref_sequence_1d=None, alt_count=None, info_array_1d=None,
-                             variant_type=None, label=None, source=None, variant=None, counts_and_seq_lks=None,
-                             one_dimensional_data_override=other_stuff)
+            return BaseDatum(parent_datum_array=self._data[bottom_index + 1], reads_2d=self._data[bottom_index])
         else:
             return self._data[index]
 
@@ -187,7 +183,7 @@ class BaseDataset(Dataset):
 def make_flattened_tensor_generator(base_data_generator):
     for base_datum in base_data_generator:
         yield base_datum.get_reads_2d()
-        yield base_datum.get_1d_data().to_np_array()
+        yield base_datum.get_array_1d()
 
 
 def make_base_data_generator_from_tarfile(data_tarfile):

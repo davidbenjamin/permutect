@@ -36,8 +36,8 @@ def do_work(training_datasets, training_output_file, chunk_size, sources: List[i
     # TODO: left off here.  Need to give it sources, which will need to be command line argument
     for base_data_list in generate_normalized_data(training_datasets, max_bytes_per_chunk=chunk_size, sources=sources):
         num_read_features.check(base_data_list[0].get_reads_2d().shape[1])
-        num_info_features.check(base_data_list[0].get_info_tensor_1d().shape[0])
-        ref_sequence_length.check(base_data_list[0].get_ref_sequence_1d().shape[0])
+        num_info_features.check(base_data_list[0].get_info_1d().shape[0])
+        ref_sequence_length.check(base_data_list[0].get_ref_seq_1d().shape[0])
 
         with tempfile.NamedTemporaryFile(delete=False) as train_data_file:
             base_datum.save_list_base_data(base_data_list, train_data_file)
