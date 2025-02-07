@@ -18,7 +18,7 @@ from permutect.architecture.gradient_reversal.module import GradientReversal
 from permutect.architecture.mlp import MLP
 from permutect.data.artifact_dataset import ArtifactDataset
 from permutect.data.base_dataset import BaseDataset, ALL_COUNTS_INDEX, ratio_with_pseudocount
-from permutect.data.base_datum import ArtifactBatch
+from permutect.data.base_datum import ArtifactBatch, ParentDatum
 from permutect.data.prefetch_generator import prefetch_generator
 from permutect.metrics.evaluation_metrics import LossMetrics, EmbeddingMetrics, round_up_to_nearest_three, MAX_COUNT, \
     EvaluationMetrics
@@ -308,9 +308,10 @@ def collect_evaluation_data(model: PermutectModel, dataset: ArtifactDataset, tra
             labels = batch_cpu.get_training_labels()
             correct = ((pred > 0) == (labels > 0.5)).tolist()
 
-            for variant_type, predicted_logit, source, int_label, correct_call, alt_count, variant, weight in zip(
+            for parent_datum_array, variant_type, predicted_logit, source, int_label, correct_call, alt_count, weight in zip(batch_cpu.get_parent_data_2d(),
                     batch_cpu.get_variant_types().tolist(), pred.tolist(), batch.get_sources().tolist(), batch_cpu.get_labels().tolist(), correct,
-                    batch_cpu.get_alt_counts().tolist(), batch_cpu.get_variants(), weights.tolist()):
+                    batch_cpu.get_alt_counts().tolist(), weights.tolist()):
+                parent_datum = ParentDatum(parent_datum_array)
                 label = Label(int_label)
                 evaluation_metrics.record_call(epoch_type, variant_type, predicted_logit, label, correct_call,
                                                alt_count, weight, source=source)
@@ -328,8 +329,8 @@ def collect_evaluation_data(model: PermutectModel, dataset: ArtifactDataset, tra
                         pqueue.get()  # discards the least confident bad call
 
                     if not pqueue.full():  # if space was cleared or if it wasn't full already
-                        pqueue.put((confidence, str(variant.contig) + ":" + str(
-                            variant.position) + ':' + variant.ref + "->" + variant.alt))
+                        pqueue.put((confidence, str(parent_datum.get_contig()) + ":" + str(
+                            parent_datum.get_position()) + ':' + parent_datum.get_ref_allele() + "->" + parent_datum.get_alt_allele()))
         # done with this epoch type
     # done collecting data
     return evaluation_metrics, worst_offenders_by_truth_and_alt_count

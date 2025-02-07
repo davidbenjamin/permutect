@@ -642,51 +642,40 @@ class ArtifactDatum(ParentDatum):
 class ArtifactBatch:
     def __init__(self, data: List[ArtifactDatum]):
         self.representations_2d = torch.vstack([item.representation for item in data])
-        self.other_stuff_array = torch.from_numpy(np.vstack([d.get_array_1d() for d in data]))
+        self.parent_data = torch.from_numpy(np.vstack([d.get_array_1d() for d in data])).to(dtype=torch.long)
         self._size = len(data)
-
-    def get_variants(self) -> List[Variant]:
-        relevant_cols = self.other_stuff_array[:, OneDimensionalData.VARIANT_START_IDX:OneDimensionalData.VARIANT_END_IDX].numpy()
-        return [Variant.from_np_array(var_array_1d) for var_array_1d in relevant_cols]
-
-    def get_counts_and_seq_lks(self) -> List[CountsAndSeqLks]:
-        relevant_cols = self.other_stuff_array[:, OneDimensionalData.COUNTS_AND_SEQ_LKS_START_IDX:].numpy()
-        return [CountsAndSeqLks.from_np_array(var_array_1d) for var_array_1d in relevant_cols]
 
     # get the original IntEnum format (VARIANT = 0, ARTIFACT = 1, UNLABELED = 2) labels
     def get_labels(self) -> IntTensor:
-        return self.other_stuff_array[:, OneDimensionalData.LABEL_IDX].int()
+        return self.parent_data[:, ParentDatum.LABEL_IDX]
 
-    # TODO: left off here
-    # TODO: put in some breakpoints to double-check that this works
     # convert to the training format of 0.0 / 0.5 / 1.0 for variant / unlabeled / artifact
     # the 0.5 for unlabeled data is reasonable but should never actually be used due to the is_labeled mask
     def get_training_labels(self) -> FloatTensor:
         int_enum_labels = self.get_labels()
         return 1.0 * (int_enum_labels == Label.ARTIFACT) + 0.5 * (int_enum_labels == Label.UNLABELED)
 
-    # TODO: put in some breakpoints to double-check that this works
-    def get_is_labeled_mask(self):
+    def get_is_labeled_mask(self) -> IntTensor:
         int_enum_labels = self.get_labels()
         return (int_enum_labels != Label.UNLABELED).int()
 
     def get_sources(self) -> IntTensor:
-        return self.other_stuff_array[:, OneDimensionalData.SOURCE_IDX].int()
+        return self.parent_data[:, ParentDatum.SOURCE_IDX].int()
 
     def get_variant_types(self) -> IntTensor:
-        result = self.other_stuff_array[:, OneDimensionalData.VAR_TYPE_IDX].int()
+        result = self.parent_data[:, ParentDatum.VAR_TYPE_IDX].int()
         return result
 
     def get_ref_counts(self) -> IntTensor:
-        return self.other_stuff_array[:, OneDimensionalData.REF_COUNT_IDX].int()
+        return self.parent_data[:, ParentDatum.REF_COUNT_IDX].int()
 
     def get_alt_counts(self) -> IntTensor:
-        return self.other_stuff_array[:, OneDimensionalData.ALT_COUNT_IDX].int()
+        return self.parent_data[:, ParentDatum.ALT_COUNT_IDX].int()
 
     # pin memory for all tensors that are sent to the GPU
     def pin_memory(self):
         self.representations_2d = self.representations_2d.pin_memory()
-        self.other_stuff_array = self.other_stuff_array.pin_memory()
+        self.parent_data = self.parent_data.pin_memory()
         return self
 
     def copy_to(self, device, dtype):
@@ -695,9 +684,12 @@ class ArtifactBatch:
         # note that variants_array and counts_and_seq_lks_array are not used in training and are never sent to GPU
         new_batch = copy.copy(self)
         new_batch.representations_2d = self.representations_2d.to(device=device, dtype=dtype, non_blocking=is_cuda)
-        new_batch.other_stuff_array = self.other_stuff_array.to(device, dtype=dtype, non_blocking=is_cuda)
+        new_batch.parent_data = self.parent_data.to(device, dtype=dtype, non_blocking=is_cuda)
 
         return new_batch
+
+    def get_parent_data_2d(self) -> np.ndarray:
+        return self.parent_data.numpy()
 
     def get_representations_2d(self) -> Tensor:
         return self.representations_2d

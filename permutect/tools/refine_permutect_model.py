@@ -26,9 +26,8 @@ def learn_artifact_priors_and_spectra(artifact_dataset: ArtifactDataset, genomic
         variant_type = artifact_datum.get_variant_type()
         artifact_counts[variant_type] += 1
         types_list.append(variant_type)
-        counts_and_seq_lks = artifact_datum.one_dimensional_data.get_counts_and_seq_lks()
-        depths_list.append(counts_and_seq_lks.depth)
-        alt_counts_list.append(counts_and_seq_lks.alt_count)
+        depths_list.append(artifact_datum.get_original_depth())
+        alt_counts_list.append(artifact_datum.get_original_alt_count())
 
     # turn the lists into tensors
     types_tensor = torch.LongTensor(types_list)
