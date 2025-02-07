@@ -19,6 +19,7 @@ from permutect.architecture.mlp import MLP
 from permutect.data.artifact_dataset import ArtifactDataset
 from permutect.data.base_dataset import BaseDataset, ALL_COUNTS_INDEX, ratio_with_pseudocount
 from permutect.data.base_datum import ArtifactBatch
+from permutect.data.prefetch_generator import prefetch_generator
 from permutect.metrics.evaluation_metrics import LossMetrics, EmbeddingMetrics, round_up_to_nearest_three, MAX_COUNT, \
     EvaluationMetrics
 from permutect.parameters import TrainingParameters
@@ -71,20 +72,8 @@ def train_permutect_model(model: PermutectModel, dataset: BaseDataset, training_
             loss_metrics = LossMetrics()
 
             loader = train_loader if epoch_type == utils.Epoch.TRAIN else valid_loader
-            loader_iter = iter(loader)
 
-            next_batch_cpu = next(loader_iter)
-            next_batch = next_batch_cpu.copy_to(model._device, non_blocking=is_cuda)
-
-            pbar = tqdm(range(len(loader)), mininterval=60)
-            for n in pbar:
-                batch_cpu = next_batch_cpu
-                batch = next_batch
-
-                # Optimization: Asynchronously send the next batch to the device while the model does work
-                next_batch_cpu = next(loader_iter)
-                next_batch = next_batch_cpu.copy_to(model._device, non_blocking=is_cuda)
-
+            for batch, batch_cpu in tqdm(prefetch_generator(loader), mininterval=60, total=len(loader)):
                 # TODO: use the weight-balancing scheme that artifact model training uses
                 weights = calculate_batch_weights(batch_cpu, dataset, by_count=True)
                 weights = weights.to(device=model._device, dtype=model._dtype, non_blocking=True)
@@ -221,21 +210,8 @@ def train_on_artifact_dataset(model: PermutectModel, dataset: ArtifactDataset, t
 
             loader = (calibration_train_loader if epoch_type == utils.Epoch.TRAIN else calibration_valid_loader) if is_calibration_epoch else \
                 (train_loader if epoch_type == utils.Epoch.TRAIN else valid_loader)
-            loader_iter = iter(loader)
 
-            next_batch_cpu = next(loader_iter)
-            next_batch = next_batch_cpu.copy_to(model._device, model._dtype, non_blocking=is_cuda)
-
-            pbar = tqdm(range(len(loader)), mininterval=60)
-            for n in pbar:
-                # forward and backward pass on batch, which is the last iteration's prefetched "next_batch"
-                batch_cpu = next_batch_cpu
-                batch = next_batch
-
-                # Optimization: Asynchronously send the next batch to the device while the model does work
-                next_batch_cpu = next(loader_iter)
-                next_batch = next_batch_cpu.copy_to(model._device, model._dtype, non_blocking=is_cuda)
-
+            for batch, batch_cpu in tqdm(prefetch_generator(loader), mininterval=60, total=len(loader)):
                 # TODO: does this really need to be updated every batch?
                 # effective totals are labeled plus estimated contributions from unlabeled
                 unlabeled_artifact_proportions_sct = torch.sigmoid(unlabeled_artifact_proportion_logits_sct.detach())
@@ -351,12 +327,10 @@ def collect_evaluation_data(model: PermutectModel, dataset: ArtifactDataset, tra
     for epoch_type in epoch_types:
         assert epoch_type == Epoch.TRAIN or epoch_type == Epoch.VALID  # not doing TEST here
         loader = train_loader if epoch_type == Epoch.TRAIN else valid_loader
-        pbar = tqdm(enumerate(loader), mininterval=60)
 
+        batch: ArtifactBatch
         batch_cpu: ArtifactBatch
-        for n, batch_cpu in pbar:
-            batch = batch_cpu.copy_to(model._device, model._dtype, non_blocking=model._device.type == 'cuda')
-
+        for batch, batch_cpu in tqdm(prefetch_generator(loader), mininterval=60, total=len(loader)):
             # these are the same weights used in training
             # TODO: we need a parameter to control the relative weight of unlabeled loss to labeled loss
             weights = calculate_batch_weights(batch_cpu, dataset, by_count=True)
@@ -420,10 +394,9 @@ def evaluate_model(model: PermutectModel, epoch: int, dataset: ArtifactDataset, 
         embedding_metrics = EmbeddingMetrics()
 
         # now go over just the validation data and generate feature vectors / metadata for tensorboard projectors (UMAP)
-        pbar = tqdm(enumerate(valid_loader), mininterval=60)
-
-        for n, batch_cpu in pbar:
-            batch = batch_cpu.copy_to(model._device, model._dtype, non_blocking=model._device.type == 'cuda')
+        batch: ArtifactBatch
+        batch_cpu: ArtifactBatch
+        for batch, batch_cpu in tqdm(prefetch_generator(valid_loader), mininterval=60, total=len(valid_loader)):
             logits, _ = model.logits_from_artifact_batch(batch)
             pred = logits.detach().cpu()
             labels = batch_cpu.get_training_labels()
