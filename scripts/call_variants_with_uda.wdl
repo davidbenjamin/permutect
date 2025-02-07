@@ -8,8 +8,8 @@ version 1.0
 
 import "https://api.firecloud.org/ga4gh/v1/tools/davidben:mutect2/versions/18/plain-WDL/descriptor" as m2
 import "https://api.firecloud.org/ga4gh/v1/tools/davidben:permutect-uda-dataset/versions/3/plain-WDL/descriptor" as uda
-import "https://api.firecloud.org/ga4gh/v1/tools/davidben:permutect-train-artifact-model/versions/14/plain-WDL/descriptor" as training
-import "https://api.firecloud.org/ga4gh/v1/tools/davidben:permutect-call-variants/versions/19/plain-WDL/descriptor" as calling
+import "https://api.firecloud.org/ga4gh/v1/tools/davidben:refine-permutect/versions/3/plain-WDL/descriptor" as refining
+import "https://api.firecloud.org/ga4gh/v1/tools/davidben:permutect-call-variants/versions/22/plain-WDL/descriptor" as calling
 
 workflow CallVariantsWithUDA {
     input {
@@ -55,9 +55,6 @@ workflow CallVariantsWithUDA {
         String target_edit_type = "unlabel_everything"
         Int num_epochs
         Int num_calibration_epochs
-        Float dropout_p
-        Array[Int] aggregation_layers
-        Array[Int] calibration_layers
         String? training_extra_args
         Boolean learn_artifact_spectra
         Float? genomic_span
@@ -156,10 +153,10 @@ workflow CallVariantsWithUDA {
     }
 
     # train an artifact model on the UDA dataset, using only the UDA target source for calibration
-    call training.TrainPermutect {
+    call refining.RefinePermutectModel {
         input:
             train_tar = PermutectUDADataset.uda_train_tar,
-            base_model = base_model,
+            saved_model = base_model,
             num_epochs = num_epochs,
             num_calibration_epochs = num_calibration_epochs,
             calibration_source = 1,
@@ -168,9 +165,6 @@ workflow CallVariantsWithUDA {
             num_workers = num_workers,
             mem = training_mem,
             gpu_count = gpu_count,
-            dropout_p = dropout_p,
-            aggregation_layers = aggregation_layers,
-            calibration_layers = calibration_layers,
             extra_args = training_extra_args,
             learn_artifact_spectra = learn_artifact_spectra,
             genomic_span = genomic_span,
@@ -200,7 +194,7 @@ workflow CallVariantsWithUDA {
         input:
             mutect2_vcf = IndexAfterSplitting.vcf,
             mutect2_vcf_idx = IndexAfterSplitting.vcf_index,
-            permutect_model = TrainPermutect.artifact_model,
+            permutect_model = RefinePermutectModel.permutect_model,
             test_dataset = select_first([Mutect2.permutect_test_dataset]),
             contigs_table = Mutect2.permutect_contigs_table,
             maf_segments = Mutect2.maf_segments,
@@ -229,7 +223,7 @@ workflow CallVariantsWithUDA {
         File permutect_contigs_table = Mutect2.permutect_contigs_table
         File permutect_read_groups_table = Mutect2.permutect_read_groups_table
         File train_tar = Preprocess.train_tar
-        File training_tensorboard_tar = TrainPermutect.training_tensorboard_tar
+        File training_tensorboard_tar = RefinePermutectModel.training_tensorboard_tar
         File output_vcf = IndexAfterFiltering.vcf
         File output_vcf_idx = IndexAfterFiltering.vcf_index
         File calling_tensorboard_tar = PermutectFiltering.tensorboard_report
