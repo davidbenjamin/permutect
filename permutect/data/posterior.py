@@ -47,14 +47,14 @@ class PosteriorBatch:
 
     def __init__(self, data: List[PosteriorDatum]):
         self.embeddings = torch.vstack([item.embedding for item in data]).float()
-        self.int_tensor = torch.vstack([item.get_array_1d() for item in data])
+        self.parent_data_2d = torch.vstack([item.get_array_1d() for item in data])
         self.float_tensor = torch.vstack([item.float_array for item in data]).float()
 
         self._size = len(data)
 
     def pin_memory(self):
         self.embeddings = self.embeddings.pin_memory()
-        self.int_tensor = self.int_tensor.pin_memory()
+        self.parent_data_2d = self.parent_data_2d.pin_memory()
         self.float_tensor = self.float_tensor.pin_memory()
         return self
 
@@ -65,32 +65,28 @@ class PosteriorBatch:
         new_batch = copy.copy(self)
 
         new_batch.embeddings = self.embeddings.to(device=device, dtype=dtype, non_blocking=is_cuda)
-        new_batch.int_tensor = self.int_tensor.to(device=device, non_blocking=is_cuda)
+        new_batch.parent_data_2d = self.parent_data_2d.to(device=device, non_blocking=is_cuda)
         new_batch.float_tensor = self.float_tensor.to(device=device, dtype=dtype, non_blocking=is_cuda)
 
         return new_batch
 
-    def get_variants(self) -> List[Variant]:
-        subarray_2d = self.int_tensor[:, PosteriorDatum.CONTIG:PosteriorDatum.ALT + 1]
-        return [variant_from_int_array(subarray) for subarray in subarray_2d]
-
     def get_variant_types(self) -> torch.IntTensor:
-        return self.int_tensor[:, PosteriorDatum.VAR_TYPE]
+        return self.parent_data_2d[:, ParentDatum.VARIANT_TYPE_IDX]
 
-    def get_alt_counts(self) -> torch.Tensor:
-        return self.int_tensor[:, PosteriorDatum.ALT_COUNT]
+    def get_labels(self) -> torch.IntTensor:
+        return self.parent_data_2d[:, ParentDatum.LABEL_IDX]
 
-    def get_depths(self) -> torch.Tensor:
-        return self.int_tensor[:, PosteriorDatum.DEPTH]
+    def get_alt_counts(self) -> torch.IntTensor:
+        return self.parent_data_2d[:, ParentDatum.ORIGINAL_ALT_COUNT_IDX]
 
-    def get_labels(self) -> torch.Tensor:
-        return self.int_tensor[:, PosteriorDatum.LABEL]
+    def get_depths(self) -> torch.IntTensor:
+        return self.parent_data_2d[:, ParentDatum.ORIGINAL_DEPTH_IDX]
 
     def get_normal_alt_counts(self) -> torch.Tensor:
-        return self.int_tensor[:, PosteriorDatum.NORMAL_ALT_COUNT]
+        return self.parent_data_2d[:, ParentDatum.ORIGINAL_NORMAL_ALT_COUNT_IDX]
 
     def get_normal_depths(self) -> torch.Tensor:
-        return self.int_tensor[:, PosteriorDatum.NORMAL_DEPTH]
+        return self.parent_data_2d[:, ParentDatum.ORIGINAL_NORMAL_DEPTH_IDX]
 
     def get_tlods_from_m2(self) -> torch.Tensor:
         return self.float_tensor[:, PosteriorDatum.TLOD_FROM_M2]

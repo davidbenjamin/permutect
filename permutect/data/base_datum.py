@@ -252,7 +252,7 @@ class ParentDatum:
     ORIGINAL_DEPTH_IDX = 7          # the original depth of the sequencing data before downsampling
     ORIGINAL_ALT_COUNT_IDX = 8      # the original alt count of the sequencing data before downsampling
     ORIGINAL_NORMAL_DEPTH_IDX = 9   # the original matched normal sample depth of the sequencing data before downsampling
-    ORIGINAL_ALT_COUNT_IDX = 10     # the original matched normal sample alt count of the sequencing data before downsampling
+    ORIGINAL_NORMAL_ALT_COUNT_IDX = 10     # the original matched normal sample alt count of the sequencing data before downsampling
 
     CONTIG_IDX = 11                 # the index of the contig/chromosome
     POSITION_IDX = 12               # the position of the variant start within the contig
@@ -659,17 +659,17 @@ class ArtifactBatch:
         return (int_enum_labels != Label.UNLABELED).int()
 
     def get_sources(self) -> IntTensor:
-        return self.parent_data[:, ParentDatum.SOURCE_IDX].int()
+        return self.parent_data[:, ParentDatum.SOURCE_IDX]
 
     def get_variant_types(self) -> IntTensor:
-        result = self.parent_data[:, ParentDatum.VAR_TYPE_IDX].int()
+        result = self.parent_data[:, ParentDatum.VAR_TYPE_IDX]
         return result
 
     def get_ref_counts(self) -> IntTensor:
-        return self.parent_data[:, ParentDatum.REF_COUNT_IDX].int()
+        return self.parent_data[:, ParentDatum.REF_COUNT_IDX]
 
     def get_alt_counts(self) -> IntTensor:
-        return self.parent_data[:, ParentDatum.ALT_COUNT_IDX].int()
+        return self.parent_data[:, ParentDatum.ALT_COUNT_IDX]
 
     # pin memory for all tensors that are sent to the GPU
     def pin_memory(self):

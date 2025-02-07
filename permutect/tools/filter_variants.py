@@ -52,9 +52,9 @@ def encode(contig: str, position: int, ref: str, alt: str):
     return contig + ':' + str(position) + ':' + base_datum.truncate_bases_if_necessary(trimmed_alt)
 
 
-def encode_datum(variant: Variant, contig_index_to_name_map):
-    contig_name = contig_index_to_name_map[variant.contig]
-    return encode(contig_name, variant.position, variant.ref, variant.alt)
+def encode_datum(parent_datum: ParentDatum, contig_index_to_name_map):
+    contig_name = contig_index_to_name_map[parent_datum.get_contig()]
+    return encode(contig_name, parent_datum.get_position(), parent_datum.get_ref_allele(), parent_datum.get_alt_allele())
 
 
 def encode_variant(v: cyvcf2.Variant, zero_based=False):
@@ -264,7 +264,7 @@ def apply_filtering_to_vcf(input_vcf, output_vcf, contig_index_to_name_map, erro
 
         posterior_probs = torch.nn.functional.softmax(log_posteriors, dim=1)
 
-        encodings = [encode_datum(variant, contig_index_to_name_map) for variant in batch.get_variants()]
+        encodings = [encode_datum(ParentDatum(parent_datum_array), contig_index_to_name_map) for parent_datum_array in batch.parent_data_2d]
         artifact_logits = batch.get_artifact_logits().tolist()
         var_types = batch.get_variant_types().tolist()
         labels = batch.get_labels().tolist()
