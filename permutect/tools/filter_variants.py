@@ -221,11 +221,8 @@ def make_posterior_data_loader(dataset_file, input_vcf, contig_index_to_name_map
         for artifact_batch, artifact_batch_cpu in tqdm(prefetch_generator(artifact_loader), mininterval=60, total=len(artifact_loader)):
             artifact_logits, _ = model.logits_from_artifact_batch(batch=artifact_batch)
 
-            labels = [(Label.ARTIFACT if label > 0.5 else Label.VARIANT) if is_labeled > 0.5 else Label.UNLABELED for (label, is_labeled) in zip(artifact_batch.get_training_labels(), artifact_batch.get_is_labeled_mask())]
-
-            for parent_datum_array, logit, label, embedding in zip(artifact_batch_cpu.get_parent_data_2d(),
+            for parent_datum_array, logit, embedding in zip(artifact_batch_cpu.get_parent_data_2d(),
                                                                artifact_logits.detach().tolist(),
-                                                               labels,
                                                                artifact_batch.get_representations_2d().cpu()):
                 parent_datum = ParentDatum(parent_datum_array)
                 contig_name = contig_index_to_name_map[parent_datum.get_contig()]
@@ -241,7 +238,7 @@ def make_posterior_data_loader(dataset_file, input_vcf, contig_index_to_name_map
                     maf = list(segmentation_overlaps)[0].data if segmentation_overlaps else 0.5
                     normal_maf = list(normal_segmentation_overlaps)[0].data if normal_segmentation_overlaps else 0.5
 
-                    posterior_datum = PosteriorDatum(variant, counts_and_seq_lks, allele_frequency, logit, embedding, label, maf, normal_maf)
+                    posterior_datum = PosteriorDatum(parent_datum_array, allele_frequency, logit, maf, normal_maf, embedding)
                     posterior_data.append(posterior_datum)
 
     print(f"Size of filtering dataset: {len(posterior_data)}")

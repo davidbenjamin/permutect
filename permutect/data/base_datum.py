@@ -465,8 +465,7 @@ class BaseDatum(ParentDatum):
         assert len(original_ref_array) % 2 == 1, "ref sequence length should be odd"
         middle_idx = (len(original_ref_array) - 1) // 2
         max_allele_length = middle_idx  # just kind of a coincidence
-        variant = self.other_stuff.get_variant()
-        ref, alt = variant.ref[:max_allele_length], variant.alt[:max_allele_length] # these are strings, not integers
+        ref, alt = self.get_ref_allele()[:max_allele_length], self.get_alt_allele()[:max_allele_length] # these are strings, not integers
 
         if len(ref) >= len(alt):    # substitution or deletion
             ref_array = original_ref_array
