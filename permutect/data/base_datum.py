@@ -270,6 +270,8 @@ class ParentDatum:
     # different versions of Permutect or different sequencing) for the reference sequence context and the info tensor
 
     def __init__(self, array: np.ndarray):
+        # note: this constructor does no checking eg of whether the arrays are consistent with their purported lengths
+        # or of whether ref, alt alleles have been trimmed
         assert array.ndim == 1 and len(array) >= ParentDatum.NUM_SCALAR_ELEMENTS
         self.array: np.ndarray = np.int64(array)
 
@@ -426,7 +428,11 @@ class BaseDatum(ParentDatum):
             seq_error_log_lk: float, normal_seq_error_log_lk: float,
             ref_sequence_string: str, gatk_info_array: np.ndarray,
             ref_tensor: np.ndarray, alt_tensor: np.ndarray):
-        str_info = get_str_info_array(ref_sequence_string, ref_allele, alt_allele)
+        # note: it is very important to trim here, as early as possible, because truncating to 13 or fewer bases
+        # does not commute with trimming!!!  If we are not consistent about trimming first, dataset variants and
+        # VCF variants might get inconsistent encodings!!!
+        trimmed_ref, trimmed_alt = trim_alleles_on_right(ref_allele, alt_allele)
+        str_info = get_str_info_array(ref_sequence_string, trimmed_ref, trimmed_alt)
         info_array = np.hstack([gatk_info_array, str_info])
         ref_seq_array = make_1d_sequence_tensor(ref_sequence_string)
         read_tensor = np.vstack([ref_tensor, alt_tensor]) if ref_tensor is not None else alt_tensor
@@ -434,7 +440,7 @@ class BaseDatum(ParentDatum):
         parent_datum = ParentDatum.make_datum_without_reads(label=label, variant_type=variant_type, source=source,
             original_depth=original_depth, original_alt_count=original_alt_count, original_normal_depth=original_normal_depth,
             original_normal_alt_count=original_normal_alt_count,
-            contig=contig, position=position, ref_allele=ref_allele, alt_allele=alt_allele,
+            contig=contig, position=position, ref_allele=trimmed_ref, alt_allele=trimmed_alt,
             seq_error_log_lk=seq_error_log_lk, normal_seq_error_log_lk=normal_seq_error_log_lk,
             ref_seq_array=ref_seq_array, info_array=info_array)
         # ref and alt counts need to be set manually.  Everything else is handled in the ParentDatum constructor
@@ -630,10 +636,10 @@ class ArtifactDatum(ParentDatum):
         # Note: if changing any of the data fields below, make sure to modify the size_in_bytes() method below accordingly!
         assert representation.dim() == 1
         self.representation = torch.clamp(representation, MIN_FLOAT_16, MAX_FLOAT_16)
-        self.set_features_dtype(np.float16)
+        self.set_features_dtype(torch.float16)
 
     def set_features_dtype(self, dtype):
-        self.representation = self.representation.to(dtype)
+        self.representation = self.representation.to(dtype=dtype)
 
     def size_in_bytes(self):
         return self.get_nbytes() + self.representation.nbytes
