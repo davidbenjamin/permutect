@@ -669,7 +669,7 @@ class ArtifactBatch:
         return self.parent_data[:, ParentDatum.SOURCE_IDX]
 
     def get_variant_types(self) -> IntTensor:
-        result = self.parent_data[:, ParentDatum.VAR_TYPE_IDX]
+        result = self.parent_data[:, ParentDatum.VARIANT_TYPE_IDX]
         return result
 
     def get_ref_counts(self) -> IntTensor:
@@ -690,7 +690,7 @@ class ArtifactBatch:
         # note that variants_array and counts_and_seq_lks_array are not used in training and are never sent to GPU
         new_batch = copy.copy(self)
         new_batch.representations_2d = self.representations_2d.to(device=device, dtype=dtype, non_blocking=is_cuda)
-        new_batch.parent_data = self.parent_data.to(device, dtype=dtype, non_blocking=is_cuda)
+        new_batch.parent_data = self.parent_data.to(device, non_blocking=is_cuda)   # don't cast dtype -- needs to stay integral!
 
         return new_batch
 

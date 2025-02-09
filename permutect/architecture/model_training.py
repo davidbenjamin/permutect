@@ -228,8 +228,7 @@ def train_on_artifact_dataset(model: PermutectModel, dataset: ArtifactDataset, t
 
                 # calculate label-balancing weights
                 artifact_weights = index_3d_array(artifact_weights_sct, sources, alt_counts, variant_types)
-                nonartifact_weights = index_3d_array(nonartifact_weights_sct, sources, alt_counts,
-                                                           variant_types)
+                nonartifact_weights = index_3d_array(nonartifact_weights_sct, sources, alt_counts, variant_types)
 
                 # is_artifact is 1 / 0 if labeled as artifact / nonartifact; otherwise it's the estimated probability
                 # TODO: I bet some things from the batch still need to be moved to GPU.  Don't be surprised if
