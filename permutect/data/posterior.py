@@ -5,6 +5,7 @@ import random
 import math
 from typing import List, Iterable
 
+import numpy as np
 import torch
 from torch import IntTensor
 from torch.utils.data import Dataset, DataLoader
@@ -47,7 +48,7 @@ class PosteriorBatch:
 
     def __init__(self, data: List[PosteriorDatum]):
         self.embeddings = torch.vstack([item.embedding for item in data]).float()
-        self.parent_data_2d = torch.vstack([item.get_array_1d() for item in data])
+        self.parent_data_2d = torch.from_numpy(np.vstack([item.get_array_1d() for item in data]))
         self.float_tensor = torch.vstack([item.float_array for item in data]).float()
 
         self._size = len(data)
