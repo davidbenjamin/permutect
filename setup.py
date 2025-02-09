@@ -14,9 +14,7 @@ setup(
                             'filter_variants=permutect.tools.filter_variants:main',
                             'preprocess_dataset=permutect.tools.preprocess_dataset:main',
                             'edit_dataset=permutect.tools.edit_dataset:main',
-                            'prune_dataset=permutect.tools.prune_dataset:main',
-                            'evaluate_model=permutect.tools.evaluate_model:main',
-                            'compare_to_mutect2=permutect.tools.compare_to_mutect2:main'
+                            'prune_dataset=permutect.tools.prune_dataset:main'
                             ]
     }
 )
