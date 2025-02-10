@@ -29,3 +29,27 @@ def log_binomial_coefficient(n: torch.Tensor, k: torch.Tensor):
 def f_score(tp, fp, total_true):
     fn = total_true - tp
     return tp / (tp + (fp + fn) / 2)
+
+
+def add_in_log_space(x: torch.Tensor, y: torch.Tensor):
+    """
+    implement result = log(exp(x) + exp(y)) in a numerically stable way by extracting the elementwise max:
+    with M = torch.maximum(x,y); result = log(exp(M)exp(x-M) + exp(M)exp(y-M)) = M + log(exp(x-M) + exp(y-M))
+    this could be done by stacking x and y along a new dimension, then doing logsumexp along that dimension, but
+    that is cumbersome.
+    :return:
+    """
+    m = torch.maximum(x, y)
+    return m + torch.log(torch.exp(x-m) + torch.exp(y-m))
+
+
+def subtract_in_log_space(x: torch.Tensor, y: torch.Tensor):
+    """
+    implement result = log(exp(x) - exp(y)) in a numerically stable way by extracting the elementwise max:
+    with M = torch.maximum(x,y); result = log(exp(M)exp(x-M) - exp(M)exp(y-M)) = M + log(exp(x-M) - exp(y-M))
+
+    note: this only works if x > y, elementwise!
+    :return:
+    """
+    m = torch.maximum(x, y)
+    return m + torch.log(torch.exp(x-m) - torch.exp(y-m))
