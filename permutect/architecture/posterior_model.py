@@ -144,10 +144,10 @@ class PosteriorModel(torch.nn.Module):
         log_priors = torch.nn.functional.log_softmax(self.make_unnormalized_priors(variant_types, batch.get_allele_frequencies()), dim=1)
 
         # defined as log [ int_0^1 Binom(alt count | depth, f) df ], including the combinatorial N choose N_alt factor
-        depths, alt_counts = batch.get_depths(), batch.get_alt_counts()
+        depths, alt_counts, mafs = batch.get_depths(), batch.get_alt_counts(), batch.get_mafs()
         normal_depths, normal_alt_counts = batch.get_normal_depths(), batch.get_normal_alt_counts()
         flat_prior_spectra_log_likelihoods = -torch.log(depths + 1)
-        somatic_spectrum_log_likelihoods = self.somatic_spectrum.forward(depths, alt_counts)
+        somatic_spectrum_log_likelihoods = self.somatic_spectrum.forward(depths, alt_counts, mafs)
         tumor_artifact_spectrum_log_likelihood = self.artifact_spectra.forward(batch.get_variant_types(), depths, alt_counts)
         spectra_log_likelihoods = torch.zeros_like(log_priors, device=self._device, dtype=self._dtype)
 
@@ -259,7 +259,8 @@ class PosteriorModel(torch.nn.Module):
             types_n = torch.hstack(types_lb)
 
             self.update_priors_m_step(posteriors_nc, types_n, ignored_to_non_ignored_ratio)
-            self.somatic_spectrum.update_m_step(posteriors_nc[:, Call.SOMATIC], alt_counts_n, depths_n)
+            # TODO: fix the M step for the new somatic spectrum?
+            #self.somatic_spectrum.update_m_step(posteriors_nc[:, Call.SOMATIC], alt_counts_n, depths_n)
 
             if summary_writer is not None:
                 summary_writer.add_scalar("spectrum negative log evidence", epoch_loss.get(), epoch)
