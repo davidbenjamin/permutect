@@ -35,7 +35,7 @@ from typing import List
 import numpy as np
 from sklearn.preprocessing import QuantileTransformer
 
-from permutect.data.base_datum import BaseDatum, Variant, CountsAndSeqLks, DEFAULT_NUMPY_FLOAT
+from permutect.data.base_datum import BaseDatum, DEFAULT_NUMPY_FLOAT
 
 from permutect.utils import Label, Variation, report_memory_usage
 

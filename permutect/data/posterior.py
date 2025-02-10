@@ -9,15 +9,7 @@ import numpy as np
 import torch
 from torch import IntTensor
 from torch.utils.data import Dataset, DataLoader
-from permutect.data.base_datum import Variant, bases5_as_base_string, ParentDatum
-
-
-def variant_from_int_array(subarray) -> Variant:
-    contig = subarray[0].item()
-    position = subarray[1].item()
-    ref = bases5_as_base_string(subarray[2].item())  # ref and alt are the base-5 encoding as integers
-    alt = bases5_as_base_string(subarray[3].item())
-    return Variant(contig, position, ref, alt)
+from permutect.data.base_datum import ParentDatum
 
 
 class PosteriorDatum(ParentDatum):

@@ -74,58 +74,6 @@ def bases5_as_base_string(base5: int) -> str:
     return result
 
 
-def convert_to_three_ints(n: int, base: int):
-    r3 = n % base
-    m3 = (n - r3) // base
-    r2 = m3 % base
-    m2 = (m3 - r2) // base
-    r1 = m2 % base
-    return r1, r2, r3
-
-
-def from_three_ints(r1, r2, r3, base):
-    return r3 + base*r2 + base*base*r1
-
-
-class Variant:
-    LENGTH = 10  # in order to compress to float16 we need three numbers for the large position integer and the alt, ref encodings
-    FLOAT_16_LIMIT = 2048  # float16 can *represent* bigger integers, but this is the limit of being reconstructed correctly
-    # if we get this wrong, the position encoding is wrong and the posterior data don't "line up" with the VCF data,
-    # causing very little filtering to actually occur
-
-    def __init__(self, contig: int, position: int, ref: str, alt: str):
-        self.contig = contig
-        self.position = position
-        # note: it is very important to trim here, as early as possible, because truncating to 13 or fewer bases
-        # does not commute with trimming!!!  If we are not consistent about trimming first, dataset variants and
-        # VCF variants might get inconsistent encodings!!!
-        self.ref, self.alt = trim_alleles_on_right(ref, alt)
-
-    # note: if base strings are treated as numbers in base 5, uint32 (equivalent to two uint16's) can hold up to 13 bases
-    def to_np_array(self):
-        base = self.__class__.FLOAT_16_LIMIT
-        el1, el2, el3 = convert_to_three_ints(self.position, base)
-        el4, el5, el6 = convert_to_three_ints(bases_as_base5_int(self.ref), base)
-        el7, el8, el9 = convert_to_three_ints(bases_as_base5_int(self.alt), base)
-        return np.array([self.contig, el1, el2, el3, el4, el5, el6, el7, el8, el9], dtype=np.uint16)
-
-    # do we need to specify that it's a uint32 array?
-    @classmethod
-    def from_np_array(cls, np_array: np.ndarray):
-        assert len(np_array) == cls.LENGTH
-        base = cls.FLOAT_16_LIMIT
-        position = from_three_ints(round(np_array[1]), round(np_array[2]), round(np_array[3]), base)
-        ref = bases5_as_base_string(from_three_ints(round(np_array[4]), round(np_array[5]), round(np_array[6]), base))
-        alt = bases5_as_base_string(from_three_ints(round(np_array[7]), round(np_array[8]), round(np_array[9]), base))
-        return cls(round(np_array[0]), position, ref, alt)
-
-    def get_ref_as_int(self):
-        return bases_as_base5_int(self.ref)
-
-    def get_alt_as_int(self):
-        return bases_as_base5_int(self.alt)
-
-
 # count how many times a unit string is repeated at the beginning of a larger string
 # eg 'ATATGGG', 'AT' -> 1; 'AGGGGG', 'G' -> 0; 'TTATTATTAGTTA', 'TTA' -> 3
 def count_leading_repeats(sequence: str, unit: str):

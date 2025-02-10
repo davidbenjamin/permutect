@@ -13,7 +13,7 @@ from permutect import constants, utils
 from permutect.architecture.posterior_model import PosteriorModel
 from permutect.architecture.permutect_model import PermutectModel, load_model
 from permutect.data import base_dataset, plain_text_data, base_datum
-from permutect.data.base_datum import Variant, ArtifactBatch, ParentDatum
+from permutect.data.base_datum import ArtifactBatch, ParentDatum
 from permutect.data.posterior import PosteriorDataset, PosteriorDatum, PosteriorBatch
 from permutect.data.artifact_dataset import ArtifactDataset
 from permutect.data.prefetch_generator import prefetch_generator
