@@ -1,8 +1,7 @@
 import tempfile
 import permutect.data.base_dataset as ds
 import torch
-
-from permutect import utils
+from permutect.utils.enums import Label
 
 
 def test_line_to_tensor():
@@ -87,7 +86,7 @@ def test_read_data():
 
     data = list(ds.read_data(tmp.name))
     assert len(data) == 2
-    assert data[0].label == utils.Label.UNLABELED
+    assert data[0].label == Label.UNLABELED
     assert torch.max(data[0].get_info_1d() - torch.tensor([0.192, 0.000, 0.000, 1.000, 1.000, 1.000, 1.000, 1.000, 1.000] + [1, 0, 0])).item() < 0.001
 
     assert data[1].reads_2d.size()[0] == 6

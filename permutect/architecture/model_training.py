@@ -10,7 +10,7 @@ from torch import nn
 from torch.utils.tensorboard import SummaryWriter
 from tqdm import trange, tqdm
 
-from permutect import utils
+from permutect import misc_utils
 from permutect.architecture.adversarial import Adversarial
 from permutect.architecture.permutect_model import PermutectModel, calculate_batch_weights, record_embeddings, \
     calculate_batch_source_weights
@@ -23,7 +23,10 @@ from permutect.data.prefetch_generator import prefetch_generator
 from permutect.metrics.evaluation_metrics import LossMetrics, EmbeddingMetrics, round_up_to_nearest_three, MAX_COUNT, \
     EvaluationMetrics
 from permutect.parameters import TrainingParameters
-from permutect.utils import Label, Variation, Epoch, report_memory_usage, index_3d_array, backpropagate
+from permutect.misc_utils import report_memory_usage, backpropagate, freeze, \
+    unfreeze
+from permutect.utils.enums import Variation, Epoch, Label
+from permutect.utils.array_utils import index_3d_array
 
 WORST_OFFENDERS_QUEUE_SIZE = 100
 
@@ -167,9 +170,9 @@ def train_on_artifact_dataset(model: PermutectModel, dataset: ArtifactDataset, t
             model.set_epoch_type(epoch_type)
             # in calibration epoch, freeze the model except for calibration
             if is_calibration_epoch and epoch_type == Epoch.TRAIN:
-                utils.freeze(model.parameters())
-                #utils.unfreeze(self.calibration_parameters())  # unfreeze calibration but everything else stays frozen
-                utils.unfreeze(model.final_calibration_shift_parameters())  # unfreeze final calibration shift but everything else stays frozen
+                freeze(model.parameters())
+                #unfreeze(self.calibration_parameters())  # unfreeze calibration but everything else stays frozen
+                unfreeze(model.final_calibration_shift_parameters())  # unfreeze final calibration shift but everything else stays frozen
 
             loss_metrics = LossMetrics()    # based on calibrated logits
             source_prediction_loss_metrics = LossMetrics()  # based on calibrated logits

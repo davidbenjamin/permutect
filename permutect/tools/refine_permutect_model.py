@@ -3,7 +3,7 @@ import argparse
 import torch
 from torch.utils.tensorboard import SummaryWriter
 
-from permutect import constants, utils
+from permutect import constants
 from permutect.architecture.artifact_spectra import ArtifactSpectra
 from permutect.architecture.model_training import train_on_artifact_dataset
 from permutect.architecture.permutect_model import load_model
@@ -12,11 +12,12 @@ from permutect.data.base_dataset import BaseDataset
 from permutect.data.artifact_dataset import ArtifactDataset
 from permutect.data.base_datum import ArtifactDatum
 from permutect.parameters import add_training_params_to_parser, parse_training_params
-from permutect.utils import Variation, Label, report_memory_usage
+from permutect.misc_utils import report_memory_usage
+from permutect.utils.enums import Variation, Label
 
 
 def learn_artifact_priors_and_spectra(artifact_dataset: ArtifactDataset, genomic_span_of_data: int):
-    artifact_counts = torch.zeros(len(utils.Variation))
+    artifact_counts = torch.zeros(len(Variation))
     types_list, depths_list, alt_counts_list = [], [], []
 
     artifact_datum: ArtifactDatum

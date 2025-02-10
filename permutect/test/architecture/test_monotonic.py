@@ -1,7 +1,6 @@
 import torch
-from permutect import utils
-
 from permutect.architecture.monotonic import MonoDense
+from permutect.misc_utils import backpropagate
 
 
 def test_is_monotonic():
@@ -39,7 +38,7 @@ def test_monotonic_linear_data():
     for epoch in range(num_epochs):
         prediction = model.forward(x).resize_as(y)
         loss = loss_func(prediction, y)
-        utils.backpropagate(optimizer, loss)
+        backpropagate(optimizer, loss)
         loss_list.append(loss.item())
 
     assert loss_list[-1] < 0.01
@@ -65,7 +64,7 @@ def test_mix():
     for epoch in range(num_epochs):
         prediction = model.forward(x).resize_as(y)
         loss = loss_func(prediction, y)
-        utils.backpropagate(optimizer, loss)
+        backpropagate(optimizer, loss)
         loss_list.append(loss.item())
 
     assert loss_list[-1] < 0.01
@@ -89,7 +88,7 @@ def test_cant_learn_non_monotonic():
     for epoch in range(num_epochs):
         prediction = model.forward(x).resize_as(y)
         loss = loss_func(prediction, y)
-        utils.backpropagate(optimizer, loss)
+        backpropagate(optimizer, loss)
         loss_list.append(loss.item())
 
     prediction = model.forward(x).resize_as(y)
@@ -112,7 +111,7 @@ def test_cubic():
     for epoch in range(num_epochs):
         prediction = model.forward(x).resize_as(y)
         loss = loss_func(prediction, y)
-        utils.backpropagate(optimizer, loss)
+        backpropagate(optimizer, loss)
         loss_list.append(loss.item())
 
     assert loss_list[-1] < 0.01

@@ -1,11 +1,13 @@
 import math
 
 import torch
-from permutect import utils
+from permutect import misc_utils
 from torch import nn, IntTensor
 
 from permutect.metrics.plotting import simple_plot
-from permutect.utils import beta_binomial, Variation
+from permutect.misc_utils import backpropagate
+from permutect.utils.stats_utils import beta_binomial_log_lk
+from permutect.utils.enums import Variation
 
 
 class ArtifactSpectra(nn.Module):
@@ -17,7 +19,7 @@ class ArtifactSpectra(nn.Module):
     The probability P(alt count | depth) is a K-component beta binomial mixture model where each component is a beta binomial
     P_k(a|d) = integral{Beta(f|alpha, beta) * Binom(a|d, f) df}.
 
-    This integral is exact and is implemented in utils.beta_binomial()
+    This integral is exact and is implemented in beta_binomial()
 
     Importantly, the beta shape parameter is *not* learnable.  We fix it at a high constant value in order to force the spectrum
     to fall off very rapidly after its peak allele fraction.  Otherwise, the unrealistically long tail gives artificially
@@ -65,7 +67,7 @@ class ArtifactSpectra(nn.Module):
         eta_bk = eta_vk[var_types_b, :]
         alpha_bk = torch.exp(alpha0_pre_exp_bk - eta_bk * torch.sigmoid(depths_bk * delta_bk))
         beta_bk = self.beta * torch.ones_like(alpha_bk)
-        beta_binomial_likelihoods_bk = beta_binomial(depths_bk, alt_counts_bk, alpha_bk, beta_bk)
+        beta_binomial_likelihoods_bk = beta_binomial_log_lk(depths_bk, alt_counts_bk, alpha_bk, beta_bk)
 
         if alpha_bk.isnan().any():
             print("NaN found in alpha_bk")
@@ -92,7 +94,7 @@ class ArtifactSpectra(nn.Module):
                 batch_end = min(batch_start + batch_size, len(alt_counts_1d_tensor))
                 batch_slice = slice(batch_start, batch_end)
                 loss = -torch.mean(self.forward(types_b[batch_slice], depths_1d_tensor[batch_slice], alt_counts_1d_tensor[batch_slice]))
-                utils.backpropagate(optimizer, loss)
+                backpropagate(optimizer, loss)
 
     '''
     get raw data for a spectrum plot of probability density vs allele fraction for a particular variant type

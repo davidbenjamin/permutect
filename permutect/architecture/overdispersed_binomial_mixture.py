@@ -1,14 +1,13 @@
 import math
-from typing import List
 
 import torch
-from permutect import utils
-from torch import nn, exp, unsqueeze, logsumexp
+from torch import nn, exp, logsumexp
 from torch.nn.functional import softmax, log_softmax
 
-from permutect.architecture.mlp import MLP
 from permutect.metrics.plotting import simple_plot
-from permutect.utils import beta_binomial, gamma_binomial, binomial, Variation
+from permutect.misc_utils import backpropagate
+from permutect.utils.stats_utils import binomial_log_lk, beta_binomial_log_lk, gamma_binomial_log_lk
+from permutect.utils.enums import Variation
 
 
 class OverdispersedBinomialMixture(nn.Module):
@@ -76,14 +75,14 @@ class OverdispersedBinomialMixture(nn.Module):
         if self.mode == 'beta':
             alpha_bk = mean_bk * concentration_bk
             beta_bk = (1 - mean_bk) * concentration_bk
-            log_likelihoods_bk = beta_binomial(n_bk, k_bk, alpha_bk, beta_bk)
+            log_likelihoods_bk = beta_binomial_log_lk(n_bk, k_bk, alpha_bk, beta_bk)
         elif self.mode == 'gamma':
             alpha_bk = mean_bk * concentration_bk
             beta_bk = concentration_bk
-            log_likelihoods_bk = gamma_binomial(n_bk, k_bk, alpha_bk, beta_bk)
+            log_likelihoods_bk = gamma_binomial_log_lk(n_bk, k_bk, alpha_bk, beta_bk)
         elif self.mode == 'none':
             # each mean is the center of a binomial
-            log_likelihoods_bk = binomial(n_bk, k_bk, mean_bk)
+            log_likelihoods_bk = binomial_log_lk(n_bk, k_bk, mean_bk)
         else:
             raise Exception("we don't have that kind of mode!")
 
@@ -159,7 +158,7 @@ class OverdispersedBinomialMixture(nn.Module):
                 batch_slice = slice(batch_start, batch_end)
                 loss = -torch.mean(self.forward(types_b[batch_slice], depths_1d_tensor[batch_slice],
                                                 alt_counts_1d_tensor[batch_slice]))
-                utils.backpropagate(optimizer, loss)
+                backpropagate(optimizer, loss)
 
     '''
     get raw data for a spectrum plot of probability density vs allele fraction.  

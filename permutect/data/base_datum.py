@@ -1,21 +1,19 @@
 from __future__ import annotations
 import copy
-import math
+from typing import List
 
 import numpy as np
 import torch
 from torch import Tensor, IntTensor, FloatTensor
-
-from typing import List
-
-from permutect.utils import Variation, Label, trim_alleles_on_right
+from permutect.utils.allele_utils import trim_alleles_on_right, bases_as_base5_int, bases5_as_base_string, \
+    get_str_info_array
+from permutect.utils.enums import Variation, Label
 
 DEFAULT_NUMPY_FLOAT = np.float16
 DEFAULT_GPU_FLOAT = torch.float32
 DEFAULT_CPU_FLOAT = torch.float32
 
 # base strings longer than this when encoding data
-MAX_NUM_BASES_FOR_ENCODING = 13
 
 MAX_FLOAT_16 = torch.finfo(torch.float16).max
 MIN_FLOAT_16 = torch.finfo(torch.float16).min
@@ -45,118 +43,6 @@ def make_sequence_tensor(sequence_string: str) -> np.ndarray:
         channel = 0 if char == 'A' else (1 if char == 'C' else (2 if char == 'G' else 3))
         result[channel, n] = 1
     return result
-
-
-def truncate_bases_if_necessary(bases: str):
-    return bases if len(bases) <= MAX_NUM_BASES_FOR_ENCODING else bases[:MAX_NUM_BASES_FOR_ENCODING]
-
-
-# here we just butcher variants longer than 13 bases and chop!!!
-def bases_as_base5_int(bases: str) -> int:
-    power_of_5 = 1
-    bases_to_use = truncate_bases_if_necessary(bases)
-    result = 0
-    for nuc in bases_to_use:
-        coeff = 1 if nuc == 'A' else (2 if nuc == 'C' else (3 if nuc == 'G' else 4))
-        result += power_of_5 * coeff
-        power_of_5 *= 5
-    return result
-
-
-def bases5_as_base_string(base5: int) -> str:
-    result = ""
-    remaining = base5
-    while remaining > 0:
-        digit = remaining % 5
-        nuc = 'A' if digit == 1 else ('C' if digit == 2 else ('G' if digit == 3 else 'T'))
-        result += nuc
-        remaining = (remaining - digit) // 5
-    return result
-
-
-# count how many times a unit string is repeated at the beginning of a larger string
-# eg 'ATATGGG', 'AT' -> 1; 'AGGGGG', 'G' -> 0; 'TTATTATTAGTTA', 'TTA' -> 3
-def count_leading_repeats(sequence: str, unit: str):
-    result = 0
-    idx = 0
-    unit_length = len(unit)
-    while (idx + unit_length - 1 < len(sequence)) and sequence[idx:idx + unit_length] == unit:
-        result += 1
-        idx += unit_length
-    return result
-
-
-# same, but at the end of a sequence
-# eg 'ATATGGG', 'G' -> 3; 'AGGGGG', 'G' -> 5; 'TTATTATTAGTTA', 'TTA' -> 1
-def count_trailing_repeats(sequence: str, unit: str):
-    result = 0
-    unit_length = len(unit)
-    idx = len(sequence) - unit_length   # index at beginning of comparison eg 'GGATC', 'TC' starts at index 5 - 2 = 3, the 'T'
-    while idx >= 0 and sequence[idx:idx + unit_length] == unit:
-        result += 1
-        idx -= unit_length
-    return result
-
-
-def find_factors(n: int):
-    result = []
-    for m in range(1, int(math.sqrt(n)) + 1):
-        if n % m == 0:
-            result.append(m)
-            if (n // m) > m:
-                result.append(n // m)
-    result.sort()
-    return result
-
-
-# eg ACGACGACG, ACG -> True; TTATTA, TA -> False
-def is_repeat(bases: str, unit: str):
-    unit_length = len(unit)
-    if len(bases) % unit_length == 0:
-        num_repeats = len(bases) // len(unit)
-        for repeat_idx in range(num_repeats):
-            start = repeat_idx * unit_length
-            if bases[start: start + unit_length] != unit:
-                return False
-        return True
-    else:
-        return False
-
-
-# decompose an indel into its most basic repeated unit
-# examples: "ATATAT" -> ("AT", 3); "AAAAA" -> ("A", 5); "TTGTTG" -> ("TTG", 2); "ATGTG" -> "ATGTG", 1
-def decompose_str_unit(indel_bases: str):
-    for unit_length in find_factors(len(indel_bases)):  # note: these are sorted ascending
-        unit = indel_bases[:unit_length]
-        if is_repeat(indel_bases, unit):
-            return unit, (len(indel_bases) // unit_length)
-    return indel_bases, 1
-
-
-def get_str_info_array(ref_sequence_string: str, ref_allele: str, alt_allele: str):
-    assert len(ref_sequence_string) % 2 == 1, "must be odd length to have well-defined middle"
-    middle_idx = (len(ref_sequence_string) - 1) // 2
-
-    ref, alt = ref_allele, alt_allele
-
-    insertion_length = max(len(alt) - len(ref), 0)
-    deletion_length = max(len(ref) - len(alt), 0)
-
-    if len(ref) == len(alt):
-        unit, num_units = alt, 1
-        repeats_after = count_leading_repeats(ref_sequence_string[middle_idx + len(ref):], unit)
-        repeats_before = count_trailing_repeats(ref_sequence_string[:middle_idx], unit)
-    elif insertion_length > 0:
-        unit, num_units = decompose_str_unit(alt[1:])  # the inserted sequence is everything after the anchor base that matches ref
-        repeats_after = count_leading_repeats(ref_sequence_string[middle_idx + len(ref):], unit)
-        repeats_before = count_trailing_repeats(ref_sequence_string[:middle_idx+1], unit)   # +1 accounts for the anchor base
-    else:
-        unit, num_units = decompose_str_unit(ref[1:])  # the deleted sequence is everything after the anchor base
-        # it's pretty arbitrary whether we include the deleted bases themselves as 'after' or not
-        repeats_after = count_leading_repeats(ref_sequence_string[middle_idx + len(alt):], unit)
-        repeats_before = count_trailing_repeats(ref_sequence_string[:middle_idx+1], unit)   # likewise, account for the anchor base
-    # note that if indels are left-aligned (as they should be from the GATK) repeats_before really ought to be zero!!
-    return np.array([insertion_length, deletion_length, len(unit), num_units, repeats_before, repeats_after])
 
 
 class ParentDatum:
