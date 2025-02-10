@@ -35,7 +35,7 @@ from typing import List
 import numpy as np
 from sklearn.preprocessing import QuantileTransformer
 
-from permutect.data.base_datum import BaseDatum, Variant, CountsAndSeqLks, DEFAULT_NUMPY_FLOAT
+from permutect.data.base_datum import BaseDatum, DEFAULT_NUMPY_FLOAT
 
 from permutect.utils import Label, Variation, report_memory_usage
 
@@ -65,7 +65,7 @@ def read_data(dataset_file, only_artifacts: bool = False, source: int=0):
             ref_allele, alt_allele = mutation.strip().split("->")
 
             ref_sequence_string = file.readline().strip()
-            gatk_info_tensor = line_to_tensor(file.readline())
+            gatk_info_array = line_to_tensor(file.readline())
             ref_tensor_size, alt_tensor_size, normal_ref_tensor_size, normal_alt_tensor_size = map(int, file.readline().strip().split())
 
             # the first column is read group index, which we currently discard
@@ -77,15 +77,18 @@ def read_data(dataset_file, only_artifacts: bool = False, source: int=0):
             # normal_alt_tensor = read_2d_tensor(file, normal_alt_tensor_size)  # not currently used
             # round down normal tensors as well
 
-            depth, alt_count, normal_depth, normal_alt_count = read_integers(file.readline())
+            original_depth, original_alt_count, original_normal_depth, original_normal_alt_count = read_integers(file.readline())
             seq_error_log_lk = read_float(file.readline())
             normal_seq_error_log_lk = read_float(file.readline())
 
             if alt_tensor_size > 0 and passes_label_filter:
-                variant = Variant(contig, position, ref_allele, alt_allele)
-                counts_and_seq_lks = CountsAndSeqLks(depth, alt_count, normal_depth, normal_alt_count, seq_error_log_lk, normal_seq_error_log_lk)
-                yield BaseDatum.from_gatk(ref_sequence_string, Variation.get_type(ref_allele, alt_allele), ref_tensor,
-                                          alt_tensor, gatk_info_tensor, label, source, variant, counts_and_seq_lks)
+                yield BaseDatum.from_gatk(label=label, variant_type=Variation.get_type(ref_allele, alt_allele), source=source,
+                    original_depth=original_depth, original_alt_count=original_alt_count,
+                    original_normal_depth=original_normal_depth, original_normal_alt_count=original_normal_alt_count,
+                    contig=contig, position=position, ref_allele=ref_allele, alt_allele=alt_allele,
+                    seq_error_log_lk=seq_error_log_lk, normal_seq_error_log_lk=normal_seq_error_log_lk,
+                    ref_sequence_string=ref_sequence_string, gatk_info_array=gatk_info_array,
+                    ref_tensor=ref_tensor, alt_tensor=alt_tensor)
 
 
 # if sources is None, source is set to zero
@@ -134,7 +137,7 @@ def normalize_buffer(buffer, read_quantile_transform, info_quantile_transform, r
     all_reads = np.vstack([datum.reads_2d for datum in buffer])
 
     # 2D array.  Rows are read sets, columns are info features
-    all_info = np.vstack([datum.get_info_tensor_1d() for datum in buffer])
+    all_info = np.vstack([datum.get_info_1d() for datum in buffer])
 
     all_ref_jittered = all_ref + EPSILON * np.random.randn(*all_ref.shape)
     all_reads_jittered = all_reads + EPSILON * np.random.randn(*all_reads.shape)
@@ -168,7 +171,7 @@ def normalize_buffer(buffer, read_quantile_transform, info_quantile_transform, r
         alt_means = np.mean(datum.get_alt_reads_2d(), axis=0)
 
         extra_info = binary_read_column_mask * alt_means + (1 - binary_read_column_mask) * alt_medians
-        datum.set_info_tensor_1d(np.hstack([extra_info, all_info_transformed[n]]))
+        datum.set_info_1d(np.hstack([extra_info, all_info_transformed[n]]))
 
 
 def line_to_tensor(line: str) -> np.ndarray:

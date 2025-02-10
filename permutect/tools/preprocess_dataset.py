@@ -5,7 +5,7 @@ import tempfile
 from typing import List
 
 from permutect import constants
-from permutect.data import base_datum
+from permutect.data.base_datum import BaseDatum
 from permutect.data.plain_text_data import generate_normalized_data
 from permutect.utils import ConsistentValue
 
@@ -36,11 +36,11 @@ def do_work(training_datasets, training_output_file, chunk_size, sources: List[i
     # TODO: left off here.  Need to give it sources, which will need to be command line argument
     for base_data_list in generate_normalized_data(training_datasets, max_bytes_per_chunk=chunk_size, sources=sources):
         num_read_features.check(base_data_list[0].get_reads_2d().shape[1])
-        num_info_features.check(base_data_list[0].get_info_tensor_1d().shape[0])
-        ref_sequence_length.check(base_data_list[0].get_ref_sequence_1d().shape[0])
+        num_info_features.check(base_data_list[0].get_info_1d().shape[0])
+        ref_sequence_length.check(base_data_list[0].get_ref_seq_1d().shape[0])
 
         with tempfile.NamedTemporaryFile(delete=False) as train_data_file:
-            base_datum.save_list_base_data(base_data_list, train_data_file)
+            BaseDatum.save_list(base_data_list, train_data_file)
             data_files.append(train_data_file.name)
 
     # . . . and bundle them in a tarfile

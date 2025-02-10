@@ -50,7 +50,7 @@ class ArtifactDataset(Dataset):
                 representations, _ = model.calculate_representations(base_batch)
 
             for representation, base_datum in zip(representations.detach().cpu(), base_batch_cpu.original_list()):
-                artifact_datum = ArtifactDatum(base_datum, representation.detach())
+                artifact_datum = ArtifactDatum(base_datum.get_array_1d(), representation.detach())
                 self.artifact_data.append(artifact_datum)
                 fold = index % self.num_folds
                 if artifact_datum.is_labeled():

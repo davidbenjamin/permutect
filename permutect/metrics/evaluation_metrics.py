@@ -299,7 +299,7 @@ class EvaluationMetrics:
         # list of (PosteriorResult, Call) tuples
         self.mistakes = []
 
-    # Variant is an IntEnum, so variant_type can also be integer
+    # Variation is an IntEnum, so variant_type can also be integer
     # correct_call is boolean -- was the prediction correct?
     # the predicted logit is the logit corresponding to the predicted probability that call in question is an artifact / error
     def record_call(self, epoch_type: Epoch, variant_type: Variation, predicted_logit: float, label: Label, correct_call, alt_count: int, weight: float = 1.0, source: int = 0):

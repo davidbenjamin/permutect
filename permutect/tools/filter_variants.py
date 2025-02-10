@@ -13,7 +13,7 @@ from permutect import constants, utils
 from permutect.architecture.posterior_model import PosteriorModel
 from permutect.architecture.permutect_model import PermutectModel, load_model
 from permutect.data import base_dataset, plain_text_data, base_datum
-from permutect.data.base_datum import Variant
+from permutect.data.base_datum import ArtifactBatch, ParentDatum
 from permutect.data.posterior import PosteriorDataset, PosteriorDatum, PosteriorBatch
 from permutect.data.artifact_dataset import ArtifactDataset
 from permutect.data.prefetch_generator import prefetch_generator
@@ -52,9 +52,9 @@ def encode(contig: str, position: int, ref: str, alt: str):
     return contig + ':' + str(position) + ':' + base_datum.truncate_bases_if_necessary(trimmed_alt)
 
 
-def encode_datum(variant: Variant, contig_index_to_name_map):
-    contig_name = contig_index_to_name_map[variant.contig]
-    return encode(contig_name, variant.position, variant.ref, variant.alt)
+def encode_datum(parent_datum: ParentDatum, contig_index_to_name_map):
+    contig_name = contig_index_to_name_map[parent_datum.get_contig()]
+    return encode(contig_name, parent_datum.get_position(), parent_datum.get_ref_allele(), parent_datum.get_alt_allele())
 
 
 def encode_variant(v: cyvcf2.Variant, zero_based=False):
@@ -217,29 +217,28 @@ def make_posterior_data_loader(dataset_file, input_vcf, contig_index_to_name_map
         artifact_loader = artifact_dataset.make_data_loader(artifact_dataset.all_folds(), batch_size, pin_memory=torch.cuda.is_available(), num_workers=num_workers)
 
         print("creating posterior data for this chunk...")
+        artifact_batch_cpu: ArtifactBatch
         for artifact_batch, artifact_batch_cpu in tqdm(prefetch_generator(artifact_loader), mininterval=60, total=len(artifact_loader)):
             artifact_logits, _ = model.logits_from_artifact_batch(batch=artifact_batch)
 
-            labels = [(Label.ARTIFACT if label > 0.5 else Label.VARIANT) if is_labeled > 0.5 else Label.UNLABELED for (label, is_labeled) in zip(artifact_batch.get_training_labels(), artifact_batch.get_is_labeled_mask())]
-
-            for variant, counts_and_seq_lks, logit, label, embedding in zip(artifact_batch_cpu.get_variants(),
-                                                               artifact_batch_cpu.get_counts_and_seq_lks(),
+            for parent_datum_array, logit, embedding in zip(artifact_batch_cpu.get_parent_data_2d(),
                                                                artifact_logits.detach().tolist(),
-                                                               labels,
                                                                artifact_batch.get_representations_2d().cpu()):
-                contig_name = contig_index_to_name_map[variant.contig]
-                encoding = encode(contig_name, variant.position, variant.ref, variant.alt)
+                parent_datum = ParentDatum(parent_datum_array)
+                contig_name = contig_index_to_name_map[parent_datum.get_contig()]
+                position = parent_datum.get_position()
+                encoding = encode(contig_name, position, parent_datum.get_ref_allele(), parent_datum.get_alt_allele())
                 if encoding in allele_frequencies and encoding not in m2_filtering_to_keep:
                     allele_frequency = allele_frequencies[encoding]
 
                     # these are default dicts, so if there's no segmentation for the contig we will get no overlaps but not an error
                     # For a general IntervalTree there is a list of potentially multiple overlaps but here there is either one or zero
-                    segmentation_overlaps = segmentation[contig_name][variant.position]
-                    normal_segmentation_overlaps = normal_segmentation[contig_name][variant.position]
+                    segmentation_overlaps = segmentation[contig_name][position]
+                    normal_segmentation_overlaps = normal_segmentation[contig_name][position]
                     maf = list(segmentation_overlaps)[0].data if segmentation_overlaps else 0.5
                     normal_maf = list(normal_segmentation_overlaps)[0].data if normal_segmentation_overlaps else 0.5
 
-                    posterior_datum = PosteriorDatum(variant, counts_and_seq_lks, allele_frequency, logit, embedding, label, maf, normal_maf)
+                    posterior_datum = PosteriorDatum(parent_datum_array, allele_frequency, logit, maf, normal_maf, embedding)
                     posterior_data.append(posterior_datum)
 
     print(f"Size of filtering dataset: {len(posterior_data)}")
@@ -265,12 +264,12 @@ def apply_filtering_to_vcf(input_vcf, output_vcf, contig_index_to_name_map, erro
 
         posterior_probs = torch.nn.functional.softmax(log_posteriors, dim=1)
 
-        encodings = [encode_datum(variant, contig_index_to_name_map) for variant in batch.get_variants()]
-        artifact_logits = batch.get_artifact_logits().tolist()
-        var_types = batch.get_variant_types().tolist()
-        labels = batch.get_labels().tolist()
-        alt_counts = batch.get_alt_counts().tolist()
-        depths = batch.get_depths().tolist()
+        encodings = [encode_datum(ParentDatum(parent_datum_array), contig_index_to_name_map) for parent_datum_array in batch_cpu.parent_data_2d]
+        artifact_logits = batch_cpu.get_artifact_logits().tolist()
+        var_types = batch_cpu.get_variant_types().tolist()
+        labels = batch_cpu.get_labels().tolist()
+        alt_counts = batch_cpu.get_alt_counts().tolist()
+        depths = batch_cpu.get_depths().tolist()
 
         for encoding, post_probs, logit, log_prior, log_spec, log_normal, label, alt_count, depth, var_type, embedding in zip(encodings, posterior_probs, artifact_logits, log_priors, spectra_lls, normal_lls, labels, alt_counts, depths, var_types, batch.embeddings):
             encoding_to_posterior_results[encoding] = PosteriorResult(logit, post_probs.tolist(), log_prior, log_spec, log_normal, label, alt_count, depth, var_type, embedding)
