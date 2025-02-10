@@ -1,12 +1,12 @@
 import math
 
 import torch
-from permutect import utils
 from torch import nn
 from torch.nn.functional import log_softmax
 
 from permutect.metrics.plotting import simple_plot
-from permutect.utils import beta_binomial, binomial
+from permutect.misc_utils import backpropagate
+from permutect.utils.stats_utils import binomial_log_lk, beta_binomial_log_lk
 
 # exclude obvious germline, artifact, sequencing error etc from M step for speed
 MIN_POSTERIOR_FOR_M_STEP = 0.2
@@ -21,7 +21,7 @@ class SomaticSpectrum(nn.Module):
     P_k(a|d) = Binom(a|d, f_k) = (d C a) f_k^a (1-f_k)^(d-a), where f_k is the allele fraction associated with component
     k and the Kth component is a background beta binomial P_K(a|d) = integral{Beta(f|alpha, beta) * Binom(a|d, f) df}.
 
-    This integral is exact and is implemented in utils.beta_binomial()
+    This integral is exact and is implemented in beta_binomial()
 
     We compute the binomial and beta binomial log likelihoods, then add in log space via logsumexp to get the overall
     mixture log likelihood.
@@ -63,14 +63,14 @@ class SomaticSpectrum(nn.Module):
         f_bk = f_k.expand(batch_size, -1)
         alt_counts_bk = torch.unsqueeze(alt_counts_b, dim=1).expand(-1, self.K - 1)
         depths_bk = torch.unsqueeze(depths_b, dim=1).expand(-1, self.K - 1)
-        binomial_likelihoods_bk = binomial(depths_bk, alt_counts_bk, f_bk)
+        binomial_likelihoods_bk = binomial_log_lk(depths_bk, alt_counts_bk, f_bk)
 
         alpha = torch.exp(self.alpha_pre_exp)
         beta = torch.exp(self.beta_pre_exp)
         alpha_b = alpha.expand(batch_size)
         beta_b = beta.expand(batch_size)
 
-        beta_binomial_likelihoods_b = beta_binomial(depths_b, alt_counts_b, alpha_b, beta_b)
+        beta_binomial_likelihoods_b = beta_binomial_log_lk(depths_b, alt_counts_b, alpha_b, beta_b)
         beta_binomial_likelihoods_bk = torch.unsqueeze(beta_binomial_likelihoods_b, dim=1)
 
         likelihoods_bk = torch.hstack((binomial_likelihoods_bk, beta_binomial_likelihoods_bk))
@@ -114,7 +114,7 @@ class SomaticSpectrum(nn.Module):
                 batch_end = min(batch_start + batch_size, len(alt_counts_1d_tensor))
                 batch_slice = slice(batch_start, batch_end)
                 loss = -torch.mean(self.forward(depths_1d_tensor[batch_slice], alt_counts_1d_tensor[batch_slice]))
-                utils.backpropagate(optimizer, loss)
+                backpropagate(optimizer, loss)
 
     '''
     get raw data for a spectrum plot of probability density vs allele fraction

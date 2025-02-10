@@ -5,7 +5,7 @@ from permutect.data.base_datum import BaseDatum
 
 
 # make a three-datum batch
-from permutect.utils import Variation, Label
+from permutect.utils.enums import Variation, Label
 
 
 def test_base_batch():

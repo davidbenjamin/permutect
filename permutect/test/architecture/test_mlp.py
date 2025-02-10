@@ -1,8 +1,6 @@
 import torch
-from permutect import utils
-
 from permutect.architecture.mlp import MLP
-
+from permutect.misc_utils import backpropagate
 
 # test with artificial data where a*x = 0 is a perfect linear separator
 def test_linearly_separable_data():
@@ -23,7 +21,7 @@ def test_linearly_separable_data():
     for epoch in range(num_epochs):
         prediction = model.forward(x)
         loss = loss_func(prediction, y)
-        utils.backpropagate(optimizer, loss)
+        backpropagate(optimizer, loss)
         loss_list.append(loss.item())
 
     assert loss_list[-1] < 0.01
@@ -60,7 +58,7 @@ def test_annular_data():
     for epoch in range(num_epochs):
         prediction = model.forward(x)
         loss = loss_func(torch.squeeze(prediction), y)
-        utils.backpropagate(optimizer, loss)
+        backpropagate(optimizer, loss)
         loss_list.append(loss.item())
 
     assert loss_list[-1] < 0.2
@@ -93,7 +91,7 @@ def test_xor_data():
     for epoch in range(num_epochs):
         prediction = model.forward(x)
         loss = loss_func(prediction.squeeze(), y)
-        utils.backpropagate(optimizer, loss)
+        backpropagate(optimizer, loss)
         loss_list.append(loss.item())
 
     assert loss_list[-1] < 0.15

@@ -13,9 +13,9 @@ from torch.utils.data import Dataset, DataLoader
 from torch.utils.data.sampler import Sampler
 
 from mmap_ninja.ragged import RaggedMmap
-from permutect import utils
 from permutect.data.base_datum import BaseDatum, BaseBatch
-from permutect.utils import Label, MutableInt, Variation
+from permutect.misc_utils import MutableInt
+from permutect.utils.enums import Variation, Label
 
 TENSORS_PER_BASE_DATUM = 2  # 1) 2D reads (ref and alt), 1) 1D concatenated stuff
 
@@ -150,7 +150,7 @@ class BaseDataset(Dataset):
     def report_totals(self):
         for source in range(self.max_source + 1):
             print(f"Data counts for source {source}:")
-            for var_type in utils.Variation:
+            for var_type in Variation:
                 print(f"Data counts for variant type {var_type.name}:")
                 for label in Label:
                     print(f"{label.name}: {int(self.totals_sclt[source][ALL_COUNTS_INDEX][label][var_type].item())}")

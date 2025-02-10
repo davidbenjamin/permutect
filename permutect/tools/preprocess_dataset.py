@@ -7,7 +7,7 @@ from typing import List
 from permutect import constants
 from permutect.data.base_datum import BaseDatum
 from permutect.data.plain_text_data import generate_normalized_data
-from permutect.utils import ConsistentValue
+from permutect.misc_utils import ConsistentValue
 
 """
 This tool takes as input a list of text file Mutect3 training datasets, reads them in chunks that fit in memory,

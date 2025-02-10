@@ -7,7 +7,6 @@ from matplotlib import pyplot as plt
 from torch.utils.tensorboard import SummaryWriter
 from tqdm.autonotebook import trange, tqdm
 
-from permutect import utils
 from permutect.architecture.artifact_spectra import ArtifactSpectra
 from permutect.architecture.overdispersed_binomial_mixture import OverdispersedBinomialMixture
 from permutect.architecture.normal_seq_error_spectrum import NormalSeqErrorSpectrum
@@ -16,7 +15,9 @@ from permutect.data.base_datum import DEFAULT_GPU_FLOAT, DEFAULT_CPU_FLOAT
 from permutect.data.posterior import PosteriorBatch
 from permutect.data.prefetch_generator import prefetch_generator
 from permutect.metrics import plotting
-from permutect.utils import Variation, Call
+from permutect.misc_utils import StreamingAverage, gpu_if_available, backpropagate
+from permutect.utils.stats_utils import beta_binomial_log_lk
+from permutect.utils.enums import Variation, Call
 from permutect.metrics.evaluation_metrics import MAX_COUNT, NUM_COUNT_BINS, multiple_of_three_bin_index, multiple_of_three_bin_index_to_count
 
 
@@ -40,9 +41,9 @@ def germline_log_likelihood(afs, mafs, alt_counts, depths, het_beta=None):
     # the following should both be 1D tensors of length batch size
     alt_minor_binomial = combinatorial_term + alt_counts * log_mafs + ref_counts * log_1m_mafs
     alt_major_binomial = combinatorial_term + ref_counts * log_mafs + alt_counts * log_1m_mafs
-    alt_minor_ll = log_half_het_prop + (alt_minor_binomial if het_beta is None else utils.beta_binomial(depths, alt_counts, het_alpha, het_beta_to_use))
-    alt_major_ll = log_half_het_prop + (alt_major_binomial if het_beta is None else utils.beta_binomial(depths, alt_counts, het_alpha, het_beta_to_use))
-    hom_ll = torch.log(hom_proportion) + utils.beta_binomial(depths, alt_counts, hom_alpha, hom_beta)
+    alt_minor_ll = log_half_het_prop + (alt_minor_binomial if het_beta is None else beta_binomial_log_lk(depths, alt_counts, het_alpha, het_beta_to_use))
+    alt_major_ll = log_half_het_prop + (alt_major_binomial if het_beta is None else beta_binomial_log_lk(depths, alt_counts, het_alpha, het_beta_to_use))
+    hom_ll = torch.log(hom_proportion) + beta_binomial_log_lk(depths, alt_counts, hom_alpha, hom_beta)
 
     return torch.logsumexp(torch.vstack((alt_minor_ll, alt_major_ll, hom_ll)), dim=0)
 
@@ -71,7 +72,7 @@ class PosteriorModel(torch.nn.Module):
     """
 
     """
-    def __init__(self, variant_log_prior: float, artifact_log_prior: float, num_base_features: int, no_germline_mode: bool = False, device=utils.gpu_if_available(), het_beta: float = None):
+    def __init__(self, variant_log_prior: float, artifact_log_prior: float, num_base_features: int, no_germline_mode: bool = False, device=gpu_if_available(), het_beta: float = None):
         super(PosteriorModel, self).__init__()
 
         self._device = device
@@ -202,7 +203,7 @@ class PosteriorModel(torch.nn.Module):
         underestimate the frequency of sequencing error, hence overestimate the prior probability of variation.
         :param artifact_spectra_state_dict: (possibly None) if given, pretrained parameters of self.artifact_spectra
         from refine_permutect_model.py.  In this case we make sure to freeze this part of the model
-        :param artifact_log_priors: (possibly None) 1D tensor with length len(utils.Variation) containing log prior probabilities
+        :param artifact_log_priors: (possibly None) 1D tensor with length len(Variation) containing log prior probabilities
         of artifacts for each variation type, from refine_permutect_model.py.  If given, freeze these parameters.
         :return:
         """
@@ -212,7 +213,7 @@ class PosteriorModel(torch.nn.Module):
         optimizer = torch.optim.Adam(spectra_and_prior_params, lr=learning_rate)
 
         for epoch in trange(1, num_iterations + 1, desc="AF spectra epoch"):
-            epoch_loss = utils.StreamingAverage()
+            epoch_loss = StreamingAverage()
 
             # store posteriors as a list (to be stacked at the end of the epoch) for an M step
             # 'l' for loader, 'b' for batch, 'c' for call type
@@ -246,7 +247,7 @@ class PosteriorModel(torch.nn.Module):
                     missing_loss = -ignored_to_non_ignored_ratio * log_seq_error_prior  
                     loss += missing_loss
 
-                utils.backpropagate(optimizer, loss)
+                backpropagate(optimizer, loss)
 
                 epoch_loss.record_sum(batch.size() * loss.detach().item(), batch.size())
             # iteration over posterior dataloader finished

@@ -37,7 +37,8 @@ from sklearn.preprocessing import QuantileTransformer
 
 from permutect.data.base_datum import BaseDatum, DEFAULT_NUMPY_FLOAT
 
-from permutect.utils import Label, Variation, report_memory_usage
+from permutect.misc_utils import report_memory_usage
+from permutect.utils.enums import Variation, Label
 
 MAX_VALUE = 10000
 EPSILON = 0.00001

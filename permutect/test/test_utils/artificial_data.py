@@ -1,7 +1,7 @@
 import torch
 import random
 from permutect.data.base_datum import BaseDatum
-from permutect.utils import Variation, Label
+from permutect.utils.enums import Variation, Label
 from numpy.random import binomial
 
 

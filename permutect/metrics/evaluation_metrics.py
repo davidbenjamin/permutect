@@ -10,7 +10,8 @@ from torch.utils.tensorboard import SummaryWriter
 
 from permutect.data.base_datum import BaseBatch, ArtifactBatch
 from permutect.metrics import plotting
-from permutect.utils import Variation, Call, Epoch, StreamingAverage, Label
+from permutect.misc_utils import StreamingAverage
+from permutect.utils.enums import Variation, Call, Epoch, Label
 
 MAX_COUNT = 18  # counts above this will be truncated
 MAX_LOGIT = 15

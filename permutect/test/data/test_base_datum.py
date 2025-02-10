@@ -1,8 +1,9 @@
 import numpy as np
 import torch
 
+import permutect.utils.allele_utils
 from permutect.data import base_datum
-from permutect.utils import Variation, Label
+from permutect.utils.enums import Variation, Label
 
 
 def test_base_datum():
@@ -21,11 +22,11 @@ def test_base_datum():
 
     assert torch.equal(snv_datum.get_ref_seq_1d(), torch.Tensor([0,1]))
     assert torch.equal(snv_datum.reads_2d, np.vstack([ref_tensor, alt_tensor]))
-    assert snv_datum.get_variant_type() == Variation.SNV
+    assert permutect.utils.allele_utils.get_variant_type() == Variation.SNV
     assert snv_datum.label == label
 
     insertion_datum = base_datum.BaseDatum.from_gatk("GT", Variation.INSERTION, ref_tensor, alt_tensor, gatk_info_tensor, label, source)
     deletion_datum = base_datum.BaseDatum.from_gatk("TT", Variation.DELETION, ref_tensor, alt_tensor, gatk_info_tensor, label, source)
-    assert insertion_datum.get_variant_type() == Variation.INSERTION
-    assert deletion_datum.get_variant_type() == Variation.DELETION
+    assert permutect.utils.allele_utils.get_variant_type() == Variation.INSERTION
+    assert permutect.utils.allele_utils.get_variant_type() == Variation.DELETION
 

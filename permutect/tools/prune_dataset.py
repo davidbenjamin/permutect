@@ -12,14 +12,15 @@ import numpy as np
 import torch
 from torch.utils.tensorboard import SummaryWriter
 
-from permutect import constants, utils
+from permutect import constants
 from permutect.data.artifact_dataset import ArtifactDataset
 from permutect.data.base_datum import BaseDatum
 from permutect.data.prefetch_generator import prefetch_generator
 from permutect.parameters import add_training_params_to_parser, TrainingParameters
 from permutect.data.base_dataset import BaseDataset
 from permutect.tools.refine_permutect_model import parse_training_params
-from permutect.utils import Label, report_memory_usage
+from permutect.misc_utils import report_memory_usage, StreamingAverage
+from permutect.utils.enums import Label
 
 NUM_FOLDS = 3
 
@@ -27,7 +28,7 @@ NUM_FOLDS = 3
 # labeled only pruning loader must be constructed with options to emit batches of all-labeled data
 def calculate_pruning_thresholds(labeled_only_pruning_loader, model: PermutectModel, label_art_frac: float, training_params: TrainingParameters) -> List[int]:
     for fold in range(NUM_FOLDS):
-        average_artifact_confidence, average_nonartifact_confidence = utils.StreamingAverage(), utils.StreamingAverage()
+        average_artifact_confidence, average_nonartifact_confidence = StreamingAverage(), StreamingAverage()
         # TODO: eventually this should all be segregated by variant type and maybe also alt count
 
         # the 0th/1st element is a list of predicted probabilities that data labeled as non-artifact/artifact are actually non-artifact/artifact

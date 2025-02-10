@@ -5,7 +5,7 @@ from permutect.data.base_dataset import BaseDataset
 from permutect.data.base_datum import BaseDatum
 from permutect.tools import preprocess_dataset
 from permutect import constants
-from permutect.utils import extract_to_temp_dir
+from permutect.misc_utils import extract_to_temp_dir
 
 
 def test_on_10_megabases_singular():

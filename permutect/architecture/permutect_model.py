@@ -5,7 +5,7 @@ from torch import nn
 from torch.utils.tensorboard import SummaryWriter
 from tqdm.autonotebook import tqdm
 
-from permutect import utils, constants
+from permutect import constants
 from permutect.architecture.adversarial import Adversarial
 from permutect.architecture.calibration import Calibration
 from permutect.architecture.dna_sequence_convolution import DNASequenceConvolution
@@ -18,7 +18,9 @@ from permutect.data.prefetch_generator import prefetch_generator
 from permutect.metrics.evaluation_metrics import EmbeddingMetrics, round_up_to_nearest_three, MAX_COUNT
 from permutect.parameters import ModelParameters
 from permutect.sets.ragged_sets import RaggedSets
-from permutect.utils import Variation
+from permutect.misc_utils import unfreeze, freeze, gpu_if_available
+from permutect.utils.enums import Variation, Epoch
+from permutect.utils.array_utils import index_3d_array, index_4d_array
 
 
 def sums_over_chunks(tensor2d: torch.Tensor, chunk_size: int):
@@ -36,7 +38,7 @@ def calculate_batch_weights(batch, dataset, by_count: bool):
     labels = batch.get_labels()
     variant_types = batch.get_variant_types()
 
-    return utils.index_4d_array(dataset.label_balancing_weights_sclt, sources, counts, labels, variant_types)
+    return index_4d_array(dataset.label_balancing_weights_sclt, sources, counts, labels, variant_types)
 
 
 # note: this works for both BaseBatch/BaseDataset AND ArtifactBatch/ArtifactDataset
@@ -47,7 +49,7 @@ def calculate_batch_source_weights(batch, dataset, by_count: bool):
     counts = batch.get_alt_counts() if by_count else torch.full(size=(len(sources), ), fill_value=ALL_COUNTS_INDEX, dtype=torch.int)
     variant_types = batch.get_variant_types()
 
-    return utils.index_3d_array(dataset.source_balancing_weights_sct, sources, counts, variant_types)
+    return index_3d_array(dataset.source_balancing_weights_sct, sources, counts, variant_types)
 
 
 def make_gated_ref_alt_mlp_encoder(input_dimension: int, params: ModelParameters) -> GatedRefAltMLP:
@@ -75,7 +77,7 @@ class PermutectModel(torch.nn.Module):
     because we have different output layers for each variant type.
     """
 
-    def __init__(self, params: ModelParameters, num_read_features: int, num_info_features: int, ref_sequence_length: int, device=utils.gpu_if_available()):
+    def __init__(self, params: ModelParameters, num_read_features: int, num_info_features: int, ref_sequence_length: int, device=gpu_if_available()):
         super(PermutectModel, self).__init__()
 
         self._device = device
@@ -140,13 +142,13 @@ class PermutectModel(torch.nn.Module):
     def final_calibration_shift_parameters(self):
         return [cal.final_adjustments for cal in self.calibration]
 
-    def set_epoch_type(self, epoch_type: utils.Epoch):
-        if epoch_type == utils.Epoch.TRAIN:
+    def set_epoch_type(self, epoch_type: Epoch):
+        if epoch_type == Epoch.TRAIN:
             self.train(True)
-            utils.unfreeze(self.parameters())
+            unfreeze(self.parameters())
         else:
             self.train(False)
-            utils.freeze(self.parameters())
+            freeze(self.parameters())
 
     # I really don't like the forward method of torch.nn.Module with its implicit calling that PyCharm doesn't recognize
     def forward(self, batch: BaseBatch):
@@ -180,10 +182,10 @@ class PermutectModel(torch.nn.Module):
         alt_weights_r = 1 + weight_range * (1 - 2 * torch.rand(total_alt, device=self._device, dtype=self._dtype))
 
         # normalize so read weights within each variant sum to 1
-        alt_wt_sums_v = utils.sums_over_rows(alt_weights_r, alt_counts)
+        alt_wt_sums_v = sums_over_rows(alt_weights_r, alt_counts)
         normalized_alt_weights_r = alt_weights_r / torch.repeat_interleave(alt_wt_sums_v, repeats=alt_counts, dim=0)
 
-        alt_means_ve = utils.sums_over_rows(transformed_alt_re * normalized_alt_weights_r[:,None], alt_counts)
+        alt_means_ve = sums_over_rows(transformed_alt_re * normalized_alt_weights_r[:,None], alt_counts)
         """
         result_be = self.set_pooling.forward(transformed_alt_bre)
 
@@ -220,7 +222,7 @@ class PermutectModel(torch.nn.Module):
         torch.save(self.make_dict_for_saving(artifact_log_priors, artifact_spectra), path)
 
 
-def load_model(path, device: torch.device = utils.gpu_if_available()):
+def load_model(path, device: torch.device = gpu_if_available()):
     saved = torch.load(path, map_location=device)
     hyperparams = saved[constants.HYPERPARAMS_NAME]
     num_read_features = saved[constants.NUM_READ_FEATURES_NAME]

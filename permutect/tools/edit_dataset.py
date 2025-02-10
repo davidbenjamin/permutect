@@ -11,7 +11,8 @@ from tqdm.autonotebook import tqdm
 from permutect import constants
 from permutect.data.base_dataset import BaseDataset
 from permutect.data.base_datum import BaseDatum
-from permutect.utils import Label, report_memory_usage
+from permutect.misc_utils import report_memory_usage
+from permutect.utils.enums import Label
 
 
 class EditType(Enum):

@@ -1,5 +1,4 @@
 import argparse
-import math
 from collections import defaultdict
 from typing import Set
 
@@ -9,17 +8,20 @@ from intervaltree import IntervalTree
 from torch.utils.tensorboard import SummaryWriter
 from tqdm.autonotebook import tqdm
 
-from permutect import constants, utils
+from permutect import constants
 from permutect.architecture.posterior_model import PosteriorModel
 from permutect.architecture.permutect_model import PermutectModel, load_model
-from permutect.data import base_dataset, plain_text_data, base_datum
+from permutect.data import base_dataset, plain_text_data
 from permutect.data.base_datum import ArtifactBatch, ParentDatum
 from permutect.data.posterior import PosteriorDataset, PosteriorDatum, PosteriorBatch
 from permutect.data.artifact_dataset import ArtifactDataset
 from permutect.data.prefetch_generator import prefetch_generator
 from permutect.metrics.evaluation_metrics import EvaluationMetrics, PosteriorResult, EmbeddingMetrics, \
     round_up_to_nearest_three, MAX_COUNT
-from permutect.utils import Call, find_variant_type, Label, Variation, Epoch, trim_alleles_on_right, report_memory_usage
+from permutect.misc_utils import report_memory_usage, gpu_if_available
+from permutect.utils.allele_utils import trim_alleles_on_right, find_variant_type, truncate_bases_if_necessary
+from permutect.utils.enums import Variation, Call, Epoch, Label
+from permutect.utils.math_utils import prob_to_logit
 
 TRUSTED_M2_FILTERS = {'contamination'}
 
@@ -32,24 +34,15 @@ NORMAL_LOG_LIKELIHOOD_INFO_KEY = 'NORMLL'
 FILTER_NAMES = [call_type.name.lower() for call_type in Call]
 
 
-# the inverse of the sigmoid function.  Convert a probability to a logit.
-def prob_to_logit(prob: float):
-    clipped_prob = 0.5 + 0.9999999 * (prob - 0.5)
-    return math.log(clipped_prob / (1 - clipped_prob))
-
-
 def get_first_numeric_element(variant, key):
     tuple_or_scalar = variant.INFO[key]
     return tuple_or_scalar[0] if type(tuple_or_scalar) is tuple else tuple_or_scalar
 
 
-# if alt and ref alleles are not in minimal representation ie have redundant matching bases at the end, trim them
-
-
 # TODO: contigs stored as integer index must be converted back to string to compare VCF variants with dataset variants!!!
 def encode(contig: str, position: int, ref: str, alt: str):
     trimmed_ref, trimmed_alt = trim_alleles_on_right(ref, alt)
-    return contig + ':' + str(position) + ':' + base_datum.truncate_bases_if_necessary(trimmed_alt)
+    return contig + ':' + str(position) + ':' + truncate_bases_if_necessary(trimmed_alt)
 
 
 def encode_datum(parent_datum: ParentDatum, contig_index_to_name_map):
@@ -164,7 +157,7 @@ def make_filtered_vcf(saved_model_path, initial_log_variant_prior: float, initia
             contig, index = line.split()
             contig_index_to_name_map[int(index)] = contig
 
-    device = utils.gpu_if_available()
+    device = gpu_if_available()
     model, artifact_log_priors, artifact_spectra_state_dict = load_model(saved_model_path, device=device)
 
     posterior_model = PosteriorModel(initial_log_variant_prior, initial_log_artifact_prior, no_germline_mode=no_germline_mode, num_base_features=model.pooling_dimension(), het_beta=het_beta)
