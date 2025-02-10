@@ -158,25 +158,17 @@ class SomaticSpectrum(nn.Module):
     def spectrum_density_vs_fraction(self):
         fractions_f = torch.arange(0.01, 0.99, 0.001)  # 1D tensor
 
-        f_k = torch.sigmoid(self.f_pre_sigmoid_k).cpu()
+        cf_k = torch.sigmoid(self.cf_pre_sigmoid_k).cpu()
 
         # smear each binomial f into a narrow Gaussian for plotting
-        gauss_k = torch.distributions.normal.Normal(f_k, 0.01 * torch.ones_like(f_k))
-        log_gauss_fk = gauss_k.log_prob(fractions_f.unsqueeze(dim=1))
-
-        alpha = torch.exp(self.alpha_pre_exp).cpu()
-        beta = torch.exp(self.beta_pre_exp).cpu()
-
-        beta = torch.distributions.beta.Beta(alpha, beta)
-        log_beta_fk = beta.log_prob(fractions_f.unsqueeze(dim=1))
-
-        log_densities_fk = torch.hstack((log_gauss_fk, log_beta_fk))
+        gauss_k = torch.distributions.normal.Normal(cf_k, 0.01 * torch.ones_like(cf_k))
+        log_densities_fk = gauss_k.log_prob(fractions_f.unsqueeze(dim=1))
 
         log_weights_k = log_softmax(self.weights_pre_softmax_k, dim=-1).cpu()  # these weights are normalized
-        log_weights_fk = log_weights_k.expand(len(fractions_f), -1)
+        log_weights_fk = log_weights_k.view(1, -1)
 
         log_weighted_densities_fk = log_weights_fk + log_densities_fk
-        densities_f = torch.exp(torch.logsumexp(log_weighted_densities_fk, dim=1, keepdim=False))
+        densities_f = torch.exp(torch.logsumexp(log_weighted_densities_fk, dim=-1))
 
         return fractions_f, densities_f
 
