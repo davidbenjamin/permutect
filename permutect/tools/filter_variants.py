@@ -264,12 +264,12 @@ def apply_filtering_to_vcf(input_vcf, output_vcf, contig_index_to_name_map, erro
 
         posterior_probs = torch.nn.functional.softmax(log_posteriors, dim=1)
 
-        encodings = [encode_datum(ParentDatum(parent_datum_array), contig_index_to_name_map) for parent_datum_array in batch.parent_data_2d]
-        artifact_logits = batch.get_artifact_logits().tolist()
-        var_types = batch.get_variant_types().tolist()
-        labels = batch.get_labels().tolist()
-        alt_counts = batch.get_alt_counts().tolist()
-        depths = batch.get_depths().tolist()
+        encodings = [encode_datum(ParentDatum(parent_datum_array), contig_index_to_name_map) for parent_datum_array in batch_cpu.parent_data_2d]
+        artifact_logits = batch_cpu.get_artifact_logits().tolist()
+        var_types = batch_cpu.get_variant_types().tolist()
+        labels = batch_cpu.get_labels().tolist()
+        alt_counts = batch_cpu.get_alt_counts().tolist()
+        depths = batch_cpu.get_depths().tolist()
 
         for encoding, post_probs, logit, log_prior, log_spec, log_normal, label, alt_count, depth, var_type, embedding in zip(encodings, posterior_probs, artifact_logits, log_priors, spectra_lls, normal_lls, labels, alt_counts, depths, var_types, batch.embeddings):
             encoding_to_posterior_results[encoding] = PosteriorResult(logit, post_probs.tolist(), log_prior, log_spec, log_normal, label, alt_count, depth, var_type, embedding)
