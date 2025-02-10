@@ -159,27 +159,6 @@ def get_str_info_array(ref_sequence_string: str, ref_allele: str, alt_allele: st
     return np.array([insertion_length, deletion_length, len(unit), num_units, repeats_before, repeats_after])
 
 
-class CountsAndSeqLks:
-    LENGTH = 6
-
-    def __init__(self, depth: int, alt_count: int, normal_depth: int, normal_alt_count: int,
-                 seq_error_log_lk: float, normal_seq_error_log_lk: float):
-        self.depth = depth
-        self.alt_count = alt_count
-        self.normal_depth = normal_depth
-        self.normal_alt_count = normal_alt_count
-        self.seq_error_log_lk = seq_error_log_lk
-        self.normal_seq_error_log_lk = normal_seq_error_log_lk
-
-    def to_np_array(self):
-        return np.array([self.depth, self.alt_count, self.normal_depth, self.normal_alt_count, self.seq_error_log_lk, self.normal_seq_error_log_lk])
-
-    @classmethod
-    def from_np_array(cls, np_array: np.ndarray):
-        assert len(np_array) == cls.LENGTH
-        return cls(round(np_array[0]), round(np_array[1]), round(np_array[2]), round(np_array[3]), float(np_array[4]), float(np_array[5]))
-
-
 class ParentDatum:
     """
     contains data that apply to a candidate mutation as a whole i.e. not the read sets.  These are organized into a single
