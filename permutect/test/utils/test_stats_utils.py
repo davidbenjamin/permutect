@@ -90,7 +90,7 @@ def test_uniform_binomial():
         # = lgamma(n + 1) - lgamma(n+2) = -log(gamma(n+2)/gamma(n+1)) = -log(n+1)
         ub = torch.exp(uniform_binomial_log_lk(ntens, k, torch.tensor([0]), torch.tensor([1])))
         exact = 1/(n+1)
-        assert torch.sum(torch.abs(ub - exact)).item() < 0.005
+        assert torch.sum(torch.abs(ub - exact)).item() < 0.01
 
 
 

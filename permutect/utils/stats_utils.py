@@ -146,8 +146,7 @@ def uniform_binomial_log_lk(n, k, x1, x2):
 
 def uniform_binomial_log_lk(n: torch.Tensor, k: torch.Tensor, x1: torch.Tensor, x2: torch.Tensor):
     assert x1.shape == x2.shape
-    combinatorial_term = torch.lgamma(n + 1) - torch.lgamma(n - k + 1) - torch.lgamma(k + 1)
-    interp = torch.arange(start=0, end=1, step=0.01).to(device=n.device)
+    interp = torch.arange(start=0.001, end=0.999, step=0.01).to(device=n.device)
     num_mix = len(interp)
 
     # 'x' subscript denotes something with the shape of x1 plus an extra dimension
@@ -157,7 +156,7 @@ def uniform_binomial_log_lk(n: torch.Tensor, k: torch.Tensor, x1: torch.Tensor, 
     n_x = n.view(*n.shape, 1)
     k_x = k.view(*k.shape, 1)
     interp_x = interp.view(*([1]*x1.dim()), -1)
-    p_x = x2_x * interp + x1_x * (1 - interp)
+    p_x = x2_x * interp_x + x1_x * (1 - interp_x)
     binom_log_lks_x = binomial_log_lk(n_x, k_x, p_x)
     binom_log_lks_o = logsumexp(binom_log_lks_x, dim=-1) - math.log(num_mix)
     return binom_log_lks_o
