@@ -48,3 +48,4 @@ def sums_over_rows(input_tensor: torch.Tensor, counts: torch.IntTensor):
     row_of_zeroes = torch.zeros_like(relevant_cumsums[0])[None] # the [None] makes it (1xC)
     relevant_sums = torch.diff(relevant_cumsums, dim=0, prepend=row_of_zeroes)
     return relevant_sums
+
