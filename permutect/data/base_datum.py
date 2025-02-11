@@ -316,7 +316,7 @@ class BaseDatum(ParentDatum):
     def save_list(cls, base_data: List[BaseDatum], file):
         read_tensors = np.vstack([datum.get_reads_2d() for datum in base_data])
         other_stuff = np.vstack([datum.get_array_1d() for datum in base_data])
-        torch.save([read_tensors, other_stuff], file)
+        torch.save([read_tensors, other_stuff], file, pickle_protocol=4)
 
     @classmethod
     def load_list(cls, file) -> List[BaseDatum]:
