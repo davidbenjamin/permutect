@@ -66,7 +66,8 @@ class SomaticSpectrum(nn.Module):
         # give batch tensors dummy length-1 k index for broadcasting
         alt_counts_bk = alt_counts_b.view(-1, 1)
         depths_bk = depths_b.view(-1, 1)
-        mafs_bk = mafs_b.view(-1, 1)
+        # we can't have maf = 0.5 exactly because then x1 = x2 and we get NaN
+        mafs_bk = torch.clamp(mafs_b, max=0.49).view(-1, 1)
 
         # lower and upper uniform distribution bounds
         cf_k = torch.sigmoid(self.cf_pre_sigmoid_k)
