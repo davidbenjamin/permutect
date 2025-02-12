@@ -144,8 +144,8 @@ class PosteriorModel(torch.nn.Module):
         log_priors = torch.nn.functional.log_softmax(self.make_unnormalized_priors(variant_types, batch.get_allele_frequencies()), dim=1)
 
         # defined as log [ int_0^1 Binom(alt count | depth, f) df ], including the combinatorial N choose N_alt factor
-        depths, alt_counts, mafs = batch.get_depths(), batch.get_alt_counts(), batch.get_mafs()
-        normal_depths, normal_alt_counts = batch.get_normal_depths(), batch.get_normal_alt_counts()
+        depths, alt_counts, mafs = batch.get_original_depths(), batch.get_alt_counts(), batch.get_mafs()
+        normal_depths, normal_alt_counts = batch.get_original_normal_depths(), batch.get_original_normal_alt_counts()
         flat_prior_spectra_log_likelihoods = -torch.log(depths + 1)
         somatic_spectrum_log_likelihoods = self.somatic_spectrum.forward(depths, alt_counts, mafs)
         tumor_artifact_spectrum_log_likelihood = self.artifact_spectra.forward(batch.get_variant_types(), depths, alt_counts)
@@ -163,7 +163,7 @@ class PosteriorModel(torch.nn.Module):
 
         for var_index, _ in enumerate(Variation):
             mask = (variant_types == var_index)
-            log_likelihoods_for_this_type = self.normal_seq_error_spectra[var_index].forward(normal_alt_counts, batch.get_normal_ref_counts())
+            log_likelihoods_for_this_type = self.normal_seq_error_spectra[var_index].forward(normal_alt_counts, batch.get_original_normal_ref_counts())
             normal_seq_error_log_likelihoods += mask * log_likelihoods_for_this_type
 
         normal_log_likelihoods[:, Call.SOMATIC] = normal_seq_error_log_likelihoods
@@ -230,7 +230,7 @@ class PosteriorModel(torch.nn.Module):
 
                 posteriors_lbc.append(torch.softmax(relative_posteriors, dim=-1).detach())
                 alt_counts_lb.append(batch.get_alt_counts().detach())
-                depths_lb.append(batch.get_depths().detach())
+                depths_lb.append(batch.get_original_depths().detach())
                 types_lb.append(batch.get_variant_types().detach())
 
                 confidence_mask = torch.abs(batch.get_artifact_logits()) > 3.0

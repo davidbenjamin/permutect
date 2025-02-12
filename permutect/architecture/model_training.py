@@ -311,7 +311,7 @@ def collect_evaluation_data(model: PermutectModel, dataset: FeaturesDataset, tra
             labels = batch_cpu.get_training_labels()
             correct = ((pred > 0) == (labels > 0.5)).tolist()
 
-            for datum_array, variant_type, predicted_logit, source, int_label, correct_call, alt_count, weight in zip(batch_cpu.get_parent_data_2d(),
+            for datum_array, variant_type, predicted_logit, source, int_label, correct_call, alt_count, weight in zip(batch_cpu.get_data_2d(),
                     batch_cpu.get_variant_types().tolist(), pred.tolist(), batch.get_sources().tolist(), batch_cpu.get_labels().tolist(), correct,
                     batch_cpu.get_alt_counts().tolist(), weights.tolist()):
                 datum = Datum(datum_array)
