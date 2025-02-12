@@ -30,30 +30,6 @@ def sums_over_chunks(tensor2d: torch.Tensor, chunk_size: int):
     return torch.sum(tensor2d.reshape([len(tensor2d) // chunk_size, chunk_size, -1]), dim=1)
 
 
-# note: this works for both BaseBatch/BaseDataset AND ArtifactBatch/ArtifactDataset
-# if by_count is True, each count is weighted separately for balanced loss within that count
-def calculate_batch_weights(batch, dataset, by_count: bool):
-    # TODO: we need a parameter to control the relative weight of unlabeled loss to labeled loss
-    # For batch index n, we want weight[n] = dataset.weights[alt_counts[n], labels[n], variant_types[n]]
-    sources = batch.get_sources()
-    counts = batch.get_alt_counts() if by_count else torch.full(size=(len(sources), ), fill_value=ALL_COUNTS_INDEX, dtype=torch.int)
-    labels = batch.get_labels()
-    variant_types = batch.get_variant_types()
-
-    return index_4d_array(dataset.label_balancing_weights_sclt, sources, counts, labels, variant_types)
-
-
-# note: this works for both BaseBatch/BaseDataset AND ArtifactBatch/ArtifactDataset
-# if by_count is True, each count is weighted separately for balanced loss within that count
-def calculate_batch_source_weights(batch, dataset, by_count: bool):
-    # For batch index n, we want weight[n] = dataset.source_weights[sources[n], alt_counts[n], variant_types[n]]
-    sources = batch.get_sources()
-    counts = batch.get_alt_counts() if by_count else torch.full(size=(len(sources), ), fill_value=ALL_COUNTS_INDEX, dtype=torch.int)
-    variant_types = batch.get_variant_types()
-
-    return index_3d_array(dataset.source_balancing_weights_sct, sources, counts, variant_types)
-
-
 def make_gated_ref_alt_mlp_encoder(input_dimension: int, params: ModelParameters) -> GatedRefAltMLP:
     return GatedRefAltMLP(d_model=input_dimension, d_ffn=params.self_attention_hidden_dimension, num_blocks=params.num_self_attention_layers)
 
