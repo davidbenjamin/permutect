@@ -216,7 +216,7 @@ def make_posterior_data_loader(dataset_file, input_vcf, contig_index_to_name_map
         for features_batch, features_batch_cpu in tqdm(prefetch_generator(artifact_loader), mininterval=60, total=len(artifact_loader)):
             artifact_logits, _ = model.logits_from_features_batch(batch=features_batch)
 
-            for datum_array, logit, embedding in zip(features_batch_cpu.get_parent_data_2d(),
+            for datum_array, logit, embedding in zip(features_batch_cpu.get_data_2d(),
                                                                artifact_logits.detach().tolist(),
                                                                features_batch.get_representations_2d().cpu()):
                 datum = Datum(datum_array)
@@ -259,12 +259,12 @@ def apply_filtering_to_vcf(input_vcf, output_vcf, contig_index_to_name_map, erro
 
         posterior_probs = torch.nn.functional.softmax(log_posteriors, dim=1)
 
-        encodings = [encode_datum(Datum(datum_array), contig_index_to_name_map) for datum_array in batch_cpu.parent_data_2d]
+        encodings = [encode_datum(Datum(datum_array), contig_index_to_name_map) for datum_array in batch_cpu.get_data_2d()]
         artifact_logits = batch_cpu.get_artifact_logits().tolist()
         var_types = batch_cpu.get_variant_types().tolist()
         labels = batch_cpu.get_labels().tolist()
         alt_counts = batch_cpu.get_alt_counts().tolist()
-        depths = batch_cpu.get_depths().tolist()
+        depths = batch_cpu.get_original_depths().tolist()
 
         for encoding, post_probs, logit, log_prior, log_spec, log_normal, label, alt_count, depth, var_type, embedding in zip(encodings, posterior_probs, artifact_logits, log_priors, spectra_lls, normal_lls, labels, alt_counts, depths, var_types, batch.embeddings):
             encoding_to_posterior_results[encoding] = PosteriorResult(logit, post_probs.tolist(), log_prior, log_spec, log_normal, label, alt_count, depth, var_type, embedding)

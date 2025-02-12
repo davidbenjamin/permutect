@@ -9,6 +9,8 @@ import numpy as np
 import torch
 from torch import IntTensor
 from torch.utils.data import Dataset, DataLoader
+
+from permutect.data.batch import Batch
 from permutect.data.datum import Datum
 
 
@@ -36,50 +38,27 @@ class PosteriorDatum(Datum):
         return self.float_array[self.__class__.ARTIFACT_LOGIT]
 
 
-class PosteriorBatch:
+class PosteriorBatch(Batch):
 
     def __init__(self, data: List[PosteriorDatum]):
+        super().__init__(data)
         self.embeddings = torch.vstack([item.embedding for item in data]).float()
-        self.parent_data_2d = torch.from_numpy(np.vstack([item.get_array_1d() for item in data]))
         self.float_tensor = torch.vstack([item.float_array for item in data]).float()
 
-        self._size = len(data)
-
     def pin_memory(self):
+        super().pin_memory()
         self.embeddings = self.embeddings.pin_memory()
-        self.parent_data_2d = self.parent_data_2d.pin_memory()
         self.float_tensor = self.float_tensor.pin_memory()
         return self
 
     # dtype is just for floats!!! Better not convert the int tensor to a float accidentally!
     def copy_to(self, device, dtype):
         is_cuda = device.type == 'cuda'
-        # For all non-tensor attributes, shallow copy is sufficient
         new_batch = copy.copy(self)
-
+        new_batch.data = self.data.to(device, non_blocking=is_cuda)  # don't cast dtype -- needs to stay integral!
         new_batch.embeddings = self.embeddings.to(device=device, dtype=dtype, non_blocking=is_cuda)
-        new_batch.parent_data_2d = self.parent_data_2d.to(device=device, non_blocking=is_cuda)
         new_batch.float_tensor = self.float_tensor.to(device=device, dtype=dtype, non_blocking=is_cuda)
-
         return new_batch
-
-    def get_variant_types(self) -> torch.IntTensor:
-        return self.parent_data_2d[:, Datum.VARIANT_TYPE_IDX]
-
-    def get_labels(self) -> torch.IntTensor:
-        return self.parent_data_2d[:, Datum.LABEL_IDX]
-
-    def get_alt_counts(self) -> torch.IntTensor:
-        return self.parent_data_2d[:, Datum.ORIGINAL_ALT_COUNT_IDX]
-
-    def get_depths(self) -> torch.IntTensor:
-        return self.parent_data_2d[:, Datum.ORIGINAL_DEPTH_IDX]
-
-    def get_normal_alt_counts(self) -> torch.Tensor:
-        return self.parent_data_2d[:, Datum.ORIGINAL_NORMAL_ALT_COUNT_IDX]
-
-    def get_normal_depths(self) -> torch.Tensor:
-        return self.parent_data_2d[:, Datum.ORIGINAL_NORMAL_DEPTH_IDX]
 
     def get_tlods_from_m2(self) -> torch.Tensor:
         return self.float_tensor[:, PosteriorDatum.TLOD_FROM_M2]
@@ -96,11 +75,8 @@ class PosteriorBatch:
     def get_normal_mafs(self) -> torch.Tensor:
         return self.float_tensor[:, PosteriorDatum.NORMAL_MAF]
 
-    def size(self) -> int:
-        return self._size
-
-    def get_normal_ref_counts(self) -> IntTensor:
-        return self.get_normal_depths() - self.get_normal_alt_counts()
+    def get_original_normal_ref_counts(self) -> IntTensor:
+        return self.get_original_normal_depths() - self.get_original_normal_alt_counts()
 
 
 class PosteriorDataset(Dataset):
