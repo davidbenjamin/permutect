@@ -47,8 +47,8 @@ class FeaturesDataset(Dataset):
             with torch.inference_mode():
                 representations, _ = model.calculate_representations(reads_batch)
 
-            for representation, reads_datum in zip(representations.detach().cpu(), reads_batch_cpu.original_list()):
-                features_datum = FeaturesDatum(reads_datum.get_array_1d(), representation.detach())
+            for representation, data_1d in zip(representations.detach().cpu(), reads_batch.get_data_2d()):
+                features_datum = FeaturesDatum(data_1d, representation.detach())
                 self.artifact_data.append(features_datum)
                 fold = index % self.num_folds
                 if features_datum.is_labeled():

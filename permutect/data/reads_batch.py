@@ -32,9 +32,6 @@ class ReadsBatch(Batch):
     def __init__(self, data: List[ReadsDatum]):
         super().__init__(data)
 
-        # TODO: can we get rid of this potential bottleneck (might interact really badly with multiple workers)?
-        self._original_list = data
-
         # TODO: get_ref_and_alt_sequences is a LOT of compute to do on CPU for every datum every time we form a batch.
         # TODO: this can be precomputed in the Datum constructor
         # num_classes = 5 for A, C, G, T, and deletion / insertion
@@ -64,12 +61,19 @@ class ReadsBatch(Batch):
         new_batch.data = self.data.to(device, non_blocking=is_cuda)  # don't cast dtype -- needs to stay integral!
         return new_batch
 
-    def original_list(self):
-        return self._original_list
-
     def get_reads_2d(self) -> Tensor:
         return self.reads_2d
 
     def get_ref_sequences_2d(self) -> Tensor:
         return self.ref_sequences_2d
+
+    # useful for regenerating original data, for example in pruning.  Each original datum has its own reads_2d of ref
+    # followed by alt
+    def get_list_of_reads_2d(self):
+        ref_counts, alt_counts = self.get_ref_counts(), self.get_alt_counts()
+        total_ref = torch.sum(ref_counts).item()
+        ref_reads, alt_reads = self.reads_2d[:total_ref], self.reads_2d[total_ref:]
+        ref_splits, alt_splits = torch.cumsum(ref_counts)[:-1], torch.cumsum(alt_counts)[:-1]
+        ref_list, alt_list = torch.tensor_split(ref_reads, ref_splits), torch.tensor_split(alt_reads, alt_splits)
+        return [torch.vstack((refs, alts)).numpy() for refs, alts in zip(ref_list, alt_list)]
 

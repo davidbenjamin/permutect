@@ -65,7 +65,7 @@ class Batch:
         return self
 
     def get_data_2d(self) -> np.ndarray:
-        return self.data.numpy()
+        return self.data.cpu().numpy()
 
     def size(self) -> int:
         return self._size
