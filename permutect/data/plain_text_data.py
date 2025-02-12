@@ -35,7 +35,8 @@ from typing import List
 import numpy as np
 from sklearn.preprocessing import QuantileTransformer
 
-from permutect.data.base_datum import BaseDatum, DEFAULT_NUMPY_FLOAT
+from permutect.data.reads_datum import ReadsDatum
+from permutect.data.datum import DEFAULT_NUMPY_FLOAT
 
 from permutect.misc_utils import report_memory_usage
 from permutect.utils.enums import Variation, Label
@@ -83,13 +84,13 @@ def read_data(dataset_file, only_artifacts: bool = False, source: int=0):
             normal_seq_error_log_lk = read_float(file.readline())
 
             if alt_tensor_size > 0 and passes_label_filter:
-                yield BaseDatum.from_gatk(label=label, variant_type=Variation.get_type(ref_allele, alt_allele), source=source,
-                    original_depth=original_depth, original_alt_count=original_alt_count,
-                    original_normal_depth=original_normal_depth, original_normal_alt_count=original_normal_alt_count,
-                    contig=contig, position=position, ref_allele=ref_allele, alt_allele=alt_allele,
-                    seq_error_log_lk=seq_error_log_lk, normal_seq_error_log_lk=normal_seq_error_log_lk,
-                    ref_sequence_string=ref_sequence_string, gatk_info_array=gatk_info_array,
-                    ref_tensor=ref_tensor, alt_tensor=alt_tensor)
+                yield ReadsDatum.from_gatk(label=label, variant_type=Variation.get_type(ref_allele, alt_allele), source=source,
+                                           original_depth=original_depth, original_alt_count=original_alt_count,
+                                           original_normal_depth=original_normal_depth, original_normal_alt_count=original_normal_alt_count,
+                                           contig=contig, position=position, ref_allele=ref_allele, alt_allele=alt_allele,
+                                           seq_error_log_lk=seq_error_log_lk, normal_seq_error_log_lk=normal_seq_error_log_lk,
+                                           ref_sequence_string=ref_sequence_string, gatk_info_array=gatk_info_array,
+                                           ref_tensor=ref_tensor, alt_tensor=alt_tensor)
 
 
 # if sources is None, source is set to zero
@@ -111,9 +112,9 @@ def generate_normalized_data(dataset_files, max_bytes_per_chunk: int, sources: L
 
         num_buffers_filled = 0
         source = 0 if sources is None else (sources[0] if len(sources) == 1 else sources[n])
-        for base_datum in read_data(dataset_file, source=source):
-            buffer.append(base_datum)
-            bytes_in_buffer += base_datum.size_in_bytes()
+        for reads_datum in read_data(dataset_file, source=source):
+            buffer.append(reads_datum)
+            bytes_in_buffer += reads_datum.size_in_bytes()
             if bytes_in_buffer > max_bytes_per_chunk:
                 report_memory_usage()
                 print(f"{bytes_in_buffer} bytes in chunk")

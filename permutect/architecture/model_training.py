@@ -16,9 +16,10 @@ from permutect.architecture.permutect_model import PermutectModel, calculate_bat
     calculate_batch_source_weights
 from permutect.architecture.gradient_reversal.module import GradientReversal
 from permutect.architecture.mlp import MLP
-from permutect.data.artifact_dataset import ArtifactDataset
-from permutect.data.base_dataset import BaseDataset, ALL_COUNTS_INDEX, ratio_with_pseudocount
-from permutect.data.base_datum import ArtifactBatch, ParentDatum
+from permutect.data.features_dataset import FeaturesDataset
+from permutect.data.reads_dataset import ReadsDataset, ALL_COUNTS_INDEX, ratio_with_pseudocount
+from permutect.data.features_batch import FeaturesBatch
+from permutect.data.datum import Datum
 from permutect.data.prefetch_generator import prefetch_generator
 from permutect.metrics.evaluation_metrics import LossMetrics, EmbeddingMetrics, round_up_to_nearest_three, MAX_COUNT, \
     EvaluationMetrics
@@ -31,7 +32,7 @@ from permutect.utils.array_utils import index_3d_array
 WORST_OFFENDERS_QUEUE_SIZE = 100
 
 
-def train_permutect_model(model: PermutectModel, dataset: BaseDataset, training_params: TrainingParameters,
+def train_permutect_model(model: PermutectModel, dataset: ReadsDataset, training_params: TrainingParameters,
                           summary_writer: SummaryWriter, validation_fold: int = None):
     report_memory_usage("Beginning training.")
     device, dtype = model._device, model._dtype
@@ -70,7 +71,7 @@ def train_permutect_model(model: PermutectModel, dataset: BaseDataset, training_
                 weights = weights.to(device=device, dtype=dtype, non_blocking=True)
 
                 representations, _ = model.calculate_representations(batch, weight_range=model._params.reweighting_range)
-                calibrated_logits, uncalibrated_logits = model.logits_from_base_batch(representations, batch)
+                calibrated_logits, uncalibrated_logits = model.logits_from_reads_batch(representations, batch)
 
                 # TODO: code duplication with artifact model training
                 # TODO: should we use calibrated logits?
@@ -114,8 +115,8 @@ def train_permutect_model(model: PermutectModel, dataset: BaseDataset, training_
     record_embeddings(model, train_loader, summary_writer)
 
 
-def train_on_artifact_dataset(model: PermutectModel, dataset: ArtifactDataset, training_params: TrainingParameters, summary_writer: SummaryWriter,
-          validation_fold: int = None, epochs_per_evaluation: int = None, calibration_sources: List[int] = None):
+def train_on_artifact_dataset(model: PermutectModel, dataset: FeaturesDataset, training_params: TrainingParameters, summary_writer: SummaryWriter,
+                              validation_fold: int = None, epochs_per_evaluation: int = None, calibration_sources: List[int] = None):
     device, dtype = model._device, model._dtype
     bce = nn.BCEWithLogitsLoss(reduction='none')  # no reduction because we may want to first multiply by weights for unbalanced data
 
@@ -200,7 +201,7 @@ def train_on_artifact_dataset(model: PermutectModel, dataset: ArtifactDataset, t
                 labels = batch.get_training_labels()
                 is_labeled_mask = batch.get_is_labeled_mask()
 
-                logits, precalibrated_logits = model.logits_from_artifact_batch(batch)
+                logits, precalibrated_logits = model.logits_from_features_batch(batch)
 
                 # one-hot prediction of sources
                 if num_sources > 1:
@@ -284,7 +285,7 @@ def train_on_artifact_dataset(model: PermutectModel, dataset: ArtifactDataset, t
 
 
 @torch.inference_mode()
-def collect_evaluation_data(model: PermutectModel, dataset: ArtifactDataset, train_loader, valid_loader, report_worst: bool):
+def collect_evaluation_data(model: PermutectModel, dataset: FeaturesDataset, train_loader, valid_loader, report_worst: bool):
     # the keys are tuples of (true label -- 1 for variant, 0 for artifact; rounded alt count)
     worst_offenders_by_truth_and_alt_count = defaultdict(lambda: PriorityQueue(WORST_OFFENDERS_QUEUE_SIZE))
 
@@ -294,15 +295,15 @@ def collect_evaluation_data(model: PermutectModel, dataset: ArtifactDataset, tra
         assert epoch_type == Epoch.TRAIN or epoch_type == Epoch.VALID  # not doing TEST here
         loader = train_loader if epoch_type == Epoch.TRAIN else valid_loader
 
-        batch: ArtifactBatch
-        batch_cpu: ArtifactBatch
+        batch: FeaturesBatch
+        batch_cpu: FeaturesBatch
         for batch, batch_cpu in tqdm(prefetch_generator(loader), mininterval=60, total=len(loader)):
             # these are the same weights used in training
             # TODO: we need a parameter to control the relative weight of unlabeled loss to labeled loss
             weights = calculate_batch_weights(batch_cpu, dataset, by_count=True)
             weights = weights.to(dtype=model._dtype)     # not sent to GPU!
 
-            logits, _ = model.logits_from_artifact_batch(batch)
+            logits, _ = model.logits_from_features_batch(batch)
             # logits are calculated on the GPU (when available), so we must detach AND send back to CPU (if applicable)
             pred = logits.detach().cpu()
 
@@ -310,10 +311,10 @@ def collect_evaluation_data(model: PermutectModel, dataset: ArtifactDataset, tra
             labels = batch_cpu.get_training_labels()
             correct = ((pred > 0) == (labels > 0.5)).tolist()
 
-            for parent_datum_array, variant_type, predicted_logit, source, int_label, correct_call, alt_count, weight in zip(batch_cpu.get_parent_data_2d(),
+            for datum_array, variant_type, predicted_logit, source, int_label, correct_call, alt_count, weight in zip(batch_cpu.get_parent_data_2d(),
                     batch_cpu.get_variant_types().tolist(), pred.tolist(), batch.get_sources().tolist(), batch_cpu.get_labels().tolist(), correct,
                     batch_cpu.get_alt_counts().tolist(), weights.tolist()):
-                parent_datum = ParentDatum(parent_datum_array)
+                datum = Datum(datum_array)
                 label = Label(int_label)
                 evaluation_metrics.record_call(epoch_type, variant_type, predicted_logit, label, correct_call,
                                                alt_count, weight, source=source)
@@ -331,16 +332,16 @@ def collect_evaluation_data(model: PermutectModel, dataset: ArtifactDataset, tra
                         pqueue.get()  # discards the least confident bad call
 
                     if not pqueue.full():  # if space was cleared or if it wasn't full already
-                        pqueue.put((confidence, str(parent_datum.get_contig()) + ":" + str(
-                            parent_datum.get_position()) + ':' + parent_datum.get_ref_allele() + "->" + parent_datum.get_alt_allele()))
+                        pqueue.put((confidence, str(datum.get_contig()) + ":" + str(
+                            datum.get_position()) + ':' + datum.get_ref_allele() + "->" + datum.get_alt_allele()))
         # done with this epoch type
     # done collecting data
     return evaluation_metrics, worst_offenders_by_truth_and_alt_count
 
 
 @torch.inference_mode()
-def evaluate_model(model: PermutectModel, epoch: int, dataset: ArtifactDataset, train_loader, valid_loader,
-    summary_writer: SummaryWriter, collect_embeddings: bool = False, report_worst: bool = False):
+def evaluate_model(model: PermutectModel, epoch: int, dataset: FeaturesDataset, train_loader, valid_loader,
+                   summary_writer: SummaryWriter, collect_embeddings: bool = False, report_worst: bool = False):
 
     # self.freeze_all()
     evaluation_metrics, worst_offenders_by_truth_and_alt_count = collect_evaluation_data(model, dataset, train_loader, valid_loader, report_worst)
@@ -361,10 +362,10 @@ def evaluate_model(model: PermutectModel, epoch: int, dataset: ArtifactDataset, 
         embedding_metrics = EmbeddingMetrics()
 
         # now go over just the validation data and generate feature vectors / metadata for tensorboard projectors (UMAP)
-        batch: ArtifactBatch
-        batch_cpu: ArtifactBatch
+        batch: FeaturesBatch
+        batch_cpu: FeaturesBatch
         for batch, batch_cpu in tqdm(prefetch_generator(valid_loader), mininterval=60, total=len(valid_loader)):
-            logits, _ = model.logits_from_artifact_batch(batch)
+            logits, _ = model.logits_from_features_batch(batch)
             pred = logits.detach().cpu()
             labels = batch_cpu.get_training_labels()
             correct = ((pred > 0) == (labels > 0.5)).tolist()
@@ -386,7 +387,7 @@ def evaluate_model(model: PermutectModel, epoch: int, dataset: ArtifactDataset, 
 
 
 # TODO: these were copied from artifact model and probably could use some refactoring
-def evaluate_model_after_training(model: PermutectModel, dataset: ArtifactDataset, batch_size, num_workers, summary_writer: SummaryWriter):
+def evaluate_model_after_training(model: PermutectModel, dataset: FeaturesDataset, batch_size, num_workers, summary_writer: SummaryWriter):
     train_loader = dataset.make_data_loader(dataset.all_but_the_last_fold(), batch_size, model._device.type == 'cuda', num_workers)
     valid_loader = dataset.make_data_loader(dataset.last_fold_only(), batch_size, model._device.type == 'cuda', num_workers)
     evaluate_model(model, None, dataset, train_loader, valid_loader, summary_writer, collect_embeddings=True, report_worst=True)

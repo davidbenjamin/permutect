@@ -13,7 +13,8 @@ from torch.utils.data import Dataset, DataLoader
 from torch.utils.data.sampler import Sampler
 
 from mmap_ninja.ragged import RaggedMmap
-from permutect.data.base_datum import BaseDatum, BaseBatch
+from permutect.data.reads_datum import ReadsDatum
+from permutect.data.reads_batch import ReadsBatch
 from permutect.misc_utils import MutableInt
 from permutect.utils.enums import Variation, Label
 
@@ -31,9 +32,9 @@ def ratio_with_pseudocount(a, b):
     return (a + WEIGHT_PSEUDOCOUNT) / (b + WEIGHT_PSEUDOCOUNT)
 
 
-class BaseDataset(Dataset):
-    def __init__(self, data_in_ram: Iterable[BaseDatum] = None, data_tarfile=None, num_folds: int = 1):
-        super(BaseDataset, self).__init__()
+class ReadsDataset(Dataset):
+    def __init__(self, data_in_ram: Iterable[ReadsDatum] = None, data_tarfile=None, num_folds: int = 1):
+        super(ReadsDataset, self).__init__()
         assert data_in_ram is not None or data_tarfile is not None, "No data given"
         assert data_in_ram is None or data_tarfile is None, "Data given from both RAM and tarfile"
         self.num_folds = num_folds
@@ -69,7 +70,7 @@ class BaseDataset(Dataset):
         # determine the maximum count and source in order to allocate arrays
         max_count = 0
         self.max_source = 0
-        datum: BaseDatum
+        datum: ReadsDatum
         for datum in self:
             max_count = max(datum.alt_count, max_count)
             self.max_source = max(datum.source, self.max_source)
@@ -143,7 +144,7 @@ class BaseDataset(Dataset):
     def __getitem__(self, index):
         if self._memory_map_mode:
             bottom_index = index * TENSORS_PER_BASE_DATUM
-            return BaseDatum(parent_datum_array=self._data[bottom_index + 1], reads_2d=self._data[bottom_index])
+            return ReadsDatum(datum_array=self._data[bottom_index + 1], reads_2d=self._data[bottom_index])
         else:
             return self._data[index]
 
@@ -170,7 +171,7 @@ class BaseDataset(Dataset):
 
     def make_data_loader(self, folds_to_use: List[int], batch_size: int, pin_memory=False, num_workers: int = 0, sources_to_use: List[int] = None):
         sampler = SemiSupervisedBatchSampler(self, batch_size, folds_to_use, sources_to_use)
-        return DataLoader(dataset=self, batch_sampler=sampler, collate_fn=BaseBatch, pin_memory=pin_memory, num_workers=num_workers)
+        return DataLoader(dataset=self, batch_sampler=sampler, collate_fn=ReadsBatch, pin_memory=pin_memory, num_workers=num_workers)
 
     def make_train_and_valid_loaders(self, validation_fold: int, batch_size: int, is_cuda: bool, num_workers: int, sources_to_use: List[int] = None):
         train_loader = self.make_data_loader(self.all_but_one_fold(validation_fold), batch_size, is_cuda, num_workers, sources_to_use)
@@ -179,10 +180,10 @@ class BaseDataset(Dataset):
 
 
 # from a generator that yields BaseDatum(s), create a generator that yields the two numpy arrays needed to reconstruct the datum
-def make_flattened_tensor_generator(base_data_generator):
-    for base_datum in base_data_generator:
-        yield base_datum.get_reads_2d()
-        yield base_datum.get_array_1d()
+def make_flattened_tensor_generator(reads_data_generator):
+    for reads_datum in reads_data_generator:
+        yield reads_datum.get_reads_2d()
+        yield reads_datum.get_array_1d()
 
 
 def make_base_data_generator_from_tarfile(data_tarfile):
@@ -194,7 +195,7 @@ def make_base_data_generator_from_tarfile(data_tarfile):
     data_files = [os.path.abspath(os.path.join(temp_dir.name, p)) for p in os.listdir(temp_dir.name)]
 
     for file in data_files:
-        for datum in BaseDatum.load_list(file):
+        for datum in ReadsDatum.load_list(file):
             yield datum
 
 
@@ -207,7 +208,7 @@ def chunk(lis, chunk_size):
 # the artifact model handles weighting the losses to compensate for class imbalance between supervised and unsupervised
 # thus the sampler is not responsible for balancing the data
 class SemiSupervisedBatchSampler(Sampler):
-    def __init__(self, dataset: BaseDataset, batch_size, folds_to_use: List[int], sources_to_use: List[int] = None):
+    def __init__(self, dataset: ReadsDataset, batch_size, folds_to_use: List[int], sources_to_use: List[int] = None):
         # combine the index maps of all relevant folds
         self.indices_to_use = []
         source_set = None if sources_to_use is None else set(sources_to_use)

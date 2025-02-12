@@ -7,7 +7,7 @@ from permutect.architecture.permutect_model import PermutectModel, load_model
 from permutect.architecture.model_training import train_permutect_model
 from permutect.misc_utils import gpu_if_available
 from permutect.parameters import parse_training_params, parse_model_params, add_model_params_to_parser, add_training_params_to_parser
-from permutect.data.base_dataset import BaseDataset
+from permutect.data.reads_dataset import ReadsDataset
 
 
 def main_without_parsing(args):
@@ -21,7 +21,7 @@ def main_without_parsing(args):
 
     tensorboard_dir = getattr(args, constants.TENSORBOARD_DIR_NAME)
     summary_writer = SummaryWriter(tensorboard_dir)
-    dataset = BaseDataset(data_tarfile=tarfile_data, num_folds=10)
+    dataset = ReadsDataset(data_tarfile=tarfile_data, num_folds=10)
 
     model = saved_model if (saved_model is not None) else \
             PermutectModel(params=params, num_read_features=dataset.num_read_features, num_info_features=dataset.num_info_features,

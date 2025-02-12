@@ -1,14 +1,15 @@
 import torch
 
-import permutect.data.base_datum
-from permutect.data.base_datum import BaseDatum
+import permutect.data.reads_batch
+import permutect.data.reads_datum
+from permutect.data.reads_datum import ReadsDatum
 
 
 # make a three-datum batch
 from permutect.utils.enums import Variation, Label
 
 
-def test_base_batch():
+def test_reads_batch():
     size = 3
     num_gatk_info_features = 5
 
@@ -27,9 +28,9 @@ def test_base_batch():
     labels = [Label.ARTIFACT, Label.VARIANT, Label.ARTIFACT]
     sources = [0,0,0]
 
-    data = [BaseDatum.from_gatk(ref_sequence_strings[n], variant_types[n], ref_tensors[n], alt_tensors[n], gatk_info_tensors[n], labels[n], sources[n]) for n in range(size)]
+    data = [ReadsDatum.from_gatk(ref_sequence_strings[n], variant_types[n], ref_tensors[n], alt_tensors[n], gatk_info_tensors[n], labels[n], sources[n]) for n in range(size)]
 
-    batch = permutect.data.base_datum.BaseBatch(data)
+    batch = permutect.data.reads_batch.ReadsBatch(data)
 
     assert torch.equal(batch.get_ref_sequences_2d(),
                        torch.Tensor([

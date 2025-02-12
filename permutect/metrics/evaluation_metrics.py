@@ -8,7 +8,8 @@ from matplotlib import pyplot as plt
 import seaborn as sns
 from torch.utils.tensorboard import SummaryWriter
 
-from permutect.data.base_datum import BaseBatch, ArtifactBatch
+from permutect.data.features_batch import FeaturesBatch
+from permutect.data.reads_batch import ReadsBatch
 from permutect.metrics import plotting
 from permutect.misc_utils import StreamingAverage
 from permutect.utils.enums import Variation, Call, Epoch, Label
@@ -126,7 +127,7 @@ class LossMetrics:
             self.labeled_loss_by_type[var_type].record_with_weights(losses, labeled_weights * variant_type_mask)
 
         # by count
-        if isinstance(batch, BaseBatch):
+        if isinstance(batch, ReadsBatch):
             # rather than individually record each count, and therefore send lots of stuff off the GPU, we
             # send everything with the same bin simultaneously
             bins = multiple_of_three_bin_indices(batch.get_alt_counts())
@@ -134,7 +135,7 @@ class LossMetrics:
                 indices = (bins == count_bin)
                 self.labeled_loss_by_count[count_bin].record_with_weights(losses[indices], labeled_weights[indices])
 
-        elif isinstance(batch, ArtifactBatch):
+        elif isinstance(batch, FeaturesBatch):
             for count_bin_index in range(NUM_COUNT_BINS):
                 count_bin_mask = make_count_bin_mask(count_bin_index, batch.get_alt_counts())
                 self.labeled_loss_by_count[count_bin_index].record_with_weights(losses, labeled_weights * count_bin_mask)

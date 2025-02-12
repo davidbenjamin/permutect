@@ -9,10 +9,10 @@ import numpy as np
 import torch
 from torch import IntTensor
 from torch.utils.data import Dataset, DataLoader
-from permutect.data.base_datum import ParentDatum
+from permutect.data.datum import Datum
 
 
-class PosteriorDatum(ParentDatum):
+class PosteriorDatum(Datum):
 
     TLOD_FROM_M2 = 0
     ALLELE_FREQUENCY = 1
@@ -20,9 +20,9 @@ class PosteriorDatum(ParentDatum):
     MAF = 3
     NORMAL_MAF = 4
 
-    def __init__(self, parent_datum_array, allele_frequency: float, artifact_logit: float, maf: float, normal_maf: float,
+    def __init__(self, datum_array, allele_frequency: float, artifact_logit: float, maf: float, normal_maf: float,
                  embedding: torch.Tensor):
-        super().__init__(parent_datum_array)
+        super().__init__(datum_array)
         self.embedding = embedding
 
         self.float_array = torch.zeros(5, dtype=torch.float16)
@@ -64,22 +64,22 @@ class PosteriorBatch:
         return new_batch
 
     def get_variant_types(self) -> torch.IntTensor:
-        return self.parent_data_2d[:, ParentDatum.VARIANT_TYPE_IDX]
+        return self.parent_data_2d[:, Datum.VARIANT_TYPE_IDX]
 
     def get_labels(self) -> torch.IntTensor:
-        return self.parent_data_2d[:, ParentDatum.LABEL_IDX]
+        return self.parent_data_2d[:, Datum.LABEL_IDX]
 
     def get_alt_counts(self) -> torch.IntTensor:
-        return self.parent_data_2d[:, ParentDatum.ORIGINAL_ALT_COUNT_IDX]
+        return self.parent_data_2d[:, Datum.ORIGINAL_ALT_COUNT_IDX]
 
     def get_depths(self) -> torch.IntTensor:
-        return self.parent_data_2d[:, ParentDatum.ORIGINAL_DEPTH_IDX]
+        return self.parent_data_2d[:, Datum.ORIGINAL_DEPTH_IDX]
 
     def get_normal_alt_counts(self) -> torch.Tensor:
-        return self.parent_data_2d[:, ParentDatum.ORIGINAL_NORMAL_ALT_COUNT_IDX]
+        return self.parent_data_2d[:, Datum.ORIGINAL_NORMAL_ALT_COUNT_IDX]
 
     def get_normal_depths(self) -> torch.Tensor:
-        return self.parent_data_2d[:, ParentDatum.ORIGINAL_NORMAL_DEPTH_IDX]
+        return self.parent_data_2d[:, Datum.ORIGINAL_NORMAL_DEPTH_IDX]
 
     def get_tlods_from_m2(self) -> torch.Tensor:
         return self.float_tensor[:, PosteriorDatum.TLOD_FROM_M2]

@@ -7,17 +7,15 @@ from tqdm.autonotebook import tqdm
 from torch.utils.data import Dataset, DataLoader, Sampler
 
 from permutect.architecture.permutect_model import PermutectModel
-from permutect.data.base_datum import ArtifactDatum, ArtifactBatch, BaseBatch
-from permutect.data.base_dataset import BaseDataset, chunk
-
-
-# given a BaseDataset, apply a BaseModel to get an ArtifactDataset (in RAM, maybe implement memory map later)
-# of RepresentationReadSets
+from permutect.data.features_batch import FeaturesBatch
+from permutect.data.features_datum import FeaturesDatum
+from permutect.data.reads_batch import ReadsBatch
+from permutect.data.reads_dataset import ReadsDataset, chunk
 from permutect.data.prefetch_generator import prefetch_generator
 
 
-class ArtifactDataset(Dataset):
-    def __init__(self, base_dataset: BaseDataset,
+class FeaturesDataset(Dataset):
+    def __init__(self, base_dataset: ReadsDataset,
                  model: PermutectModel,
                  folds_to_use: List[int] = None,
                  base_loader_num_workers=0,
@@ -43,17 +41,17 @@ class ArtifactDataset(Dataset):
         is_cuda = model._device.type == 'cuda'
         print(f"Is base model using CUDA? {is_cuda}")
 
-        base_batch: BaseBatch
-        base_batch_cpu: BaseBatch
-        for base_batch, base_batch_cpu in tqdm(prefetch_generator(loader), mininterval=60, total=len(loader)):
+        reads_batch: ReadsBatch
+        reads_batch_cpu: ReadsBatch
+        for reads_batch, reads_batch_cpu in tqdm(prefetch_generator(loader), mininterval=60, total=len(loader)):
             with torch.inference_mode():
-                representations, _ = model.calculate_representations(base_batch)
+                representations, _ = model.calculate_representations(reads_batch)
 
-            for representation, base_datum in zip(representations.detach().cpu(), base_batch_cpu.original_list()):
-                artifact_datum = ArtifactDatum(base_datum.get_array_1d(), representation.detach())
-                self.artifact_data.append(artifact_datum)
+            for representation, reads_datum in zip(representations.detach().cpu(), reads_batch_cpu.original_list()):
+                features_datum = FeaturesDatum(reads_datum.get_array_1d(), representation.detach())
+                self.artifact_data.append(features_datum)
                 fold = index % self.num_folds
-                if artifact_datum.is_labeled():
+                if features_datum.is_labeled():
                     self.labeled_indices[fold].append(index)
                 else:
                     self.unlabeled_indices[fold].append(index)
@@ -93,13 +91,13 @@ class ArtifactDataset(Dataset):
 
     def make_data_loader(self, folds_to_use: List[int], batch_size: int, pin_memory=False, num_workers: int = 0, labeled_only: bool = False, sources_to_use: List[int] = None):
         sampler = SemiSupervisedArtifactBatchSampler(self, batch_size, folds_to_use, labeled_only, sources_to_use)
-        return DataLoader(dataset=self, batch_sampler=sampler, collate_fn=ArtifactBatch, pin_memory=pin_memory, num_workers=num_workers)
+        return DataLoader(dataset=self, batch_sampler=sampler, collate_fn=FeaturesBatch, pin_memory=pin_memory, num_workers=num_workers)
 
 
 # make ArtifactBatches that mix different ref, alt counts, labeled, unlabeled
 # with an option to emit only labeled data
 class SemiSupervisedArtifactBatchSampler(Sampler):
-    def __init__(self, dataset: ArtifactDataset, batch_size, folds_to_use: List[int], labeled_only: bool = False, sources_to_use: List[int] = None):
+    def __init__(self, dataset: FeaturesDataset, batch_size, folds_to_use: List[int], labeled_only: bool = False, sources_to_use: List[int] = None):
         # combine the index lists of all relevant folds
         self.indices_to_use = []
         source_set = None if sources_to_use is None else set(sources_to_use)

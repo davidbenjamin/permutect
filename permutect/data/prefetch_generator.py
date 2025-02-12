@@ -1,6 +1,6 @@
 from torch.utils.data import DataLoader
 
-from permutect.data.base_datum import DEFAULT_GPU_FLOAT, DEFAULT_CPU_FLOAT
+from permutect.data.datum import DEFAULT_GPU_FLOAT, DEFAULT_CPU_FLOAT
 from permutect.misc_utils import gpu_if_available
 
 

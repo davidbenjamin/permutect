@@ -11,11 +11,13 @@ from tqdm.autonotebook import tqdm
 from permutect import constants
 from permutect.architecture.posterior_model import PosteriorModel
 from permutect.architecture.permutect_model import PermutectModel, load_model
-from permutect.data import base_dataset, plain_text_data
-from permutect.data.base_datum import ArtifactBatch, ParentDatum
-from permutect.data.posterior import PosteriorDataset, PosteriorDatum, PosteriorBatch
-from permutect.data.artifact_dataset import ArtifactDataset
+from permutect.data import reads_dataset, plain_text_data
+from permutect.data.features_batch import FeaturesBatch
+from permutect.data.datum import Datum
+from permutect.data.posterior_data import PosteriorDataset, PosteriorDatum, PosteriorBatch
+from permutect.data.features_dataset import FeaturesDataset
 from permutect.data.prefetch_generator import prefetch_generator
+from permutect.data.reads_dataset import ReadsDataset
 from permutect.metrics.evaluation_metrics import EvaluationMetrics, PosteriorResult, EmbeddingMetrics, \
     round_up_to_nearest_three, MAX_COUNT
 from permutect.misc_utils import report_memory_usage, gpu_if_available
@@ -45,9 +47,9 @@ def encode(contig: str, position: int, ref: str, alt: str):
     return contig + ':' + str(position) + ':' + truncate_bases_if_necessary(trimmed_alt)
 
 
-def encode_datum(parent_datum: ParentDatum, contig_index_to_name_map):
-    contig_name = contig_index_to_name_map[parent_datum.get_contig()]
-    return encode(contig_name, parent_datum.get_position(), parent_datum.get_ref_allele(), parent_datum.get_alt_allele())
+def encode_datum(datum: Datum, contig_index_to_name_map):
+    contig_name = contig_index_to_name_map[datum.get_contig()]
+    return encode(contig_name, datum.get_position(), datum.get_ref_allele(), datum.get_alt_allele())
 
 
 def encode_variant(v: cyvcf2.Variant, zero_based=False):
@@ -203,24 +205,24 @@ def make_posterior_data_loader(dataset_file, input_vcf, contig_index_to_name_map
     posterior_data = []
     for list_of_base_data in plain_text_data.generate_normalized_data([dataset_file], chunk_size):
         report_memory_usage("Creating BaseDataset.")
-        raw_dataset = base_dataset.BaseDataset(data_in_ram=list_of_base_data)
+        raw_dataset = ReadsDataset(data_in_ram=list_of_base_data)
         report_memory_usage("Creating ArtifactDataset.")
-        artifact_dataset = ArtifactDataset(raw_dataset, model)
+        artifact_dataset = FeaturesDataset(raw_dataset, model)
         report_memory_usage("Finished creating ArtifactDataset.")
         artifact_loader = artifact_dataset.make_data_loader(artifact_dataset.all_folds(), batch_size, pin_memory=torch.cuda.is_available(), num_workers=num_workers)
 
         print("creating posterior data for this chunk...")
-        artifact_batch_cpu: ArtifactBatch
-        for artifact_batch, artifact_batch_cpu in tqdm(prefetch_generator(artifact_loader), mininterval=60, total=len(artifact_loader)):
-            artifact_logits, _ = model.logits_from_artifact_batch(batch=artifact_batch)
+        features_batch_cpu: FeaturesBatch
+        for features_batch, features_batch_cpu in tqdm(prefetch_generator(artifact_loader), mininterval=60, total=len(artifact_loader)):
+            artifact_logits, _ = model.logits_from_features_batch(batch=features_batch)
 
-            for parent_datum_array, logit, embedding in zip(artifact_batch_cpu.get_parent_data_2d(),
+            for datum_array, logit, embedding in zip(features_batch_cpu.get_parent_data_2d(),
                                                                artifact_logits.detach().tolist(),
-                                                               artifact_batch.get_representations_2d().cpu()):
-                parent_datum = ParentDatum(parent_datum_array)
-                contig_name = contig_index_to_name_map[parent_datum.get_contig()]
-                position = parent_datum.get_position()
-                encoding = encode(contig_name, position, parent_datum.get_ref_allele(), parent_datum.get_alt_allele())
+                                                               features_batch.get_representations_2d().cpu()):
+                datum = Datum(datum_array)
+                contig_name = contig_index_to_name_map[datum.get_contig()]
+                position = datum.get_position()
+                encoding = encode(contig_name, position, datum.get_ref_allele(), datum.get_alt_allele())
                 if encoding in allele_frequencies and encoding not in m2_filtering_to_keep:
                     allele_frequency = allele_frequencies[encoding]
 
@@ -231,7 +233,7 @@ def make_posterior_data_loader(dataset_file, input_vcf, contig_index_to_name_map
                     maf = list(segmentation_overlaps)[0].data if segmentation_overlaps else 0.5
                     normal_maf = list(normal_segmentation_overlaps)[0].data if normal_segmentation_overlaps else 0.5
 
-                    posterior_datum = PosteriorDatum(parent_datum_array, allele_frequency, logit, maf, normal_maf, embedding)
+                    posterior_datum = PosteriorDatum(datum_array, allele_frequency, logit, maf, normal_maf, embedding)
                     posterior_data.append(posterior_datum)
 
     print(f"Size of filtering dataset: {len(posterior_data)}")
@@ -257,7 +259,7 @@ def apply_filtering_to_vcf(input_vcf, output_vcf, contig_index_to_name_map, erro
 
         posterior_probs = torch.nn.functional.softmax(log_posteriors, dim=1)
 
-        encodings = [encode_datum(ParentDatum(parent_datum_array), contig_index_to_name_map) for parent_datum_array in batch_cpu.parent_data_2d]
+        encodings = [encode_datum(Datum(datum_array), contig_index_to_name_map) for datum_array in batch_cpu.parent_data_2d]
         artifact_logits = batch_cpu.get_artifact_logits().tolist()
         var_types = batch_cpu.get_variant_types().tolist()
         labels = batch_cpu.get_labels().tolist()
