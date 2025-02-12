@@ -12,8 +12,10 @@ from permutect.architecture.dna_sequence_convolution import DNASequenceConvoluti
 from permutect.architecture.gated_mlp import GatedRefAltMLP
 from permutect.architecture.mlp import MLP
 from permutect.architecture.set_pooling import SetPooling
-from permutect.data.base_datum import BaseBatch, DEFAULT_GPU_FLOAT, DEFAULT_CPU_FLOAT, ArtifactBatch
-from permutect.data.base_dataset import ALL_COUNTS_INDEX
+from permutect.data.features_batch import FeaturesBatch
+from permutect.data.datum import DEFAULT_GPU_FLOAT, DEFAULT_CPU_FLOAT
+from permutect.data.reads_batch import ReadsBatch
+from permutect.data.reads_dataset import ALL_COUNTS_INDEX
 from permutect.data.prefetch_generator import prefetch_generator
 from permutect.metrics.evaluation_metrics import EmbeddingMetrics, round_up_to_nearest_three, MAX_COUNT
 from permutect.parameters import ModelParameters
@@ -151,14 +153,14 @@ class PermutectModel(torch.nn.Module):
             freeze(self.parameters())
 
     # I really don't like the forward method of torch.nn.Module with its implicit calling that PyCharm doesn't recognize
-    def forward(self, batch: BaseBatch):
+    def forward(self, batch: ReadsBatch):
         pass
 
     # TODO: perhaps rename to calculate_features?
     # here 'v' means "variant index within a batch", 'r' means "read index within a variant or the batch", 'e' means "index within an embedding"
     # so, for example, "re" means a 2D tensor with all reads in the batch stacked and "vre" means a 3D tensor indexed
     # first by variant within the batch, then the read
-    def calculate_representations(self, batch: BaseBatch, weight_range: float = 0) -> torch.Tensor:
+    def calculate_representations(self, batch: ReadsBatch, weight_range: float = 0) -> torch.Tensor:
         ref_counts, alt_counts = batch.get_ref_counts(), batch.get_alt_counts()
         total_ref, total_alt = torch.sum(ref_counts).item(), torch.sum(alt_counts).item()
 
@@ -200,11 +202,11 @@ class PermutectModel(torch.nn.Module):
             calibrated_logits += mask * self.calibration[n].forward(uncalibrated_logits, ref_counts, alt_counts)
         return calibrated_logits, uncalibrated_logits
 
-    def logits_from_base_batch(self, representations_2d: torch.Tensor, base_batch: BaseBatch):
-        return self.logits_from_features(representations_2d, base_batch.get_ref_counts(), base_batch.get_alt_counts(), base_batch.get_variant_types())
+    def logits_from_reads_batch(self, representations_2d: torch.Tensor, reads_batch: ReadsBatch):
+        return self.logits_from_features(representations_2d, reads_batch.get_ref_counts(), reads_batch.get_alt_counts(), reads_batch.get_variant_types())
 
     # returns 1D tensor of length batch_size of log odds ratio (logits) between artifact and non-artifact
-    def logits_from_artifact_batch(self, batch: ArtifactBatch):
+    def logits_from_features_batch(self, batch: FeaturesBatch):
         return self.logits_from_features(batch.get_representations_2d(), batch.get_ref_counts(), batch.get_alt_counts(), batch.get_variant_types())
 
     def make_dict_for_saving(self, artifact_log_priors=None, artifact_spectra=None):
@@ -260,8 +262,8 @@ def record_embeddings(base_model: PermutectModel, loader, summary_writer: Summar
     embedding_metrics = EmbeddingMetrics()
     ref_alt_seq_metrics = EmbeddingMetrics()
 
-    batch: BaseBatch
-    batch_cpu: BaseBatch
+    batch: ReadsBatch
+    batch_cpu: ReadsBatch
     for batch, batch_cpu in tqdm(prefetch_generator(loader), mininterval=60, total=len(loader)):
         representations, ref_alt_seq_embeddings = base_model.calculate_representations(batch, weight_range=base_model._params.reweighting_range)
 

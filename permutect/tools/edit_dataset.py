@@ -9,8 +9,8 @@ import torch.utils.data
 from tqdm.autonotebook import tqdm
 
 from permutect import constants
-from permutect.data.base_dataset import BaseDataset
-from permutect.data.base_datum import BaseDatum
+from permutect.data.reads_dataset import ReadsDataset
+from permutect.data.reads_datum import ReadsDatum
 from permutect.misc_utils import report_memory_usage
 from permutect.utils.enums import Label
 
@@ -28,29 +28,29 @@ class EditType(Enum):
 def generate_edited_data(base_datasets, edit_type: str, source: int):
     pbar = tqdm(enumerate(torch.utils.data.ConcatDataset(base_datasets)), mininterval=60)
 
-    for n, base_datum in pbar:
+    for n, reads_datum in pbar:
         if source is not None:
-            base_datum.set_source(source)
+            reads_datum.set_source(source)
 
         if edit_type == EditType.UNLABEL_ARTIFACTS.value:
-            if base_datum.label == Label.ARTIFACT:
-                base_datum.set_label(Label.UNLABELED)
-            yield base_datum
+            if reads_datum.label == Label.ARTIFACT:
+                reads_datum.set_label(Label.UNLABELED)
+            yield reads_datum
         elif edit_type == EditType.UNLABEL_VARIANTS.value:
-            if base_datum.label == Label.VARIANT:
-                base_datum.set_label(Label.UNLABELED)
-            yield base_datum
+            if reads_datum.label == Label.VARIANT:
+                reads_datum.set_label(Label.UNLABELED)
+            yield reads_datum
         elif edit_type == EditType.UNLABEL_EVERYTHING.value:
-            base_datum.set_label(Label.UNLABELED)
-            yield base_datum
+            reads_datum.set_label(Label.UNLABELED)
+            yield reads_datum
         elif edit_type == EditType.REMOVE_ARTIFACTS.value:
-            if base_datum.label != Label.ARTIFACT:
-                yield base_datum
+            if reads_datum.label != Label.ARTIFACT:
+                yield reads_datum
         elif edit_type == EditType.REMOVE_VARIANTS.value:
-            if base_datum.label != Label.VARIANT:
-                yield base_datum
+            if reads_datum.label != Label.VARIANT:
+                yield reads_datum
         elif edit_type == EditType.KEEP_EVERYTHING.value:
-            yield base_datum
+            yield reads_datum
         else:
             raise Exception(f"edit type {edit_type} not implemented yet")
 
@@ -78,7 +78,7 @@ def make_output_training_dataset(pruned_data_buffer_generator, output_tarfile):
     pruned_data_files = []
     for base_data_list in pruned_data_buffer_generator:
         with tempfile.NamedTemporaryFile(delete=False) as train_data_file:
-            BaseDatum.save_list(base_data_list, train_data_file)
+            ReadsDatum.save_list(base_data_list, train_data_file)
             pruned_data_files.append(train_data_file.name)
 
     # bundle them in a tarfile
@@ -109,7 +109,7 @@ def main_without_parsing(args):
     chunk_size = getattr(args, constants.CHUNK_SIZE_NAME)
     edit_type = getattr(args, constants.DATASET_EDIT_TYPE_NAME)
     new_source = getattr(args, constants.SOURCE_NAME)
-    base_datasets = map(lambda original_tarfile: BaseDataset(data_tarfile=original_tarfile), original_tarfiles)
+    base_datasets = map(lambda original_tarfile: ReadsDataset(data_tarfile=original_tarfile), original_tarfiles)
 
     # generate ReadSets
     output_data_generator = generate_edited_data(base_datasets, edit_type, new_source)

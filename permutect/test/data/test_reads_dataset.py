@@ -1,5 +1,5 @@
 import tempfile
-import permutect.data.base_dataset as ds
+import permutect.data.reads_dataset as ds
 import torch
 from permutect.utils.enums import Label
 

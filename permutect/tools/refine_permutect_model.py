@@ -8,27 +8,27 @@ from permutect.architecture.artifact_spectra import ArtifactSpectra
 from permutect.architecture.model_training import train_on_artifact_dataset
 from permutect.architecture.permutect_model import load_model
 from permutect.architecture.posterior_model import plot_artifact_spectra
-from permutect.data.base_dataset import BaseDataset
-from permutect.data.artifact_dataset import ArtifactDataset
-from permutect.data.base_datum import ArtifactDatum
+from permutect.data.reads_dataset import ReadsDataset
+from permutect.data.features_dataset import FeaturesDataset
+from permutect.data.features_datum import FeaturesDatum
 from permutect.parameters import add_training_params_to_parser, parse_training_params
 from permutect.misc_utils import report_memory_usage
 from permutect.utils.enums import Variation, Label
 
 
-def learn_artifact_priors_and_spectra(artifact_dataset: ArtifactDataset, genomic_span_of_data: int):
+def learn_artifact_priors_and_spectra(artifact_dataset: FeaturesDataset, genomic_span_of_data: int):
     artifact_counts = torch.zeros(len(Variation))
     types_list, depths_list, alt_counts_list = [], [], []
 
-    artifact_datum: ArtifactDatum
-    for artifact_datum in artifact_dataset:
-        if artifact_datum.get_label() != Label.ARTIFACT:
+    features_datum: FeaturesDatum
+    for features_datum in artifact_dataset:
+        if features_datum.get_label() != Label.ARTIFACT:
             continue
-        variant_type = artifact_datum.get_variant_type()
+        variant_type = features_datum.get_variant_type()
         artifact_counts[variant_type] += 1
         types_list.append(variant_type)
-        depths_list.append(artifact_datum.get_original_depth())
-        alt_counts_list.append(artifact_datum.get_original_alt_count())
+        depths_list.append(features_datum.get_original_depth())
+        alt_counts_list.append(features_datum.get_original_alt_count())
 
     # turn the lists into tensors
     types_tensor = torch.LongTensor(types_list)
@@ -84,9 +84,9 @@ def main_without_parsing(args):
     # base and artifact models have already been trained.  We're just refining it here.
     model, _, _ = load_model(getattr(args, constants.SAVED_MODEL_NAME))
     report_memory_usage("Creating BaseDataset.")
-    base_dataset = BaseDataset(data_tarfile=getattr(args, constants.TRAIN_TAR_NAME), num_folds=10)
+    base_dataset = ReadsDataset(data_tarfile=getattr(args, constants.TRAIN_TAR_NAME), num_folds=10)
     report_memory_usage("Creating ArtifactDataset.")
-    artifact_dataset = ArtifactDataset(base_dataset,
+    artifact_dataset = FeaturesDataset(base_dataset,
                                        model,
                                        base_loader_num_workers=training_params.num_workers,
                                        base_loader_batch_size=training_params.inference_batch_size)
