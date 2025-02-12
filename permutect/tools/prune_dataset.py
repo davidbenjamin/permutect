@@ -13,6 +13,7 @@ import torch
 from torch.utils.tensorboard import SummaryWriter
 
 from permutect import constants
+from permutect.data.datum import Datum
 from permutect.data.features_dataset import FeaturesDataset
 from permutect.data.reads_batch import ReadsBatch
 from permutect.data.reads_datum import ReadsDatum
@@ -116,7 +117,9 @@ def generated_pruned_data_for_fold(art_threshold: float, nonart_threshold: float
         art_label_mask = (reads_batch.get_training_labels() > 0.5)
         is_labeled_mask = (reads_batch.get_is_labeled_mask() > 0.5)
 
-        for art_prob, labeled_as_art, datum, is_labeled in zip(art_probs.tolist(), art_label_mask.tolist(), reads_batch.original_list(), is_labeled_mask.tolist()):
+        for art_prob, labeled_as_art, data_1d, reads_2d, is_labeled in zip(art_probs.tolist(), art_label_mask.tolist(),
+                reads_batch.get_data_2d(), reads_batch.get_list_of_reads_2d(), is_labeled_mask.tolist()):
+            datum = ReadsDatum(data_1d, reads_2d)
             if not is_labeled:
                 yield datum
             elif (labeled_as_art and art_prob < art_threshold) or ((not labeled_as_art) and (1-art_prob) < nonart_threshold):
