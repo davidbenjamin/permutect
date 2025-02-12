@@ -32,7 +32,7 @@ def test_reads_batch():
 
     batch = permutect.data.reads_batch.ReadsBatch(data)
 
-    assert torch.equal(batch.get_ref_sequences_2d(),
+    assert torch.equal(batch.get_one_hot_haplotypes_2d(),
                        torch.Tensor([
                            [[1,0,0],[0,1,1],[0,0,0],[0,0,0]],
                            [[0,0,0],[0,0,0],[1,0,1],[0,1,0]],

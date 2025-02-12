@@ -11,7 +11,7 @@ class FeaturesDatum(Datum):
     """
     """
     def __init__(self, datum_array: np.ndarray, representation: Tensor):
-        super().__init__(datum_array)
+        super().__init__(Datum.copy_data_without_haplotypes_and_info(datum_array))
         # Note: if changing any of the data fields below, make sure to modify the size_in_bytes() method below accordingly!
         assert representation.dim() == 1
         self.representation = torch.clamp(representation, MIN_FLOAT_16, MAX_FLOAT_16)

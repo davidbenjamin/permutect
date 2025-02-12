@@ -131,3 +131,51 @@ def get_str_info_array(ref_sequence_string: str, ref_allele: str, alt_allele: st
         repeats_before = count_trailing_repeats(ref_sequence_string[:middle_idx + 1], unit)   # likewise, account for the anchor base
     # note that if indels are left-aligned (as they should be from the GATK) repeats_before really ought to be zero!!
     return np.array([insertion_length, deletion_length, len(unit), num_units, repeats_before, repeats_after])
+
+
+def make_1d_sequence_tensor(sequence_string: str) -> np.ndarray:
+    """
+    convert string of form ACCGTA into tensor [ 0, 1, 1, 2, 3, 0]
+    """
+    result = np.zeros(len(sequence_string), dtype=np.uint8)
+    for n, char in enumerate(sequence_string):
+        integer = 0 if char == 'A' else (1 if char == 'C' else (2 if char == 'G' else 3))
+        result[n] = integer
+    return result
+
+
+# returns two length-L 1D arrays of ref stacked on top of alt, with '4' in alt(ref) for deletions(insertions)
+def get_ref_and_alt_sequences(ref_seq_1d, ref_allele: str, alt_allele: str):
+    """
+    :param ref_seq_1d: 1D numpy integer array in form eg ATTTCGG -> [0,3,3,3,1,2,2]
+    :return:
+    """
+    assert len(ref_seq_1d) % 2 == 1, "ref sequence length should be odd"
+    middle_idx = (len(ref_seq_1d) - 1) // 2
+    max_allele_length = middle_idx  # just kind of a coincidence
+    ref, alt = ref_allele[:max_allele_length], alt_allele[:max_allele_length]
+
+    if len(ref) >= len(alt):    # substitution or deletion
+        ref_array = ref_seq_1d
+        alt_array = np.copy(ref_array)
+        deletion_length = len(ref) - len(alt)
+        # add the deletion value '4' to make the alt allele array as long as the ref allele
+        alt_allele_array = make_1d_sequence_tensor(alt) if deletion_length == 0 else np.hstack((make_1d_sequence_tensor(alt), np.full(shape=deletion_length, fill_value=4)))
+        alt_array[middle_idx: middle_idx + len(alt_allele_array)] = alt_allele_array
+    else:   # insertion
+        insertion_length = len(alt) - len(ref)
+        before = ref_seq_1d[:middle_idx]
+        after = ref_seq_1d[middle_idx + len(ref):-insertion_length]
+
+        alt_allele_array = make_1d_sequence_tensor(alt)
+        ref_allele_array = np.hstack((make_1d_sequence_tensor(ref), np.full(shape=insertion_length, fill_value=4)))
+
+        ref_array = np.hstack((before, ref_allele_array, after))
+        alt_array = np.hstack((before, alt_allele_array, after))
+
+    assert len(ref_array) == len(alt_array)
+    if len(ref) == len(alt): # SNV -- ref and alt ought to be different
+        assert alt_array[middle_idx] != ref_array[middle_idx]
+    else:   # indel -- ref and alt are the same at the anchor base, then are different
+        assert alt_array[middle_idx + 1] != ref_array[middle_idx + 1]
+    return ref_array[:len(ref_seq_1d)], alt_array[:len(ref_seq_1d)] # this clipping may be redundant

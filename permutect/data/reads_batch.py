@@ -31,16 +31,6 @@ class ReadsBatch(Batch):
 
     def __init__(self, data: List[ReadsDatum]):
         super().__init__(data)
-
-        # TODO: get_ref_and_alt_sequences is a LOT of compute to do on CPU for every datum every time we form a batch.
-        # TODO: this can be precomputed in the Datum constructor
-        # num_classes = 5 for A, C, G, T, and deletion / insertion
-        ref_alt = [torch.flatten(torch.permute(torch.nn.functional.one_hot(torch.from_numpy(np.vstack(item.get_ref_and_alt_sequences())).long(), num_classes=5), (0,2,1)), 0, 1) for item in data]    # list of 2D (2x5)xL
-        # this is indexed by batch, length, channel (aka one-hot base encoding)
-        ref_alt_bcl = torch.stack(ref_alt)
-
-        self.ref_sequences_2d = ref_alt_bcl
-
         list_of_ref_tensors = [item.get_ref_reads_2d() for item in data]
         list_of_alt_tensors = [item.get_alt_reads_2d() for item in data]
         self.reads_2d = torch.from_numpy(np.vstack(list_of_ref_tensors + list_of_alt_tensors))
@@ -48,7 +38,6 @@ class ReadsBatch(Batch):
     # pin memory for all tensors that are sent to the GPU
     def pin_memory(self):
         super().pin_memory()
-        self.ref_sequences_2d = self.ref_sequences_2d.pin_memory()
         self.reads_2d = self.reads_2d.pin_memory()
 
         return self
@@ -56,7 +45,6 @@ class ReadsBatch(Batch):
     def copy_to(self, device, dtype):
         is_cuda = device.type == 'cuda'
         new_batch = copy.copy(self)
-        new_batch.ref_sequences_2d = self.ref_sequences_2d.to(device=device, dtype=dtype, non_blocking=is_cuda)
         new_batch.reads_2d = self.reads_2d.to(device=device, dtype=dtype, non_blocking=is_cuda)
         new_batch.data = self.data.to(device, non_blocking=is_cuda)  # don't cast dtype -- needs to stay integral!
         return new_batch
@@ -64,8 +52,22 @@ class ReadsBatch(Batch):
     def get_reads_2d(self) -> Tensor:
         return self.reads_2d
 
-    def get_ref_sequences_2d(self) -> Tensor:
-        return self.ref_sequences_2d
+    def get_one_hot_haplotypes_2d(self) -> Tensor:
+        num_channels = 5
+        # each row of haplotypes_2d is a ref haplotype concatenated horizontally with an alt haplotype of equal length
+        # indices are b for batch, s index along DNA sequence, and later c for one-hot channel
+        # h denotes horizontally concatenated sequences, first ref, then alt
+        haplotypes_bh = self.get_haplotypes_2d()
+        batch_size = len(haplotypes_bh)
+        seq_length = haplotypes_bh.shape[1] // 2 # ref and alt have equal length and are h-stacked
+
+        # num_classes = 5 for A, C, G, T, and deletion / insertion
+        one_hot_haplotypes_bhc = torch.nn.functional.one_hot(haplotypes_bh, num_classes=num_channels)
+        one_hot_haplotypes_bch = torch.permute(one_hot_haplotypes_bhc, (0, 2, 1))
+
+        # interleave the 5 channels of ref and 5 channels of alt with a reshape
+        # for each batch index we get 10 rows: the ref A channel sequence, then the alt A channel, then the ref C channel etc
+        return one_hot_haplotypes_bch.reshape(batch_size, 2 * num_channels, seq_length)
 
     # useful for regenerating original data, for example in pruning.  Each original datum has its own reads_2d of ref
     # followed by alt

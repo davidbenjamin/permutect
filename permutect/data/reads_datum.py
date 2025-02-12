@@ -5,22 +5,11 @@ import numpy as np
 import torch
 
 from permutect.data.datum import Datum
-from permutect.utils.allele_utils import trim_alleles_on_right, get_str_info_array
+from permutect.utils.allele_utils import trim_alleles_on_right, get_str_info_array, make_1d_sequence_tensor
 from permutect.utils.enums import Variation, Label
 
 
 # base strings longer than this when encoding data
-
-
-def make_1d_sequence_tensor(sequence_string: str) -> np.ndarray:
-    """
-    convert string of form ACCGTA into tensor [ 0, 1, 1, 2, 3, 0]
-    """
-    result = np.zeros(len(sequence_string), dtype=np.uint8)
-    for n, char in enumerate(sequence_string):
-        integer = 0 if char == 'A' else (1 if char == 'C' else (2 if char == 'G' else 3))
-        result[n] = integer
-    return result
 
 
 def make_sequence_tensor(sequence_string: str) -> np.ndarray:
@@ -68,11 +57,10 @@ class ReadsDatum(Datum):
         read_tensor = np.vstack([ref_tensor, alt_tensor]) if ref_tensor is not None else alt_tensor
 
         datum = Datum.make_datum_without_reads(label=label, variant_type=variant_type, source=source,
-                                                      original_depth=original_depth, original_alt_count=original_alt_count, original_normal_depth=original_normal_depth,
-                                                      original_normal_alt_count=original_normal_alt_count,
-                                                      contig=contig, position=position, ref_allele=trimmed_ref, alt_allele=trimmed_alt,
-                                                      seq_error_log_lk=seq_error_log_lk, normal_seq_error_log_lk=normal_seq_error_log_lk,
-                                                      ref_seq_array=ref_seq_array, info_array=info_array)
+            original_depth=original_depth, original_alt_count=original_alt_count, original_normal_depth=original_normal_depth,
+            original_normal_alt_count=original_normal_alt_count, contig=contig, position=position,
+            ref_allele=trimmed_ref, alt_allele=trimmed_alt, seq_error_log_lk=seq_error_log_lk,
+            normal_seq_error_log_lk=normal_seq_error_log_lk, ref_seq_array=ref_seq_array, info_array=info_array)
         # ref and alt counts need to be set manually.  Everything else is handled in the ParentDatum constructor
         datum.array[Datum.REF_COUNT_IDX] = 0 if ref_tensor is None else len(ref_tensor)
         datum.array[Datum.ALT_COUNT_IDX] = 0 if alt_tensor is None else len(alt_tensor)
@@ -95,39 +83,6 @@ class ReadsDatum(Datum):
 
     def get_alt_reads_2d(self) -> np.ndarray:
         return self.reads_2d[-self.get_alt_count():]
-
-    # returns two length-L 1D arrays of ref stacked on top of alt, with '4' in alt(ref) for deletions(insertions)
-    def get_ref_and_alt_sequences(self):
-        original_ref_array = self.get_ref_seq_1d() # gives an array eg ATTTCGG -> [0,3,3,3,1,2,2]
-        assert len(original_ref_array) % 2 == 1, "ref sequence length should be odd"
-        middle_idx = (len(original_ref_array) - 1) // 2
-        max_allele_length = middle_idx  # just kind of a coincidence
-        ref, alt = self.get_ref_allele()[:max_allele_length], self.get_alt_allele()[:max_allele_length] # these are strings, not integers
-
-        if len(ref) >= len(alt):    # substitution or deletion
-            ref_array = original_ref_array
-            alt_array = np.copy(ref_array)
-            deletion_length = len(ref) - len(alt)
-            # add the deletion value '4' to make the alt allele array as long as the ref allele
-            alt_allele_array = make_1d_sequence_tensor(alt) if deletion_length == 0 else np.hstack((make_1d_sequence_tensor(alt), np.full(shape=deletion_length, fill_value=4)))
-            alt_array[middle_idx: middle_idx + len(alt_allele_array)] = alt_allele_array
-        else:   # insertion
-            insertion_length = len(alt) - len(ref)
-            before = original_ref_array[:middle_idx]
-            after = original_ref_array[middle_idx + len(ref):-insertion_length]
-
-            alt_allele_array = make_1d_sequence_tensor(alt)
-            ref_allele_array = np.hstack((make_1d_sequence_tensor(ref), np.full(shape=insertion_length, fill_value=4)))
-
-            ref_array = np.hstack((before, ref_allele_array, after))
-            alt_array = np.hstack((before, alt_allele_array, after))
-
-        assert len(ref_array) == len(alt_array)
-        if len(ref) == len(alt): # SNV -- ref and alt ought to be different
-            assert alt_array[middle_idx] != ref_array[middle_idx]
-        else:   # indel -- ref and alt are the same at the anchor base, then are different
-            assert alt_array[middle_idx + 1] != ref_array[middle_idx + 1]
-        return ref_array[:len(original_ref_array)], alt_array[:len(original_ref_array)] # this clipping may be redundant
 
     @classmethod
     def save_list(cls, base_data: List[ReadsDatum], file):

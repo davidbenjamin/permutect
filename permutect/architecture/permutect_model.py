@@ -55,20 +55,20 @@ class PermutectModel(torch.nn.Module):
     because we have different output layers for each variant type.
     """
 
-    def __init__(self, params: ModelParameters, num_read_features: int, num_info_features: int, ref_sequence_length: int, device=gpu_if_available()):
+    def __init__(self, params: ModelParameters, num_read_features: int, num_info_features: int, haplotypes_length: int, device=gpu_if_available()):
         super(PermutectModel, self).__init__()
 
         self._device = device
         self._dtype = DEFAULT_GPU_FLOAT if device != torch.device("cpu") else DEFAULT_CPU_FLOAT
-        self._ref_sequence_length = ref_sequence_length
+        self._haplotypes_length = haplotypes_length # this is the length of ref and alt concatenated horizontally ie twice the CNN length
         self._params = params
 
         # embeddings of reads, info, and reference sequence prior to the transformer layers
         self.read_embedding = MLP([num_read_features] + params.read_layers, batch_normalize=params.batch_normalize, dropout_p=params.dropout_p)
         self.info_embedding = MLP([num_info_features] + params.info_layers, batch_normalize=params.batch_normalize, dropout_p=params.dropout_p)
-        self.ref_seq_cnn = DNASequenceConvolution(params.ref_seq_layer_strings, ref_sequence_length)
+        self.haplotypes_cnn = DNASequenceConvolution(params.ref_seq_layer_strings, haplotypes_length // 2)
 
-        embedding_dim = self.read_embedding.output_dimension() + self.info_embedding.output_dimension() + self.ref_seq_cnn.output_dimension()
+        embedding_dim = self.read_embedding.output_dimension() + self.info_embedding.output_dimension() + self.haplotypes_cnn.output_dimension()
 
         self.ref_alt_reads_encoder = make_gated_ref_alt_mlp_encoder(embedding_dim, params)
 
@@ -106,10 +106,10 @@ class PermutectModel(torch.nn.Module):
         return self.set_pooling.output_dimension()
 
     def ref_alt_seq_embedding_dimension(self) -> int:
-        return self.ref_seq_cnn.output_dimension()
+        return self.haplotypes_cnn.output_dimension()
 
-    def ref_sequence_length(self) -> int:
-        return self._ref_sequence_length
+    def haplotypes_length(self) -> int:
+        return self._haplotypes_length
 
     def post_pooling_parameters(self):
         return chain(self.artifact_classifier.parameters(), self.calibration.parameters())
@@ -142,7 +142,7 @@ class PermutectModel(torch.nn.Module):
 
         read_embeddings_re = self.read_embedding.forward(batch.get_reads_2d().to(dtype=self._dtype))
         info_embeddings_ve = self.info_embedding.forward(batch.get_info_2d().to(dtype=self._dtype))
-        ref_seq_embeddings_ve = self.ref_seq_cnn(batch.get_ref_sequences_2d().to(dtype=self._dtype))
+        ref_seq_embeddings_ve = self.haplotypes_cnn(batch.get_one_hot_haplotypes_2d().to(dtype=self._dtype))
         info_and_seq_ve = torch.hstack((info_embeddings_ve, ref_seq_embeddings_ve))
         info_and_seq_re = torch.vstack((torch.repeat_interleave(info_and_seq_ve, repeats=ref_counts, dim=0),
                                        torch.repeat_interleave(info_and_seq_ve, repeats=alt_counts, dim=0)))
@@ -190,7 +190,7 @@ class PermutectModel(torch.nn.Module):
                 constants.HYPERPARAMS_NAME: self._params,
                 constants.NUM_READ_FEATURES_NAME: self.read_embedding.input_dimension(),
                 constants.NUM_INFO_FEATURES_NAME: self.info_embedding.input_dimension(),
-                constants.REF_SEQUENCE_LENGTH_NAME: self.ref_sequence_length(),
+                constants.REF_SEQUENCE_LENGTH_NAME: self.haplotypes_length(),
                 constants.ARTIFACT_LOG_PRIORS_NAME: artifact_log_priors,
                 constants.ARTIFACT_SPECTRA_STATE_DICT_NAME: artifact_spectra.state_dict() if artifact_spectra is not None else None}
 
@@ -208,7 +208,7 @@ def load_model(path, device: torch.device = gpu_if_available()):
     ref_sequence_length = saved[constants.REF_SEQUENCE_LENGTH_NAME]
 
     model = PermutectModel(hyperparams, num_read_features=num_read_features, num_info_features=num_info_features,
-                           ref_sequence_length=ref_sequence_length, device=device)
+                           haplotypes_length=ref_sequence_length, device=device)
     model.load_state_dict(saved[constants.STATE_DICT_NAME])
 
     # in case the state dict had the wrong dtype for the device we're on now eg base model was pretrained on GPU
