@@ -115,7 +115,7 @@ def train_on_artifact_dataset(model: PermutectModel, dataset: FeaturesDataset, t
                               validation_fold: int = None, epochs_per_evaluation: int = None, calibration_sources: List[int] = None):
     device, dtype = model._device, model._dtype
     bce = nn.BCEWithLogitsLoss(reduction='none')  # no reduction because we may want to first multiply by weights for unbalanced data
-    balancer = Balancer(dataset).to(device=device, dtype=dtype)
+    balancer = Balancer(dataset, learning_rate=training_params.learning_rate).to(device=device, dtype=dtype)
 
     num_sources = dataset.validate_sources()
     model.reset_source_predictor(num_sources)
@@ -149,15 +149,6 @@ def train_on_artifact_dataset(model: PermutectModel, dataset: FeaturesDataset, t
         dataset.make_data_loader([validation_fold_to_use], training_params.inference_batch_size,
                                  is_cuda, training_params.num_workers, sources_to_use=calibration_sources)
 
-    # TODO: put this stuff into the balancer
-    totals_sclt = torch.from_numpy(dataset.totals_sclt).to(device)
-
-    # imbalanced unlabeled data can exert a bias just like labeled data.  These parameters keep track of the proportion
-    # of unlabeled data that seem to be artifacts in order to weight losses appropriately.  Each source, count, and
-    # variant type has its own proportion, stored as a logit-transformed probability
-    unlabeled_artifact_proportion_logits_sct = torch.zeros_like(totals_sclt[:, :, Label.UNLABELED, :], requires_grad=True, device=device)
-    artifact_proportion_optimizer = torch.optim.AdamW([unlabeled_artifact_proportion_logits_sct], lr=training_params.learning_rate)
-
     first_epoch, last_epoch = 1, training_params.num_epochs + training_params.num_calibration_epochs
     for epoch in trange(1, last_epoch + 1, desc="Epoch"):
         start_of_epoch = time.time()
@@ -182,18 +173,6 @@ def train_on_artifact_dataset(model: PermutectModel, dataset: FeaturesDataset, t
                 (train_loader if epoch_type == Epoch.TRAIN else valid_loader)
 
             for batch, batch_cpu in tqdm(prefetch_generator(loader), mininterval=60, total=len(loader)):
-                # TODO: does this really need to be updated every batch?
-                # effective totals are labeled plus estimated contributions from unlabeled
-                unlabeled_artifact_proportions_sct = torch.sigmoid(unlabeled_artifact_proportion_logits_sct.detach())
-                effective_artifact_totals_sct = totals_sclt[:, :, Label.ARTIFACT, :] + \
-                    unlabeled_artifact_proportions_sct * totals_sclt[:, :, Label.UNLABELED, :]
-                effective_nonartifact_totals_sct = totals_sclt[:, :, Label.VARIANT, :] + \
-                    (1 - unlabeled_artifact_proportions_sct) * totals_sclt[:, :, Label.UNLABELED, :]
-                totals_sct = effective_artifact_totals_sct + effective_nonartifact_totals_sct
-
-                artifact_weights_sct = 0.5 * ratio_with_pseudocount(totals_sct, effective_artifact_totals_sct)
-                nonartifact_weights_sct = 0.5 * ratio_with_pseudocount(totals_sct, effective_nonartifact_totals_sct)
-
                 sources = batch.get_sources()
                 alt_counts = batch.get_alt_counts()
                 variant_types = batch.get_variant_types()
@@ -228,15 +207,8 @@ def train_on_artifact_dataset(model: PermutectModel, dataset: FeaturesDataset, t
                 entropies = torch.nn.functional.binary_cross_entropy_with_logits(precalibrated_logits, probabilities, reduction='none')
                 unlabeled_losses = (1 - batch.get_is_labeled_mask()) * entropies
 
-                # calculate label-balancing weights
-                artifact_weights = index_3d_array(artifact_weights_sct, sources, alt_counts, variant_types)
-                nonartifact_weights = index_3d_array(nonartifact_weights_sct, sources, alt_counts, variant_types)
-
-                # is_artifact is 1 / 0 if labeled as artifact / nonartifact; otherwise it's the estimated probability
-                # TODO: I bet some things from the batch still need to be moved to GPU.  Don't be surprised if
-                # TODO: debugging is needed.
-                is_artifact = is_labeled_mask * labels + (1 - is_labeled_mask) * probabilities.detach()
-                weights = is_artifact * artifact_weights + (1 - is_artifact) * nonartifact_weights
+                # this updates the autobalancing as a side effect
+                weights = balancer.calculate_autobalancing_weights(batch, probabilities)
 
                 # these losses include weights and take labeled vs unlabeled into account
                 losses = (labeled_losses + unlabeled_losses) * weights + (source_prediction_losses * source_prediction_weights)
@@ -253,12 +225,6 @@ def train_on_artifact_dataset(model: PermutectModel, dataset: FeaturesDataset, t
                 # would cause lack of gradient problems. . .
                 if epoch_type == Epoch.TRAIN:
                     backpropagate(train_optimizer, loss)
-
-                # separately from backpropagating the model parameters, we also backpropagate our estimated proportions
-                # of artifacts among unlabeled data.  Note that we detach the computed probabilities!!
-                artifact_prop_logits = index_3d_array(unlabeled_artifact_proportion_logits_sct, sources, alt_counts, variant_types)
-                artifact_proportion_losses = (1 - batch.get_is_labeled_mask()) * bce(artifact_prop_logits, probabilities.detach())
-                backpropagate(artifact_proportion_optimizer, torch.sum(artifact_proportion_losses))
 
             # done with one epoch type -- training or validation -- for this epoch
             loss_metrics.write_to_summary_writer(epoch_type, epoch, summary_writer)
