@@ -42,8 +42,7 @@ class FeaturesDataset(Dataset):
         print(f"Is base model using CUDA? {is_cuda}")
 
         reads_batch: ReadsBatch
-        reads_batch_cpu: ReadsBatch
-        for reads_batch, reads_batch_cpu in tqdm(prefetch_generator(loader), mininterval=60, total=len(loader)):
+        for reads_batch in tqdm(prefetch_generator(loader), mininterval=60, total=len(loader)):
             with torch.inference_mode():
                 representations, _ = model.calculate_representations(reads_batch)
 

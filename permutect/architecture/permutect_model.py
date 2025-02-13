@@ -15,14 +15,12 @@ from permutect.architecture.set_pooling import SetPooling
 from permutect.data.features_batch import FeaturesBatch
 from permutect.data.datum import DEFAULT_GPU_FLOAT, DEFAULT_CPU_FLOAT
 from permutect.data.reads_batch import ReadsBatch
-from permutect.data.reads_dataset import ALL_COUNTS_INDEX
 from permutect.data.prefetch_generator import prefetch_generator
 from permutect.metrics.evaluation_metrics import EmbeddingMetrics, round_up_to_nearest_three, MAX_COUNT
 from permutect.parameters import ModelParameters
 from permutect.sets.ragged_sets import RaggedSets
 from permutect.misc_utils import unfreeze, freeze, gpu_if_available
 from permutect.utils.enums import Variation, Epoch
-from permutect.utils.array_utils import index_3d_array, index_4d_array
 
 
 def sums_over_chunks(tensor2d: torch.Tensor, chunk_size: int):
@@ -239,8 +237,7 @@ def record_embeddings(base_model: PermutectModel, loader, summary_writer: Summar
     ref_alt_seq_metrics = EmbeddingMetrics()
 
     batch: ReadsBatch
-    batch_cpu: ReadsBatch
-    for batch, batch_cpu in tqdm(prefetch_generator(loader), mininterval=60, total=len(loader)):
+    for batch in tqdm(prefetch_generator(loader), mininterval=60, total=len(loader)):
         representations, ref_alt_seq_embeddings = base_model.calculate_representations(batch, weight_range=base_model._params.reweighting_range)
 
         representations = representations.cpu()

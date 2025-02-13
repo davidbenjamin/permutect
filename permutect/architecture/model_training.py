@@ -61,7 +61,7 @@ def train_permutect_model(model: PermutectModel, dataset: ReadsDataset, training
 
             loader = train_loader if epoch_type == Epoch.TRAIN else valid_loader
 
-            for batch, batch_cpu in tqdm(prefetch_generator(loader), mininterval=60, total=len(loader)):
+            for batch in tqdm(prefetch_generator(loader), mininterval=60, total=len(loader)):
                 # TODO: use the weight-balancing scheme that artifact model training uses
                 weights = balancer.calculate_batch_weights(batch)
 
@@ -172,13 +172,10 @@ def train_on_artifact_dataset(model: PermutectModel, dataset: FeaturesDataset, t
             loader = (calibration_train_loader if epoch_type == Epoch.TRAIN else calibration_valid_loader) if is_calibration_epoch else \
                 (train_loader if epoch_type == Epoch.TRAIN else valid_loader)
 
-            for batch, batch_cpu in tqdm(prefetch_generator(loader), mininterval=60, total=len(loader)):
+            batch: FeaturesBatch
+            for batch in tqdm(prefetch_generator(loader), mininterval=60, total=len(loader)):
                 sources = batch.get_sources()
-                alt_counts = batch.get_alt_counts()
-                variant_types = batch.get_variant_types()
                 labels = batch.get_training_labels()
-                is_labeled_mask = batch.get_is_labeled_mask()
-
                 logits, precalibrated_logits = model.logits_from_features_batch(batch)
 
                 # one-hot prediction of sources
@@ -261,8 +258,7 @@ def collect_evaluation_data(model: PermutectModel, dataset: FeaturesDataset, tra
         loader = train_loader if epoch_type == Epoch.TRAIN else valid_loader
 
         batch: FeaturesBatch
-        batch_cpu: FeaturesBatch
-        for batch, batch_cpu in tqdm(prefetch_generator(loader), mininterval=60, total=len(loader)):
+        for batch in tqdm(prefetch_generator(loader), mininterval=60, total=len(loader)):
             # these are the same weights used in training
             # TODO: we need a parameter to control the relative weight of unlabeled loss to labeled loss
             weights = balancer.calculate_batch_weights(batch).cpu()     # not on GPU!
@@ -271,17 +267,16 @@ def collect_evaluation_data(model: PermutectModel, dataset: FeaturesDataset, tra
             # logits are calculated on the GPU (when available), so we must detach AND send back to CPU (if applicable)
             pred = logits.detach().cpu()
 
-            # note that for metrics we use batch_cpu
-            labels = batch_cpu.get_training_labels()
+            labels = batch.get_training_labels().cpu()
             correct = ((pred > 0) == (labels > 0.5)).tolist()
 
-            for datum_array, variant_type, predicted_logit, source, int_label, correct_call, alt_count, weight in zip(batch_cpu.get_data_2d(),
-                    batch_cpu.get_variant_types().tolist(), pred.tolist(), batch.get_sources().tolist(), batch_cpu.get_labels().tolist(), correct,
-                    batch_cpu.get_alt_counts().tolist(), weights.tolist()):
+            for datum_array, predicted_logit, correct_call, weight in zip(batch.get_data_2d(),
+                    pred.tolist(), correct, weights.tolist()):
                 datum = Datum(datum_array)
-                label = Label(int_label)
-                evaluation_metrics.record_call(epoch_type, variant_type, predicted_logit, label, correct_call,
-                                               alt_count, weight, source=source)
+                label = Label(datum.get_label())
+                alt_count = datum.get_alt_count()
+                evaluation_metrics.record_call(epoch_type, datum.get_variant_type(), predicted_logit, label, correct_call,
+                                               alt_count, weight, source=datum.get_source())
 
                 if (label != Label.UNLABELED) and report_worst and not correct_call:
                     rounded_count = round_up_to_nearest_three(alt_count)
@@ -327,24 +322,24 @@ def evaluate_model(model: PermutectModel, epoch: int, dataset: FeaturesDataset, 
 
         # now go over just the validation data and generate feature vectors / metadata for tensorboard projectors (UMAP)
         batch: FeaturesBatch
-        batch_cpu: FeaturesBatch
-        for batch, batch_cpu in tqdm(prefetch_generator(valid_loader), mininterval=60, total=len(valid_loader)):
+        for batch in tqdm(prefetch_generator(valid_loader), mininterval=60, total=len(valid_loader)):
             logits, _ = model.logits_from_features_batch(batch)
             pred = logits.detach().cpu()
-            labels = batch_cpu.get_training_labels()
+            labels = batch.get_training_labels().cpu()
             correct = ((pred > 0) == (labels > 0.5)).tolist()
+            is_labeled_list = batch.get_is_labeled_mask().cpu().tolist()
 
             label_strings = [("artifact" if label > 0.5 else "non-artifact") if is_labeled > 0.5 else "unlabeled"
-                             for (label, is_labeled) in zip(labels.tolist(), batch_cpu.get_is_labeled_mask().tolist())]
+                             for (label, is_labeled) in zip(labels.tolist(), is_labeled_list)]
 
             correct_strings = [str(correctness) if is_labeled > 0.5 else "-1"
-                             for (correctness, is_labeled) in zip(correct, batch_cpu.get_is_labeled_mask().tolist())]
+                             for (correctness, is_labeled) in zip(correct, is_labeled_list)]
 
-            for (metrics, embedding) in [(embedding_metrics, batch_cpu.get_representations_2d().detach())]:
+            for (metrics, embedding) in [(embedding_metrics, batch.get_representations_2d().detach().cpu())]:
                 metrics.label_metadata.extend(label_strings)
                 metrics.correct_metadata.extend(correct_strings)
-                metrics.type_metadata.extend([Variation(idx).name for idx in batch_cpu.get_variant_types().tolist()])
-                metrics.truncated_count_metadata.extend([str(round_up_to_nearest_three(min(MAX_COUNT, alt_count))) for alt_count in batch_cpu.get_alt_counts().tolist()])
+                metrics.type_metadata.extend([Variation(idx).name for idx in batch.get_variant_types().cpu().tolist()])
+                metrics.truncated_count_metadata.extend([str(round_up_to_nearest_three(min(MAX_COUNT, alt_count))) for alt_count in batch.get_alt_counts().cpu().tolist()])
                 metrics.representations.append(embedding)
         embedding_metrics.output_to_summary_writer(summary_writer, epoch=epoch)
     # done collecting data

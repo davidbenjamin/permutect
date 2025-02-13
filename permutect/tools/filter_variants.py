@@ -212,13 +212,12 @@ def make_posterior_data_loader(dataset_file, input_vcf, contig_index_to_name_map
         artifact_loader = artifact_dataset.make_data_loader(artifact_dataset.all_folds(), batch_size, pin_memory=torch.cuda.is_available(), num_workers=num_workers)
 
         print("creating posterior data for this chunk...")
-        features_batch_cpu: FeaturesBatch
-        for features_batch, features_batch_cpu in tqdm(prefetch_generator(artifact_loader), mininterval=60, total=len(artifact_loader)):
+        features_batch: FeaturesBatch
+        for features_batch in tqdm(prefetch_generator(artifact_loader), mininterval=60, total=len(artifact_loader)):
             artifact_logits, _ = model.logits_from_features_batch(batch=features_batch)
 
-            for datum_array, logit, embedding in zip(features_batch_cpu.get_data_2d(),
-                                                               artifact_logits.detach().tolist(),
-                                                               features_batch.get_representations_2d().cpu()):
+            for datum_array, logit, embedding in zip(features_batch.get_data_2d(),
+                    artifact_logits.detach().tolist(), features_batch.get_representations_2d().cpu()):
                 datum = Datum(datum_array)
                 contig_name = contig_index_to_name_map[datum.get_contig()]
                 position = datum.get_position()
@@ -251,23 +250,21 @@ def apply_filtering_to_vcf(input_vcf, output_vcf, contig_index_to_name_map, erro
     encoding_to_posterior_results = {}
 
     batch: PosteriorBatch
-    batch_cpu: PosteriorBatch
-    for batch, batch_cpu in tqdm(prefetch_generator(posterior_loader), mininterval=60, total=len(posterior_loader)):
+    for batch in tqdm(prefetch_generator(posterior_loader), mininterval=60, total=len(posterior_loader)):
         # posterior, along with intermediate tensors for debugging/interpretation
         log_priors, spectra_lls, normal_lls, log_posteriors = \
             posterior_model.log_posterior_and_ingredients(batch)
 
         posterior_probs = torch.nn.functional.softmax(log_posteriors, dim=1)
+        data = [Datum(datum_array) for datum_array in batch.get_data_2d()]
 
-        encodings = [encode_datum(Datum(datum_array), contig_index_to_name_map) for datum_array in batch_cpu.get_data_2d()]
-        artifact_logits = batch_cpu.get_artifact_logits().tolist()
-        var_types = batch_cpu.get_variant_types().tolist()
-        labels = batch_cpu.get_labels().tolist()
-        alt_counts = batch_cpu.get_alt_counts().tolist()
-        depths = batch_cpu.get_original_depths().tolist()
+        artifact_logits = batch.get_artifact_logits().cpu().tolist()
 
-        for encoding, post_probs, logit, log_prior, log_spec, log_normal, label, alt_count, depth, var_type, embedding in zip(encodings, posterior_probs, artifact_logits, log_priors, spectra_lls, normal_lls, labels, alt_counts, depths, var_types, batch.embeddings):
-            encoding_to_posterior_results[encoding] = PosteriorResult(logit, post_probs.tolist(), log_prior, log_spec, log_normal, label, alt_count, depth, var_type, embedding)
+        for datum, post_probs, logit, log_prior, log_spec, log_normal, embedding in zip(data, posterior_probs, artifact_logits, log_priors, spectra_lls, normal_lls, batch.embeddings):
+            encoding = encode_datum(datum, contig_index_to_name_map)
+            encoding_to_posterior_results[encoding] = PosteriorResult(artifact_logit=logit, posterior_probabilities=post_probs.tolist(),
+                log_priors=log_prior, spectra_lls=log_spec, normal_lls=log_normal, label=datum.get_label(),
+                alt_count=datum.get_original_alt_count(), depth=datum.get_original_depth(), var_type=datum.get_variant_type(), embedding=embedding)
 
     print("Applying threshold")
     unfiltered_vcf = cyvcf2.VCF(input_vcf)
