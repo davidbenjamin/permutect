@@ -258,8 +258,7 @@ def collect_evaluation_data(model: PermutectModel, dataset: FeaturesDataset, tra
         loader = train_loader if epoch_type == Epoch.TRAIN else valid_loader
 
         batch: FeaturesBatch
-        batch_cpu: FeaturesBatch
-        for batch, batch_cpu in tqdm(prefetch_generator(loader), mininterval=60, total=len(loader)):
+        for batch, _ in tqdm(prefetch_generator(loader), mininterval=60, total=len(loader)):
             # these are the same weights used in training
             # TODO: we need a parameter to control the relative weight of unlabeled loss to labeled loss
             weights = balancer.calculate_batch_weights(batch).cpu()     # not on GPU!
@@ -268,17 +267,16 @@ def collect_evaluation_data(model: PermutectModel, dataset: FeaturesDataset, tra
             # logits are calculated on the GPU (when available), so we must detach AND send back to CPU (if applicable)
             pred = logits.detach().cpu()
 
-            # note that for metrics we use batch_cpu
-            labels = batch_cpu.get_training_labels()
+            labels = batch.get_training_labels().cpu()
             correct = ((pred > 0) == (labels > 0.5)).tolist()
 
-            for datum_array, variant_type, predicted_logit, source, int_label, correct_call, alt_count, weight in zip(batch_cpu.get_data_2d(),
-                    batch_cpu.get_variant_types().tolist(), pred.tolist(), batch.get_sources().tolist(), batch_cpu.get_labels().tolist(), correct,
-                    batch_cpu.get_alt_counts().tolist(), weights.tolist()):
+            for datum_array, predicted_logit, correct_call, weight in zip(batch.get_data_2d(),
+                    pred.tolist(), correct, weights.tolist()):
                 datum = Datum(datum_array)
-                label = Label(int_label)
-                evaluation_metrics.record_call(epoch_type, variant_type, predicted_logit, label, correct_call,
-                                               alt_count, weight, source=source)
+                label = Label(datum.get_label())
+                alt_count = datum.get_alt_count()
+                evaluation_metrics.record_call(epoch_type, datum.get_variant_type(), predicted_logit, label, correct_call,
+                                               alt_count, weight, source=datum.get_source())
 
                 if (label != Label.UNLABELED) and report_worst and not correct_call:
                     rounded_count = round_up_to_nearest_three(alt_count)
