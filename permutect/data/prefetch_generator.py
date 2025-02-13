@@ -20,5 +20,5 @@ def prefetch_generator(dataloader: DataLoader, device=gpu_if_available()):
         # but in the background we'll fetch the next batch and send to GPU
         # the default None will come up on the final batch where there is no next batch to prefetch
         next_batch_cpu = next(loader_iter, None)
-        next_batch = None if next_batch_cpu is None else (next_batch_cpu.copy_to(device, dtype=dtype) if is_cuda else next_batch_cpu)
+        next_batch = None if next_batch_cpu is None else next_batch_cpu.copy_to(device, dtype=dtype)
         yield batch
