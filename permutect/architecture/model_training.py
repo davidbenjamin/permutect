@@ -61,7 +61,7 @@ def train_permutect_model(model: PermutectModel, dataset: ReadsDataset, training
 
             loader = train_loader if epoch_type == Epoch.TRAIN else valid_loader
 
-            for batch, _ in tqdm(prefetch_generator(loader), mininterval=60, total=len(loader)):
+            for batch in tqdm(prefetch_generator(loader), mininterval=60, total=len(loader)):
                 # TODO: use the weight-balancing scheme that artifact model training uses
                 weights = balancer.calculate_batch_weights(batch)
 
@@ -173,7 +173,7 @@ def train_on_artifact_dataset(model: PermutectModel, dataset: FeaturesDataset, t
                 (train_loader if epoch_type == Epoch.TRAIN else valid_loader)
 
             batch: FeaturesBatch
-            for batch, _ in tqdm(prefetch_generator(loader), mininterval=60, total=len(loader)):
+            for batch in tqdm(prefetch_generator(loader), mininterval=60, total=len(loader)):
                 sources = batch.get_sources()
                 labels = batch.get_training_labels()
                 logits, precalibrated_logits = model.logits_from_features_batch(batch)
@@ -258,7 +258,7 @@ def collect_evaluation_data(model: PermutectModel, dataset: FeaturesDataset, tra
         loader = train_loader if epoch_type == Epoch.TRAIN else valid_loader
 
         batch: FeaturesBatch
-        for batch, _ in tqdm(prefetch_generator(loader), mininterval=60, total=len(loader)):
+        for batch in tqdm(prefetch_generator(loader), mininterval=60, total=len(loader)):
             # these are the same weights used in training
             # TODO: we need a parameter to control the relative weight of unlabeled loss to labeled loss
             weights = balancer.calculate_batch_weights(batch).cpu()     # not on GPU!
@@ -322,7 +322,7 @@ def evaluate_model(model: PermutectModel, epoch: int, dataset: FeaturesDataset, 
 
         # now go over just the validation data and generate feature vectors / metadata for tensorboard projectors (UMAP)
         batch: FeaturesBatch
-        for batch, _ in tqdm(prefetch_generator(valid_loader), mininterval=60, total=len(valid_loader)):
+        for batch in tqdm(prefetch_generator(valid_loader), mininterval=60, total=len(valid_loader)):
             logits, _ = model.logits_from_features_batch(batch)
             pred = logits.detach().cpu()
             labels = batch.get_training_labels().cpu()

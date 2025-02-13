@@ -237,7 +237,7 @@ def record_embeddings(base_model: PermutectModel, loader, summary_writer: Summar
     ref_alt_seq_metrics = EmbeddingMetrics()
 
     batch: ReadsBatch
-    for batch, _ in tqdm(prefetch_generator(loader), mininterval=60, total=len(loader)):
+    for batch in tqdm(prefetch_generator(loader), mininterval=60, total=len(loader)):
         representations, ref_alt_seq_embeddings = base_model.calculate_representations(batch, weight_range=base_model._params.reweighting_range)
 
         representations = representations.cpu()

@@ -223,7 +223,7 @@ class PosteriorModel(torch.nn.Module):
             types_lb = []
 
             batch: PosteriorBatch
-            for batch, _ in tqdm(prefetch_generator(posterior_loader), mininterval=10, total=len(posterior_loader)):
+            for batch in tqdm(prefetch_generator(posterior_loader), mininterval=10, total=len(posterior_loader)):
                 relative_posteriors = self.log_relative_posteriors(batch)
                 log_evidence = torch.logsumexp(relative_posteriors, dim=1)
 
@@ -312,7 +312,7 @@ class PosteriorModel(torch.nn.Module):
         error_probs_by_type_by_cnt = {var_type: [[] for _ in range(NUM_COUNT_BINS)] for var_type in Variation}
 
         batch: PosteriorBatch
-        for batch, _ in tqdm(prefetch_generator(posterior_loader), mininterval=10, total=len(posterior_loader)):
+        for batch in tqdm(prefetch_generator(posterior_loader), mininterval=10, total=len(posterior_loader)):
             alt_counts = batch.get_alt_counts().cpu().tolist()
             # 0th column is true variant, subtract it from 1 to get error prob
             error_probs = self.error_probabilities(batch, germline_mode).cpu().tolist()

@@ -213,7 +213,7 @@ def make_posterior_data_loader(dataset_file, input_vcf, contig_index_to_name_map
 
         print("creating posterior data for this chunk...")
         features_batch: FeaturesBatch
-        for features_batch, _ in tqdm(prefetch_generator(artifact_loader), mininterval=60, total=len(artifact_loader)):
+        for features_batch in tqdm(prefetch_generator(artifact_loader), mininterval=60, total=len(artifact_loader)):
             artifact_logits, _ = model.logits_from_features_batch(batch=features_batch)
 
             for datum_array, logit, embedding in zip(features_batch.get_data_2d(),
@@ -250,7 +250,7 @@ def apply_filtering_to_vcf(input_vcf, output_vcf, contig_index_to_name_map, erro
     encoding_to_posterior_results = {}
 
     batch: PosteriorBatch
-    for batch, _ in tqdm(prefetch_generator(posterior_loader), mininterval=60, total=len(posterior_loader)):
+    for batch in tqdm(prefetch_generator(posterior_loader), mininterval=60, total=len(posterior_loader)):
         # posterior, along with intermediate tensors for debugging/interpretation
         log_priors, spectra_lls, normal_lls, log_posteriors = \
             posterior_model.log_posterior_and_ingredients(batch)
