@@ -13,7 +13,9 @@ class Batch:
         self.data = torch.from_numpy(np.vstack([d.get_array_1d() for d in data])).to(dtype=torch.long)
         self._size = len(data)
 
-        self.info_start = Datum.REF_SEQ_START_IDX + data[0].array[Datum.REF_SEQ_LENGTH_IDX]
+        self.haplotypes_start = Datum.HAPLOTYPES_START_IDX
+        self.haplotypes_end = Datum.HAPLOTYPES_START_IDX + data[0].array[Datum.HAPLOTYPES_LENGTH_IDX]
+        self.info_start = self.haplotypes_end
         info_length = data[0].array[Datum.INFO_LENGTH_IDX]
         self.info_end = self.info_start + info_length
 
@@ -47,17 +49,21 @@ class Batch:
     def get_original_alt_counts(self) -> IntTensor:
         return self.data[:, Datum.ORIGINAL_ALT_COUNT_IDX]
 
-    def get_original_depths(self) -> torch.IntTensor:
+    def get_original_depths(self) -> IntTensor:
         return self.data[:, Datum.ORIGINAL_DEPTH_IDX]
 
-    def get_original_normal_alt_counts(self) -> torch.Tensor:
+    def get_original_normal_alt_counts(self) -> IntTensor:
         return self.data[:, Datum.ORIGINAL_NORMAL_ALT_COUNT_IDX]
 
-    def get_original_normal_depths(self) -> torch.Tensor:
+    def get_original_normal_depths(self) -> IntTensor:
         return self.data[:, Datum.ORIGINAL_NORMAL_DEPTH_IDX]
 
     def get_info_2d(self) -> torch.Tensor:
         return self.data[:, self.info_start:self.info_end] / Datum.FLOAT_TO_LONG_MULTIPLIER
+
+    def get_haplotypes_2d(self) -> IntTensor:
+        # each row is 1D array of integer array reference and alt haplotypes concatenated -- A, C, G, T, deletion = 0, 1, 2, 3, 4
+        return self.data[:, self.haplotypes_start:self.haplotypes_end]
 
     # pin memory for all tensors that are sent to the GPU
     def pin_memory(self):

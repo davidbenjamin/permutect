@@ -3,7 +3,7 @@ from __future__ import annotations
 import numpy as np
 import torch
 
-from permutect.utils.allele_utils import bases_as_base5_int, bases5_as_base_string
+from permutect.utils.allele_utils import bases_as_base5_int, bases5_as_base_string, get_ref_and_alt_sequences
 from permutect.utils.enums import Label, Variation
 
 
@@ -18,8 +18,8 @@ class Datum:
     # indices of inherently integral quantities
     REF_COUNT_IDX = 0               # potentially downsampled -- the actual size of the ref reads tensor
     ALT_COUNT_IDX = 1               # potentially downsampled -- the actual size of the alt reads tensor
-    REF_SEQ_LENGTH_IDX = 2          # length of the float sub-array encoding the reference sequence
-    INFO_LENGTH_IDX = 3             # length of the float sub-array encoding the info vector
+    HAPLOTYPES_LENGTH_IDX = 2       # length of the sub-array encoding the reference and alt haplotype sequences
+    INFO_LENGTH_IDX = 3             # length of the sub-array encoding the info vector
     LABEL_IDX = 4                   # the IntEnum label
     VARIANT_TYPE_IDX = 5            # the IntEnum variant type
     SOURCE_IDX = 6                  # the integer encoding the source
@@ -39,7 +39,7 @@ class Datum:
     NORMAL_SEQ_ERROR_LOG_LK_IDX = 16
 
     NUM_SCALAR_ELEMENTS = NORMAL_SEQ_ERROR_LOG_LK_IDX + 1
-    REF_SEQ_START_IDX = 17
+    HAPLOTYPES_START_IDX = 17
 
     # after these come the variable-length sub-arrays (not within a single dataset, but in principle variable length for
     # different versions of Permutect or different sequencing) for the reference sequence context and the info tensor
@@ -58,10 +58,14 @@ class Datum:
         """
         We are careful about our float to long conversions here and in the getters!
         """
-        ref_seq_length, info_length = len(ref_seq_array), len(info_array)
-        result = cls(np.zeros(Datum.NUM_SCALAR_ELEMENTS + ref_seq_length + info_length, dtype=np.int64))
+        ref_hap, alt_hap = get_ref_and_alt_sequences(ref_seq_array, ref_allele, alt_allele)
+        assert len(ref_hap) == len(ref_seq_array) and len(alt_hap) == len(ref_seq_array)
+        haplotypes = np.hstack((ref_hap, alt_hap))
+
+        haplotypes_length, info_length = len(haplotypes), len(info_array)
+        result = cls(np.zeros(Datum.NUM_SCALAR_ELEMENTS + haplotypes_length + info_length, dtype=np.int64))
         # ref count and alt count remain zero
-        result.array[Datum.REF_SEQ_LENGTH_IDX] = ref_seq_length
+        result.array[Datum.HAPLOTYPES_LENGTH_IDX] = haplotypes_length
         result.array[Datum.INFO_LENGTH_IDX] = info_length
 
         result.array[Datum.LABEL_IDX] = label
@@ -81,11 +85,11 @@ class Datum:
         result.array[Datum.SEQ_ERROR_LOG_LK_IDX] = round(seq_error_log_lk * Datum.FLOAT_TO_LONG_MULTIPLIER)
         result.array[Datum.NORMAL_SEQ_ERROR_LOG_LK_IDX] = round(normal_seq_error_log_lk * Datum.FLOAT_TO_LONG_MULTIPLIER)
 
-        ref_seq_start = Datum.REF_SEQ_START_IDX
-        ref_seq_end = ref_seq_start + ref_seq_length
-        info_end = ref_seq_end + info_length
-        result.array[ref_seq_start:ref_seq_end] = ref_seq_array # ref seq array is uint8
-        result.array[ref_seq_end:info_end] = np.int64(info_array * Datum.FLOAT_TO_LONG_MULTIPLIER)
+        haplotypes_start = Datum.HAPLOTYPES_START_IDX
+        haplotypes_end = haplotypes_start + haplotypes_length
+        info_end = haplotypes_end + info_length
+        result.array[haplotypes_start:haplotypes_end] = haplotypes  # haplotypes array is uint8
+        result.array[haplotypes_end:info_end] = np.int64(info_array * Datum.FLOAT_TO_LONG_MULTIPLIER)
 
         return result
 
@@ -95,8 +99,8 @@ class Datum:
     def get_alt_count(self) -> int:
         return self.array[Datum.ALT_COUNT_IDX]
 
-    def get_ref_seq_array_length(self) -> int:
-        return self.array[Datum.REF_SEQ_LENGTH_IDX]
+    def get_haplotypes_array_length(self) -> int:
+        return self.array[Datum.HAPLOTYPES_LENGTH_IDX]
 
     def get_info_array_length(self) -> int:
         return self.array[Datum.INFO_LENGTH_IDX]
@@ -149,14 +153,15 @@ class Datum:
     def get_normal_seq_error_log_lk(self) -> float:
         return self.array[Datum.NORMAL_SEQ_ERROR_LOG_LK_IDX] / Datum.FLOAT_TO_LONG_MULTIPLIER
 
-    def get_ref_seq_1d(self) -> np.ndarray:
-        start = Datum.REF_SEQ_START_IDX
-        ref_seq_length = self.array[Datum.REF_SEQ_LENGTH_IDX]
-        assert ref_seq_length > 0, "trying to get ref seq array when none exists"
-        return self.array[start:start + ref_seq_length]
+    def get_haplotypes_1d(self) -> np.ndarray:
+        # 1D array of integer array reference and alt haplotypes concatenated -- A, C, G, T, deletion = 0, 1, 2, 3, 4
+        start = Datum.HAPLOTYPES_START_IDX
+        haplotypes_length = self.array[Datum.HAPLOTYPES_LENGTH_IDX]
+        assert haplotypes_length > 0, "trying to get ref seq array when none exists"
+        return self.array[start:start + haplotypes_length]
 
     def get_info_1d(self) -> np.ndarray:
-        start = Datum.REF_SEQ_START_IDX + self.array[Datum.REF_SEQ_LENGTH_IDX]
+        start = Datum.HAPLOTYPES_START_IDX + self.array[Datum.HAPLOTYPES_LENGTH_IDX]
         info_length = self.array[Datum.INFO_LENGTH_IDX]
         assert info_length > 0, "trying to get info array when none exists"
         return self.array[start:start + info_length] / Datum.FLOAT_TO_LONG_MULTIPLIER
@@ -166,7 +171,7 @@ class Datum:
     # this method should not otherwise be used!!!
     def set_info_1d(self, new_info: np.ndarray):
         new_info_as_long = np.int64(new_info * Datum.FLOAT_TO_LONG_MULTIPLIER)
-        old_info_start = Datum.REF_SEQ_START_IDX + self.array[Datum.REF_SEQ_LENGTH_IDX]
+        old_info_start = Datum.HAPLOTYPES_START_IDX + self.array[Datum.HAPLOTYPES_LENGTH_IDX]
         self.array = np.hstack((self.array[:old_info_start], new_info_as_long))
         self.array[Datum.INFO_LENGTH_IDX] = len(new_info)
 
@@ -176,10 +181,11 @@ class Datum:
     def get_nbytes(self) -> int:
         return self.array.nbytes
 
-    def copy_without_ref_seq_and_info(self) -> Datum:
-        result = Datum(self.array[:Datum.NUM_SCALAR_ELEMENTS].copy())
-        result.array[Datum.REF_SEQ_LENGTH_IDX] = 0
-        result.array[Datum.INFO_LENGTH_IDX] = 0
+    @classmethod
+    def copy_data_without_haplotypes_and_info(cls, data_array: np.ndarray) -> np.ndarray:
+        result = data_array[:Datum.NUM_SCALAR_ELEMENTS].copy()
+        result[Datum.HAPLOTYPES_LENGTH_IDX] = 0
+        result[Datum.INFO_LENGTH_IDX] = 0
         return result
 
 

@@ -25,7 +25,7 @@ def main_without_parsing(args):
 
     model = saved_model if (saved_model is not None) else \
             PermutectModel(params=params, num_read_features=dataset.num_read_features, num_info_features=dataset.num_info_features,
-                           ref_sequence_length=dataset.ref_sequence_length, device=gpu_if_available())
+                           haplotypes_length=dataset.haplotypes_length, device=gpu_if_available())
 
     train_permutect_model(model, dataset, training_params, summary_writer=summary_writer)
     summary_writer.close()

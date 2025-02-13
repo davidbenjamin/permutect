@@ -136,7 +136,7 @@ class ReadsDataset(Dataset):
         self.source_balancing_weights_sct = torch.from_numpy(self.source_balancing_weights_sct)
         self.num_read_features = self[0].get_reads_2d().shape[1]
         self.num_info_features = len(self[0].get_info_1d())
-        self.ref_sequence_length = len(self[0].get_ref_seq_1d())
+        self.haplotypes_length = len(self[0].get_haplotypes_1d())
 
     def __len__(self):
         return len(self._data) // TENSORS_PER_BASE_DATUM if self._memory_map_mode else len(self._data)
