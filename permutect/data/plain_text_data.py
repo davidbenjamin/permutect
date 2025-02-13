@@ -35,6 +35,7 @@ from typing import List
 import numpy as np
 from sklearn.preprocessing import QuantileTransformer
 
+from permutect.data.reads_dataset import cap_ref_count, cap_alt_count
 from permutect.data.reads_datum import ReadsDatum
 from permutect.data.datum import DEFAULT_NUMPY_FLOAT
 
@@ -84,13 +85,17 @@ def read_data(dataset_file, only_artifacts: bool = False, source: int=0):
             normal_seq_error_log_lk = read_float(file.readline())
 
             if alt_tensor_size > 0 and passes_label_filter:
-                yield ReadsDatum.from_gatk(label=label, variant_type=Variation.get_type(ref_allele, alt_allele), source=source,
+                datum = ReadsDatum.from_gatk(label=label, variant_type=Variation.get_type(ref_allele, alt_allele), source=source,
                                            original_depth=original_depth, original_alt_count=original_alt_count,
                                            original_normal_depth=original_normal_depth, original_normal_alt_count=original_normal_alt_count,
                                            contig=contig, position=position, ref_allele=ref_allele, alt_allele=alt_allele,
                                            seq_error_log_lk=seq_error_log_lk, normal_seq_error_log_lk=normal_seq_error_log_lk,
                                            ref_sequence_string=ref_sequence_string, gatk_info_array=gatk_info_array,
                                            ref_tensor=ref_tensor, alt_tensor=alt_tensor)
+
+                ref_count = cap_ref_count(datum.get_ref_count())
+                alt_count = cap_alt_count(datum.get_alt_count())
+                yield datum.copy_with_downsampled_reads(ref_count, alt_count)
 
 
 # if sources is None, source is set to zero

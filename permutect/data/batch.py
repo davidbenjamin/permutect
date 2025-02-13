@@ -11,12 +11,14 @@ from permutect.utils.enums import Label
 class Batch:
     def __init__(self, data: List[Datum]):
         self.data = torch.from_numpy(np.vstack([d.get_array_1d() for d in data])).to(dtype=torch.long)
-        self._size = len(data)
+        self._finish_initializiation_from_data_array()
 
+    def _finish_initializiation_from_data_array(self):
+        self._size = len(self.data)
         self.haplotypes_start = Datum.HAPLOTYPES_START_IDX
-        self.haplotypes_end = Datum.HAPLOTYPES_START_IDX + data[0].array[Datum.HAPLOTYPES_LENGTH_IDX]
+        self.haplotypes_end = Datum.HAPLOTYPES_START_IDX + self.data[0, Datum.HAPLOTYPES_LENGTH_IDX]
         self.info_start = self.haplotypes_end
-        info_length = data[0].array[Datum.INFO_LENGTH_IDX]
+        info_length = self.data[0, Datum.INFO_LENGTH_IDX]
         self.info_end = self.info_start + info_length
 
     # get the original IntEnum format (VARIANT = 0, ARTIFACT = 1, UNLABELED = 2) labels

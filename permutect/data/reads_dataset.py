@@ -32,6 +32,19 @@ def ratio_with_pseudocount(a, b):
     return (a + WEIGHT_PSEUDOCOUNT) / (b + WEIGHT_PSEUDOCOUNT)
 
 
+MAX_REF_COUNT = 10
+MAX_ALT_COUNT = 15
+
+
+# round down to the largest discrete ref count less than or equal to a given count
+def cap_ref_count(ref_count: int) -> int:
+    return min(ref_count, MAX_REF_COUNT)
+
+
+def cap_alt_count(alt_count: int) -> int:
+    return min(alt_count, MAX_ALT_COUNT)
+
+
 class ReadsDataset(Dataset):
     def __init__(self, data_in_ram: Iterable[ReadsDatum] = None, data_tarfile=None, num_folds: int = 1):
         super(ReadsDataset, self).__init__()
@@ -72,8 +85,8 @@ class ReadsDataset(Dataset):
         self.max_source = 0
         datum: ReadsDatum
         for datum in self:
-            max_count = max(datum.alt_count, max_count)
-            self.max_source = max(datum.source, self.max_source)
+            max_count = max(datum.get_alt_count(), max_count)
+            self.max_source = max(datum.get_source(), self.max_source)
 
         # totals by source, count, label, variant type
         # we use a sentinel count value of 0 to denote aggregation over all counts
@@ -82,15 +95,15 @@ class ReadsDataset(Dataset):
         self.counts_by_source = defaultdict(lambda: MutableInt()) # amount of data for each source (which is an integer key)
 
         for n, datum in enumerate(self):
-            source = datum.source
+            source = datum.get_source()
             self.counts_by_source[source].increment()
 
             fold = n % num_folds
             self.indices_by_fold[fold].append(n)
 
             variant_type_idx = datum.get_variant_type()
-            self.totals_sclt[source][ALL_COUNTS_INDEX][datum.label][variant_type_idx] += 1
-            self.totals_sclt[source][datum.alt_count][datum.label][variant_type_idx] += 1
+            self.totals_sclt[source][ALL_COUNTS_INDEX][datum.get_label()][variant_type_idx] += 1
+            self.totals_sclt[source][datum.get_alt_count()][datum.get_label()][variant_type_idx] += 1
 
         # general balancing idea: if total along some axis eg label is T and count for one particular label is C,
         # assign weight T/C -- then effective count is (T/C)*C = T, which is independent of label
@@ -196,7 +209,9 @@ def make_base_data_generator_from_tarfile(data_tarfile):
 
     for file in data_files:
         for datum in ReadsDatum.load_list(file):
-            yield datum
+            ref_count = cap_ref_count(datum.get_ref_count())
+            alt_count = cap_ref_count(datum.get_alt_count())
+            yield datum.copy_with_downsampled_reads(ref_count, alt_count)
 
 
 # ex: chunk([a,b,c,d,e], 3) = [[a,b,c], [d,e]]

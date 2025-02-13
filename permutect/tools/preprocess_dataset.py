@@ -33,7 +33,6 @@ def do_work(training_datasets, training_output_file, chunk_size, sources: List[i
     num_read_features, num_info_features, haplotypes_length = ConsistentValue(), ConsistentValue(), ConsistentValue()
 
     # save all the lists of read sets to tempfiles. . .
-    # TODO: left off here.  Need to give it sources, which will need to be command line argument
     for base_data_list in generate_normalized_data(training_datasets, max_bytes_per_chunk=chunk_size, sources=sources):
         num_read_features.check(base_data_list[0].get_reads_2d().shape[1])
         num_info_features.check(base_data_list[0].get_info_1d().shape[0])

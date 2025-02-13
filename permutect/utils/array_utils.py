@@ -49,3 +49,6 @@ def sums_over_rows(input_tensor: torch.Tensor, counts: torch.IntTensor):
     relevant_sums = torch.diff(relevant_cumsums, dim=0, prepend=row_of_zeroes)
     return relevant_sums
 
+
+def cumsum_starting_from_zero(x: torch.Tensor):
+    return (torch.sum(x) - torch.cumsum(x.flip(dims=(0,)), dim=0)).flip(dims=(0,))

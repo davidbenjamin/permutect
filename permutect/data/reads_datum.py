@@ -31,12 +31,6 @@ class ReadsDatum(Datum):
     def __init__(self, datum_array: np.ndarray, reads_2d: np.ndarray):
         super().__init__(datum_array)
         self.reads_2d = reads_2d
-        # Note: if changing any of the data fields below, make sure to modify the size_in_bytes() method below accordingly!
-
-        self.alt_count = self.get_alt_count()
-        self.label = self.get_label()
-        self.source = self.get_source()
-
         self.set_reads_dtype(np.float16)
 
     # gatk_info tensor comes from GATK and does not include one-hot encoding of variant type
@@ -68,6 +62,24 @@ class ReadsDatum(Datum):
         result = cls(datum_array=datum.get_array_1d(), reads_2d=read_tensor)
         result.set_reads_dtype(np.float16)
         return result
+
+    def copy_with_downsampled_reads(self, ref_downsample: int, alt_downsample: int) -> ReadsDatum:
+        old_ref_count, old_alt_count = len(self.reads_2d) - self.get_alt_count(), self.get_alt_count()
+        new_ref_count = min(old_ref_count, ref_downsample)
+        new_alt_count = min(self.get_alt_count(), alt_downsample)
+
+        if new_ref_count == old_ref_count and new_alt_count == old_alt_count:
+            return self
+        else:
+            new_data_array = self.array.copy()
+            new_data_array[Datum.REF_COUNT_IDX] = new_ref_count
+            new_data_array[Datum.ALT_COUNT_IDX] = new_alt_count
+
+            # new reads are random selection of ref reads vstacked on top of all the alts
+            random_ref_read_indices = torch.randperm(old_ref_count)[:new_ref_count]
+            random_alt_read_indices = old_ref_count + torch.randperm(old_alt_count)[:new_alt_count]
+            new_reads = np.vstack((self.reads_2d[random_ref_read_indices], self.reads_2d[random_alt_read_indices]))
+            return ReadsDatum(new_data_array, new_reads)
 
     def set_reads_dtype(self, dtype):
         self.reads_2d = self.reads_2d.astype(dtype)
