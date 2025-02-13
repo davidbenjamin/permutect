@@ -223,8 +223,7 @@ class PosteriorModel(torch.nn.Module):
             types_lb = []
 
             batch: PosteriorBatch
-            batch_cpu: PosteriorBatch
-            for batch, batch_cpu in tqdm(prefetch_generator(posterior_loader), mininterval=10, total=len(posterior_loader)):
+            for batch, _ in tqdm(prefetch_generator(posterior_loader), mininterval=10, total=len(posterior_loader)):
                 relative_posteriors = self.log_relative_posteriors(batch)
                 log_evidence = torch.logsumexp(relative_posteriors, dim=1)
 
@@ -313,13 +312,12 @@ class PosteriorModel(torch.nn.Module):
         error_probs_by_type_by_cnt = {var_type: [[] for _ in range(NUM_COUNT_BINS)] for var_type in Variation}
 
         batch: PosteriorBatch
-        batch_cpu: PosteriorBatch
-        for batch, batch_cpu in tqdm(prefetch_generator(posterior_loader), mininterval=10, total=len(posterior_loader)):
-            alt_counts = batch_cpu.get_alt_counts().tolist()
+        for batch, _ in tqdm(prefetch_generator(posterior_loader), mininterval=10, total=len(posterior_loader)):
+            alt_counts = batch.get_alt_counts().cpu().tolist()
             # 0th column is true variant, subtract it from 1 to get error prob
             error_probs = self.error_probabilities(batch, germline_mode).cpu().tolist()
 
-            for var_type, alt_count, error_prob in zip(batch_cpu.get_variant_types().tolist(), alt_counts, error_probs):
+            for var_type, alt_count, error_prob in zip(batch.get_variant_types().cpu().tolist(), alt_counts, error_probs):
                 error_probs_by_type[var_type].append(error_prob)
                 error_probs_by_type_by_cnt[var_type][multiple_of_three_bin_index(min(alt_count, MAX_COUNT))].append(error_prob)
 

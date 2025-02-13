@@ -61,7 +61,7 @@ def train_permutect_model(model: PermutectModel, dataset: ReadsDataset, training
 
             loader = train_loader if epoch_type == Epoch.TRAIN else valid_loader
 
-            for batch, batch_cpu in tqdm(prefetch_generator(loader), mininterval=60, total=len(loader)):
+            for batch, _ in tqdm(prefetch_generator(loader), mininterval=60, total=len(loader)):
                 # TODO: use the weight-balancing scheme that artifact model training uses
                 weights = balancer.calculate_batch_weights(batch)
 
@@ -172,13 +172,10 @@ def train_on_artifact_dataset(model: PermutectModel, dataset: FeaturesDataset, t
             loader = (calibration_train_loader if epoch_type == Epoch.TRAIN else calibration_valid_loader) if is_calibration_epoch else \
                 (train_loader if epoch_type == Epoch.TRAIN else valid_loader)
 
-            for batch, batch_cpu in tqdm(prefetch_generator(loader), mininterval=60, total=len(loader)):
+            batch: FeaturesBatch
+            for batch, _ in tqdm(prefetch_generator(loader), mininterval=60, total=len(loader)):
                 sources = batch.get_sources()
-                alt_counts = batch.get_alt_counts()
-                variant_types = batch.get_variant_types()
                 labels = batch.get_training_labels()
-                is_labeled_mask = batch.get_is_labeled_mask()
-
                 logits, precalibrated_logits = model.logits_from_features_batch(batch)
 
                 # one-hot prediction of sources
@@ -327,24 +324,24 @@ def evaluate_model(model: PermutectModel, epoch: int, dataset: FeaturesDataset, 
 
         # now go over just the validation data and generate feature vectors / metadata for tensorboard projectors (UMAP)
         batch: FeaturesBatch
-        batch_cpu: FeaturesBatch
-        for batch, batch_cpu in tqdm(prefetch_generator(valid_loader), mininterval=60, total=len(valid_loader)):
+        for batch, _ in tqdm(prefetch_generator(valid_loader), mininterval=60, total=len(valid_loader)):
             logits, _ = model.logits_from_features_batch(batch)
             pred = logits.detach().cpu()
-            labels = batch_cpu.get_training_labels()
+            labels = batch.get_training_labels().cpu()
             correct = ((pred > 0) == (labels > 0.5)).tolist()
+            is_labeled_list = batch.get_is_labeled_mask().cpu().tolist()
 
             label_strings = [("artifact" if label > 0.5 else "non-artifact") if is_labeled > 0.5 else "unlabeled"
-                             for (label, is_labeled) in zip(labels.tolist(), batch_cpu.get_is_labeled_mask().tolist())]
+                             for (label, is_labeled) in zip(labels.tolist(), is_labeled_list)]
 
             correct_strings = [str(correctness) if is_labeled > 0.5 else "-1"
-                             for (correctness, is_labeled) in zip(correct, batch_cpu.get_is_labeled_mask().tolist())]
+                             for (correctness, is_labeled) in zip(correct, is_labeled_list)]
 
-            for (metrics, embedding) in [(embedding_metrics, batch_cpu.get_representations_2d().detach())]:
+            for (metrics, embedding) in [(embedding_metrics, batch.get_representations_2d().detach().cpu())]:
                 metrics.label_metadata.extend(label_strings)
                 metrics.correct_metadata.extend(correct_strings)
-                metrics.type_metadata.extend([Variation(idx).name for idx in batch_cpu.get_variant_types().tolist()])
-                metrics.truncated_count_metadata.extend([str(round_up_to_nearest_three(min(MAX_COUNT, alt_count))) for alt_count in batch_cpu.get_alt_counts().tolist()])
+                metrics.type_metadata.extend([Variation(idx).name for idx in batch.get_variant_types().cpu().tolist()])
+                metrics.truncated_count_metadata.extend([str(round_up_to_nearest_three(min(MAX_COUNT, alt_count))) for alt_count in batch.get_alt_counts().cpu().tolist()])
                 metrics.representations.append(embedding)
         embedding_metrics.output_to_summary_writer(summary_writer, epoch=epoch)
     # done collecting data

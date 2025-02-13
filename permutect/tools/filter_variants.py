@@ -212,13 +212,12 @@ def make_posterior_data_loader(dataset_file, input_vcf, contig_index_to_name_map
         artifact_loader = artifact_dataset.make_data_loader(artifact_dataset.all_folds(), batch_size, pin_memory=torch.cuda.is_available(), num_workers=num_workers)
 
         print("creating posterior data for this chunk...")
-        features_batch_cpu: FeaturesBatch
-        for features_batch, features_batch_cpu in tqdm(prefetch_generator(artifact_loader), mininterval=60, total=len(artifact_loader)):
+        features_batch: FeaturesBatch
+        for features_batch, _ in tqdm(prefetch_generator(artifact_loader), mininterval=60, total=len(artifact_loader)):
             artifact_logits, _ = model.logits_from_features_batch(batch=features_batch)
 
-            for datum_array, logit, embedding in zip(features_batch_cpu.get_data_2d(),
-                                                               artifact_logits.detach().tolist(),
-                                                               features_batch.get_representations_2d().cpu()):
+            for datum_array, logit, embedding in zip(features_batch.get_data_2d(),
+                    artifact_logits.detach().tolist(), features_batch.get_representations_2d().cpu()):
                 datum = Datum(datum_array)
                 contig_name = contig_index_to_name_map[datum.get_contig()]
                 position = datum.get_position()
