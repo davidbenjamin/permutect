@@ -8,9 +8,8 @@ from matplotlib import pyplot as plt
 import seaborn as sns
 from torch.utils.tensorboard import SummaryWriter
 
-from permutect.data.features_batch import FeaturesBatch
-from permutect.data.reads_batch import ReadsBatch
 from permutect.metrics import plotting
+from permutect.metrics.posterior_result import PosteriorResult
 from permutect.misc_utils import StreamingAverage
 from permutect.utils.enums import Variation, Call, Epoch, Label
 
@@ -54,91 +53,6 @@ def make_count_bin_mask(bin_index: int, counts: torch.Tensor):
     count_bin_bottom = 3*bin_index + 1
     count_bin_top = 3*bin_index + 3
     return (count_bin_bottom <= counts) * (counts <= count_bin_top)
-
-
-# simple container class for holding results of the posterior model and other things that get output to the VCF and
-# tensorboard analysis
-class PosteriorResult:
-    def __init__(self, artifact_logit: float, posterior_probabilities, log_priors, spectra_lls, normal_lls, label, alt_count, depth, var_type, embedding):
-        self.artifact_logit = artifact_logit
-        self.posterior_probabilities = posterior_probabilities
-        self.log_priors = log_priors
-        self.spectra_lls = spectra_lls
-        self.normal_lls = normal_lls
-        self.label = label
-        self.alt_count = alt_count
-        self.depth = depth
-        self.variant_type = var_type
-        self.embedding = embedding
-
-
-# keep track of losses during training of artifact model
-class LossMetrics:
-    def __init__(self):
-        self.labeled_loss = StreamingAverage()
-        self.unlabeled_loss = StreamingAverage()
-
-        self.labeled_loss_by_type = {variant_type: StreamingAverage() for variant_type in Variation}
-        self.labeled_loss_by_count = {bin_idx: StreamingAverage() for bin_idx in range(NUM_COUNT_BINS)}
-
-    def get_labeled_loss(self) -> float:
-        return self.labeled_loss.get()
-
-    def get_unlabeled_loss(self) -> float:
-        return self.unlabeled_loss.get()
-
-    def report_losses(self, message: str):
-        print(f"{message} Labeled loss: {self.get_labeled_loss():.3f}, unlabeled loss: {self.get_unlabeled_loss():.3f}.")
-
-    def write_to_summary_writer(self, epoch_type: Epoch, epoch: int, summary_writer: SummaryWriter, prefix: str = ""):
-        if not self.labeled_loss.is_empty():
-            summary_writer.add_scalar(prefix + epoch_type.name + "/Labeled Loss", self.labeled_loss.get(), epoch)
-
-        if not self.unlabeled_loss.is_empty():
-            summary_writer.add_scalar(prefix + epoch_type.name + "/Unlabeled Loss", self.unlabeled_loss.get(), epoch)
-
-        for bin_idx, loss in self.labeled_loss_by_count.items():
-            if not loss.is_empty():
-                summary_writer.add_scalar(
-                    prefix + epoch_type.name + "/Labeled Loss/By Count/" + str(multiple_of_three_bin_index_to_count(bin_idx)), loss.get(), epoch)
-
-        for var_type, loss in self.labeled_loss_by_type.items():
-            if not loss.is_empty():
-                summary_writer.add_scalar(prefix + epoch_type.name + "/Labeled Loss/By Type/" + var_type.name, loss.get(), epoch)
-
-    # record the losses (indexed by batch dimension) by type and count, as well as the total loss not stratified by type and count
-    # input losses are NOT weighted, but when recorded they are multiplied by weights if given
-    # losses are divided into labeled and unlabeled
-    # TODO: put type hint batch: BaseBatch | ArtifactBatch once docker update
-    def record_losses(self, losses: torch.Tensor, batch, weights: torch.Tensor):
-        # handle total loss
-        labeled_weights, unlabeled_weights = batch.get_is_labeled_mask() * weights, (1 - batch.get_is_labeled_mask()) * weights
-
-        self.labeled_loss.record_with_weights(losses, labeled_weights)
-        self.unlabeled_loss.record_with_weights(losses, unlabeled_weights)
-
-        # Note that we currently do not track unlabeled loss by type or by count
-        # by type
-        variant_types = batch.get_variant_types()
-
-        # weight for losses is product of 1) the weights 2) the is_labeled mask, 3) the variant type mask
-        for var_type_idx, var_type in enumerate(Variation):
-            variant_type_mask = (variant_types == var_type_idx)
-            self.labeled_loss_by_type[var_type].record_with_weights(losses, labeled_weights * variant_type_mask)
-
-        # by count
-        if isinstance(batch, ReadsBatch):
-            # rather than individually record each count, and therefore send lots of stuff off the GPU, we
-            # send everything with the same bin simultaneously
-            bins = multiple_of_three_bin_indices(batch.get_alt_counts())
-            for count_bin in range(MAX_BIN + 1):
-                indices = (bins == count_bin)
-                self.labeled_loss_by_count[count_bin].record_with_weights(losses[indices], labeled_weights[indices])
-
-        elif isinstance(batch, FeaturesBatch):
-            for count_bin_index in range(NUM_COUNT_BINS):
-                count_bin_mask = make_count_bin_mask(count_bin_index, batch.get_alt_counts())
-                self.labeled_loss_by_count[count_bin_index].record_with_weights(losses, labeled_weights * count_bin_mask)
 
 
 # predictions_and_labels is list of (predicted logit, actual label) tuples
