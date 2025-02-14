@@ -33,21 +33,21 @@ def generate_edited_data(base_datasets, edit_type: str, source: int):
             reads_datum.set_source(source)
 
         if edit_type == EditType.UNLABEL_ARTIFACTS.value:
-            if reads_datum.label == Label.ARTIFACT:
+            if reads_datum.get_label() == Label.ARTIFACT:
                 reads_datum.set_label(Label.UNLABELED)
             yield reads_datum
         elif edit_type == EditType.UNLABEL_VARIANTS.value:
-            if reads_datum.label == Label.VARIANT:
+            if reads_datum.get_label() == Label.VARIANT:
                 reads_datum.set_label(Label.UNLABELED)
             yield reads_datum
         elif edit_type == EditType.UNLABEL_EVERYTHING.value:
             reads_datum.set_label(Label.UNLABELED)
             yield reads_datum
         elif edit_type == EditType.REMOVE_ARTIFACTS.value:
-            if reads_datum.label != Label.ARTIFACT:
+            if reads_datum.get_label() != Label.ARTIFACT:
                 yield reads_datum
         elif edit_type == EditType.REMOVE_VARIANTS.value:
-            if reads_datum.label != Label.VARIANT:
+            if reads_datum.get_label() != Label.VARIANT:
                 yield reads_datum
         elif edit_type == EditType.KEEP_EVERYTHING.value:
             yield reads_datum

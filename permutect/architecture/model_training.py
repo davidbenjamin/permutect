@@ -13,7 +13,8 @@ from tqdm import trange, tqdm
 from permutect.architecture.balancer import Balancer
 from permutect.architecture.permutect_model import PermutectModel, record_embeddings
 from permutect.data.features_dataset import FeaturesDataset
-from permutect.data.reads_dataset import ReadsDataset, ALL_COUNTS_INDEX, ratio_with_pseudocount
+from permutect.data.reads_batch import DownsampledReadsBatch
+from permutect.data.reads_dataset import ReadsDataset, ALL_COUNTS_INDEX
 from permutect.data.features_batch import FeaturesBatch
 from permutect.data.datum import Datum
 from permutect.data.prefetch_generator import prefetch_generator
@@ -23,7 +24,6 @@ from permutect.parameters import TrainingParameters
 from permutect.misc_utils import report_memory_usage, backpropagate, freeze, \
     unfreeze
 from permutect.utils.enums import Variation, Epoch, Label
-from permutect.utils.array_utils import index_3d_array
 
 WORST_OFFENDERS_QUEUE_SIZE = 100
 
@@ -61,7 +61,8 @@ def train_permutect_model(model: PermutectModel, dataset: ReadsDataset, training
 
             loader = train_loader if epoch_type == Epoch.TRAIN else valid_loader
 
-            for batch in tqdm(prefetch_generator(loader), mininterval=60, total=len(loader)):
+            for original_batch in tqdm(prefetch_generator(loader), mininterval=60, total=len(loader)):
+                batch = DownsampledReadsBatch(original_batch)
                 # TODO: use the weight-balancing scheme that artifact model training uses
                 weights = balancer.calculate_batch_weights(batch)
 
