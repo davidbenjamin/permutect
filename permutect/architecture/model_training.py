@@ -56,8 +56,8 @@ def train_permutect_model(model: PermutectModel, dataset: ReadsDataset, training
         report_memory_usage(f"Start of epoch {epoch}")
         for epoch_type in (Epoch.TRAIN, Epoch.VALID):
             model.set_epoch_type(epoch_type)
-            loss_metrics = BatchIndexedAverages(num_sources=num_sources, device=device)
-            alt_count_loss_metrics = BatchIndexedAverages(num_sources=num_sources, device=device)    # loss on the adversarial task
+            loss_metrics = BatchIndexedAverages(num_sources=num_sources, device=device, include_logits=False)
+            alt_count_loss_metrics = BatchIndexedAverages(num_sources=num_sources, device=device, include_logits=False)    # loss on the adversarial task
 
             loader = train_loader if epoch_type == Epoch.TRAIN else valid_loader
 
@@ -77,14 +77,14 @@ def train_permutect_model(model: PermutectModel, dataset: ReadsDataset, training
                 entropies = bce(uncalibrated_logits, probabilities)
 
                 semisupervised_losses = batch.get_is_labeled_mask() * cross_entropies + (1 - batch.get_is_labeled_mask()) * entropies
-                loss_metrics.record(batch, semisupervised_losses, weights)
+                loss_metrics.record(batch, None, semisupervised_losses, weights)
 
                 # TODO: use nonlinear transformation of counts
                 # TODO: should alt count adversarial losses have label-balancing weights, too? (probably yes)
                 alt_count_pred = torch.sigmoid(model.alt_count_predictor.adversarial_forward(representations).squeeze())
                 alt_count_target = batch.get_alt_counts().to(dtype=alt_count_pred.dtype)/20
                 alt_count_losses = alt_count_loss_func(alt_count_pred, alt_count_target)
-                alt_count_loss_metrics.record(batch, values=alt_count_losses, weights=torch.ones_like(alt_count_losses))
+                alt_count_loss_metrics.record(batch, logits=None, values=alt_count_losses, weights=torch.ones_like(alt_count_losses))
 
                 loss = torch.sum((weights * semisupervised_losses) + alt_count_losses)
 
@@ -165,8 +165,8 @@ def train_on_artifact_dataset(model: PermutectModel, dataset: FeaturesDataset, t
                 #unfreeze(self.calibration_parameters())  # unfreeze calibration but everything else stays frozen
                 unfreeze(model.final_calibration_shift_parameters())  # unfreeze final calibration shift but everything else stays frozen
 
-            loss_metrics = BatchIndexedAverages(num_sources=num_sources, device=device)   # based on calibrated logits
-            source_prediction_loss_metrics = BatchIndexedAverages(num_sources=num_sources, device=device)  # based on calibrated logits
+            loss_metrics = BatchIndexedAverages(num_sources=num_sources, device=device, include_logits=False)   # based on calibrated logits
+            source_prediction_loss_metrics = BatchIndexedAverages(num_sources=num_sources, device=device, include_logits=False)  # based on calibrated logits
 
             loader = (calibration_train_loader if epoch_type == Epoch.TRAIN else calibration_valid_loader) if is_calibration_epoch else \
                 (train_loader if epoch_type == Epoch.TRAIN else valid_loader)
@@ -210,8 +210,8 @@ def train_on_artifact_dataset(model: PermutectModel, dataset: FeaturesDataset, t
                 losses = (labeled_losses + unlabeled_losses) * weights + (source_prediction_losses * source_prediction_weights)
                 loss = torch.sum(losses)
 
-                loss_metrics.record(batch, labeled_losses + unlabeled_losses, weights)
-                source_prediction_loss_metrics.record(batch, source_prediction_losses, source_prediction_weights)
+                loss_metrics.record(batch, None, labeled_losses + unlabeled_losses, weights)
+                source_prediction_loss_metrics.record(batch, None, source_prediction_losses, source_prediction_weights)
 
                 # calibration epochs freeze the model up to calibration, so I wonder if a purely unlabeled batch
                 # would cause lack of gradient problems. . .

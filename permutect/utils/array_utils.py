@@ -30,6 +30,13 @@ def index_5d_array(tens, idx0, idx1, idx2, idx3, idx4):
     return tens.view(-1)[flattened_indices]
 
 
+def index_6d_array(tens, idx0, idx1, idx2, idx3, idx4, idx5):
+    dim0, dim1, dim2, dim3, dim4, dim5 = tens.shape
+    flattened_indices = (idx0 * dim1 * dim2 * dim3 * dim4 * dim5) + (idx1 * dim2 * dim3 * dim4 * dim5) + \
+                        (idx2 * dim3 * dim4 * dim5) + (idx3 * dim4 * dim5) + (idx4 * dim5) + idx5
+    return tens.view(-1)[flattened_indices]
+
+
 # add in-place
 # note that the flattened view(-1) shares memory with the original tensor
 def add_to_2d_array(tens: torch.Tensor, idx0, idx1, values):
@@ -57,7 +64,14 @@ def add_to_4d_array(tens: torch.Tensor, idx0, idx1, idx2, idx3, values):
 def add_to_5d_array(tens, idx0, idx1, idx2, idx3, idx4, values):
     dim0, dim1, dim2, dim3, dim4 = tens.shape
     flattened_indices = (idx0 * dim1 * dim2 * dim3 * dim4) + (idx1 * dim2 * dim3 * dim4) + (idx2 * dim3 * dim4) + (idx3 * dim4) + idx4
-    return tens.view(-1).index_add_(dim=0, index= flattened_indices, source=values)
+    return tens.view(-1).index_add_(dim=0, index=flattened_indices, source=values)
+
+
+def add_to_6d_array(tens, idx0, idx1, idx2, idx3, idx4, idx5, values):
+    dim0, dim1, dim2, dim3, dim4, dim5 = tens.shape
+    flattened_indices = (idx0 * dim1 * dim2 * dim3 * dim4 * dim5) + (idx1 * dim2 * dim3 * dim4 * dim5) + \
+                        (idx2 * dim3 * dim4 * dim5) + (idx3 * dim4 * dim5) + (idx4 * dim5) + idx5
+    return tens.view(-1).index_add_(dim=0, index=flattened_indices, source=values)
 
 
 def downsample_tensor(tensor2d: np.ndarray, new_length: int):
