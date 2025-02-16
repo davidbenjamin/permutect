@@ -1,7 +1,6 @@
 import math
 import time
 from collections import defaultdict
-from itertools import chain
 from queue import PriorityQueue
 from typing import List
 
@@ -18,8 +17,9 @@ from permutect.data.reads_dataset import ReadsDataset, ALL_COUNTS_INDEX
 from permutect.data.features_batch import FeaturesBatch
 from permutect.data.datum import Datum
 from permutect.data.prefetch_generator import prefetch_generator
-from permutect.metrics.evaluation_metrics import LossMetrics, EmbeddingMetrics, round_up_to_nearest_three, MAX_COUNT, \
+from permutect.metrics.evaluation_metrics import EmbeddingMetrics, round_up_to_nearest_three, MAX_COUNT, \
     EvaluationMetrics
+from permutect.metrics.loss_metrics import BatchIndexedAverages, BatchProperty
 from permutect.parameters import TrainingParameters
 from permutect.misc_utils import report_memory_usage, backpropagate, freeze, \
     unfreeze
@@ -32,13 +32,13 @@ def train_permutect_model(model: PermutectModel, dataset: ReadsDataset, training
                           summary_writer: SummaryWriter, validation_fold: int = None):
     report_memory_usage("Beginning training.")
     device, dtype = model._device, model._dtype
+    num_sources = dataset.max_source + 1
     is_cuda = device.type == 'cuda'
     print(f"Is CUDA available? {is_cuda}")
 
     dataset.report_totals()
 
     alt_count_loss_func = torch.nn.MSELoss(reduction='none')
-    alt_count_adversarial_metrics = LossMetrics()
 
     train_optimizer = torch.optim.AdamW(model.parameters(), lr=training_params.learning_rate, weight_decay=training_params.weight_decay)
     train_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
@@ -46,7 +46,6 @@ def train_permutect_model(model: PermutectModel, dataset: ReadsDataset, training
 
     bce = torch.nn.BCEWithLogitsLoss(reduction='none')
     balancer = Balancer(dataset).to(device=device, dtype=dtype)
-    classifier_metrics = LossMetrics()
 
     validation_fold_to_use = (dataset.num_folds - 1) if validation_fold is None else validation_fold
     train_loader, valid_loader = dataset.make_train_and_valid_loaders(validation_fold_to_use, training_params.batch_size, is_cuda, training_params.num_workers)
@@ -57,7 +56,8 @@ def train_permutect_model(model: PermutectModel, dataset: ReadsDataset, training
         report_memory_usage(f"Start of epoch {epoch}")
         for epoch_type in (Epoch.TRAIN, Epoch.VALID):
             model.set_epoch_type(epoch_type)
-            loss_metrics = LossMetrics()
+            loss_metrics = BatchIndexedAverages(num_sources=num_sources, device=device)
+            alt_count_loss_metrics = BatchIndexedAverages(num_sources=num_sources, device=device)    # loss on the adversarial task
 
             loader = train_loader if epoch_type == Epoch.TRAIN else valid_loader
 
@@ -77,31 +77,30 @@ def train_permutect_model(model: PermutectModel, dataset: ReadsDataset, training
                 entropies = bce(uncalibrated_logits, probabilities)
 
                 semisupervised_losses = batch.get_is_labeled_mask() * cross_entropies + (1 - batch.get_is_labeled_mask()) * entropies
-                loss_metrics.record_losses(semisupervised_losses.detach(), batch, weights)
+                loss_metrics.record(batch, semisupervised_losses, weights)
 
                 # TODO: use nonlinear transformation of counts
+                # TODO: should alt count adversarial losses have label-balancing weights, too? (probably yes)
                 alt_count_pred = torch.sigmoid(model.alt_count_predictor.adversarial_forward(representations).squeeze())
                 alt_count_target = batch.get_alt_counts().to(dtype=alt_count_pred.dtype)/20
                 alt_count_losses = alt_count_loss_func(alt_count_pred, alt_count_target)
-                alt_count_adversarial_metrics.record_losses(alt_count_losses.detach(), batch, weights=torch.ones_like(alt_count_losses))
+                alt_count_loss_metrics.record(batch, values=alt_count_losses, weights=torch.ones_like(alt_count_losses))
 
                 loss = torch.sum((weights * semisupervised_losses) + alt_count_losses)
-                classifier_metrics.record_losses(semisupervised_losses.detach(), batch, batch.get_is_labeled_mask() * weights)
 
                 if epoch_type == Epoch.TRAIN:
                     backpropagate(train_optimizer, loss)
 
             # done with one epoch type -- training or validation -- for this epoch
-            loss_metrics.write_to_summary_writer(epoch_type, epoch, summary_writer)
-            classifier_metrics.write_to_summary_writer(epoch_type, epoch, summary_writer, prefix="classifier")
-            alt_count_adversarial_metrics.write_to_summary_writer(epoch_type, epoch, summary_writer, prefix="alt-count-adversarial-predictor")
+            loss_metrics.write_to_summary_writer(epoch_type, epoch, summary_writer, prefix="semi-supervised-loss")
+            alt_count_loss_metrics.write_to_summary_writer(epoch_type, epoch, summary_writer, prefix="alt-count-loss")
 
             if epoch_type == Epoch.TRAIN:
-                train_scheduler.step(loss_metrics.get_labeled_loss())
+                mean_over_labels = torch.mean(loss_metrics.get_marginal(BatchProperty.LABEL)).item()
+                train_scheduler.step(mean_over_labels)
 
-            loss_metrics.report_losses(f"Semisupervised loss for {epoch_type.name} epoch {epoch}.")
-            loss_metrics.report_losses(f"Auiliary classifier loss for {epoch_type.name} epoch {epoch}.")
-            alt_count_adversarial_metrics.report_losses(f"Alt count prediction loss for {epoch_type.name} epoch {epoch}.")
+            loss_metrics.report_marginals(f"Semisupervised losses for {epoch_type.name} epoch {epoch}.")
+            alt_count_loss_metrics.report_marginals(f"Alt count prediction adversarial task loss for {epoch_type.name} epoch {epoch}.")
         report_memory_usage(f"End of epoch {epoch}.")
         print(f"time elapsed(s): {time.time() - start_epoch:.1f}")
         # done with training and validation for this epoch
@@ -166,9 +165,8 @@ def train_on_artifact_dataset(model: PermutectModel, dataset: FeaturesDataset, t
                 #unfreeze(self.calibration_parameters())  # unfreeze calibration but everything else stays frozen
                 unfreeze(model.final_calibration_shift_parameters())  # unfreeze final calibration shift but everything else stays frozen
 
-            loss_metrics = LossMetrics()    # based on calibrated logits
-            source_prediction_loss_metrics = LossMetrics()  # based on calibrated logits
-            uncalibrated_loss_metrics = LossMetrics()  # based on uncalibrated logits
+            loss_metrics = BatchIndexedAverages(num_sources=num_sources, device=device)   # based on calibrated logits
+            source_prediction_loss_metrics = BatchIndexedAverages(num_sources=num_sources, device=device)  # based on calibrated logits
 
             loader = (calibration_train_loader if epoch_type == Epoch.TRAIN else calibration_valid_loader) if is_calibration_epoch else \
                 (train_loader if epoch_type == Epoch.TRAIN else valid_loader)
@@ -212,12 +210,8 @@ def train_on_artifact_dataset(model: PermutectModel, dataset: FeaturesDataset, t
                 losses = (labeled_losses + unlabeled_losses) * weights + (source_prediction_losses * source_prediction_weights)
                 loss = torch.sum(losses)
 
-                # at this point, losses, weights are on GPU (if available), while metrics are on CPU
-                # if we have done things right, this is okay and record_losses handles GPU <--> CPU efficiently
-                loss_metrics.record_losses(calibrated_cross_entropies.detach(), batch, weights * batch.get_is_labeled_mask())
-                uncalibrated_loss_metrics.record_losses(uncalibrated_cross_entropies.detach(), batch, weights * batch.get_is_labeled_mask())
-                uncalibrated_loss_metrics.record_losses(entropies.detach(), batch, weights * (1 - batch.get_is_labeled_mask()))
-                source_prediction_loss_metrics.record_losses(source_prediction_losses.detach(), batch, source_prediction_weights)
+                loss_metrics.record(batch, labeled_losses + unlabeled_losses, weights)
+                source_prediction_loss_metrics.record(batch, source_prediction_losses, source_prediction_weights)
 
                 # calibration epochs freeze the model up to calibration, so I wonder if a purely unlabeled batch
                 # would cause lack of gradient problems. . .
@@ -225,16 +219,14 @@ def train_on_artifact_dataset(model: PermutectModel, dataset: FeaturesDataset, t
                     backpropagate(train_optimizer, loss)
 
             # done with one epoch type -- training or validation -- for this epoch
-            loss_metrics.write_to_summary_writer(epoch_type, epoch, summary_writer)
-            source_prediction_loss_metrics.write_to_summary_writer(epoch_type, epoch, summary_writer, prefix="source prediction")
-            uncalibrated_loss_metrics.write_to_summary_writer(epoch_type, epoch, summary_writer, prefix="uncalibrated")
+            loss_metrics.write_to_summary_writer(epoch_type, epoch, summary_writer, prefix="semisupervised-loss")
+            source_prediction_loss_metrics.write_to_summary_writer(epoch_type, epoch, summary_writer, prefix="source-loss")
             if epoch_type == Epoch.TRAIN:
-                train_scheduler.step(loss_metrics.get_labeled_loss())
+                mean_over_labels = torch.mean(loss_metrics.get_marginal(BatchProperty.LABEL)).item()
+                train_scheduler.step(mean_over_labels)
 
-            print(f"Losses for {epoch_type.name} epoch {epoch}.")
-            loss_metrics.report_losses("Semisupervised loss.")
-            uncalibrated_loss_metrics.report_losses("Uncalibrated loss.")
-            source_prediction_loss_metrics.report_losses("Source prediction loss.")
+            loss_metrics.report_marginals(f"Semisupervised loss for {epoch_type.name} epoch {epoch}.")
+            source_prediction_loss_metrics.report_marginals(f"Source prediction loss for {epoch_type.name} epoch {epoch}.")
         # done with training and validation for this epoch
         report_memory_usage(f"End of epoch {epoch}.")
         print(f"Time elapsed(s): {time.time() - start_of_epoch:.1f}")
