@@ -22,6 +22,11 @@ def prob_to_logit(prob: float):
     return math.log(clipped_prob / (1 - clipped_prob))
 
 
+def inverse_sigmoid(probs: torch.Tensor) -> torch.Tensor:
+    clipped_probs = 0.5 + 0.9999999 * (probs - 0.5)
+    return torch.log(clipped_probs / (1 - clipped_probs))
+
+
 def log_binomial_coefficient(n: torch.Tensor, k: torch.Tensor):
     return (n + 1).lgamma() - (k + 1).lgamma() - ((n - k) + 1).lgamma()
 

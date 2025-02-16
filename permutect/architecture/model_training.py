@@ -17,12 +17,11 @@ from permutect.data.reads_dataset import ReadsDataset, ALL_COUNTS_INDEX
 from permutect.data.features_batch import FeaturesBatch
 from permutect.data.datum import Datum
 from permutect.data.prefetch_generator import prefetch_generator
-from permutect.metrics.evaluation_metrics import EmbeddingMetrics, round_up_to_nearest_three, MAX_COUNT, \
-    EvaluationMetrics
-from permutect.metrics.loss_metrics import BatchIndexedAverages, BatchProperty
+from permutect.metrics.evaluation_metrics import EmbeddingMetrics, EvaluationMetrics
+from permutect.metrics.loss_metrics import BatchIndexedAverages, BatchProperty, count_bin_index, count_bin_name, \
+    round_count_to_bin_center
 from permutect.parameters import TrainingParameters
-from permutect.misc_utils import report_memory_usage, backpropagate, freeze, \
-    unfreeze
+from permutect.misc_utils import report_memory_usage, backpropagate, freeze, unfreeze
 from permutect.utils.enums import Variation, Epoch, Label
 
 WORST_OFFENDERS_QUEUE_SIZE = 100
@@ -56,8 +55,8 @@ def train_permutect_model(model: PermutectModel, dataset: ReadsDataset, training
         report_memory_usage(f"Start of epoch {epoch}")
         for epoch_type in (Epoch.TRAIN, Epoch.VALID):
             model.set_epoch_type(epoch_type)
-            loss_metrics = BatchIndexedAverages(num_sources=num_sources, device=device)
-            alt_count_loss_metrics = BatchIndexedAverages(num_sources=num_sources, device=device)    # loss on the adversarial task
+            loss_metrics = BatchIndexedAverages(num_sources=num_sources, device=device, include_logits=False)
+            alt_count_loss_metrics = BatchIndexedAverages(num_sources=num_sources, device=device, include_logits=False)    # loss on the adversarial task
 
             loader = train_loader if epoch_type == Epoch.TRAIN else valid_loader
 
@@ -77,14 +76,14 @@ def train_permutect_model(model: PermutectModel, dataset: ReadsDataset, training
                 entropies = bce(uncalibrated_logits, probabilities)
 
                 semisupervised_losses = batch.get_is_labeled_mask() * cross_entropies + (1 - batch.get_is_labeled_mask()) * entropies
-                loss_metrics.record(batch, semisupervised_losses, weights)
+                loss_metrics.record(batch, None, semisupervised_losses, weights)
 
                 # TODO: use nonlinear transformation of counts
                 # TODO: should alt count adversarial losses have label-balancing weights, too? (probably yes)
                 alt_count_pred = torch.sigmoid(model.alt_count_predictor.adversarial_forward(representations).squeeze())
                 alt_count_target = batch.get_alt_counts().to(dtype=alt_count_pred.dtype)/20
                 alt_count_losses = alt_count_loss_func(alt_count_pred, alt_count_target)
-                alt_count_loss_metrics.record(batch, values=alt_count_losses, weights=torch.ones_like(alt_count_losses))
+                alt_count_loss_metrics.record(batch, logits=None, values=alt_count_losses, weights=torch.ones_like(alt_count_losses))
 
                 loss = torch.sum((weights * semisupervised_losses) + alt_count_losses)
 
@@ -165,8 +164,8 @@ def train_on_artifact_dataset(model: PermutectModel, dataset: FeaturesDataset, t
                 #unfreeze(self.calibration_parameters())  # unfreeze calibration but everything else stays frozen
                 unfreeze(model.final_calibration_shift_parameters())  # unfreeze final calibration shift but everything else stays frozen
 
-            loss_metrics = BatchIndexedAverages(num_sources=num_sources, device=device)   # based on calibrated logits
-            source_prediction_loss_metrics = BatchIndexedAverages(num_sources=num_sources, device=device)  # based on calibrated logits
+            loss_metrics = BatchIndexedAverages(num_sources=num_sources, device=device, include_logits=False)   # based on calibrated logits
+            source_prediction_loss_metrics = BatchIndexedAverages(num_sources=num_sources, device=device, include_logits=False)  # based on calibrated logits
 
             loader = (calibration_train_loader if epoch_type == Epoch.TRAIN else calibration_valid_loader) if is_calibration_epoch else \
                 (train_loader if epoch_type == Epoch.TRAIN else valid_loader)
@@ -210,8 +209,8 @@ def train_on_artifact_dataset(model: PermutectModel, dataset: FeaturesDataset, t
                 losses = (labeled_losses + unlabeled_losses) * weights + (source_prediction_losses * source_prediction_weights)
                 loss = torch.sum(losses)
 
-                loss_metrics.record(batch, labeled_losses + unlabeled_losses, weights)
-                source_prediction_loss_metrics.record(batch, source_prediction_losses, source_prediction_weights)
+                loss_metrics.record(batch, None, labeled_losses + unlabeled_losses, weights)
+                source_prediction_loss_metrics.record(batch, None, source_prediction_losses, source_prediction_weights)
 
                 # calibration epochs freeze the model up to calibration, so I wonder if a purely unlabeled batch
                 # would cause lack of gradient problems. . .
@@ -240,11 +239,11 @@ def train_on_artifact_dataset(model: PermutectModel, dataset: FeaturesDataset, t
 
 @torch.inference_mode()
 def collect_evaluation_data(model: PermutectModel, dataset: FeaturesDataset, train_loader, valid_loader, report_worst: bool):
-    # the keys are tuples of (true label -- 1 for variant, 0 for artifact; rounded alt count)
-    worst_offenders_by_truth_and_alt_count = defaultdict(lambda: PriorityQueue(WORST_OFFENDERS_QUEUE_SIZE))
+    # the keys are tuples of (Label; rounded alt count)
+    worst_offenders_by_label_and_alt_count = defaultdict(lambda: PriorityQueue(WORST_OFFENDERS_QUEUE_SIZE))
 
     balancer = Balancer(dataset).to(device=model._device, dtype=model._dtype)
-    evaluation_metrics = EvaluationMetrics()
+    evaluation_metrics = EvaluationMetrics(num_sources=dataset.totals_sclt.shape[0], device=model._device)
     epoch_types = [Epoch.TRAIN, Epoch.VALID]
     for epoch_type in epoch_types:
         assert epoch_type == Epoch.TRAIN or epoch_type == Epoch.VALID  # not doing TEST here
@@ -253,42 +252,33 @@ def collect_evaluation_data(model: PermutectModel, dataset: FeaturesDataset, tra
         batch: FeaturesBatch
         for batch in tqdm(prefetch_generator(loader), mininterval=60, total=len(loader)):
             # these are the same weights used in training
-            # TODO: we need a parameter to control the relative weight of unlabeled loss to labeled loss
-            weights = balancer.calculate_batch_weights(batch).cpu()     # not on GPU!
-
+            weights = balancer.calculate_batch_weights(batch)
             logits, _ = model.logits_from_features_batch(batch)
-            # logits are calculated on the GPU (when available), so we must detach AND send back to CPU (if applicable)
-            pred = logits.detach().cpu()
+            evaluation_metrics.record_batch(epoch_type, batch, logits, weights)
 
-            labels = batch.get_training_labels().cpu()
-            correct = ((pred > 0) == (labels > 0.5)).tolist()
+            if report_worst:
+                for datum_array, predicted_logit in zip(batch.get_data_2d(), logits.detach().cpu().tolist()):
+                    datum = Datum(datum_array)
+                    wrong_call = (datum.get_label() == Label.ARTIFACT and predicted_logit < 0) or \
+                                 (datum.get_label() == Label.VARIANT and predicted_logit > 0)
+                    if wrong_call:
+                        alt_count = datum.get_alt_count()
+                        rounded_count = round_count_to_bin_center(alt_count)
+                        confidence = abs(predicted_logit)
 
-            for datum_array, predicted_logit, correct_call, weight in zip(batch.get_data_2d(),
-                    pred.tolist(), correct, weights.tolist()):
-                datum = Datum(datum_array)
-                label = Label(datum.get_label())
-                alt_count = datum.get_alt_count()
-                evaluation_metrics.record_call(epoch_type, datum.get_variant_type(), predicted_logit, label, correct_call,
-                                               alt_count, weight, source=datum.get_source())
+                        # the 0th aka highest priority element in the queue is the one with the lowest confidence
+                        pqueue = worst_offenders_by_label_and_alt_count[(Label(datum.get_label()), rounded_count)]
 
-                if (label != Label.UNLABELED) and report_worst and not correct_call:
-                    rounded_count = round_up_to_nearest_three(alt_count)
-                    label_name = Label.ARTIFACT.name if label > 0.5 else Label.VARIANT.name
-                    confidence = abs(predicted_logit)
+                        # clear space if this confidence is more egregious
+                        if pqueue.full() and pqueue.queue[0][0] < confidence:
+                            pqueue.get()  # discards the least confident bad call
 
-                    # the 0th aka highest priority element in the queue is the one with the lowest confidence
-                    pqueue = worst_offenders_by_truth_and_alt_count[(label_name, rounded_count)]
-
-                    # clear space if this confidence is more egregious
-                    if pqueue.full() and pqueue.queue[0][0] < confidence:
-                        pqueue.get()  # discards the least confident bad call
-
-                    if not pqueue.full():  # if space was cleared or if it wasn't full already
-                        pqueue.put((confidence, str(datum.get_contig()) + ":" + str(
-                            datum.get_position()) + ':' + datum.get_ref_allele() + "->" + datum.get_alt_allele()))
+                        if not pqueue.full():  # if space was cleared or if it wasn't full already
+                            pqueue.put((confidence, str(datum.get_contig()) + ":" + str(
+                                datum.get_position()) + ':' + datum.get_ref_allele() + "->" + datum.get_alt_allele()))
         # done with this epoch type
     # done collecting data
-    return evaluation_metrics, worst_offenders_by_truth_and_alt_count
+    return evaluation_metrics, worst_offenders_by_label_and_alt_count
 
 
 @torch.inference_mode()
@@ -296,12 +286,12 @@ def evaluate_model(model: PermutectModel, epoch: int, dataset: FeaturesDataset, 
                    summary_writer: SummaryWriter, collect_embeddings: bool = False, report_worst: bool = False):
 
     # self.freeze_all()
-    evaluation_metrics, worst_offenders_by_truth_and_alt_count = collect_evaluation_data(model, dataset, train_loader, valid_loader, report_worst)
+    evaluation_metrics, worst_offenders_by_label_and_alt_count = collect_evaluation_data(model, dataset, train_loader, valid_loader, report_worst)
     evaluation_metrics.make_plots(summary_writer, epoch=epoch)
 
     if report_worst:
-        for (true_label, rounded_count), pqueue in worst_offenders_by_truth_and_alt_count.items():
-            tag = "True label: " + true_label + ", rounded alt count: " + str(rounded_count)
+        for (true_label, rounded_count), pqueue in worst_offenders_by_label_and_alt_count.items():
+            tag = f"True label: {true_label.name}, rounded alt count: {rounded_count}"
 
             lines = []
             while not pqueue.empty():   # this goes from least to most egregious, FYI
@@ -332,7 +322,7 @@ def evaluate_model(model: PermutectModel, epoch: int, dataset: FeaturesDataset, 
                 metrics.label_metadata.extend(label_strings)
                 metrics.correct_metadata.extend(correct_strings)
                 metrics.type_metadata.extend([Variation(idx).name for idx in batch.get_variant_types().cpu().tolist()])
-                metrics.truncated_count_metadata.extend([str(round_up_to_nearest_three(min(MAX_COUNT, alt_count))) for alt_count in batch.get_alt_counts().cpu().tolist()])
+                metrics.truncated_count_metadata.extend([count_bin_name(count_bin_index(alt_count)) for alt_count in batch.get_alt_counts().cpu().tolist()])
                 metrics.representations.append(embedding)
         embedding_metrics.output_to_summary_writer(summary_writer, epoch=epoch)
     # done collecting data
