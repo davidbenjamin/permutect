@@ -17,7 +17,7 @@ class Balancer(Module):
         # assign weight T/C -- then effective count is (T/C)*C = T, which is independent of label
         # we therefore need sums along certain axes:
         totals_slva = dataset.totals.get_marginal((BatchProperty.SOURCE, BatchProperty.LABEL, BatchProperty.VARIANT_TYPE, BatchProperty.ALT_COUNT_BIN))
-        totals_sva = self.totals.get_marginal((BatchProperty.SOURCE, BatchProperty.VARIANT_TYPE, BatchProperty.ALT_COUNT_BIN))
+        totals_sva = dataset.totals.get_marginal((BatchProperty.SOURCE, BatchProperty.VARIANT_TYPE, BatchProperty.ALT_COUNT_BIN))
         labeled_totals_sva = totals_sva - totals_slva[:, Label.UNLABELED, :, :]
         totals_va = torch.sum(totals_sva, dim=0)  # sum over label and source for source-balancing
         labeled_total = torch.sum(labeled_totals_sva)
@@ -49,7 +49,7 @@ class Balancer(Module):
         # the average supervised count has been normalized to 1 so the total supervised weight is just the total labeled
         # count.
         total_source_balancing_weight = torch.sum(totals_sva * source_balancing_weights_sva)
-        source_balancing_weights_sva = self.source_balancing_weights_sva * labeled_total / total_source_balancing_weight
+        source_balancing_weights_sva = source_balancing_weights_sva * labeled_total / total_source_balancing_weight
 
         # imbalanced unlabeled data can exert a bias just like labeled data.  These parameters keep track of the proportion
         # of unlabeled data that seem to be artifacts in order to weight losses appropriately.  Each source, count, and

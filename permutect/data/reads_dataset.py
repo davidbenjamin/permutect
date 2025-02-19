@@ -111,12 +111,12 @@ class ReadsDataset(Dataset):
         return list(range(self.num_folds))
 
     def validate_sources(self) -> int:
-        num_sources = len(self.num_sources())
+        num_sources = self.num_sources()
         totals_by_source_s = self.totals.get_marginal((BatchProperty.SOURCE, ))
         if num_sources == 1:
             print("Data come from a single source")
         else:
-            for source in range(num_sources):
+            for source in range(self.num_sources):
                 assert totals_by_source_s[source].item() >= 1, f"No data for source {source}."
             print(f"Data come from multiple sources, with counts {totals_by_source_s.cpu().tolist()}.")
         return num_sources
