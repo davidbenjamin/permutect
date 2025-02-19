@@ -182,8 +182,22 @@ class ReadsDataset(Dataset):
     def all_folds(self):
         return list(range(self.num_folds))
 
-    def make_data_loader(self, folds_to_use: List[int], batch_size: int, pin_memory=False, num_workers: int = 0, sources_to_use: List[int] = None):
-        sampler = SemiSupervisedBatchSampler(self, batch_size, folds_to_use, sources_to_use)
+    def validate_sources(self) -> int:
+        num_sources = len(self.counts_by_source.keys())
+        if num_sources == 1:
+            print("Data come from a single source")
+        else:
+            sources_list = list(self.counts_by_source.keys())
+            sources_list.sort()
+            assert sources_list[0] == 0, "There is no source 0"
+            assert sources_list[1] == num_sources - 1, f"sources should be 0, 1, 2. . . without gaps, but sources are {sources_list}."
+
+            print(f"Data come from multiple sources, with counts {self.counts_by_source}.")
+        return num_sources
+
+    def make_data_loader(self, folds_to_use: List[int], batch_size: int, pin_memory=False, num_workers: int = 0,
+                         sources_to_use: List[int] = None, labeled_only: bool = False):
+        sampler = SemiSupervisedBatchSampler(self, batch_size, folds_to_use, sources_to_use, labeled_only)
         return DataLoader(dataset=self, batch_sampler=sampler, collate_fn=ReadsBatch, pin_memory=pin_memory, num_workers=num_workers)
 
     def make_train_and_valid_loaders(self, validation_fold: int, batch_size: int, is_cuda: bool, num_workers: int, sources_to_use: List[int] = None):
@@ -223,16 +237,18 @@ def chunk(lis, chunk_size):
 # the artifact model handles weighting the losses to compensate for class imbalance between supervised and unsupervised
 # thus the sampler is not responsible for balancing the data
 class SemiSupervisedBatchSampler(Sampler):
-    def __init__(self, dataset: ReadsDataset, batch_size, folds_to_use: List[int], sources_to_use: List[int] = None):
+    def __init__(self, dataset: ReadsDataset, batch_size: int, folds_to_use: List[int],
+                 sources_to_use: List[int] = None, labeled_only: bool = False):
         # combine the index maps of all relevant folds
         self.indices_to_use = []
         source_set = None if sources_to_use is None else set(sources_to_use)
         for fold in folds_to_use:
-            indices_in_fold = dataset.indices_by_fold[fold]
+            indices_in_fold = dataset.indices_by_fold[fold] if not labeled_only else \
+                [idx for idx in dataset.indices_by_fold[fold] if dataset[idx].get_label() != Label.UNLABELED]
             if sources_to_use is None:
                 source_indices_in_fold = indices_in_fold
             else:
-                source_indices_in_fold = [idx for idx in indices_in_fold if dataset[idx].source in source_set]
+                source_indices_in_fold = [idx for idx in indices_in_fold if dataset[idx].get_source() in source_set]
 
             self.indices_to_use.extend(source_indices_in_fold)
 

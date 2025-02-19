@@ -4,7 +4,7 @@ import tarfile
 import tempfile
 from typing import List
 
-from permutect.architecture.model_training import train_on_artifact_dataset
+from permutect.architecture.model_training import refine_permutect_model
 from permutect.architecture.permutect_model import PermutectModel, load_model
 from tqdm.autonotebook import tqdm
 
@@ -13,8 +13,6 @@ import torch
 from torch.utils.tensorboard import SummaryWriter
 
 from permutect import constants
-from permutect.data.datum import Datum
-from permutect.data.features_dataset import FeaturesDataset
 from permutect.data.reads_batch import ReadsBatch
 from permutect.data.reads_datum import ReadsDatum
 from permutect.data.prefetch_generator import prefetch_generator
@@ -36,10 +34,12 @@ def calculate_pruning_thresholds(labeled_only_pruning_loader, model: PermutectMo
         # the 0th/1st element is a list of predicted probabilities that data labeled as non-artifact/artifact are actually non-artifact/artifact
         probs_of_agreeing_with_label = [[],[]]
         print("calculating average confidence and gathering predicted probabilities")
+        batch: ReadsBatch
         for batch in tqdm(prefetch_generator(labeled_only_pruning_loader), mininterval=60, total=len(labeled_only_pruning_loader)):
             # TODO: should we use likelihoods as in evaluation or posteriors as in training???
             # TODO: does it even matter??
-            art_logits, _ = model.logits_from_features_batch(batch)
+            representations, _ = model.calculate_representations(batch, weight_range=model._params.reweighting_range)
+            art_logits, _ = model.logits_from_reads_batch(representations, batch)
             art_probs = torch.sigmoid(art_logits.detach())
 
             labels = batch.get_training_labels()
@@ -60,7 +60,8 @@ def calculate_pruning_thresholds(labeled_only_pruning_loader, model: PermutectMo
         art_conf_threshold = average_artifact_confidence.get()
         nonart_conf_threshold = average_nonartifact_confidence.get()
         for batch in tqdm(prefetch_generator(labeled_only_pruning_loader), mininterval=60, total=len(labeled_only_pruning_loader)):
-            predicted_artifact_logits, _ = model.logits_from_features_batch(batch)
+            representations, _ = model.calculate_representations(batch, weight_range=model._params.reweighting_range)
+            predicted_artifact_logits, _ = model.logits_from_reads_batch(representations, batch)
             predicted_artifact_probs = torch.sigmoid(predicted_artifact_logits.detach())
 
             conf_art_mask = predicted_artifact_probs >= art_conf_threshold
@@ -129,7 +130,7 @@ def generated_pruned_data_for_fold(art_threshold: float, nonart_threshold: float
                 yield datum # this is a ReadSet
 
 
-def generate_pruned_data_for_all_folds(base_dataset: ReadsDataset, model: PermutectModel, training_params: TrainingParameters, tensorboard_dir):
+def generate_pruned_data_for_all_folds(dataset: ReadsDataset, model: PermutectModel, training_params: TrainingParameters, tensorboard_dir):
     # for each fold in turn, train an artifact model on all other folds and prune the chosen fold
     use_gpu = torch.cuda.is_available()
 
@@ -137,27 +138,22 @@ def generate_pruned_data_for_all_folds(base_dataset: ReadsDataset, model: Permut
         summary_writer = SummaryWriter(tensorboard_dir + "/fold_" + str(pruning_fold))
         report_memory_usage(f"Pruning data from fold {pruning_fold} of {NUM_FOLDS}.")
 
-        # learn an artifact model with the pruning data held out
-        artifact_dataset = FeaturesDataset(base_dataset, model, base_dataset.all_but_one_fold(pruning_fold))
-
         # sum is over variant types
         # TODO: this assumes we are only pruning a single-source (source == 0) dataset
         # TODO: also -- is the -1 wrong?  I feel like it should be the ALL_COUNTS_SENTINEL, which is 0. . .
-        label_art_frac = np.sum(artifact_dataset.totals_sclt[0][-1][Label.ARTIFACT]) / np.sum(artifact_dataset.totals_sclt[0][-1][Label.ARTIFACT] +
-                                                                                           artifact_dataset.totals_sclt[0][-1][Label.VARIANT])
+        label_art_frac = np.sum(dataset.totals_sclt[0][-1][Label.ARTIFACT]) / np.sum(dataset.totals_sclt[0][-1][Label.ARTIFACT] +
+                            dataset.totals_sclt[0][-1][Label.VARIANT])
 
-        # learn pruning thresholds on the held-out data
-        pruning_artifact_dataset = FeaturesDataset(base_dataset, model, [pruning_fold])
-        labeled_only_pruning_loader = pruning_artifact_dataset.make_data_loader(pruning_artifact_dataset.all_folds(),
-            training_params.batch_size, use_gpu, training_params.num_workers, labeled_only=True)
-
-        train_on_artifact_dataset(model, artifact_dataset, training_params, summary_writer=summary_writer)
+        refine_permutect_model(model, dataset, training_params, summary_writer=summary_writer, training_folds=[pruning_fold])
 
         # TODO: maybe this should be done by variant type and/or count
+        # learn pruning thresholds on the held-out data
+        labeled_only_pruning_loader = dataset.make_data_loader([pruning_fold], training_params.batch_size, use_gpu,
+                                                               training_params.num_workers, labeled_only=True)
         art_threshold, nonart_threshold = calculate_pruning_thresholds(labeled_only_pruning_loader, model, label_art_frac, training_params)
 
         # unlike when learning thresholds, we load labeled and unlabeled data here
-        pruning_base_data_loader = base_dataset.make_data_loader([pruning_fold], training_params.batch_size, use_gpu, training_params.num_epochs)
+        pruning_base_data_loader = dataset.make_data_loader([pruning_fold], training_params.batch_size, use_gpu, training_params.num_epochs)
         for passing_reads_datum in generated_pruned_data_for_fold(art_threshold, nonart_threshold, pruning_base_data_loader, model):
             yield passing_reads_datum
 
