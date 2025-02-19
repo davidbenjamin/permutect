@@ -116,7 +116,7 @@ class ReadsDataset(Dataset):
         if num_sources == 1:
             print("Data come from a single source")
         else:
-            for source in range(self.num_sources):
+            for source in range(self.num_sources()):
                 assert totals_by_source_s[source].item() >= 1, f"No data for source {source}."
             print(f"Data come from multiple sources, with counts {totals_by_source_s.cpu().tolist()}.")
         return num_sources
