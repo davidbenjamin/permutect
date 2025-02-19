@@ -62,7 +62,7 @@ class BatchIndexedTotals:
         source = datum.get_source()
         if source >= self.num_sources:
             if grow_source_if_necessary:
-                self.resize_sources(source - 1)
+                self.resize_sources(source + 1)
             else:
                 raise Exception("Datum source doesn't fit.")
         # no logits here
