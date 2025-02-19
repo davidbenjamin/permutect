@@ -109,7 +109,6 @@ def train_permutect_model(model: PermutectModel, dataset: ReadsDataset, training
     record_embeddings(model, train_loader, summary_writer)
 
 
-# TODO: dataset has been switched from FeaturesDataset to ReadsDataset -- need to update everywhere this is called
 def refine_permutect_model(model: PermutectModel, dataset: ReadsDataset, training_params: TrainingParameters, summary_writer: SummaryWriter,
                            validation_fold: int = None, training_folds: List[int] = None, epochs_per_evaluation: int = None, calibration_sources: List[int] = None):
     device, dtype = model._device, model._dtype
@@ -117,22 +116,14 @@ def refine_permutect_model(model: PermutectModel, dataset: ReadsDataset, trainin
     balancer = Balancer(dataset, learning_rate=training_params.learning_rate).to(device=device, dtype=dtype)
 
     num_sources = dataset.validate_sources()
+    dataset.report_totals()
     model.reset_source_predictor(num_sources)
+    is_cuda = device.type == 'cuda'
+    print(f"Is CUDA available? {is_cuda}")
 
     train_optimizer = torch.optim.AdamW(model.parameters(), lr=training_params.learning_rate, weight_decay=training_params.weight_decay)
     train_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(train_optimizer, factor=0.2, patience=5,
         threshold=0.001, min_lr=(training_params.learning_rate / 100), verbose=True)
-
-    num_sources = len(dataset.totals_sclt)
-    for source in range(num_sources):
-        print(f"Data counts for source {source}:")
-        for var_type in Variation:
-            print(f"Data counts for variant type {var_type.name}:")
-            for label in Label:
-                print(f"{label.name}: {int(dataset.totals_sclt[source][ALL_COUNTS_INDEX][label][var_type].item())}")
-
-    is_cuda = device.type == 'cuda'
-    print(f"Is CUDA available? {is_cuda}")
 
     validation_fold_to_use = (dataset.num_folds - 1) if validation_fold is None else validation_fold
     training_folds_to_use = dataset.all_but_one_fold(validation_fold_to_use) if training_folds is None else training_folds
@@ -250,7 +241,7 @@ def collect_evaluation_data(model: PermutectModel, dataset: ReadsDataset, train_
     worst_offenders_by_label_and_alt_count = defaultdict(lambda: PriorityQueue(WORST_OFFENDERS_QUEUE_SIZE))
 
     balancer = Balancer(dataset).to(device=model._device, dtype=model._dtype)
-    evaluation_metrics = EvaluationMetrics(num_sources=dataset.totals_sclt.shape[0], device=model._device)
+    evaluation_metrics = EvaluationMetrics(num_sources=dataset.num_sources(), device=model._device)
     epoch_types = [Epoch.TRAIN, Epoch.VALID]
     for epoch_type in epoch_types:
         assert epoch_type == Epoch.TRAIN or epoch_type == Epoch.VALID  # not doing TEST here
