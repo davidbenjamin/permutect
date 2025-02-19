@@ -15,7 +15,7 @@ from permutect.data.datum import DEFAULT_GPU_FLOAT, DEFAULT_CPU_FLOAT
 from permutect.data.posterior_data import PosteriorBatch
 from permutect.data.prefetch_generator import prefetch_generator
 from permutect.metrics import plotting
-from permutect.metrics.loss_metrics import count_from_bin_index, NUM_ALT_COUNT_BINS, count_bin_index
+from permutect.data.count_binning import NUM_ALT_COUNT_BINS, count_from_bin_index, count_bin_index
 from permutect.misc_utils import StreamingAverage, gpu_if_available, backpropagate
 from permutect.utils.stats_utils import beta_binomial_log_lk
 from permutect.utils.enums import Variation, Call

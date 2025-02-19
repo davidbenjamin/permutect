@@ -5,7 +5,7 @@ from typing import List
 
 
 # one or more simple plots of y data vs x data on shared axes
-from permutect.metrics.loss_metrics import LOGIT_BIN_SKIP
+from permutect.data.count_binning import LOGIT_BIN_SKIP
 
 
 def simple_plot(x_y_lab_tuples, x_label, y_label, title):

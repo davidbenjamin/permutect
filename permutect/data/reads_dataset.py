@@ -4,18 +4,17 @@ import psutil
 import random
 import tarfile
 import tempfile
-from collections import defaultdict
 from typing import Iterable, List
 
-import numpy as np
 import torch
 from torch.utils.data import Dataset, DataLoader
 from torch.utils.data.sampler import Sampler
 
 from mmap_ninja.ragged import RaggedMmap
+from permutect.data.count_binning import cap_ref_count
 from permutect.data.reads_datum import ReadsDatum
 from permutect.data.reads_batch import ReadsBatch
-from permutect.misc_utils import MutableInt
+from permutect.metrics.loss_metrics import BatchIndexedTotals, BatchProperty
 from permutect.utils.enums import Variation, Label
 
 TENSORS_PER_BASE_DATUM = 2  # 1) 2D reads (ref and alt), 1) 1D concatenated stuff
@@ -23,7 +22,6 @@ TENSORS_PER_BASE_DATUM = 2  # 1) 2D reads (ref and alt), 1) 1D concatenated stuf
 # tarfiles on disk take up about 4x as much as the dataset on RAM
 TARFILE_TO_RAM_RATIO = 4
 
-ALL_COUNTS_INDEX = 0
 
 WEIGHT_PSEUDOCOUNT = 10
 
@@ -32,25 +30,13 @@ def ratio_with_pseudocount(a, b):
     return (a + WEIGHT_PSEUDOCOUNT) / (b + WEIGHT_PSEUDOCOUNT)
 
 
-MAX_REF_COUNT = 10
-MAX_ALT_COUNT = 15
-
-
-# round down to the largest discrete ref count less than or equal to a given count
-def cap_ref_count(ref_count: int) -> int:
-    return min(ref_count, MAX_REF_COUNT)
-
-
-def cap_alt_count(alt_count: int) -> int:
-    return min(alt_count, MAX_ALT_COUNT)
-
-
 class ReadsDataset(Dataset):
     def __init__(self, data_in_ram: Iterable[ReadsDatum] = None, data_tarfile=None, num_folds: int = 1):
         super(ReadsDataset, self).__init__()
         assert data_in_ram is not None or data_tarfile is not None, "No data given"
         assert data_in_ram is None or data_tarfile is None, "Data given from both RAM and tarfile"
         self.num_folds = num_folds
+        self.totals = BatchIndexedTotals(num_sources=1, device=torch.device('cpu'), include_logits=False)   # on CPU
 
         if data_in_ram is not None:
             self._data = data_in_ram
@@ -80,73 +66,11 @@ class ReadsDataset(Dataset):
         # this is used in the batch sampler to make same-shape batches
         self.indices_by_fold = [[] for _ in range(num_folds)]
 
-        # determine the maximum count and source in order to allocate arrays
-        max_count = 0
-        self.max_source = 0
-        datum: ReadsDatum
-        for datum in self:
-            max_count = max(datum.get_alt_count(), max_count)
-            self.max_source = max(datum.get_source(), self.max_source)
-
-        # totals by source, count, label, variant type
-        # we use a sentinel count value of 0 to denote aggregation over all counts
-        self.totals_sclt = np.zeros((self.max_source + 1, max_count + 1, len(Label), len(Variation)))
-
-        self.counts_by_source = defaultdict(lambda: MutableInt()) # amount of data for each source (which is an integer key)
-
         for n, datum in enumerate(self):
-            source = datum.get_source()
-            self.counts_by_source[source].increment()
-
+            self.totals.record_datum(datum)
             fold = n % num_folds
             self.indices_by_fold[fold].append(n)
 
-            variant_type_idx = datum.get_variant_type()
-            self.totals_sclt[source][ALL_COUNTS_INDEX][datum.get_label()][variant_type_idx] += 1
-            self.totals_sclt[source][datum.get_alt_count()][datum.get_label()][variant_type_idx] += 1
-
-        # general balancing idea: if total along some axis eg label is T and count for one particular label is C,
-        # assign weight T/C -- then effective count is (T/C)*C = T, which is independent of label
-        # we therefore need sums along certain axes:
-        totals_sct = np.sum(self.totals_sclt, axis=2)  # sum over label for label-balancing
-        labeled_totals_sct = totals_sct - self.totals_sclt[:, :, Label.UNLABELED, :]
-        totals_ct = np.sum(totals_sct, axis=0)  # sum over label and source for source-balancing
-        labeled_total = np.sum(labeled_totals_sct)
-
-        # note: count == 0 (which never occurs as a real alt count) means aggregation over all alt counts
-        # thus if we ever sum over count (which we currently don't do), make sure to exclude count == 0
-
-        self.label_balancing_weights_sclt = ratio_with_pseudocount(labeled_totals_sct[:, :, None, :], self.totals_sclt)
-
-        # next we want to normalize so that the average weight encountered on labeled data is 1 -- this way the learning rate
-        # parameter has a fixed meaning.
-        total_weight = np.sum(self.totals_sclt * self.label_balancing_weights_sclt)
-        total_supervised_weight = total_weight - np.sum(self.totals_sclt[:, :, Label.UNLABELED, :] * self.label_balancing_weights_sclt[:, :, Label.UNLABELED, :])
-        average_supervised_weight = total_supervised_weight / labeled_total
-
-        # after the following line, average label-balancing weight encountered on labeled data is 1
-        self.label_balancing_weights_sclt = self.label_balancing_weights_sclt / average_supervised_weight
-
-        # the balancing process can reduce the influence of unlabeled data to match that of labeled data, but we don't want to
-        # weight it strongly when there's little unlabeled data.  That is, if we have plenty of labeled data we are happy with
-        # supervised learning!
-        self.label_balancing_weights_sclt[:, :, Label.UNLABELED, :] = \
-            np.clip(self.label_balancing_weights_sclt[:, :, Label.UNLABELED, :], 0, 1)
-
-        # at this point, average labeled weight is 1 and weights balance artifacts with non-artifacts for each combination
-        # of source, count, and variant type
-
-        # weights for adversarial source prediction task.  Balance over sources for each count and variant type
-        self.source_balancing_weights_sct = ratio_with_pseudocount(totals_ct[None, :, :], totals_sct)
-
-        # we now normalize the source balancing weight to have the same total weights as supervised learning
-        # the average supervised count has been normalized to 1 so the total supervised weight is just the total labeled
-        # count.
-        total_source_balancing_weight = np.sum(totals_sct * self.source_balancing_weights_sct)
-        self.source_balancing_weights_sct = self.source_balancing_weights_sct * labeled_total / total_source_balancing_weight
-
-        self.label_balancing_weights_sclt = torch.from_numpy(self.label_balancing_weights_sclt)
-        self.source_balancing_weights_sct = torch.from_numpy(self.source_balancing_weights_sct)
         self.num_read_features = self[0].get_reads_2d().shape[1]
         self.num_info_features = len(self[0].get_info_1d())
         self.haplotypes_length = len(self[0].get_haplotypes_1d())
@@ -161,13 +85,17 @@ class ReadsDataset(Dataset):
         else:
             return self._data[index]
 
+    def num_sources(self) -> int:
+        return self.totals.num_sources
+
     def report_totals(self):
-        for source in range(self.max_source + 1):
+        totals_slv = self.totals.get_marginal((BatchProperty.SOURCE, BatchProperty.LABEL, BatchProperty.VARIANT_TYPE))
+        for source in range(len(totals_slv)):
             print(f"Data counts for source {source}:")
             for var_type in Variation:
                 print(f"Data counts for variant type {var_type.name}:")
                 for label in Label:
-                    print(f"{label.name}: {int(self.totals_sclt[source][ALL_COUNTS_INDEX][label][var_type].item())}")
+                    print(f"{label.name}: {int(totals_slv[source, label, var_type].item())}")
 
     # it is often convenient to arbitrarily use the last fold for validation
     def last_fold_only(self):
@@ -183,16 +111,14 @@ class ReadsDataset(Dataset):
         return list(range(self.num_folds))
 
     def validate_sources(self) -> int:
-        num_sources = len(self.counts_by_source.keys())
+        num_sources = self.num_sources()
+        totals_by_source_s = self.totals.get_marginal((BatchProperty.SOURCE, ))
         if num_sources == 1:
             print("Data come from a single source")
         else:
-            sources_list = list(self.counts_by_source.keys())
-            sources_list.sort()
-            assert sources_list[0] == 0, "There is no source 0"
-            assert sources_list[1] == num_sources - 1, f"sources should be 0, 1, 2. . . without gaps, but sources are {sources_list}."
-
-            print(f"Data come from multiple sources, with counts {self.counts_by_source}.")
+            for source in range(self.num_sources()):
+                assert totals_by_source_s[source].item() >= 1, f"No data for source {source}."
+            print(f"Data come from multiple sources, with counts {totals_by_source_s.cpu().tolist()}.")
         return num_sources
 
     def make_data_loader(self, folds_to_use: List[int], batch_size: int, pin_memory=False, num_workers: int = 0,

@@ -16,7 +16,7 @@ from permutect.data.datum import DEFAULT_GPU_FLOAT, DEFAULT_CPU_FLOAT
 from permutect.data.reads_batch import ReadsBatch
 from permutect.data.prefetch_generator import prefetch_generator
 from permutect.metrics.evaluation_metrics import EmbeddingMetrics
-from permutect.metrics.loss_metrics import count_bin_index, count_bin_name
+from permutect.data.count_binning import count_bin_index, count_bin_name
 from permutect.parameters import ModelParameters
 from permutect.sets.ragged_sets import RaggedSets
 from permutect.misc_utils import unfreeze, freeze, gpu_if_available
