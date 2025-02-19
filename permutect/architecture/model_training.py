@@ -1,4 +1,5 @@
 import math
+import random
 import time
 from collections import defaultdict
 from queue import PriorityQueue
@@ -58,36 +59,38 @@ def train_permutect_model(model: PermutectModel, dataset: ReadsDataset, training
 
             loader = train_loader if epoch_type == Epoch.TRAIN else valid_loader
 
-            for original_batch in tqdm(prefetch_generator(loader), mininterval=60, total=len(loader)):
-                batch = DownsampledReadsBatch(original_batch)
-                # TODO: use the weight-balancing scheme that artifact model training uses
-                weights = balancer.calculate_batch_weights(batch)
+            for parent_batch in tqdm(prefetch_generator(loader), mininterval=60, total=len(loader)):
+                ref_frac, alt_frac = random.random(), random.random()
+                for downsample in (False, True):
+                    batch = DownsampledReadsBatch(parent_batch, ref_frac, alt_frac) if downsample else parent_batch
+                    # TODO: use the weight-balancing scheme that artifact model training uses
+                    weights = balancer.calculate_batch_weights(batch)
 
-                representations, _ = model.calculate_representations(batch, weight_range=model._params.reweighting_range)
-                calibrated_logits, uncalibrated_logits = model.logits_from_reads_batch(representations, batch)
+                    representations, _ = model.calculate_representations(batch, weight_range=model._params.reweighting_range)
+                    calibrated_logits, uncalibrated_logits = model.logits_from_reads_batch(representations, batch)
 
-                # TODO: code duplication with artifact model training
-                # TODO: should we use calibrated logits?
-                # base batch always has labels, but for unlabeled elements these labels are meaningless and is_labeled_mask is zero
-                cross_entropies = bce(uncalibrated_logits, batch.get_training_labels())
-                probabilities = torch.sigmoid(uncalibrated_logits)
-                entropies = bce(uncalibrated_logits, probabilities)
+                    # TODO: code duplication with artifact model training
+                    # TODO: should we use calibrated logits?
+                    # base batch always has labels, but for unlabeled elements these labels are meaningless and is_labeled_mask is zero
+                    cross_entropies = bce(uncalibrated_logits, batch.get_training_labels())
+                    probabilities = torch.sigmoid(uncalibrated_logits)
+                    entropies = bce(uncalibrated_logits, probabilities)
 
-                semisupervised_losses = batch.get_is_labeled_mask() * cross_entropies + (1 - batch.get_is_labeled_mask()) * entropies
-                loss_metrics.record(batch, None, semisupervised_losses, weights)
+                    semisupervised_losses = batch.get_is_labeled_mask() * cross_entropies + (1 - batch.get_is_labeled_mask()) * entropies
+                    loss_metrics.record(batch, None, semisupervised_losses, weights)
 
-                # TODO: use nonlinear transformation of counts
-                # TODO: should alt count adversarial losses have label-balancing weights, too? (probably yes)
-                alt_count_pred = torch.sigmoid(model.alt_count_predictor.adversarial_forward(representations).squeeze())
-                alt_count_target = batch.get_alt_counts().to(dtype=alt_count_pred.dtype)/20
-                alt_count_losses = alt_count_loss_func(alt_count_pred, alt_count_target)
-                alt_count_loss_metrics.record(batch, logits=None, values=alt_count_losses, weights=torch.ones_like(alt_count_losses))
+                    # TODO: use nonlinear transformation of counts
+                    # TODO: should alt count adversarial losses have label-balancing weights, too? (probably yes)
+                    alt_count_pred = torch.sigmoid(model.alt_count_predictor.adversarial_forward(representations).squeeze())
+                    alt_count_target = batch.get_alt_counts().to(dtype=alt_count_pred.dtype)/20
+                    alt_count_losses = alt_count_loss_func(alt_count_pred, alt_count_target)
+                    alt_count_loss_metrics.record(batch, logits=None, values=alt_count_losses, weights=torch.ones_like(alt_count_losses))
 
-                loss = torch.sum((weights * semisupervised_losses) + alt_count_losses)
+                    loss = torch.sum((weights * semisupervised_losses) + alt_count_losses)
 
-                if epoch_type == Epoch.TRAIN:
-                    backpropagate(train_optimizer, loss)
-
+                    if epoch_type == Epoch.TRAIN:
+                        backpropagate(train_optimizer, loss)
+                # done with this batch
             # done with one epoch type -- training or validation -- for this epoch
             loss_metrics.write_to_summary_writer(epoch_type, epoch, summary_writer, prefix="semi-supervised-loss")
             alt_count_loss_metrics.write_to_summary_writer(epoch_type, epoch, summary_writer, prefix="alt-count-loss")
@@ -171,54 +174,57 @@ def refine_permutect_model(model: PermutectModel, dataset: ReadsDataset, trainin
                 (train_loader if epoch_type == Epoch.TRAIN else valid_loader)
 
             batch: ReadsBatch
-            for batch in tqdm(prefetch_generator(loader), mininterval=60, total=len(loader)):
-                sources = batch.get_sources()
-                labels = batch.get_training_labels()
+            for parent_batch in tqdm(prefetch_generator(loader), mininterval=60, total=len(loader)):
+                ref_frac, alt_frac = random.random(), random.random()
+                for downsample in (False, True):
+                    batch = DownsampledReadsBatch(parent_batch, ref_frac, alt_frac) if downsample else parent_batch
+                    sources = batch.get_sources()
+                    labels = batch.get_training_labels()
 
-                representations, _ = model.calculate_representations(batch, weight_range=model._params.reweighting_range)
-                logits, precalibrated_logits = model.logits_from_reads_batch(representations, batch)
+                    representations, _ = model.calculate_representations(batch, weight_range=model._params.reweighting_range)
+                    logits, precalibrated_logits = model.logits_from_reads_batch(representations, batch)
 
-                # one-hot prediction of sources
-                if num_sources > 1:
-                    source_prediction_logits = model.source_predictor.adversarial_forward(representations)
-                    source_prediction_probs = torch.nn.functional.softmax(source_prediction_logits, dim=-1)
-                    source_prediction_targets = torch.nn.functional.one_hot(sources.long(), num_sources)
-                    source_prediction_losses = torch.sum(torch.square(source_prediction_probs - source_prediction_targets), dim=-1)
+                    # one-hot prediction of sources
+                    if num_sources > 1:
+                        source_prediction_logits = model.source_predictor.adversarial_forward(representations)
+                        source_prediction_probs = torch.nn.functional.softmax(source_prediction_logits, dim=-1)
+                        source_prediction_targets = torch.nn.functional.one_hot(sources.long(), num_sources)
+                        source_prediction_losses = torch.sum(torch.square(source_prediction_probs - source_prediction_targets), dim=-1)
 
-                    # TODO: always by count?
-                    source_prediction_weights = balancer.calculate_batch_source_weights(batch, by_count=is_calibration_epoch)
-                else:
-                    source_prediction_losses = torch.zeros_like(logits, device=device)
-                    source_prediction_weights = torch.zeros_like(logits, device=device)
+                        # TODO: always by count?
+                        source_prediction_weights = balancer.calculate_batch_source_weights(batch, by_count=is_calibration_epoch)
+                    else:
+                        source_prediction_losses = torch.zeros_like(logits, device=device)
+                        source_prediction_weights = torch.zeros_like(logits, device=device)
 
-                uncalibrated_cross_entropies = bce(precalibrated_logits, labels)
-                calibrated_cross_entropies = bce(logits, labels)
+                    uncalibrated_cross_entropies = bce(precalibrated_logits, labels)
+                    calibrated_cross_entropies = bce(logits, labels)
 
-                # TODO: investigate whether using the average of un-calibrated and calibrated cross entropies is
-                # TODO: really the right thing to do
-                labeled_losses = batch.get_is_labeled_mask() * (uncalibrated_cross_entropies + calibrated_cross_entropies) / 2
+                    # TODO: investigate whether using the average of un-calibrated and calibrated cross entropies is
+                    # TODO: really the right thing to do
+                    labeled_losses = batch.get_is_labeled_mask() * (uncalibrated_cross_entropies + calibrated_cross_entropies) / 2
 
-                # unlabeled loss: entropy regularization. We use the uncalibrated logits because otherwise entropy
-                # regularization simply biases calibration to be overconfident.
-                probabilities = torch.sigmoid(precalibrated_logits)
-                entropies = torch.nn.functional.binary_cross_entropy_with_logits(precalibrated_logits, probabilities, reduction='none')
-                unlabeled_losses = (1 - batch.get_is_labeled_mask()) * entropies
+                    # unlabeled loss: entropy regularization. We use the uncalibrated logits because otherwise entropy
+                    # regularization simply biases calibration to be overconfident.
+                    probabilities = torch.sigmoid(precalibrated_logits)
+                    entropies = torch.nn.functional.binary_cross_entropy_with_logits(precalibrated_logits, probabilities, reduction='none')
+                    unlabeled_losses = (1 - batch.get_is_labeled_mask()) * entropies
 
-                # this updates the autobalancing as a side effect
-                weights = balancer.calculate_autobalancing_weights(batch, probabilities)
+                    # this updates the autobalancing as a side effect
+                    weights = balancer.calculate_autobalancing_weights(batch, probabilities)
 
-                # these losses include weights and take labeled vs unlabeled into account
-                losses = (labeled_losses + unlabeled_losses) * weights + (source_prediction_losses * source_prediction_weights)
-                loss = torch.sum(losses)
+                    # these losses include weights and take labeled vs unlabeled into account
+                    losses = (labeled_losses + unlabeled_losses) * weights + (source_prediction_losses * source_prediction_weights)
+                    loss = torch.sum(losses)
 
-                loss_metrics.record(batch, None, labeled_losses + unlabeled_losses, weights)
-                source_prediction_loss_metrics.record(batch, None, source_prediction_losses, source_prediction_weights)
+                    loss_metrics.record(batch, None, labeled_losses + unlabeled_losses, weights)
+                    source_prediction_loss_metrics.record(batch, None, source_prediction_losses, source_prediction_weights)
 
-                # calibration epochs freeze the model up to calibration, so I wonder if a purely unlabeled batch
-                # would cause lack of gradient problems. . .
-                if epoch_type == Epoch.TRAIN:
-                    backpropagate(train_optimizer, loss)
-
+                    # calibration epochs freeze the model up to calibration, so I wonder if a purely unlabeled batch
+                    # would cause lack of gradient problems. . .
+                    if epoch_type == Epoch.TRAIN:
+                        backpropagate(train_optimizer, loss)
+                # done with this batch
             # done with one epoch type -- training or validation -- for this epoch
             loss_metrics.write_to_summary_writer(epoch_type, epoch, summary_writer, prefix="semisupervised-loss")
             source_prediction_loss_metrics.write_to_summary_writer(epoch_type, epoch, summary_writer, prefix="source-loss")
