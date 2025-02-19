@@ -12,11 +12,10 @@ from permutect import constants
 from permutect.architecture.posterior_model import PosteriorModel
 from permutect.architecture.permutect_model import PermutectModel, load_model
 from permutect.data import plain_text_data
-from permutect.data.features_batch import FeaturesBatch
 from permutect.data.datum import Datum
 from permutect.data.posterior_data import PosteriorDataset, PosteriorDatum, PosteriorBatch
-from permutect.data.features_dataset import FeaturesDataset
 from permutect.data.prefetch_generator import prefetch_generator
+from permutect.data.reads_batch import ReadsBatch
 from permutect.data.reads_dataset import ReadsDataset, MAX_ALT_COUNT
 from permutect.metrics.evaluation_metrics import EvaluationMetrics, EmbeddingMetrics
 from permutect.metrics.loss_metrics import count_bin_name, count_bin_index
@@ -206,19 +205,17 @@ def make_posterior_data_loader(dataset_file, input_vcf, contig_index_to_name_map
     posterior_data = []
     for list_of_base_data in plain_text_data.generate_normalized_data([dataset_file], chunk_size):
         report_memory_usage("Creating BaseDataset.")
-        raw_dataset = ReadsDataset(data_in_ram=list_of_base_data)
-        report_memory_usage("Creating ArtifactDataset.")
-        artifact_dataset = FeaturesDataset(raw_dataset, model)
-        report_memory_usage("Finished creating ArtifactDataset.")
-        artifact_loader = artifact_dataset.make_data_loader(artifact_dataset.all_folds(), batch_size, pin_memory=torch.cuda.is_available(), num_workers=num_workers)
+        reads_dataset = ReadsDataset(data_in_ram=list_of_base_data)
+        loader = reads_dataset.make_data_loader(reads_dataset.all_folds(), batch_size, pin_memory=torch.cuda.is_available(), num_workers=num_workers)
 
         print("creating posterior data for this chunk...")
-        features_batch: FeaturesBatch
-        for features_batch in tqdm(prefetch_generator(artifact_loader), mininterval=60, total=len(artifact_loader)):
-            artifact_logits, _ = model.logits_from_features_batch(batch=features_batch)
+        batch: ReadsBatch
+        for batch in tqdm(prefetch_generator(loader), mininterval=60, total=len(loader)):
+            representations, _ = model.calculate_representations(batch, weight_range=model._params.reweighting_range)
+            artifact_logits, _ = model.logits_from_reads_batch(representations, batch)
 
-            for datum_array, logit, embedding in zip(features_batch.get_data_2d(),
-                    artifact_logits.detach().tolist(), features_batch.get_representations_2d().cpu()):
+            for datum_array, logit, embedding in zip(batch.get_data_2d(),
+                    artifact_logits.detach().tolist(), representations.cpu()):
                 datum = Datum(datum_array)
                 contig_name = contig_index_to_name_map[datum.get_contig()]
                 position = datum.get_position()

@@ -12,7 +12,6 @@ from permutect.architecture.dna_sequence_convolution import DNASequenceConvoluti
 from permutect.architecture.gated_mlp import GatedRefAltMLP
 from permutect.architecture.mlp import MLP
 from permutect.architecture.set_pooling import SetPooling
-from permutect.data.features_batch import FeaturesBatch
 from permutect.data.datum import DEFAULT_GPU_FLOAT, DEFAULT_CPU_FLOAT
 from permutect.data.reads_batch import ReadsBatch
 from permutect.data.prefetch_generator import prefetch_generator
@@ -180,10 +179,6 @@ class PermutectModel(torch.nn.Module):
     def logits_from_reads_batch(self, representations_2d: torch.Tensor, reads_batch: ReadsBatch):
         return self.logits_from_features(representations_2d, reads_batch.get_ref_counts(), reads_batch.get_alt_counts(), reads_batch.get_variant_types())
 
-    # returns 1D tensor of length batch_size of log odds ratio (logits) between artifact and non-artifact
-    def logits_from_features_batch(self, batch: FeaturesBatch):
-        return self.logits_from_features(batch.get_representations_2d(), batch.get_ref_counts(), batch.get_alt_counts(), batch.get_variant_types())
-
     def make_dict_for_saving(self, artifact_log_priors=None, artifact_spectra=None):
         return {constants.STATE_DICT_NAME: self.state_dict(),
                 constants.HYPERPARAMS_NAME: self._params,
@@ -232,14 +227,14 @@ def permute_columns_independently(mat: torch.Tensor):
 
 
 # after training for visualizing clustering etc of base model embeddings
-def record_embeddings(base_model: PermutectModel, loader, summary_writer: SummaryWriter):
+def record_embeddings(model: PermutectModel, loader, summary_writer: SummaryWriter):
     # base_model.freeze_all() whoops -- it doesn't have freeze_all
     embedding_metrics = EmbeddingMetrics()
     ref_alt_seq_metrics = EmbeddingMetrics()
 
     batch: ReadsBatch
     for batch in tqdm(prefetch_generator(loader), mininterval=60, total=len(loader)):
-        representations, ref_alt_seq_embeddings = base_model.calculate_representations(batch, weight_range=base_model._params.reweighting_range)
+        representations, ref_alt_seq_embeddings = model.calculate_representations(batch, weight_range=model._params.reweighting_range)
 
         representations = representations.cpu()
         ref_alt_seq_embeddings = ref_alt_seq_embeddings.cpu()
