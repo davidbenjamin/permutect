@@ -95,7 +95,7 @@ class ReadsDataset(Dataset):
             for var_type in Variation:
                 print(f"Data counts for variant type {var_type.name}:")
                 for label in Label:
-                    print(f"{label.name}: {int(totals_slv[source, var_type, label].item())}")
+                    print(f"{label.name}: {int(totals_slv[source, label, var_type].item())}")
 
     # it is often convenient to arbitrarily use the last fold for validation
     def last_fold_only(self):
