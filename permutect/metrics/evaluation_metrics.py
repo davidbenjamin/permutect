@@ -10,7 +10,8 @@ from torch.utils.tensorboard import SummaryWriter
 
 from permutect.data.batch import Batch
 from permutect.metrics import plotting
-from permutect.metrics.loss_metrics import AccuracyMetrics, NUM_ALT_COUNT_BINS, count_from_bin_index
+from permutect.metrics.loss_metrics import AccuracyMetrics
+from permutect.data.count_binning import NUM_ALT_COUNT_BINS, count_from_bin_index
 from permutect.metrics.posterior_result import PosteriorResult
 from permutect.misc_utils import gpu_if_available
 from permutect.utils.enums import Variation, Call, Epoch, Label

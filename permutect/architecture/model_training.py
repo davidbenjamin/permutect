@@ -13,12 +13,12 @@ from tqdm import trange, tqdm
 from permutect.architecture.balancer import Balancer
 from permutect.architecture.permutect_model import PermutectModel, record_embeddings
 from permutect.data.reads_batch import DownsampledReadsBatch, ReadsBatch
-from permutect.data.reads_dataset import ReadsDataset, ALL_COUNTS_INDEX
+from permutect.data.reads_dataset import ReadsDataset
 from permutect.data.datum import Datum
 from permutect.data.prefetch_generator import prefetch_generator
 from permutect.metrics.evaluation_metrics import EmbeddingMetrics, EvaluationMetrics
-from permutect.metrics.loss_metrics import BatchIndexedAverages, BatchProperty, count_bin_index, count_bin_name, \
-    round_count_to_bin_center
+from permutect.metrics.loss_metrics import BatchIndexedAverages, BatchProperty
+from permutect.data.count_binning import count_bin_index, round_count_to_bin_center, count_bin_name
 from permutect.parameters import TrainingParameters
 from permutect.misc_utils import report_memory_usage, backpropagate, freeze, unfreeze
 from permutect.utils.enums import Variation, Epoch, Label

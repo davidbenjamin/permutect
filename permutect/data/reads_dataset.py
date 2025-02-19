@@ -11,6 +11,7 @@ from torch.utils.data import Dataset, DataLoader
 from torch.utils.data.sampler import Sampler
 
 from mmap_ninja.ragged import RaggedMmap
+from permutect.data.count_binning import cap_ref_count
 from permutect.data.reads_datum import ReadsDatum
 from permutect.data.reads_batch import ReadsBatch
 from permutect.metrics.loss_metrics import BatchIndexedTotals, BatchProperty
@@ -21,26 +22,12 @@ TENSORS_PER_BASE_DATUM = 2  # 1) 2D reads (ref and alt), 1) 1D concatenated stuf
 # tarfiles on disk take up about 4x as much as the dataset on RAM
 TARFILE_TO_RAM_RATIO = 4
 
-ALL_COUNTS_INDEX = 0
 
 WEIGHT_PSEUDOCOUNT = 10
 
 
 def ratio_with_pseudocount(a, b):
     return (a + WEIGHT_PSEUDOCOUNT) / (b + WEIGHT_PSEUDOCOUNT)
-
-
-MAX_REF_COUNT = 10
-MAX_ALT_COUNT = 15
-
-
-# round down to the largest discrete ref count less than or equal to a given count
-def cap_ref_count(ref_count: int) -> int:
-    return min(ref_count, MAX_REF_COUNT)
-
-
-def cap_alt_count(alt_count: int) -> int:
-    return min(alt_count, MAX_ALT_COUNT)
 
 
 class ReadsDataset(Dataset):

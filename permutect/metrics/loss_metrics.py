@@ -1,69 +1,19 @@
 from enum import IntEnum
-from math import floor
 from typing import Tuple
 
 import torch
 from matplotlib import pyplot as plt
-from torch import IntTensor
 from torch.utils.tensorboard import SummaryWriter
 
 from permutect.data.batch import Batch
 from permutect.data.datum import Datum
-from permutect.data.reads_dataset import MAX_REF_COUNT, MAX_ALT_COUNT
+from permutect.data.count_binning import NUM_REF_COUNT_BINS, NUM_ALT_COUNT_BINS, \
+    NUM_LOGIT_BINS, logit_bin_indices, top_of_logit_bin, logits_from_bin_indices, logit_bin_name, count_bin_indices, \
+    count_bin_index, counts_from_bin_indices, count_bin_name
 from permutect.metrics import plotting
 from permutect.misc_utils import gpu_if_available
 from permutect.utils.array_utils import add_to_6d_array, select_and_sum
 from permutect.utils.enums import Variation, Epoch, Label
-
-# count bins are {0-2}, {3-5}, {6-8} etc up to the max alt and ref counts defined in ReadsDataset
-COUNT_BIN_SKIP = 3
-NUM_REF_COUNT_BINS = (MAX_REF_COUNT // COUNT_BIN_SKIP) + 1 # eg if max count is 10, the 10//3 + 1 = 4 bins are {0-2}, {3-5},{6-8},{9-10}
-NUM_ALT_COUNT_BINS = (MAX_ALT_COUNT // COUNT_BIN_SKIP) + 1 # eg if max count is 10, the 10//3 + 1 = 4 bins are {0-2}, {3-5},{6-8},{9-10}
-
-# for ROC curves, it is important to choose values such that logit == 0 is at the boundary of bins, not inside a bin
-LOGIT_BIN_SKIP = 1
-MIN_LOGIT, MAX_LOGIT = -10, 10
-NUM_LOGIT_BINS = floor((MAX_LOGIT - MIN_LOGIT) / LOGIT_BIN_SKIP) + 1
-
-
-def logit_bin_indices(logits_tensor: torch.Tensor) -> IntTensor:
-    return torch.div(torch.clamp(logits_tensor, min=MIN_LOGIT, max=MAX_LOGIT) - MIN_LOGIT, LOGIT_BIN_SKIP, rounding_mode='floor').long()
-
-
-def top_of_logit_bin(logit_bin_index: int) -> float:
-    return MIN_LOGIT + (logit_bin_index +1) * LOGIT_BIN_SKIP
-
-
-def logits_from_bin_indices(logit_bin_indices: IntTensor) -> torch.Tensor:
-    return (MIN_LOGIT + LOGIT_BIN_SKIP/2) + LOGIT_BIN_SKIP * logit_bin_indices
-
-
-def logit_bin_name(logit_bin_idx: int) -> str:
-    return f"{MIN_LOGIT + (logit_bin_idx + 0.5) * LOGIT_BIN_SKIP}:.1f"
-
-
-def count_bin_indices(count_tensor: IntTensor) -> IntTensor:
-    return torch.div(count_tensor, COUNT_BIN_SKIP, rounding_mode='floor')
-
-
-def count_from_bin_index(count_bin_index: int) -> int:
-    return COUNT_BIN_SKIP * count_bin_index + (COUNT_BIN_SKIP // 2)
-
-
-def count_bin_index(count: int) -> int:
-    return count // COUNT_BIN_SKIP
-
-
-def round_count_to_bin_center(count: int) -> int:
-    return count_from_bin_index(count_bin_index(count))
-
-
-def counts_from_bin_indices(count_bin_indices: IntTensor) -> IntTensor:
-    return COUNT_BIN_SKIP * count_bin_indices + (COUNT_BIN_SKIP // 2)
-
-
-def count_bin_name(bin_idx: int) -> str:
-    return str(COUNT_BIN_SKIP * bin_idx + (COUNT_BIN_SKIP-1)//2)  # the center of the bin
 
 
 class BatchProperty(IntEnum):
@@ -90,7 +40,8 @@ class BatchIndexedTotals:
     stores sums, indexed by batch properties source (s), label (l), variant type (v), ref count (r), alt count (a), logit (g)
     """
     def __init__(self, num_sources: int, device=gpu_if_available(), include_logits: bool = False):
-        self.totals_slvrag = torch.zeros((num_sources, len(Label), len(Variation), NUM_REF_COUNT_BINS, NUM_ALT_COUNT_BINS, NUM_LOGIT_BINS), device=device)
+        self.totals_slvrag = torch.zeros((num_sources, len(Label), len(Variation), NUM_REF_COUNT_BINS,
+                                          NUM_ALT_COUNT_BINS, NUM_LOGIT_BINS), device=device)
         assert self.totals_slvrag.dim() == len(BatchProperty)
         self.include_logits = include_logits
         self.device = device
@@ -124,7 +75,7 @@ class BatchIndexedTotals:
         sources = batch.get_sources()
         logit_indices = logit_bin_indices(logits) if self.include_logits else torch.zeros_like(sources)
 
-        add_to_6d_array(self.totals_slvrag, sources , batch.get_labels(), batch.get_variant_types(),
+        add_to_6d_array(self.totals_slvrag, sources, batch.get_labels(), batch.get_variant_types(),
                         count_bin_indices(batch.get_ref_counts()), count_bin_indices(batch.get_alt_counts()), logit_indices, values)
 
     def get_totals(self) -> torch.Tensor:
@@ -349,7 +300,8 @@ class AccuracyMetrics(BatchIndexedTotals):
         plotting.plot_roc_on_axis(thresh_nonart_art_tuples, [None], axis, sens_prec, given_threshold)
 
     def plot_roc_curves_by_count(self, var_type: Variation, axis, given_threshold: float = None, sens_prec: bool = False, source: int = None):
-        thresh_nonart_art_tuples = [self.make_roc_data(var_type, source, alt_count_bin, sens_prec) for alt_count_bin in range(NUM_ALT_COUNT_BINS)]
+        thresh_nonart_art_tuples = [self.make_roc_data(var_type, source, alt_count_bin, sens_prec) for alt_count_bin in range(
+            NUM_ALT_COUNT_BINS)]
         curve_labels = [count_bin_name(bin_idx) for bin_idx in range(NUM_ALT_COUNT_BINS)]
         plotting.plot_roc_on_axis(thresh_nonart_art_tuples, curve_labels, axis, sens_prec, given_threshold)
 
@@ -358,7 +310,8 @@ class AccuracyMetrics(BatchIndexedTotals):
         plotting.simple_plot_on_axis(axis, acc_vs_cnt_x_y_lab_tuples, None, None)
 
     def plot_calibration_by_count(self, var_type: Variation, axis, source: int = None):
-        acc_vs_logit_x_y_lab_tuples = [self.make_data_for_calibration_plot(var_type, alt_count_bin, source) for alt_count_bin in range(NUM_ALT_COUNT_BINS)]
+        acc_vs_logit_x_y_lab_tuples = [self.make_data_for_calibration_plot(var_type, alt_count_bin, source) for alt_count_bin in range(
+            NUM_ALT_COUNT_BINS)]
         plotting.simple_plot_on_axis(axis, acc_vs_logit_x_y_lab_tuples, None, None)
 
     def plot_calibration_all_counts(self, var_type: Variation, axis, source: int = None):

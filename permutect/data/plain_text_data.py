@@ -35,7 +35,7 @@ from typing import List
 import numpy as np
 from sklearn.preprocessing import QuantileTransformer
 
-from permutect.data.reads_dataset import cap_ref_count, cap_alt_count
+from permutect.data.count_binning import cap_ref_count, cap_alt_count
 from permutect.data.reads_datum import ReadsDatum
 from permutect.data.datum import DEFAULT_NUMPY_FLOAT
 

@@ -16,9 +16,9 @@ from permutect.data.datum import Datum
 from permutect.data.posterior_data import PosteriorDataset, PosteriorDatum, PosteriorBatch
 from permutect.data.prefetch_generator import prefetch_generator
 from permutect.data.reads_batch import ReadsBatch
-from permutect.data.reads_dataset import ReadsDataset, MAX_ALT_COUNT
+from permutect.data.reads_dataset import ReadsDataset
+from permutect.data.count_binning import MAX_ALT_COUNT, count_bin_index, count_bin_name
 from permutect.metrics.evaluation_metrics import EvaluationMetrics, EmbeddingMetrics
-from permutect.metrics.loss_metrics import count_bin_name, count_bin_index
 from permutect.metrics.posterior_result import PosteriorResult
 from permutect.misc_utils import report_memory_usage, gpu_if_available
 from permutect.utils.allele_utils import trim_alleles_on_right, find_variant_type, truncate_bases_if_necessary

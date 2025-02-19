@@ -2,8 +2,9 @@ import torch
 from torch.nn import Module, Parameter, BCEWithLogitsLoss
 
 from permutect.data.batch import Batch
-from permutect.data.reads_dataset import ALL_COUNTS_INDEX, ratio_with_pseudocount, ReadsDataset
-from permutect.metrics.loss_metrics import BatchProperty, count_bin_indices
+from permutect.data.reads_dataset import ratio_with_pseudocount, ReadsDataset
+from permutect.metrics.loss_metrics import BatchProperty
+from permutect.data.count_binning import count_bin_indices
 from permutect.misc_utils import backpropagate
 from permutect.utils.array_utils import index_4d_array, index_3d_array
 from permutect.utils.enums import Label
