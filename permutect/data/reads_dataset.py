@@ -36,7 +36,7 @@ class ReadsDataset(Dataset):
         assert data_in_ram is not None or data_tarfile is not None, "No data given"
         assert data_in_ram is None or data_tarfile is None, "Data given from both RAM and tarfile"
         self.num_folds = num_folds
-        self.totals = BatchIndexedTotals(num_sources=0, device=torch.device('cpu'), include_logits=False)   # on CPU
+        self.totals = BatchIndexedTotals(num_sources=1, device=torch.device('cpu'), include_logits=False)   # on CPU
 
         if data_in_ram is not None:
             self._data = data_in_ram

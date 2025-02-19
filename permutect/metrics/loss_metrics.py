@@ -60,7 +60,7 @@ class BatchIndexedTotals:
 
     def record_datum(self, datum: Datum, value: float = 1.0, grow_source_if_necessary: bool = True):
         source = datum.get_source()
-        if source > self.num_sources:
+        if source >= self.num_sources:
             if grow_source_if_necessary:
                 self.resize_sources(source - 1)
             else:
