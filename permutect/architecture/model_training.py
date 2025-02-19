@@ -180,9 +180,7 @@ def refine_permutect_model(model: PermutectModel, dataset: ReadsDataset, trainin
                         source_prediction_probs = torch.nn.functional.softmax(source_prediction_logits, dim=-1)
                         source_prediction_targets = torch.nn.functional.one_hot(sources.long(), num_sources)
                         source_prediction_losses = torch.sum(torch.square(source_prediction_probs - source_prediction_targets), dim=-1)
-
-                        # TODO: always by count?
-                        source_prediction_weights = balancer.calculate_batch_source_weights(batch, by_count=is_calibration_epoch)
+                        source_prediction_weights = balancer.calculate_batch_source_weights(batch)
                     else:
                         source_prediction_losses = torch.zeros_like(logits, device=device)
                         source_prediction_weights = torch.zeros_like(logits, device=device)

@@ -4,10 +4,8 @@ import psutil
 import random
 import tarfile
 import tempfile
-from collections import defaultdict
 from typing import Iterable, List
 
-import numpy as np
 import torch
 from torch.utils.data import Dataset, DataLoader
 from torch.utils.data.sampler import Sampler
@@ -16,7 +14,6 @@ from mmap_ninja.ragged import RaggedMmap
 from permutect.data.reads_datum import ReadsDatum
 from permutect.data.reads_batch import ReadsBatch
 from permutect.metrics.loss_metrics import BatchIndexedTotals, BatchProperty
-from permutect.misc_utils import MutableInt
 from permutect.utils.enums import Variation, Label
 
 TENSORS_PER_BASE_DATUM = 2  # 1) 2D reads (ref and alt), 1) 1D concatenated stuff
@@ -87,52 +84,6 @@ class ReadsDataset(Dataset):
             fold = n % num_folds
             self.indices_by_fold[fold].append(n)
 
-        # totals by source, count, label, variant type
-        # we use a sentinel count value of 0 to denote aggregation over all counts
-        self.totals_sclt = np.zeros((self.max_source + 1, max_count + 1, len(Label), len(Variation)))
-
-        # general balancing idea: if total along some axis eg label is T and count for one particular label is C,
-        # assign weight T/C -- then effective count is (T/C)*C = T, which is independent of label
-        # we therefore need sums along certain axes:
-        totals_sct = np.sum(self.totals_sclt, axis=2)  # sum over label for label-balancing
-        labeled_totals_sct = totals_sct - self.totals_sclt[:, :, Label.UNLABELED, :]
-        totals_ct = np.sum(totals_sct, axis=0)  # sum over label and source for source-balancing
-        labeled_total = np.sum(labeled_totals_sct)
-
-        # note: count == 0 (which never occurs as a real alt count) means aggregation over all alt counts
-        # thus if we ever sum over count (which we currently don't do), make sure to exclude count == 0
-
-        self.label_balancing_weights_sclt = ratio_with_pseudocount(labeled_totals_sct[:, :, None, :], self.totals_sclt)
-
-        # next we want to normalize so that the average weight encountered on labeled data is 1 -- this way the learning rate
-        # parameter has a fixed meaning.
-        total_weight = np.sum(self.totals_sclt * self.label_balancing_weights_sclt)
-        total_supervised_weight = total_weight - np.sum(self.totals_sclt[:, :, Label.UNLABELED, :] * self.label_balancing_weights_sclt[:, :, Label.UNLABELED, :])
-        average_supervised_weight = total_supervised_weight / labeled_total
-
-        # after the following line, average label-balancing weight encountered on labeled data is 1
-        self.label_balancing_weights_sclt = self.label_balancing_weights_sclt / average_supervised_weight
-
-        # the balancing process can reduce the influence of unlabeled data to match that of labeled data, but we don't want to
-        # weight it strongly when there's little unlabeled data.  That is, if we have plenty of labeled data we are happy with
-        # supervised learning!
-        self.label_balancing_weights_sclt[:, :, Label.UNLABELED, :] = \
-            np.clip(self.label_balancing_weights_sclt[:, :, Label.UNLABELED, :], 0, 1)
-
-        # at this point, average labeled weight is 1 and weights balance artifacts with non-artifacts for each combination
-        # of source, count, and variant type
-
-        # weights for adversarial source prediction task.  Balance over sources for each count and variant type
-        self.source_balancing_weights_sct = ratio_with_pseudocount(totals_ct[None, :, :], totals_sct)
-
-        # we now normalize the source balancing weight to have the same total weights as supervised learning
-        # the average supervised count has been normalized to 1 so the total supervised weight is just the total labeled
-        # count.
-        total_source_balancing_weight = np.sum(totals_sct * self.source_balancing_weights_sct)
-        self.source_balancing_weights_sct = self.source_balancing_weights_sct * labeled_total / total_source_balancing_weight
-
-        self.label_balancing_weights_sclt = torch.from_numpy(self.label_balancing_weights_sclt)
-        self.source_balancing_weights_sct = torch.from_numpy(self.source_balancing_weights_sct)
         self.num_read_features = self[0].get_reads_2d().shape[1]
         self.num_info_features = len(self[0].get_info_1d())
         self.haplotypes_length = len(self[0].get_haplotypes_1d())
