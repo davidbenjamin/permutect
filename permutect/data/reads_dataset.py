@@ -15,6 +15,7 @@ from torch.utils.data.sampler import Sampler
 from mmap_ninja.ragged import RaggedMmap
 from permutect.data.reads_datum import ReadsDatum
 from permutect.data.reads_batch import ReadsBatch
+from permutect.metrics.loss_metrics import BatchIndexedTotals, BatchProperty
 from permutect.misc_utils import MutableInt
 from permutect.utils.enums import Variation, Label
 
@@ -51,6 +52,7 @@ class ReadsDataset(Dataset):
         assert data_in_ram is not None or data_tarfile is not None, "No data given"
         assert data_in_ram is None or data_tarfile is None, "Data given from both RAM and tarfile"
         self.num_folds = num_folds
+        self.totals = BatchIndexedTotals(num_sources=0, device=torch.device('cpu'), include_logits=False)   # on CPU
 
         if data_in_ram is not None:
             self._data = data_in_ram
@@ -80,30 +82,14 @@ class ReadsDataset(Dataset):
         # this is used in the batch sampler to make same-shape batches
         self.indices_by_fold = [[] for _ in range(num_folds)]
 
-        # determine the maximum count and source in order to allocate arrays
-        max_count = 0
-        self.max_source = 0
-        datum: ReadsDatum
-        for datum in self:
-            max_count = max(datum.get_alt_count(), max_count)
-            self.max_source = max(datum.get_source(), self.max_source)
+        for n, datum in enumerate(self):
+            self.totals.record_datum(datum)
+            fold = n % num_folds
+            self.indices_by_fold[fold].append(n)
 
         # totals by source, count, label, variant type
         # we use a sentinel count value of 0 to denote aggregation over all counts
         self.totals_sclt = np.zeros((self.max_source + 1, max_count + 1, len(Label), len(Variation)))
-
-        self.counts_by_source = defaultdict(lambda: MutableInt()) # amount of data for each source (which is an integer key)
-
-        for n, datum in enumerate(self):
-            source = datum.get_source()
-            self.counts_by_source[source].increment()
-
-            fold = n % num_folds
-            self.indices_by_fold[fold].append(n)
-
-            variant_type_idx = datum.get_variant_type()
-            self.totals_sclt[source][ALL_COUNTS_INDEX][datum.get_label()][variant_type_idx] += 1
-            self.totals_sclt[source][datum.get_alt_count()][datum.get_label()][variant_type_idx] += 1
 
         # general balancing idea: if total along some axis eg label is T and count for one particular label is C,
         # assign weight T/C -- then effective count is (T/C)*C = T, which is independent of label
@@ -161,13 +147,17 @@ class ReadsDataset(Dataset):
         else:
             return self._data[index]
 
+    def num_sources(self) -> int:
+        return self.totals.num_sources
+
     def report_totals(self):
-        for source in range(self.max_source + 1):
+        totals_slv = self.totals.get_marginal((BatchProperty.SOURCE, BatchProperty.LABEL, BatchProperty.VARIANT_TYPE))
+        for source in range(len(totals_slv)):
             print(f"Data counts for source {source}:")
             for var_type in Variation:
                 print(f"Data counts for variant type {var_type.name}:")
                 for label in Label:
-                    print(f"{label.name}: {int(self.totals_sclt[source][ALL_COUNTS_INDEX][label][var_type].item())}")
+                    print(f"{label.name}: {int(totals_slv[source, var_type, label].item())}")
 
     # it is often convenient to arbitrarily use the last fold for validation
     def last_fold_only(self):
@@ -183,16 +173,14 @@ class ReadsDataset(Dataset):
         return list(range(self.num_folds))
 
     def validate_sources(self) -> int:
-        num_sources = len(self.counts_by_source.keys())
+        num_sources = len(self.num_sources())
+        totals_by_source_s = self.totals.get_marginal((BatchProperty.SOURCE, ))
         if num_sources == 1:
             print("Data come from a single source")
         else:
-            sources_list = list(self.counts_by_source.keys())
-            sources_list.sort()
-            assert sources_list[0] == 0, "There is no source 0"
-            assert sources_list[1] == num_sources - 1, f"sources should be 0, 1, 2. . . without gaps, but sources are {sources_list}."
-
-            print(f"Data come from multiple sources, with counts {self.counts_by_source}.")
+            for source in range(num_sources):
+                assert totals_by_source_s[source].item() >= 1, f"No data for source {source}."
+            print(f"Data come from multiple sources, with counts {totals_by_source_s.cpu().tolist()}.")
         return num_sources
 
     def make_data_loader(self, folds_to_use: List[int], batch_size: int, pin_memory=False, num_workers: int = 0,

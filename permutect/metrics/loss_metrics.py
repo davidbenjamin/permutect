@@ -8,6 +8,7 @@ from torch import IntTensor
 from torch.utils.tensorboard import SummaryWriter
 
 from permutect.data.batch import Batch
+from permutect.data.datum import Datum
 from permutect.data.reads_dataset import MAX_REF_COUNT, MAX_ALT_COUNT
 from permutect.metrics import plotting
 from permutect.misc_utils import gpu_if_available
@@ -93,6 +94,29 @@ class BatchIndexedTotals:
         assert self.totals_slvrag.dim() == len(BatchProperty)
         self.include_logits = include_logits
         self.device = device
+        self.num_sources = num_sources
+
+    def resize_sources(self, new_num_sources):
+        old_num_sources = self.num_sources
+        if new_num_sources < old_num_sources:
+            self.totals_slvrag = self.totals_slvrag[:new_num_sources]
+        elif new_num_sources > old_num_sources:
+            new_totals = torch.zeros((new_num_sources, len(Label), len(Variation), NUM_REF_COUNT_BINS,
+                                      NUM_ALT_COUNT_BINS, NUM_LOGIT_BINS), device=self.totals_slvrag.device)
+            new_totals[:old_num_sources] = self.totals_slvrag
+            self.totals_slvrag = new_totals
+        self.num_sources = new_num_sources
+
+    def record_datum(self, datum: Datum, value: float = 1.0, grow_source_if_necessary: bool = True):
+        source = datum.get_source()
+        if source > self.num_sources:
+            if grow_source_if_necessary:
+                self.resize_sources(source - 1)
+            else:
+                raise Exception("Datum source doesn't fit.")
+        # no logits here
+        ref_idx, alt_idx = count_bin_index(datum.get_ref_count()), count_bin_index(datum.get_alt_count())
+        self.totals_slvrag[source, datum.get_label(), datum.get_variant_type(), ref_idx, alt_idx, 0] += value
 
     def record(self, batch: Batch, logits: torch.Tensor, values: torch.Tensor):
         # values is a 1D tensor

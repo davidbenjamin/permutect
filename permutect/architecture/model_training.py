@@ -30,10 +30,9 @@ def train_permutect_model(model: PermutectModel, dataset: ReadsDataset, training
                           summary_writer: SummaryWriter, validation_fold: int = None):
     report_memory_usage("Beginning training.")
     device, dtype = model._device, model._dtype
-    num_sources = dataset.max_source + 1
+    num_sources = dataset.num_sources()
     is_cuda = device.type == 'cuda'
     print(f"Is CUDA available? {is_cuda}")
-
     dataset.report_totals()
 
     alt_count_loss_func = torch.nn.MSELoss(reduction='none')
