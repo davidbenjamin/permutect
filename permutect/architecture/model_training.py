@@ -180,7 +180,7 @@ def refine_permutect_model(model: PermutectModel, dataset: ReadsDataset, trainin
 
                 # one-hot prediction of sources
                 if num_sources > 1:
-                    source_prediction_logits = model.source_predictor.adversarial_forward(batch.get_representations_2d())
+                    source_prediction_logits = model.source_predictor.adversarial_forward(representations)
                     source_prediction_probs = torch.nn.functional.softmax(source_prediction_logits, dim=-1)
                     source_prediction_targets = torch.nn.functional.one_hot(sources.long(), num_sources)
                     source_prediction_losses = torch.sum(torch.square(source_prediction_probs - source_prediction_targets), dim=-1)
