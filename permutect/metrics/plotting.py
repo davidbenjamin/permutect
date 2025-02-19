@@ -5,6 +5,9 @@ from typing import List
 
 
 # one or more simple plots of y data vs x data on shared axes
+from permutect.metrics.loss_metrics import LOGIT_BIN_SKIP
+
+
 def simple_plot(x_y_lab_tuples, x_label, y_label, title):
     fig = plt.figure()
     curve = fig.gca()
@@ -70,30 +73,29 @@ def grouped_bar_plot(heights_by_category, x_labels, y_label):
     return fig, ax
 
 
-# labels are 0 for non-artifact, 1 for artifact
-# predictions_and_labels has form [[(pred, label), (pred, label). . . for roc 1], [likewise for roc 2] etc]
-# predictions are logits, not probabilities!!
-def plot_accuracy_vs_accuracy_roc_on_axis(lists_of_predictions_and_labels, curve_labels, axis, given_threshold: float = None, sens_prec: bool = False):
+def plot_roc_on_axis(list_of_tuple_lists, curve_labels, axis, sens_prec: bool, given_threshold: float = None):
+    # input is a list of lists
+    # each constituent list is of tuples (threshold, nonartifact metric, artifact metric)
     x_y_lab_tuples = []
-    small_dots = []
-    big_dots = []
-    for predictions_and_labels, curve_label in zip(lists_of_predictions_and_labels, curve_labels):
-        thresh_and_accs, _ = get_roc_data(predictions_and_labels, given_threshold, sens_prec, use_harmonic_mean=True)
-        x_y_lab_tuples.append(([x[1] for x in thresh_and_accs], [x[2] for x in thresh_and_accs], curve_label))
+    small_dots, big_dots = [], []
+    for thresh_and_accs, curve_label in zip(list_of_tuple_lists, curve_labels):
+        nonart_metrics = [x[1] for x in thresh_and_accs]
+        art_metrics = [x[2] for x in thresh_and_accs]
+        x_y_lab_tuples.append((nonart_metrics, art_metrics, curve_label))
 
-        for threshold, art_acc, non_art_acc in thresh_and_accs:
-            if threshold == 0:
-                big_dots.append((art_acc, non_art_acc, 'rs'))   # red square
-            elif given_threshold is not None and abs(threshold - given_threshold) < 0.001:
-                big_dots.append((art_acc, non_art_acc, 'kd'))  # black diamond
+        for threshold, nonart_metric, art_metric in thresh_and_accs:
+            if abs(threshold) < 0.001:
+                big_dots.append((nonart_metric, art_metric, 'rs'))   # red square
+            elif given_threshold is not None and abs(threshold - given_threshold) <= LOGIT_BIN_SKIP/2:
+                big_dots.append((nonart_metric, art_metric, 'kd'))  # black diamond
             else:
-                small_dots.append((art_acc, non_art_acc, 'go'))     # green circle
+                small_dots.append((nonart_metric, art_metric, 'go'))     # green circle
 
-    simple_plot_on_axis(axis, x_y_lab_tuples, "precision" if sens_prec else "artifact accuracy", "sensitivity" if sens_prec else "non-artifact accuracy")
+    simple_plot_on_axis(axis, x_y_lab_tuples, "sensitivity" if sens_prec else "non-artifact accuracy", "precision" if sens_prec else "artifact accuracy")
     for x, y, spec in small_dots:
-        axis.plot(x, y, spec, markersize=2,label="")  # point
+        axis.plot(x, y, spec, markersize=2, label="")  # point
     for x, y, spec in big_dots:
-        axis.plot(x, y, spec, markersize=6,label="")  # point
+        axis.plot(x, y, spec, markersize=6, label="")  # point
 
 
 # similar to the above, but labels are not known and we just have the predicted error probabilities
@@ -119,54 +121,6 @@ def plot_theoretical_roc_on_axis(predicted_error_probs, curve_labels, axis):
     for x, y, spec in dots:
         axis.plot(x, y, spec, markersize=2,label="")  # point
     return best_thresholds
-
-
-# input is list of (predicted artifact logit, binary artifact/non-artifact label) tuples
-# 1st output is (threshold, accuracy on artifacts, accuracy on non-artifacts) tuples
-# 2nd output is the threshold that maximizes mean (by default harmonic mean, otherwise artithmetic) of accuracy on artifacts and accuracy on non-artifacts
-def get_roc_data(predictions_and_labels, given_threshold: float = None, sens_prec: bool = False, use_harmonic_mean: bool = True):
-    predictions_and_labels.sort(key=lambda p_and_l: p_and_l[0])  # sort from least to greatest artifact logit
-    num_calls = len(predictions_and_labels)
-    total_artifact = sum([label for _, label in predictions_and_labels]) + 0.0001
-    total_non_artifact = num_calls - total_artifact + 0.0002
-    # start at threshold = -infinity; that is, everything is called an artifact, and pick up one variant at a time
-    thresh_and_accs = []  # tuples of threshold, accuracy on artifacts, accuracy on non-artifacts
-    art_found, non_art_found = total_artifact, 0
-    best_art_acc, best_non_art_acc = 1, 0
-    next_threshold = -10
-    best_threshold, best_mean = -99999, 0
-    given_threshold_reached = (given_threshold is None)
-    for pred_logit, label in predictions_and_labels:
-        art_found -= label  # if labeled as artifact, one artifact has slipped below threshold
-        non_art_found += (1 - label)  # if labeled as non-artifact, one non-artifact has been gained
-        art_acc, non_art_acc = art_found / total_artifact, non_art_found / total_non_artifact
-
-        # stuff for sensitivity-precision mode
-        tp = non_art_found  # non-artifacts that pass threshold are true positives
-        fp = total_artifact - art_found  # artifacts that do not fail threshold are false positives
-
-        # in sensitivity-precision mode we care about the precision, not the absolute accuracy of artifact calls
-        art_metric = (tp/(tp + fp)) if sens_prec else art_acc
-
-        harmonic_mean = 0 if (art_metric == 0 or non_art_acc == 0) else 1 / ((1 / art_metric) + (1 / non_art_acc))
-        arithmetic_mean = (art_acc + non_art_acc) / 2
-        mean = harmonic_mean if use_harmonic_mean else arithmetic_mean
-
-        if mean > best_mean:
-            best_mean = mean
-            best_threshold = pred_logit
-            best_art_acc, best_non_art_acc = art_acc, non_art_acc
-
-        if pred_logit > next_threshold:
-            thresh_and_accs.append((next_threshold, art_metric, non_art_acc))
-            next_threshold = math.ceil(pred_logit)
-
-        # the first time we reach a logit greater than the given threshold, we are basically *at* that threshold
-        if not given_threshold_reached and pred_logit > given_threshold:
-            thresh_and_accs.append((given_threshold, art_metric, non_art_acc))
-            given_threshold_reached = True
-
-    return thresh_and_accs, best_threshold
 
 
 # input is list of artifact probabilities

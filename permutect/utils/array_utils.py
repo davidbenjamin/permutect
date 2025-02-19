@@ -1,3 +1,5 @@
+from typing import Tuple
+
 import numpy as np
 import torch
 
@@ -30,6 +32,13 @@ def index_5d_array(tens, idx0, idx1, idx2, idx3, idx4):
     return tens.view(-1)[flattened_indices]
 
 
+def index_6d_array(tens, idx0, idx1, idx2, idx3, idx4, idx5):
+    dim0, dim1, dim2, dim3, dim4, dim5 = tens.shape
+    flattened_indices = (idx0 * dim1 * dim2 * dim3 * dim4 * dim5) + (idx1 * dim2 * dim3 * dim4 * dim5) + \
+                        (idx2 * dim3 * dim4 * dim5) + (idx3 * dim4 * dim5) + (idx4 * dim5) + idx5
+    return tens.view(-1)[flattened_indices]
+
+
 # add in-place
 # note that the flattened view(-1) shares memory with the original tensor
 def add_to_2d_array(tens: torch.Tensor, idx0, idx1, values):
@@ -57,7 +66,14 @@ def add_to_4d_array(tens: torch.Tensor, idx0, idx1, idx2, idx3, values):
 def add_to_5d_array(tens, idx0, idx1, idx2, idx3, idx4, values):
     dim0, dim1, dim2, dim3, dim4 = tens.shape
     flattened_indices = (idx0 * dim1 * dim2 * dim3 * dim4) + (idx1 * dim2 * dim3 * dim4) + (idx2 * dim3 * dim4) + (idx3 * dim4) + idx4
-    return tens.view(-1).index_add_(dim=0, index= flattened_indices, source=values)
+    return tens.view(-1).index_add_(dim=0, index=flattened_indices, source=values)
+
+
+def add_to_6d_array(tens, idx0, idx1, idx2, idx3, idx4, idx5, values):
+    dim0, dim1, dim2, dim3, dim4, dim5 = tens.shape
+    flattened_indices = (idx0 * dim1 * dim2 * dim3 * dim4 * dim5) + (idx1 * dim2 * dim3 * dim4 * dim5) + \
+                        (idx2 * dim3 * dim4 * dim5) + (idx3 * dim4 * dim5) + (idx4 * dim5) + idx5
+    return tens.view(-1).index_add_(dim=0, index=flattened_indices, source=values)
 
 
 def downsample_tensor(tensor2d: np.ndarray, new_length: int):
@@ -88,3 +104,36 @@ def sums_over_rows(input_tensor: torch.Tensor, counts: torch.IntTensor):
 
 def cumsum_starting_from_zero(x: torch.Tensor):
     return (torch.sum(x) - torch.cumsum(x.flip(dims=(0,)), dim=0)).flip(dims=(0,))
+
+
+def select_and_sum(x: torch.Tensor, select: dict[int, int]={}, sum: Tuple[int]=()):
+    """
+    select specific indices over certain dimensions and sum over others.  For example suppose
+    x = [ [[1,2], [3,4]],
+            [[5,6], [7,8]]]
+    Then we want:
+        select_and_sum(x, select={0:0}, sum=(2)) = [3, 7]
+        select_and_sum(x, select={0:1,1:0}, sum=()) = [5,6]
+        select_and_sum(x, select={}, sum=(1,2)) = [10,26]
+    :param x: the input tensor
+    :param select: dict of dimension:index of that dimension to select
+    :param sum tuple of dimensions over which to sum
+    :return:
+
+    select_indices and sum_dims must be disjoint but need not include all input dimensions.
+    """
+    # note that we keep the dimension for now
+    summed = x if len(sum) == 0 else torch.sum(x, dim=sum, keepdim=True)
+
+    # initialize indexing to be complete slices i.e. select all of summed
+    indices = [slice(dim_size) for dim_size in summed.shape]
+
+    # summed indices have length-1, so we select element 0:
+    for sum_dim in sum:
+        indices[sum_dim] = 0
+
+    # use the given select_indices
+    for select_dim, select_index in select.items():
+        indices[select_dim] = select_index
+
+    return summed[tuple(indices)]

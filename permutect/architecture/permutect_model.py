@@ -16,7 +16,8 @@ from permutect.data.features_batch import FeaturesBatch
 from permutect.data.datum import DEFAULT_GPU_FLOAT, DEFAULT_CPU_FLOAT
 from permutect.data.reads_batch import ReadsBatch
 from permutect.data.prefetch_generator import prefetch_generator
-from permutect.metrics.evaluation_metrics import EmbeddingMetrics, round_up_to_nearest_three, MAX_COUNT
+from permutect.metrics.evaluation_metrics import EmbeddingMetrics
+from permutect.metrics.loss_metrics import count_bin_index, count_bin_name
 from permutect.parameters import ModelParameters
 from permutect.sets.ragged_sets import RaggedSets
 from permutect.misc_utils import unfreeze, freeze, gpu_if_available
@@ -249,7 +250,7 @@ def record_embeddings(base_model: PermutectModel, loader, summary_writer: Summar
             metrics.label_metadata.extend(labels)
             metrics.correct_metadata.extend(["unknown"] * batch.size())
             metrics.type_metadata.extend([Variation(idx).name for idx in batch.get_variant_types().tolist()])
-            alt_count_strings = [str(round_up_to_nearest_three(min(MAX_COUNT, ac))) for ac in batch.get_alt_counts().tolist()]
+            alt_count_strings = [count_bin_name(count_bin_index(ac)) for ac in batch.get_alt_counts().tolist()]
             metrics.truncated_count_metadata.extend(alt_count_strings)
             metrics.representations.append(embeddings)
     embedding_metrics.output_to_summary_writer(summary_writer)

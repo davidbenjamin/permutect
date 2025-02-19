@@ -15,10 +15,10 @@ from permutect.data.datum import DEFAULT_GPU_FLOAT, DEFAULT_CPU_FLOAT
 from permutect.data.posterior_data import PosteriorBatch
 from permutect.data.prefetch_generator import prefetch_generator
 from permutect.metrics import plotting
+from permutect.metrics.loss_metrics import count_from_bin_index, NUM_ALT_COUNT_BINS, count_bin_index
 from permutect.misc_utils import StreamingAverage, gpu_if_available, backpropagate
 from permutect.utils.stats_utils import beta_binomial_log_lk
 from permutect.utils.enums import Variation, Call
-from permutect.metrics.evaluation_metrics import MAX_COUNT, NUM_COUNT_BINS, multiple_of_three_bin_index, multiple_of_three_bin_index_to_count
 
 
 # TODO: write unit test asserting that this comes out to zero when counts are zero
@@ -309,24 +309,27 @@ class PosteriorModel(torch.nn.Module):
         self.train(False)
         error_probs_by_type = {var_type: [] for var_type in Variation}   # includes both artifact and seq errors
 
-        error_probs_by_type_by_cnt = {var_type: [[] for _ in range(NUM_COUNT_BINS)] for var_type in Variation}
+        error_probs_by_type_by_cnt = {var_type: [[] for _ in range(NUM_ALT_COUNT_BINS)] for var_type in Variation}
 
+        # TODO: use the EvaluationMetrics class to generate the theoretical ROC curve
+        # TODO: then delete plotting.plot_theoretical_roc_on_axis
         batch: PosteriorBatch
         for batch in tqdm(prefetch_generator(posterior_loader), mininterval=10, total=len(posterior_loader)):
+            # TODO: should this be the original alt counts instead?
             alt_counts = batch.get_alt_counts().cpu().tolist()
             # 0th column is true variant, subtract it from 1 to get error prob
             error_probs = self.error_probabilities(batch, germline_mode).cpu().tolist()
 
             for var_type, alt_count, error_prob in zip(batch.get_variant_types().cpu().tolist(), alt_counts, error_probs):
                 error_probs_by_type[var_type].append(error_prob)
-                error_probs_by_type_by_cnt[var_type][multiple_of_three_bin_index(min(alt_count, MAX_COUNT))].append(error_prob)
+                error_probs_by_type_by_cnt[var_type][count_bin_index(alt_count)].append(error_prob)
 
         thresholds_by_type = {}
         roc_fig, roc_axes = plt.subplots(1, len(Variation), sharex='all', sharey='all', squeeze=False)
         roc_by_cnt_fig, roc_by_cnt_axes = plt.subplots(1, len(Variation), sharex='all', sharey='all', squeeze=False, figsize=(10, 6), dpi=100)
         for var_type in Variation:
             # plot all count ROC curves for this variant type
-            count_bin_labels = [str(multiple_of_three_bin_index_to_count(count_bin)) for count_bin in range(NUM_COUNT_BINS)]
+            count_bin_labels = [str(count_from_bin_index(count_bin)) for count_bin in range(NUM_ALT_COUNT_BINS)]
             _ = plotting.plot_theoretical_roc_on_axis(error_probs_by_type_by_cnt[var_type], count_bin_labels, roc_by_cnt_axes[0, var_type])
             best_threshold = plotting.plot_theoretical_roc_on_axis([error_probs_by_type[var_type]], [""], roc_axes[0, var_type])[0][0]
 

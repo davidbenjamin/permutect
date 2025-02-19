@@ -11,20 +11,20 @@ from tqdm.autonotebook import tqdm
 from permutect import constants
 from permutect.architecture.posterior_model import PosteriorModel
 from permutect.architecture.permutect_model import PermutectModel, load_model
-from permutect.data import reads_dataset, plain_text_data
+from permutect.data import plain_text_data
 from permutect.data.features_batch import FeaturesBatch
 from permutect.data.datum import Datum
 from permutect.data.posterior_data import PosteriorDataset, PosteriorDatum, PosteriorBatch
 from permutect.data.features_dataset import FeaturesDataset
 from permutect.data.prefetch_generator import prefetch_generator
-from permutect.data.reads_dataset import ReadsDataset
-from permutect.metrics.evaluation_metrics import EvaluationMetrics, EmbeddingMetrics, \
-    round_up_to_nearest_three, MAX_COUNT
+from permutect.data.reads_dataset import ReadsDataset, MAX_ALT_COUNT
+from permutect.metrics.evaluation_metrics import EvaluationMetrics, EmbeddingMetrics
+from permutect.metrics.loss_metrics import count_bin_name, count_bin_index
 from permutect.metrics.posterior_result import PosteriorResult
 from permutect.misc_utils import report_memory_usage, gpu_if_available
 from permutect.utils.allele_utils import trim_alleles_on_right, find_variant_type, truncate_bases_if_necessary
 from permutect.utils.enums import Variation, Call, Epoch, Label
-from permutect.utils.math_utils import prob_to_logit
+from permutect.utils.math_utils import prob_to_logit, inverse_sigmoid
 
 TRUSTED_M2_FILTERS = {'contamination'}
 
@@ -248,6 +248,7 @@ def apply_filtering_to_vcf(input_vcf, output_vcf, contig_index_to_name_map, erro
                            posterior_loader, posterior_model, summary_writer: SummaryWriter, germline_mode: bool = False):
     print("Computing final error probabilities")
     passing_call_type = Call.GERMLINE if germline_mode else Call.SOMATIC
+    evaluation_metrics = EvaluationMetrics(num_sources=1)
     encoding_to_posterior_results = {}
 
     batch: PosteriorBatch
@@ -257,10 +258,17 @@ def apply_filtering_to_vcf(input_vcf, output_vcf, contig_index_to_name_map, erro
             posterior_model.log_posterior_and_ingredients(batch)
 
         posterior_probs = torch.nn.functional.softmax(log_posteriors, dim=1)
-        data = [Datum(datum_array) for datum_array in batch.get_data_2d()]
+        error_probs = 1 - posterior_probs[:, passing_call_type]
+        error_logits = inverse_sigmoid(error_probs)
+        # this does nothing if the test dataset was generated without a truth VCF and thus has no labels
+        # note that here we use error logits, not artifact logits
+        # TODO: maybe also have an option to record relative to the computed probability thresholds.
+        # TODO: this code here treats posterior_prob = 1/2 as the threshold
+        # TODO: we could perhaps subtract the threshold to re-center at zero
+        evaluation_metrics.record_batch(Epoch.TEST, batch, error_logits)
 
         artifact_logits = batch.get_artifact_logits().cpu().tolist()
-
+        data = [Datum(datum_array) for datum_array in batch.get_data_2d()]
         for datum, post_probs, logit, log_prior, log_spec, log_normal, embedding in zip(data, posterior_probs, artifact_logits, log_priors, spectra_lls, normal_lls, batch.embeddings):
             encoding = encode_datum(datum, contig_index_to_name_map)
             encoding_to_posterior_results[encoding] = PosteriorResult(artifact_logit=logit, posterior_probabilities=post_probs.tolist(),
@@ -288,7 +296,6 @@ def apply_filtering_to_vcf(input_vcf, output_vcf, contig_index_to_name_map, erro
             unfiltered_vcf.add_filter_to_header({'ID': filter_name, 'Description': filter_name})
 
     writer = cyvcf2.Writer(output_vcf, unfiltered_vcf)  # input vcf is a template for the header
-    evaluation_metrics = EvaluationMetrics()
     pbar = tqdm(enumerate(unfiltered_vcf), mininterval=60)
     labeled_truth = False
     embedding_metrics = EmbeddingMetrics() # only if there is labeled truth for evaluation
@@ -325,8 +332,7 @@ def apply_filtering_to_vcf(input_vcf, output_vcf, contig_index_to_name_map, erro
             # note that this excludes the correctness part of embedding metrics, which is below
             embedding_metrics.label_metadata.append(label.name)
             embedding_metrics.type_metadata.append(variant_type.name)
-            embedding_metrics.truncated_count_metadata.append(
-                str(round_up_to_nearest_three(min(MAX_COUNT, posterior_result.alt_count))))
+            embedding_metrics.truncated_count_metadata.append(count_bin_name(count_bin_index(min(MAX_ALT_COUNT, posterior_result.alt_count))))
             embedding_metrics.representations.append(posterior_result.embedding)
 
             correctness_label = "unknown"
@@ -334,13 +340,11 @@ def apply_filtering_to_vcf(input_vcf, output_vcf, contig_index_to_name_map, erro
                 labeled_truth = True
                 clipped_error_prob = 0.5 + 0.9999999 * (error_prob - 0.5)
                 error_logit = prob_to_logit(clipped_error_prob)
-                float_label = 1.0 if label == Label.ARTIFACT else 0.0
 
                 # TODO: this is sloppy -- it only works because when we label the posterior dataset (if truth is available)
                 # TODO: we stretch the definitions so that "Label.ARTIFACT" simply means "something we shouldn't call", including
                 # TODO: artifact or germline (in the somatic calling case), and "Label.VARIANT" means "something we should call"
                 is_correct = (called_as_error and label == Label.ARTIFACT) or (not called_as_error and label == Label.VARIANT)
-                evaluation_metrics.record_call(Epoch.TEST, variant_type, error_logit, label, is_correct, posterior_result.alt_count)
 
                 # TODO: double-check the logic here
                 if is_correct:
