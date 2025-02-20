@@ -95,6 +95,8 @@ def train_permutect_model(model: PermutectModel, dataset: ReadsDataset, training
                 mean_over_labels = torch.mean(loss_metrics.get_marginal(BatchProperty.LABEL)).item()
                 train_scheduler.step(mean_over_labels)
 
+            loss_metrics.put_on_cpu()
+            alt_count_loss_metrics.put_on_cpu()
             loss_metrics.write_to_summary_writer(epoch_type, epoch, summary_writer, prefix="semi-supervised-loss")
             alt_count_loss_metrics.write_to_summary_writer(epoch_type, epoch, summary_writer, prefix="alt-count-loss")
             loss_metrics.report_marginals(f"Semisupervised losses for {epoch_type.name} epoch {epoch}.")
@@ -217,6 +219,8 @@ def refine_permutect_model(model: PermutectModel, dataset: ReadsDataset, trainin
                 mean_over_labels = torch.mean(loss_metrics.get_marginal(BatchProperty.LABEL)).item()
                 train_scheduler.step(mean_over_labels)
 
+            loss_metrics.put_on_cpu()
+            source_prediction_loss_metrics.put_on_cpu()
             loss_metrics.write_to_summary_writer(epoch_type, epoch, summary_writer, prefix="semisupervised-loss")
             source_prediction_loss_metrics.write_to_summary_writer(epoch_type, epoch, summary_writer, prefix="source-loss")
             loss_metrics.report_marginals(f"Semisupervised loss for {epoch_type.name} epoch {epoch}.")
@@ -283,6 +287,7 @@ def evaluate_model(model: PermutectModel, epoch: int, dataset: ReadsDataset, tra
 
     # self.freeze_all()
     evaluation_metrics, worst_offenders_by_label_and_alt_count = collect_evaluation_data(model, dataset, train_loader, valid_loader, report_worst)
+    evaluation_metrics.put_on_cpu()
     evaluation_metrics.make_plots(summary_writer, epoch=epoch)
 
     if report_worst:

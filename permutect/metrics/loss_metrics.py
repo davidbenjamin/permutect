@@ -45,7 +45,19 @@ class BatchIndexedTotals:
         assert self.totals_slvrag.dim() == len(BatchProperty)
         self.include_logits = include_logits
         self.device = device
+        self.has_been_sent_to_cpu = False
         self.num_sources = num_sources
+
+    def put_on_cpu(self):
+        """
+        Do this at the end of an epoch so that the whole tensor is on CPU in one operation rather than computing various
+        marginals etc on GPU and sending them each to CPU for plotting etc.
+        :return:
+        """
+        self.totals_slvrag = self.totals_slvrag.cpu()
+        self.device = torch.device('cpu')
+        self.has_been_sent_to_cpu = True
+        return self
 
     def resize_sources(self, new_num_sources):
         old_num_sources = self.num_sources
@@ -72,6 +84,7 @@ class BatchIndexedTotals:
     def record(self, batch: Batch, logits: torch.Tensor, values: torch.Tensor):
         # values is a 1D tensor
         assert batch.size() == len(values)
+        assert not self.has_been_sent_to_cpu, "Can't record after already sending to CPU"
         sources = batch.get_sources()
         logit_indices = logit_bin_indices(logits) if self.include_logits else torch.zeros_like(sources)
 
@@ -91,6 +104,7 @@ class BatchIndexedTotals:
         return torch.sum(self.totals_slvrag, dim=other_dims)
 
     def make_logit_histograms(self):
+        assert self.has_been_sent_to_cpu, "Can't make plots before sending to CPU"
         fig, axes = plt.subplots(len(Variation), NUM_ALT_COUNT_BINS, sharex='all', sharey='all', squeeze=False,
                                  figsize=(2.5 * NUM_ALT_COUNT_BINS, 2.5 * len(Variation)), dpi=200)
         x_axis_logits = logits_from_bin_indices(torch.tensor(range(NUM_LOGIT_BINS)))
@@ -132,8 +146,21 @@ class BatchIndexedAverages:
         self.counts = BatchIndexedTotals(num_sources, device, include_logits)
         self.include_logits = include_logits
         self.num_sources = num_sources
+        self.has_been_sent_to_cpu = False
+
+    def put_on_cpu(self):
+        """
+        Do this at the end of an epoch so that the whole tensor is on CPU in one operation rather than computing various
+        marginals etc on GPU and sending them each to CPU for plotting etc.
+        :return:
+        """
+        self.totals.put_on_cpu()
+        self.counts.put_on_cpu()
+        self.has_been_sent_to_cpu = True
+        return self
 
     def record(self, batch: Batch, logits: torch.Tensor, values: torch.Tensor, weights: torch.Tensor=None):
+        assert not self.has_been_sent_to_cpu, "Can't record after already sending to CPU"
         weights_to_use = torch.ones_like(values) if weights is None else weights
         self.totals.record(batch, logits, (values*weights_to_use).detach())
         self.counts.record(batch, logits, weights_to_use.detach())
@@ -145,6 +172,7 @@ class BatchIndexedAverages:
         return self.totals.get_marginal(properties) / self.counts.get_marginal(properties)
 
     def report_marginals(self, message: str):
+        assert self.has_been_sent_to_cpu, "Can't report marginals before sending to CPU"
         print(message)
         batch_property: BatchProperty
         for batch_property in BatchProperty:
@@ -160,6 +188,7 @@ class BatchIndexedAverages:
         write marginals for every batch property
         :return:
         """
+        assert self.has_been_sent_to_cpu, "Can't write to sumamry writer before sending to CPU"
         batch_property: BatchProperty
         for batch_property in BatchProperty:
             if batch_property == BatchProperty.LOGIT_BIN and not self.include_logits:
@@ -170,7 +199,34 @@ class BatchIndexedAverages:
                 summary_writer.add_scalar(heading, average, epoch)
 
 
+def make_true_and_false_masks_lg():
+    # note that this is on the CPU because it's for evaluation and plotting
+    all_logits_g = logits_from_bin_indices(torch.tensor(range(NUM_LOGIT_BINS)))
+
+    # labeled as non-artifact, called as non-artifact
+    true_positive_lg = torch.zeros(len(Label), NUM_LOGIT_BINS)
+    true_positive_lg[Label.VARIANT] = all_logits_g < 0
+
+    # labeled as artifact, called as artifact
+    true_negative_lg = torch.zeros(len(Label), NUM_LOGIT_BINS)
+    true_negative_lg[Label.ARTIFACT] = all_logits_g > 0
+
+    # labeled as artifact, called as non-artifact
+    false_positive_lg = torch.zeros(len(Label), NUM_LOGIT_BINS)
+    false_positive_lg[Label.ARTIFACT] = all_logits_g < 0
+
+    # labeled as non-artifact, called as artifact
+    false_negative_lg = torch.zeros(len(Label), NUM_LOGIT_BINS)
+    false_negative_lg[Label.VARIANT] = all_logits_g > 0
+
+    true_lg = true_positive_lg + true_negative_lg
+    false_lg = false_positive_lg + false_negative_lg
+    return true_lg, false_lg
+
+
 class AccuracyMetrics(BatchIndexedTotals):
+    TRUE_LG, FALSE_LG = make_true_and_false_masks_lg()
+
     """
     Record should be called with values=tensor of 1 if correct, 0 if incorrect.  Accuracies are the averages of the correctness
 
@@ -182,39 +238,19 @@ class AccuracyMetrics(BatchIndexedTotals):
         super().__init__(num_sources, device, include_logits=True)
         self.num_sources = num_sources
 
-        all_logits_g = logits_from_bin_indices(torch.tensor(range(NUM_LOGIT_BINS), device=device))
-
-        # labeled as non-artifact, called as non-artifact
-        self.true_positive_lg = torch.zeros(len(Label), NUM_LOGIT_BINS, device=device)
-        self.true_positive_lg[Label.VARIANT] = all_logits_g < 0
-
-        # labeled as artifact, called as artifact
-        self.true_negative_lg = torch.zeros(len(Label), NUM_LOGIT_BINS, device=device)
-        self.true_negative_lg[Label.ARTIFACT] = all_logits_g > 0
-
-        # labeled as artifact, called as non-artifact
-        self.false_positive_lg = torch.zeros(len(Label), NUM_LOGIT_BINS, device=device)
-        self.false_positive_lg[Label.ARTIFACT] = all_logits_g < 0
-
-        # labeled as non-artifact, called as artifact
-        self.false_negative_lg = torch.zeros(len(Label), NUM_LOGIT_BINS, device=device)
-        self.false_negative_lg[Label.VARIANT] = all_logits_g > 0
-
-        self.true_lg = self.true_positive_lg + self.true_negative_lg
-        self.false_lg = self.false_positive_lg + self.false_negative_lg
-
     def make_data_for_accuracy_plot(self, var_type: Variation, source: int = None):
         """
         return a list of tuples.  This outer list is over the two labels, Call.SOMATIC and Call.ARTIFACT.  Each tuple consists of
         (list of alt counts (x axis), list of accuracies (y axis), the label)
         sum over source by default, select over source if given
         """
+        assert self.has_been_sent_to_cpu, "Can't make plots before sending to CPU"
         sum_dims = ((BatchProperty.SOURCE, ) if source is None else ()) + (BatchProperty.REF_COUNT_BIN, )
         selection = ({} if source is None else {BatchProperty.SOURCE: source}) | {BatchProperty.VARIANT_TYPE: var_type}
 
         totals_lag = select_and_sum(self.totals_slvrag, select=selection, sum=sum_dims)
-        true_la = torch.sum(self.true_lg[:, None, :] * totals_lag, dim=-1)
-        false_la = torch.sum(self.false_lg[:, None, :] * totals_lag, dim=-1)
+        true_la = torch.sum(AccuracyMetrics.TRUE_LG[:, None, :] * totals_lag, dim=-1)
+        false_la = torch.sum(AccuracyMetrics.FALSE_LG[:, None, :] * totals_lag, dim=-1)
 
         result = []
         for label in (Label.ARTIFACT, Label.VARIANT):
@@ -240,6 +276,7 @@ class AccuracyMetrics(BatchIndexedTotals):
         if combine_alt_counts is True
             return a Tuple (list of logits (x axis), list of accuracies (y axis))
         """
+        assert self.has_been_sent_to_cpu, "Can't make plots before sending to CPU"
         sum_dims = ((BatchProperty.SOURCE,) if source is None else ()) + \
                    ((BatchProperty.ALT_COUNT_BIN,) if alt_count_bin is None else ()) + \
                    (BatchProperty.REF_COUNT_BIN, )
@@ -248,8 +285,8 @@ class AccuracyMetrics(BatchIndexedTotals):
                     {BatchProperty.VARIANT_TYPE: var_type}
 
         totals_lg = select_and_sum(self.totals_slvrag, select=selection, sum=sum_dims)
-        true_g = torch.sum(self.true_lg * totals_lg, dim=0)
-        false_g = torch.sum(self.false_lg * totals_lg, dim=0)
+        true_g = torch.sum(AccuracyMetrics.TRUE_LG * totals_lg, dim=0)
+        false_g = torch.sum(AccuracyMetrics.FALSE_LG * totals_lg, dim=0)
         total_g = true_g + false_g
         non_empty_bin_indices = torch.argwhere(total_g >= 1)
         logits = logits_from_bin_indices(non_empty_bin_indices)
@@ -265,6 +302,7 @@ class AccuracyMetrics(BatchIndexedTotals):
         source = None means sum over all sources
         alt_count_bin = None means sum over all alt counts
         """
+        assert self.has_been_sent_to_cpu, "Can't make plots before sending to CPU"
         sum_dims = ((BatchProperty.SOURCE,) if source is None else ()) + \
                    ((BatchProperty.ALT_COUNT_BIN,) if alt_count_bin is None else ()) + \
                     (BatchProperty.REF_COUNT_BIN,)
@@ -273,23 +311,23 @@ class AccuracyMetrics(BatchIndexedTotals):
                     {BatchProperty.VARIANT_TYPE: var_type}
 
         totals_lg = select_and_sum(self.totals_slvrag, select=selection, sum=sum_dims)
-        totals_lg_cpu = totals_lg.cpu()
         # starting point is threshold below bottom bin, hence everything is considered artifact, hence 1) everything labeled
         # non-artifact is a false negative, 2) there are no true positives, 3) there are no false positives
         true_positive, false_positive = 0, 0
         true_negative, false_negative = torch.sum(totals_lg[Label.ARTIFACT]).item(), torch.sum(totals_lg[Label.VARIANT]).item()
         # last bin is clipped, so the top of the last bin isn't meaningful; likewise for the bottom of the first bin
         result = []
+        #TODO: replace some of this logic with cumulative sums?
         for logit_bin in range(NUM_LOGIT_BINS - 1):
             # logit threshold below which everything is considered non-artifact and above which everything is considered artifact
             threshold = top_of_logit_bin(logit_bin)
 
             # the artifacts in this logit bin go from true negatives to false positives, while the non-artifacts go
             # from false negatives to true positives
-            true_positive += totals_lg_cpu[Label.VARIANT, logit_bin].item()
-            false_negative -= totals_lg_cpu[Label.VARIANT, logit_bin].item()
-            false_positive += totals_lg_cpu[Label.ARTIFACT, logit_bin].item()
-            true_negative -= totals_lg_cpu[Label.ARTIFACT, logit_bin].item()
+            true_positive += totals_lg[Label.VARIANT, logit_bin].item()
+            false_negative -= totals_lg[Label.VARIANT, logit_bin].item()
+            false_positive += totals_lg[Label.ARTIFACT, logit_bin].item()
+            true_negative -= totals_lg[Label.ARTIFACT, logit_bin].item()
 
             if (true_positive + false_negative) > 0 and (true_positive + false_positive) > 0 and (true_negative + false_positive) > 0:
                 nonartifact_metric = true_positive / (true_positive + false_negative)
@@ -298,25 +336,30 @@ class AccuracyMetrics(BatchIndexedTotals):
         return result
 
     def plot_roc_curve(self, var_type: Variation, axis, given_threshold: float = None, sens_prec: bool = False, source: int = None):
+        assert self.has_been_sent_to_cpu, "Can't make plots before sending to CPU"
         thresh_nonart_art_tuples = [self.make_roc_data(var_type, source=source, alt_count_bin=None, sens_prec=sens_prec)]
         plotting.plot_roc_on_axis(thresh_nonart_art_tuples, [None], axis, sens_prec, given_threshold)
 
     def plot_roc_curves_by_count(self, var_type: Variation, axis, given_threshold: float = None, sens_prec: bool = False, source: int = None):
+        assert self.has_been_sent_to_cpu, "Can't make plots before sending to CPU"
         thresh_nonart_art_tuples = [self.make_roc_data(var_type, source, alt_count_bin, sens_prec) for alt_count_bin in range(
             NUM_ALT_COUNT_BINS)]
         curve_labels = [count_bin_name(bin_idx) for bin_idx in range(NUM_ALT_COUNT_BINS)]
         plotting.plot_roc_on_axis(thresh_nonart_art_tuples, curve_labels, axis, sens_prec, given_threshold)
 
     def plot_accuracy(self, var_type: Variation, axis, source: int = None):
+        assert self.has_been_sent_to_cpu, "Can't make plots before sending to CPU"
         acc_vs_cnt_x_y_lab_tuples = self.make_data_for_accuracy_plot(var_type, source)
         plotting.simple_plot_on_axis(axis, acc_vs_cnt_x_y_lab_tuples, None, None)
 
     def plot_calibration_by_count(self, var_type: Variation, axis, source: int = None):
+        assert self.has_been_sent_to_cpu, "Can't make plots before sending to CPU"
         acc_vs_logit_x_y_lab_tuples = [self.make_data_for_calibration_plot(var_type, alt_count_bin, source) for alt_count_bin in range(
             NUM_ALT_COUNT_BINS)]
         plotting.simple_plot_on_axis(axis, acc_vs_logit_x_y_lab_tuples, None, None)
 
     def plot_calibration_all_counts(self, var_type: Variation, axis, source: int = None):
+        assert self.has_been_sent_to_cpu, "Can't make plots before sending to CPU"
         acc_vs_logit_x_y_lab_tuples = [self.make_data_for_calibration_plot(var_type, None, source)]
         plotting.simple_plot_on_axis(axis, acc_vs_logit_x_y_lab_tuples, None, None)
 

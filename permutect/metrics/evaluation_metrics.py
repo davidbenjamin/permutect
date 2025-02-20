@@ -26,11 +26,24 @@ class EvaluationMetrics:
 
         # list of (PosteriorResult, Call) tuples
         self.mistakes = []
+        self.has_been_sent_to_cpu = False
+
+    def put_on_cpu(self):
+        """
+        Do this at the end of an epoch so that the whole tensor is on CPU in one operation rather than computing various
+        marginals etc on GPU and sending them each to CPU for plotting etc.
+        :return:
+        """
+        for metric in self.metrics.values():
+            metric.put_on_cpu()
+        self.has_been_sent_to_cpu = True
+        return self
 
     # TODO: currently doesn't record unlabeled data at all
     # correct_call is boolean -- was the prediction correct?
     # the predicted logit is the logit corresponding to the predicted probability that call in question is an artifact / error
     def record_batch(self, epoch_type: Epoch, batch: Batch, predicted_logits: torch.Tensor, weights: torch.Tensor = None):
+        assert not self.has_been_sent_to_cpu, "Can't record after already sending to CPU"
         labels = batch.get_labels()
         is_labeled = labels != Label.UNLABELED
         weights_with_labeled_mask = is_labeled * (weights if weights is not None else torch.ones(batch.size(), device=predicted_logits.device))
@@ -41,6 +54,7 @@ class EvaluationMetrics:
         self.mistakes.append((posterior_result, call))
 
     def make_mistake_histograms(self, summary_writer: SummaryWriter):
+        assert self.has_been_sent_to_cpu, "Can't make plots before sending to CPU"
         # indexed by call then var_type, inner is a list of posterior results with that call and var type
         posterior_result_mistakes_by_call_and_var_type = defaultdict(lambda: defaultdict(list))
         for posterior_result, call in self.mistakes:
@@ -88,6 +102,7 @@ class EvaluationMetrics:
         summary_writer.add_figure("probability assigned to mistake calls", prob_fig)
 
     def make_plots(self, summary_writer: SummaryWriter, given_thresholds=None, sens_prec: bool = False, epoch: int = None):
+        assert self.has_been_sent_to_cpu, "Can't make plots before sending to CPU"
         # given_thresholds is a dict from Variation to float (logit-scaled) used in the ROC curves
         epoch_keys = self.metrics.keys()
         num_sources = next(iter(self.metrics.values())).num_sources
