@@ -27,7 +27,7 @@ def main_without_parsing(args):
             PermutectModel(params=params, num_read_features=dataset.num_read_features, num_info_features=dataset.num_info_features,
                            haplotypes_length=dataset.haplotypes_length, device=gpu_if_available())
 
-    train_permutect_model(model, dataset, training_params, summary_writer=summary_writer)
+    train_permutect_model(model, dataset, training_params, summary_writer=summary_writer, epochs_per_evaluation=10)
     summary_writer.close()
 
     # TODO: this is currently wrong because we are using the separate artifact model, not the full model

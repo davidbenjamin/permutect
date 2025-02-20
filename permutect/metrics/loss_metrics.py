@@ -214,11 +214,11 @@ class BatchIndexedAverages:
         totals_ra = select_and_sum(self.totals.totals_slvrag, select=selection, sum=sum_dims)
         counts_ra = select_and_sum(self.counts.totals_slvrag, select=selection, sum=sum_dims)
         average_ra = totals_ra / (counts_ra + 0.001)
-        transformed_ra = torch.pow(average_ra, 1/3) # cube root is a good scaling
+        transformed_ra = torch.pow(average_ra, 1/3)     # cube root is a good scaling
         return plotting.color_plot_2d_on_axis(axis, np.array(ALT_COUNT_BIN_BOUNDS), np.array(REF_COUNT_BIN_BOUNDS), transformed_ra, None, None,
                                        vmin=0, vmax=1)
 
-    def make_loss_plots(self, summary_writer: SummaryWriter, epoch_type: Epoch, epoch: int = None):
+    def make_loss_plots(self, summary_writer: SummaryWriter, prefix: str, epoch_type: Epoch, epoch: int = None):
         assert self.has_been_sent_to_cpu, "Can't make plots before sending to CPU"
 
         for source in range(self.num_sources):
@@ -232,7 +232,7 @@ class BatchIndexedAverages:
             loss_fig.colorbar(common_colormesh)
             plotting.tidy_subplots(loss_fig, loss_axes, x_label="alt count", y_label="ref count", row_labels=row_names, column_labels=variation_types)
             name_suffix = epoch_type.name + "" if self.num_sources == 1 else (", all sources" if source is None else f", source {source}")
-            summary_writer.add_figure("accuracy by alt count " + name_suffix, loss_fig, global_step=epoch)
+            summary_writer.add_figure(prefix + name_suffix, loss_fig, global_step=epoch)
 
 
 def make_true_and_false_masks_lg():

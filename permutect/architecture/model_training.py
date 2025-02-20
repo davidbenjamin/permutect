@@ -27,7 +27,7 @@ WORST_OFFENDERS_QUEUE_SIZE = 100
 
 
 def train_permutect_model(model: PermutectModel, dataset: ReadsDataset, training_params: TrainingParameters,
-                          summary_writer: SummaryWriter, validation_fold: int = None):
+                          summary_writer: SummaryWriter, validation_fold: int = None, epochs_per_evaluation: int = None):
     report_memory_usage("Beginning training.")
     device, dtype = model._device, model._dtype
     num_sources = dataset.num_sources()
@@ -47,7 +47,8 @@ def train_permutect_model(model: PermutectModel, dataset: ReadsDataset, training
     validation_fold_to_use = (dataset.num_folds - 1) if validation_fold is None else validation_fold
     train_loader, valid_loader = dataset.make_train_and_valid_loaders(validation_fold_to_use, training_params.batch_size, is_cuda, training_params.num_workers)
 
-    for epoch in trange(1, training_params.num_epochs + 1, desc="Epoch"):
+    first_epoch, last_epoch = 1, training_params.num_epochs
+    for epoch in trange(1, last_epoch + 1, desc="Epoch"):
         model.alt_count_predictor.set_adversarial_strength((2/(1 + math.exp(-0.1*(epoch - 1)))) - 1) # alpha increases linearly
         start_epoch = time.time()
         report_memory_usage(f"Start of epoch {epoch}")
@@ -101,6 +102,15 @@ def train_permutect_model(model: PermutectModel, dataset: ReadsDataset, training
             alt_count_loss_metrics.write_to_summary_writer(epoch_type, epoch, summary_writer, prefix="alt-count-loss")
             loss_metrics.report_marginals(f"Semisupervised losses for {epoch_type.name} epoch {epoch}.")
             alt_count_loss_metrics.report_marginals(f"Alt count prediction adversarial task loss for {epoch_type.name} epoch {epoch}.")
+
+            if (epochs_per_evaluation is not None and epoch % epochs_per_evaluation == 0) or (epoch == last_epoch):
+                loss_metrics.make_loss_plots(summary_writer, "semisupervised loss", epoch_type, epoch)
+                alt_count_loss_metrics.make_loss_plots(summary_writer, "alt count loss", epoch_type, epoch)
+
+                print(f"performing evaluation on epoch {epoch}")
+                if epoch_type == Epoch.VALID:
+                    evaluate_model(model, epoch, dataset, train_loader, valid_loader, summary_writer, collect_embeddings=False, report_worst=False)
+
         report_memory_usage(f"End of epoch {epoch}.")
         print(f"time elapsed(s): {time.time() - start_epoch:.1f}")
         # done with training and validation for this epoch
@@ -225,13 +235,18 @@ def refine_permutect_model(model: PermutectModel, dataset: ReadsDataset, trainin
             source_prediction_loss_metrics.write_to_summary_writer(epoch_type, epoch, summary_writer, prefix="source-loss")
             loss_metrics.report_marginals(f"Semisupervised loss for {epoch_type.name} epoch {epoch}.")
             source_prediction_loss_metrics.report_marginals(f"Source prediction loss for {epoch_type.name} epoch {epoch}.")
+
+            if (epochs_per_evaluation is not None and epoch % epochs_per_evaluation == 0) or (epoch == last_epoch):
+                loss_metrics.make_loss_plots(summary_writer, "semisupervised loss", epoch_type, epoch)
+                source_prediction_loss_metrics.make_loss_plots(summary_writer, "source prediction loss", epoch_type, epoch)
+
+                print(f"performing evaluation on epoch {epoch}")
+                if epoch_type == Epoch.VALID:
+                    evaluate_model(model, epoch, dataset, train_loader, valid_loader, summary_writer, collect_embeddings=False, report_worst=False)
+
         # done with training and validation for this epoch
         report_memory_usage(f"End of epoch {epoch}.")
         print(f"Time elapsed(s): {time.time() - start_of_epoch:.1f}")
-        if (epochs_per_evaluation is not None and epoch % epochs_per_evaluation == 0) or (epoch == last_epoch):
-            print(f"performing evaluation on epoch {epoch}")
-            evaluate_model(model, epoch, dataset, train_loader, valid_loader, summary_writer, collect_embeddings=False, report_worst=False)
-
         # note that we have not learned the AF spectrum yet
     # done with training
 
