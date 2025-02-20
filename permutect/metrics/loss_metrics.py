@@ -316,7 +316,7 @@ class AccuracyMetrics(BatchIndexedTotals):
         for var_type in Variation:
             true_g, false_g = true_vg[var_type], false_vg[var_type]
             total_g = true_g + false_g
-            non_empty_bin_indices = torch.argwhere(total_g >= 1)
+            non_empty_bin_indices = torch.argwhere(total_g >= 0.0001)
             logits = logits_from_bin_indices(non_empty_bin_indices)
             accuracies = true_g[non_empty_bin_indices] / total_g[non_empty_bin_indices]
             x_y_lab_tuples.append((logits, accuracies, var_type.name))

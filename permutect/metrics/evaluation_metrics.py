@@ -105,14 +105,16 @@ class EvaluationMetrics:
         assert self.has_been_sent_to_cpu, "Can't make plots before sending to CPU"
         # given_thresholds is a dict from Variation to float (logit-scaled) used in the ROC curves
         num_sources = next(iter(self.metrics.values())).num_sources
-        ref_count_names = [count_bin_name(bin_idx) for bin_idx in range(NUM_REF_COUNT_BINS)]
-        alt_count_names = [count_bin_name(bin_idx) for bin_idx in range(NUM_ALT_COUNT_BINS)]
+        ref_count_bins = list(range(NUM_REF_COUNT_BINS)) + [None]
+        alt_count_bins = list(range(NUM_ALT_COUNT_BINS)) + [None]
+        ref_count_names = [count_bin_name(bin_idx) for bin_idx in range(NUM_REF_COUNT_BINS)] + ["ALL"]
+        alt_count_names = [count_bin_name(bin_idx) for bin_idx in range(NUM_ALT_COUNT_BINS)] + ["ALL"]
 
         for epoch_type, metric in self.metrics.items():
             for source in chain(range(num_sources), [None]):
                 acc_fig, acc_axes = plt.subplots(2, len(Variation), sharex='all', sharey='all', squeeze=False, figsize=(2.5 * len(Variation), 2.5 * 2))
-                cal_fig, cal_axes = plt.subplots(NUM_REF_COUNT_BINS, NUM_ALT_COUNT_BINS, sharex='all', sharey='all', squeeze=False)
-                roc_fig, roc_axes = plt.subplots(NUM_REF_COUNT_BINS, NUM_ALT_COUNT_BINS, sharex='all', sharey='all', squeeze=False, dpi=200)
+                cal_fig, cal_axes = plt.subplots(len(ref_count_bins), len(alt_count_bins), sharex='all', sharey='all', squeeze=False)
+                roc_fig, roc_axes = plt.subplots(len(ref_count_bins), len(alt_count_bins), sharex='all', sharey='all', squeeze=False, dpi=200)
 
                 # make accuracy plots: overall figure is rows = label, columns = variant
                 # each subplot is color map of accuracy where x is ref count, y is alt count
@@ -124,10 +126,10 @@ class EvaluationMetrics:
                         common_colormesh = metric.plot_accuracy(label, var_type, acc_axes[row, col], source)
                 acc_fig.colorbar(common_colormesh)
 
-                for ref_count_bin in range(NUM_REF_COUNT_BINS):
-                    for alt_count_bin in range(NUM_ALT_COUNT_BINS):
-                        metric.plot_calibration(cal_axes[ref_count_bin, alt_count_bin], ref_count_bin, alt_count_bin, source)
-                        metric.plot_roc(roc_axes[ref_count_bin, alt_count_bin], ref_count_bin, alt_count_bin, source, given_thresholds, sens_prec)
+                for row, ref_count_bin in enumerate(ref_count_bins):
+                    for col, alt_count_bin in enumerate(alt_count_bins):
+                        metric.plot_calibration(cal_axes[row, col], ref_count_bin, alt_count_bin, source)
+                        metric.plot_roc(roc_axes[row, col], ref_count_bin, alt_count_bin, source, given_thresholds, sens_prec)
 
                 nonart_label = "sensitivity" if sens_prec else "non-artifact accuracy"
                 art_label = "precision" if sens_prec else "artifact accuracy"
