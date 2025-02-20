@@ -82,12 +82,12 @@ def grouped_bar_plot(heights_by_category, x_labels, y_label):
     return fig, ax
 
 
-def plot_roc_on_axis(list_of_tuple_lists, curve_labels, axis, sens_prec: bool, given_threshold: float = None):
+def plot_roc_on_axis(list_of_tuple_lists, curve_labels, axis, sens_prec: bool, thresholds: List[float]):
     # input is a list of lists
     # each constituent list is of tuples (threshold, nonartifact metric, artifact metric)
     x_y_lab_tuples = []
     small_dots, big_dots = [], []
-    for thresh_and_accs, curve_label in zip(list_of_tuple_lists, curve_labels):
+    for given_threshold, thresh_and_accs, curve_label in zip(thresholds, list_of_tuple_lists, curve_labels):
         nonart_metrics = [x[1] for x in thresh_and_accs]
         art_metrics = [x[2] for x in thresh_and_accs]
         x_y_lab_tuples.append((nonart_metrics, art_metrics, curve_label))

@@ -239,22 +239,15 @@ class AccuracyMetrics(BatchIndexedTotals):
         super().__init__(num_sources, device, include_logits=True)
         self.num_sources = num_sources
 
-    def make_roc_data(self, var_type: Variation, source: int, alt_count_bin: int, sens_prec: bool):
-        """
-        :param var_type:
-        :param sens_prec:   is it sensitivity and precision, or sensitivity and accuracy on artifacts
-        :return: list of (threshold, nonartifact metric, artifact metric
-
-        source = None means sum over all sources
-        alt_count_bin = None means sum over all alt counts
-        """
+    def make_roc_data(self, ref_count_bin: int, alt_count_bin: int, source: int, variant_type: Variation, sens_prec: bool):
         assert self.has_been_sent_to_cpu, "Can't make plots before sending to CPU"
         sum_dims = ((BatchProperty.SOURCE,) if source is None else ()) + \
-                   ((BatchProperty.ALT_COUNT_BIN,) if alt_count_bin is None else ()) + \
-                    (BatchProperty.REF_COUNT_BIN,)
+                   ((BatchProperty.REF_COUNT_BIN,) if ref_count_bin is None else ()) + \
+                    ((BatchProperty.ALT_COUNT_BIN,) if alt_count_bin is None else ())
         selection = ({} if source is None else {BatchProperty.SOURCE: source}) | \
+                    ({} if ref_count_bin is None else {BatchProperty.REF_COUNT_BIN: ref_count_bin}) | \
                     ({} if alt_count_bin is None else {BatchProperty.ALT_COUNT_BIN: alt_count_bin}) | \
-                    {BatchProperty.VARIANT_TYPE: var_type}
+                    {BatchProperty.VARIANT_TYPE: variant_type}
 
         totals_lg = select_and_sum(self.totals_slvrag, select=selection, sum=sum_dims)
         # starting point is threshold below bottom bin, hence everything is considered artifact, hence 1) everything labeled
@@ -281,17 +274,12 @@ class AccuracyMetrics(BatchIndexedTotals):
                 result.append((threshold, nonartifact_metric, artifact_metric))
         return result
 
-    def plot_roc_curve(self, var_type: Variation, axis, given_threshold: float = None, sens_prec: bool = False, source: int = None):
+    def plot_roc(self, axis, ref_count_bin: int, alt_count_bin: int, source: int, given_thresholds, sens_prec: bool = False):
         assert self.has_been_sent_to_cpu, "Can't make plots before sending to CPU"
-        thresh_nonart_art_tuples = [self.make_roc_data(var_type, source=source, alt_count_bin=None, sens_prec=sens_prec)]
-        plotting.plot_roc_on_axis(thresh_nonart_art_tuples, [None], axis, sens_prec, given_threshold)
-
-    def plot_roc_curves_by_count(self, var_type: Variation, axis, given_threshold: float = None, sens_prec: bool = False, source: int = None):
-        assert self.has_been_sent_to_cpu, "Can't make plots before sending to CPU"
-        thresh_nonart_art_tuples = [self.make_roc_data(var_type, source, alt_count_bin, sens_prec) for alt_count_bin in range(
-            NUM_ALT_COUNT_BINS)]
-        curve_labels = [count_bin_name(bin_idx) for bin_idx in range(NUM_ALT_COUNT_BINS)]
-        plotting.plot_roc_on_axis(thresh_nonart_art_tuples, curve_labels, axis, sens_prec, given_threshold)
+        thresh_nonart_art_tuples = [self.make_roc_data(ref_count_bin, alt_count_bin, source, var_type, sens_prec) for var_type in Variation]
+        curve_labels = [var_type.name for var_type in Variation]
+        thresholds = ([None]*len(Variation)) if given_thresholds is None else [given_thresholds[var_type] for var_type in Variation]
+        plotting.plot_roc_on_axis(thresh_nonart_art_tuples, curve_labels, axis, sens_prec, thresholds)
 
     def plot_accuracy(self, label: Label, var_type: Variation, axis, source: int = None):
         """
