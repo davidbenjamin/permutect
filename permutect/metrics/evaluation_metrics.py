@@ -113,7 +113,7 @@ class EvaluationMetrics:
             for source in chain(range(num_sources), [None]):
                 # grid of figures -- rows are epoch types, columns are variant types
                 # each subplot has two line graphs of accuracy vs alt count, one each for artifact, non-artifact
-                acc_vs_cnt_fig, acc_vs_cnt_axes = plt.subplots(num_rows, len(Variation), sharex='all', sharey='all', squeeze=False)
+                acc_fig, acc_axes = plt.subplots(2, len(Variation), sharex='all', sharey='all', squeeze=False, figsize=(2.5 * len(Variation), 2.5 * 2))
                 roc_fig, roc_axes = plt.subplots(num_rows, len(Variation), sharex='all', sharey='all', squeeze=False, figsize=(2.5 * len(Variation), 2.5 * num_rows), dpi=200)
                 cal_fig, cal_axes = plt.subplots(num_rows, len(Variation), sharex='all', sharey='all', squeeze=False)
                 cal_fig_all_counts, cal_axes_all_counts = plt.subplots(num_rows, len(Variation), sharex='all', sharey='all', squeeze=False)
@@ -121,11 +121,17 @@ class EvaluationMetrics:
 
                 # make accuracy plots: overall figure is rows = label, columns = variant
                 # each subplot is color map of accuracy where x is ref count, y is alt count
+                accuracy_rows = [Label.VARIANT, Label.ARTIFACT]
+                accuracy_row_names = [label.name for label in accuracy_rows]
+                common_colormesh = None
+                for row, label in enumerate(accuracy_rows):
+                    for col, var_type in enumerate(Variation):
+                        common_colormesh = metric.plot_accuracy(label, var_type, acc_axes[row, col], source)
+                acc_fig.colorbar(common_colormesh)
 
                 for row, key in enumerate(DUMMY_ROW_NAMES):
                     for var_type in Variation:
                         given_threshold = None if given_thresholds is None else given_thresholds[var_type]
-                        metric.plot_accuracy(var_type, acc_vs_cnt_axes[row, var_type], source)
                         metric.plot_calibration_by_count(var_type, cal_axes[row, var_type], source)
                         metric.plot_calibration_all_counts(var_type, cal_axes_all_counts[row, var_type], source)
                         metric.plot_roc_curve(var_type, roc_axes[row, var_type], given_threshold, sens_prec, source)
@@ -135,7 +141,7 @@ class EvaluationMetrics:
                 art_label = "precision" if sens_prec else "artifact accuracy"
 
                 variation_types = [var_type.name for var_type in Variation]
-                plotting.tidy_subplots(acc_vs_cnt_fig, acc_vs_cnt_axes, x_label="alt count", y_label="accuracy", row_labels=DUMMY_ROW_NAMES, column_labels=variation_types)
+                plotting.tidy_subplots(acc_fig, acc_axes, x_label="alt count", y_label="ref count", row_labels=accuracy_row_names, column_labels=variation_types)
                 plotting.tidy_subplots(roc_fig, roc_axes, x_label=nonart_label, y_label=art_label, row_labels=DUMMY_ROW_NAMES, column_labels=variation_types)
                 plotting.tidy_subplots(roc_by_cnt_fig, roc_by_cnt_axes, x_label=nonart_label, y_label=art_label, row_labels=DUMMY_ROW_NAMES, column_labels=variation_types)
                 plotting.tidy_subplots(cal_fig, cal_axes, x_label="predicted logit", y_label="accuracy", row_labels=DUMMY_ROW_NAMES, column_labels=variation_types)
@@ -143,7 +149,7 @@ class EvaluationMetrics:
 
                 name_suffix = epoch_type.name + "" if num_sources == 1 else (", all sources" if source is None else f", source {source}")
 
-                summary_writer.add_figure("accuracy by alt count " + name_suffix, acc_vs_cnt_fig, global_step=epoch)
+                summary_writer.add_figure("accuracy by alt count " + name_suffix, acc_fig, global_step=epoch)
                 summary_writer.add_figure(" accuracy by logit output by count" + name_suffix, cal_fig, global_step=epoch)
                 summary_writer.add_figure(" accuracy by logit output" + name_suffix, cal_fig_all_counts, global_step=epoch)
                 summary_writer.add_figure(("sensitivity vs precision" if sens_prec else "variant accuracy vs artifact accuracy") + name_suffix, roc_fig, global_step=epoch)

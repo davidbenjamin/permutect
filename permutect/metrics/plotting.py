@@ -40,6 +40,15 @@ def simple_plot_on_axis(ax, x_y_lab_tuples, x_label, y_label):
         ax.legend()
 
 
+# x bounds has length 1 greater than values's 0th dimension
+# y bounds has length 1 greater than values's 1st dimension
+def color_plot_2d_on_axis(ax, x_bounds, y_bounds, values, x_label, y_label, vmin: float = None, vmax: float = None):
+    mesh = ax.pcolormesh(x_bounds, y_bounds, values, vmin=vmin, vmax=vmax)
+    ax.set_xlabel(x_label)
+    ax.set_ylabel(y_label)
+    return mesh
+
+
 def simple_histograms_on_axis(ax, list_of_histogram_data, list_of_labels, num_bins):
     ax.hist(list_of_histogram_data, bins=num_bins, alpha=0.5, label=list_of_labels)
 

@@ -1,6 +1,7 @@
 from enum import IntEnum
 from typing import Tuple
 
+import numpy as np
 import torch
 from matplotlib import pyplot as plt
 from torch.utils.tensorboard import SummaryWriter
@@ -9,7 +10,7 @@ from permutect.data.batch import Batch
 from permutect.data.datum import Datum
 from permutect.data.count_binning import NUM_REF_COUNT_BINS, NUM_ALT_COUNT_BINS, \
     NUM_LOGIT_BINS, logit_bin_indices, top_of_logit_bin, logits_from_bin_indices, logit_bin_name, count_bin_indices, \
-    count_bin_index, counts_from_bin_indices, count_bin_name
+    count_bin_index, counts_from_bin_indices, count_bin_name, ALT_COUNT_BIN_BOUNDS, REF_COUNT_BIN_BOUNDS
 from permutect.metrics import plotting
 from permutect.misc_utils import gpu_if_available
 from permutect.utils.array_utils import add_to_6d_array, select_and_sum
@@ -321,25 +322,23 @@ class AccuracyMetrics(BatchIndexedTotals):
         curve_labels = [count_bin_name(bin_idx) for bin_idx in range(NUM_ALT_COUNT_BINS)]
         plotting.plot_roc_on_axis(thresh_nonart_art_tuples, curve_labels, axis, sens_prec, given_threshold)
 
-    def plot_accuracy(self, var_type: Variation, axis, source: int = None):
+    def plot_accuracy(self, label: Label, var_type: Variation, axis, source: int = None):
+        """
+        for given Label and Variation, plot color map of accuracy vs ref (x axis) and alt (y axis) counts
+        :return:
+        """
         assert self.has_been_sent_to_cpu, "Can't make plots before sending to CPU"
-        sum_dims = ((BatchProperty.SOURCE,) if source is None else ()) + (BatchProperty.REF_COUNT_BIN,)
+        sum_dims = ((BatchProperty.SOURCE,) if source is None else ())
         selection = ({} if source is None else {BatchProperty.SOURCE: source}) | {BatchProperty.VARIANT_TYPE: var_type}
-        totals_lag = select_and_sum(self.totals_slvrag, select=selection, sum=sum_dims)
-        true_la = torch.sum(AccuracyMetrics.TRUE_LG[:, None, :] * totals_lag, dim=-1)
-        false_la = torch.sum(AccuracyMetrics.FALSE_LG[:, None, :] * totals_lag, dim=-1)
-        result = []
-        for label in (Label.ARTIFACT, Label.VARIANT):
-            true_a, false_a = true_la[label], false_la[label]
-            total_a = true_a + false_a
-            non_empty_bin_indices = torch.argwhere(total_a >= 1)
 
-            alt_counts = counts_from_bin_indices(non_empty_bin_indices)
-            accuracies = true_a[non_empty_bin_indices] / total_a[non_empty_bin_indices]
-            result.append((alt_counts.tolist(), accuracies.tolist(), label))
-
-        acc_vs_cnt_x_y_lab_tuples = result
-        plotting.simple_plot_on_axis(axis, acc_vs_cnt_x_y_lab_tuples, None, None)
+        # don't select label yet because we have to multiply by the truth mask
+        totals_lrag = select_and_sum(self.totals_slvrag, select=selection, sum=sum_dims)
+        true_lrag = AccuracyMetrics.TRUE_LG.view(len(Label), 1, 1, NUM_LOGIT_BINS) * totals_lrag
+        false_lrag = AccuracyMetrics.FALSE_LG.view(len(Label), 1, 1, NUM_LOGIT_BINS) * totals_lrag
+        true_ra, false_ra = torch.sum(true_lrag[label], dim=-1), torch.sum(false_lrag[label], dim=-1)
+        acc_ra = true_ra / (true_ra + false_ra + 0.001)
+        return plotting.color_plot_2d_on_axis(axis, np.array(ALT_COUNT_BIN_BOUNDS), np.array(REF_COUNT_BIN_BOUNDS), acc_ra, None, None,
+                                       vmin=0, vmax=1)
 
     def plot_calibration_by_count(self, var_type: Variation, axis, source: int = None):
         assert self.has_been_sent_to_cpu, "Can't make plots before sending to CPU"
