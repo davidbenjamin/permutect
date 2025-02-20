@@ -91,13 +91,12 @@ def train_permutect_model(model: PermutectModel, dataset: ReadsDataset, training
                         backpropagate(train_optimizer, loss)
                 # done with this batch
             # done with one epoch type -- training or validation -- for this epoch
-            loss_metrics.write_to_summary_writer(epoch_type, epoch, summary_writer, prefix="semi-supervised-loss")
-            alt_count_loss_metrics.write_to_summary_writer(epoch_type, epoch, summary_writer, prefix="alt-count-loss")
-
             if epoch_type == Epoch.TRAIN:
                 mean_over_labels = torch.mean(loss_metrics.get_marginal(BatchProperty.LABEL)).item()
                 train_scheduler.step(mean_over_labels)
 
+            loss_metrics.write_to_summary_writer(epoch_type, epoch, summary_writer, prefix="semi-supervised-loss")
+            alt_count_loss_metrics.write_to_summary_writer(epoch_type, epoch, summary_writer, prefix="alt-count-loss")
             loss_metrics.report_marginals(f"Semisupervised losses for {epoch_type.name} epoch {epoch}.")
             alt_count_loss_metrics.report_marginals(f"Alt count prediction adversarial task loss for {epoch_type.name} epoch {epoch}.")
         report_memory_usage(f"End of epoch {epoch}.")
@@ -214,12 +213,12 @@ def refine_permutect_model(model: PermutectModel, dataset: ReadsDataset, trainin
                         backpropagate(train_optimizer, loss)
                 # done with this batch
             # done with one epoch type -- training or validation -- for this epoch
-            loss_metrics.write_to_summary_writer(epoch_type, epoch, summary_writer, prefix="semisupervised-loss")
-            source_prediction_loss_metrics.write_to_summary_writer(epoch_type, epoch, summary_writer, prefix="source-loss")
             if epoch_type == Epoch.TRAIN:
                 mean_over_labels = torch.mean(loss_metrics.get_marginal(BatchProperty.LABEL)).item()
                 train_scheduler.step(mean_over_labels)
 
+            loss_metrics.write_to_summary_writer(epoch_type, epoch, summary_writer, prefix="semisupervised-loss")
+            source_prediction_loss_metrics.write_to_summary_writer(epoch_type, epoch, summary_writer, prefix="source-loss")
             loss_metrics.report_marginals(f"Semisupervised loss for {epoch_type.name} epoch {epoch}.")
             source_prediction_loss_metrics.report_marginals(f"Source prediction loss for {epoch_type.name} epoch {epoch}.")
         # done with training and validation for this epoch
