@@ -11,7 +11,8 @@ from torch.utils.tensorboard import SummaryWriter
 from permutect.data.batch import Batch
 from permutect.metrics import plotting
 from permutect.metrics.loss_metrics import AccuracyMetrics
-from permutect.data.count_binning import NUM_ALT_COUNT_BINS, count_from_bin_index, NUM_REF_COUNT_BINS, count_bin_name
+from permutect.data.count_binning import NUM_ALT_COUNT_BINS, count_from_ref_bin_index, NUM_REF_COUNT_BINS, \
+    ref_count_bin_name, count_from_alt_bin_index, alt_count_bin_name
 from permutect.metrics.posterior_result import PosteriorResult
 from permutect.misc_utils import gpu_if_available
 from permutect.utils.enums import Variation, Call, Epoch, Label
@@ -107,8 +108,8 @@ class EvaluationMetrics:
         num_sources = next(iter(self.metrics.values())).num_sources
         ref_count_bins = list(range(NUM_REF_COUNT_BINS)) + [None]
         alt_count_bins = list(range(NUM_ALT_COUNT_BINS)) + [None]
-        ref_count_names = [count_bin_name(bin_idx) for bin_idx in range(NUM_REF_COUNT_BINS)] + ["ALL"]
-        alt_count_names = [count_bin_name(bin_idx) for bin_idx in range(NUM_ALT_COUNT_BINS)] + ["ALL"]
+        ref_count_names = [ref_count_bin_name(bin_idx) for bin_idx in range(NUM_REF_COUNT_BINS)] + ["ALL"]
+        alt_count_names = [alt_count_bin_name(bin_idx) for bin_idx in range(NUM_ALT_COUNT_BINS)] + ["ALL"]
 
         for epoch_type, metric in self.metrics.items():
             for source in chain(range(num_sources), [None]):
@@ -225,7 +226,7 @@ class EmbeddingMetrics:
 
         # read average embeddings stratified by alt count
         for count_bin in range(NUM_ALT_COUNT_BINS):
-            count = count_from_bin_index(count_bin)
+            count = count_from_alt_bin_index(count_bin)
             indices = set([n for n, alt_count in enumerate(self.truncated_count_metadata) if alt_count == str(count)])
             interesting = interesting_indices & indices
             boring = boring_indices & indices

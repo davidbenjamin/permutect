@@ -18,7 +18,7 @@ from permutect.data.datum import Datum
 from permutect.data.prefetch_generator import prefetch_generator
 from permutect.metrics.evaluation_metrics import EmbeddingMetrics, EvaluationMetrics
 from permutect.metrics.loss_metrics import BatchIndexedAverages, BatchProperty
-from permutect.data.count_binning import count_bin_index, round_count_to_bin_center, count_bin_name
+from permutect.data.count_binning import alt_count_bin_index, round_alt_count_to_bin_center, alt_count_bin_name
 from permutect.parameters import TrainingParameters
 from permutect.misc_utils import report_memory_usage, backpropagate, freeze, unfreeze
 from permutect.utils.enums import Variation, Epoch, Label
@@ -263,7 +263,7 @@ def collect_evaluation_data(model: PermutectModel, dataset: ReadsDataset, train_
                                  (datum.get_label() == Label.VARIANT and predicted_logit > 0)
                     if wrong_call:
                         alt_count = datum.get_alt_count()
-                        rounded_count = round_count_to_bin_center(alt_count)
+                        rounded_count = round_alt_count_to_bin_center(alt_count)
                         confidence = abs(predicted_logit)
 
                         # the 0th aka highest priority element in the queue is the one with the lowest confidence
@@ -324,7 +324,7 @@ def evaluate_model(model: PermutectModel, epoch: int, dataset: ReadsDataset, tra
                 metrics.label_metadata.extend(label_strings)
                 metrics.correct_metadata.extend(correct_strings)
                 metrics.type_metadata.extend([Variation(idx).name for idx in batch.get_variant_types().cpu().tolist()])
-                metrics.truncated_count_metadata.extend([count_bin_name(count_bin_index(alt_count)) for alt_count in batch.get_alt_counts().cpu().tolist()])
+                metrics.truncated_count_metadata.extend([alt_count_bin_name(alt_count_bin_index(alt_count)) for alt_count in batch.get_alt_counts().cpu().tolist()])
                 metrics.representations.append(embedding)
         embedding_metrics.output_to_summary_writer(summary_writer, epoch=epoch)
     # done collecting data

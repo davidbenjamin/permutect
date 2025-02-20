@@ -9,8 +9,9 @@ from torch.utils.tensorboard import SummaryWriter
 from permutect.data.batch import Batch
 from permutect.data.datum import Datum
 from permutect.data.count_binning import NUM_REF_COUNT_BINS, NUM_ALT_COUNT_BINS, \
-    NUM_LOGIT_BINS, logit_bin_indices, top_of_logit_bin, logits_from_bin_indices, logit_bin_name, count_bin_indices, \
-    count_bin_index, count_bin_name, ALT_COUNT_BIN_BOUNDS, REF_COUNT_BIN_BOUNDS
+    NUM_LOGIT_BINS, logit_bin_indices, top_of_logit_bin, logits_from_bin_indices, logit_bin_name, ref_count_bin_indices, \
+    ref_count_bin_index, ref_count_bin_name, ALT_COUNT_BIN_BOUNDS, REF_COUNT_BIN_BOUNDS, alt_count_bin_index, \
+    alt_count_bin_indices, alt_count_bin_name
 from permutect.metrics import plotting
 from permutect.misc_utils import gpu_if_available
 from permutect.utils.array_utils import add_to_6d_array, select_and_sum
@@ -21,8 +22,8 @@ class BatchProperty(IntEnum):
     SOURCE = (0, None)
     LABEL = (1, [label.name for label in Label])
     VARIANT_TYPE = (2, [var_type.name for var_type in Variation])
-    REF_COUNT_BIN = (3, [count_bin_name(idx) for idx in range(NUM_REF_COUNT_BINS)])
-    ALT_COUNT_BIN = (4, [count_bin_name(idx) for idx in range(NUM_ALT_COUNT_BINS)])
+    REF_COUNT_BIN = (3, [ref_count_bin_name(idx) for idx in range(NUM_REF_COUNT_BINS)])
+    ALT_COUNT_BIN = (4, [alt_count_bin_name(idx) for idx in range(NUM_ALT_COUNT_BINS)])
     LOGIT_BIN = (5, [logit_bin_name(idx) for idx in range(NUM_LOGIT_BINS)])
 
     def __new__(cls, value, names_list):
@@ -79,7 +80,7 @@ class BatchIndexedTotals:
             else:
                 raise Exception("Datum source doesn't fit.")
         # no logits here
-        ref_idx, alt_idx = count_bin_index(datum.get_ref_count()), count_bin_index(datum.get_alt_count())
+        ref_idx, alt_idx = ref_count_bin_index(datum.get_ref_count()), alt_count_bin_index(datum.get_alt_count())
         self.totals_slvrag[source, datum.get_label(), datum.get_variant_type(), ref_idx, alt_idx, 0] += value
 
     def record(self, batch: Batch, logits: torch.Tensor, values: torch.Tensor):
@@ -90,7 +91,7 @@ class BatchIndexedTotals:
         logit_indices = logit_bin_indices(logits) if self.include_logits else torch.zeros_like(sources)
 
         add_to_6d_array(self.totals_slvrag, sources, batch.get_labels(), batch.get_variant_types(),
-                        count_bin_indices(batch.get_ref_counts()), count_bin_indices(batch.get_alt_counts()), logit_indices, values)
+                        ref_count_bin_indices(batch.get_ref_counts()), alt_count_bin_indices(batch.get_alt_counts()), logit_indices, values)
 
     def get_totals(self) -> torch.Tensor:
         return self.totals_slvrag
@@ -135,7 +136,7 @@ class BatchIndexedTotals:
                 plotting.simple_plot_on_axis(ax, x_y_label_tuples, None, None)
                 ax.legend()
 
-        column_names = [count_bin_name(count_idx) for count_idx in range(NUM_ALT_COUNT_BINS)]
+        column_names = [alt_count_bin_name(count_idx) for count_idx in range(NUM_ALT_COUNT_BINS)]
         row_names = [var_type.name for var_type in Variation]
         plotting.tidy_subplots(fig, axes, x_label="predicted logit", y_label="frequency", row_labels=row_names, column_labels=column_names)
         return fig, axes

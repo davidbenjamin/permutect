@@ -4,7 +4,7 @@ from torch.nn import Module, Parameter, BCEWithLogitsLoss
 from permutect.data.batch import Batch
 from permutect.data.reads_dataset import ratio_with_pseudocount, ReadsDataset
 from permutect.metrics.loss_metrics import BatchProperty
-from permutect.data.count_binning import count_bin_indices
+from permutect.data.count_binning import ref_count_bin_indices, alt_count_bin_indices
 from permutect.misc_utils import backpropagate
 from permutect.utils.array_utils import index_4d_array, index_3d_array
 from permutect.utils.enums import Label
@@ -64,7 +64,7 @@ class Balancer(Module):
 
     def calculate_batch_weights(self, batch: Batch):
         # TODO: we need a parameter to control the relative weight of unlabeled loss to labeled loss
-        alt_count_bins = count_bin_indices(batch.get_alt_counts())
+        alt_count_bins = alt_count_bin_indices(batch.get_alt_counts())
         return index_4d_array(self.label_balancing_weights_slva, batch.get_sources(), batch.get_labels(), batch.get_variant_types(), alt_count_bins)
 
     # calculate weights that adjust for the estimated proportion on unlabeled data that are actually artifacts, non-artifacts
@@ -82,7 +82,7 @@ class Balancer(Module):
         nonart_weights_sva = 0.5 * ratio_with_pseudocount(totals_sva, nonart_totals_sva)
 
         sources, variant_types = batch.get_sources(), batch.get_variant_types()
-        alt_count_bins = count_bin_indices(batch.get_alt_counts())
+        alt_count_bins = alt_count_bin_indices(batch.get_alt_counts())
         labels, is_labeled_mask = batch.get_labels(), batch.get_is_labeled_mask()
 
         # is_artifact is 1 / 0 if labeled as artifact / nonartifact; otherwise it's the estimated probability
@@ -100,5 +100,5 @@ class Balancer(Module):
         return weights.detach() # should already be detached, but just in case
 
     def calculate_batch_source_weights(self, batch: Batch):
-        alt_count_bins = count_bin_indices(batch.get_alt_counts())
+        alt_count_bins = alt_count_bin_indices(batch.get_alt_counts())
         return index_3d_array(self.source_balancing_weights_sva, batch.get_sources(), batch.get_variant_types(), alt_count_bins)
