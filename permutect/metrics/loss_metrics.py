@@ -1,4 +1,5 @@
 from enum import IntEnum
+from itertools import chain
 from typing import Tuple
 
 import numpy as np
@@ -199,6 +200,39 @@ class BatchIndexedAverages:
             for n, average in enumerate(marginals.tolist()):
                 heading = f"{prefix}/{epoch_type.name}/{batch_property.name}/{batch_property.get_name(n)}"
                 summary_writer.add_scalar(heading, average, epoch)
+
+    def plot_losses(self, label: Label, var_type: Variation, axis, source: int = None):
+        """
+        for given Label and Variation, plot color map of accuracy vs ref (x axis) and alt (y axis) counts
+        :return:
+        """
+        assert self.has_been_sent_to_cpu, "Can't make plots before sending to CPU"
+        sum_dims = ((BatchProperty.SOURCE,) if source is None else ()) + (BatchProperty.LOGIT_BIN,)
+        selection = ({} if source is None else {BatchProperty.SOURCE: source}) | \
+                    {BatchProperty.VARIANT_TYPE: var_type, BatchProperty.LABEL: label}
+
+        totals_ra = select_and_sum(self.totals.totals_slvrag, select=selection, sum=sum_dims)
+        counts_ra = select_and_sum(self.counts.totals_slvrag, select=selection, sum=sum_dims)
+        average_ra = totals_ra / (counts_ra + 0.001)
+        transformed_ra = torch.pow(average_ra, 1/3) # cube root is a good scaling
+        return plotting.color_plot_2d_on_axis(axis, np.array(ALT_COUNT_BIN_BOUNDS), np.array(REF_COUNT_BIN_BOUNDS), transformed_ra, None, None,
+                                       vmin=0, vmax=1)
+
+    def make_loss_plots(self, summary_writer: SummaryWriter, epoch_type: Epoch, epoch: int = None):
+        assert self.has_been_sent_to_cpu, "Can't make plots before sending to CPU"
+
+        for source in range(self.num_sources):
+            loss_fig, loss_axes = plt.subplots(len(Label), len(Variation), sharex='all', sharey='all', squeeze=False, figsize=(2.5 * len(Variation), 2.5 * len(Label)))
+            row_names = [label.name for label in Label]
+            variation_types = [var_type.name for var_type in Variation]
+            common_colormesh = None
+            for label in Label:
+                for var_type in Variation:
+                    common_colormesh = self.plot_losses(label, var_type, loss_axes[label, var_type], source)
+            loss_fig.colorbar(common_colormesh)
+            plotting.tidy_subplots(loss_fig, loss_axes, x_label="alt count", y_label="ref count", row_labels=row_names, column_labels=variation_types)
+            name_suffix = epoch_type.name + "" if self.num_sources == 1 else (", all sources" if source is None else f", source {source}")
+            summary_writer.add_figure("accuracy by alt count " + name_suffix, loss_fig, global_step=epoch)
 
 
 def make_true_and_false_masks_lg():
