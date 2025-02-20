@@ -162,6 +162,8 @@ class BatchIndexedAverages:
         """
         batch_property: BatchProperty
         for batch_property in BatchProperty:
+            if batch_property == BatchProperty.LOGIT_BIN and not self.include_logits:
+                continue
             marginals = self.get_marginal(batch_property)
             for n, average in enumerate(marginals.tolist()):
                 heading = f"{prefix}/{epoch_type.name}/{batch_property.name}/{batch_property.get_name(n)}"
