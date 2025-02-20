@@ -238,32 +238,6 @@ class AccuracyMetrics(BatchIndexedTotals):
         super().__init__(num_sources, device, include_logits=True)
         self.num_sources = num_sources
 
-    def make_data_for_accuracy_plot(self, var_type: Variation, source: int = None):
-        """
-        return a list of tuples.  This outer list is over the two labels, Call.SOMATIC and Call.ARTIFACT.  Each tuple consists of
-        (list of alt counts (x axis), list of accuracies (y axis), the label)
-        sum over source by default, select over source if given
-        """
-        assert self.has_been_sent_to_cpu, "Can't make plots before sending to CPU"
-        sum_dims = ((BatchProperty.SOURCE, ) if source is None else ()) + (BatchProperty.REF_COUNT_BIN, )
-        selection = ({} if source is None else {BatchProperty.SOURCE: source}) | {BatchProperty.VARIANT_TYPE: var_type}
-
-        totals_lag = select_and_sum(self.totals_slvrag, select=selection, sum=sum_dims)
-        true_la = torch.sum(AccuracyMetrics.TRUE_LG[:, None, :] * totals_lag, dim=-1)
-        false_la = torch.sum(AccuracyMetrics.FALSE_LG[:, None, :] * totals_lag, dim=-1)
-
-        result = []
-        for label in (Label.ARTIFACT, Label.VARIANT):
-            true_a, false_a = true_la[label], false_la[label]
-            total_a = true_a + false_a
-            non_empty_bin_indices = torch.argwhere(total_a >= 1)
-
-            alt_counts = counts_from_bin_indices(non_empty_bin_indices)
-            accuracies = true_a[non_empty_bin_indices] / total_a[non_empty_bin_indices]
-            result.append((alt_counts.tolist(), accuracies.tolist(), label))
-
-        return result
-
     # TODO: quite a bit of duplication with the accuracy plot
     # TODO: make a parent function called accuracy plot by count or something where the variant type
     # TODO: yeah, really it's just one is accuracy vs count and one is accuracy vs logit
@@ -349,7 +323,22 @@ class AccuracyMetrics(BatchIndexedTotals):
 
     def plot_accuracy(self, var_type: Variation, axis, source: int = None):
         assert self.has_been_sent_to_cpu, "Can't make plots before sending to CPU"
-        acc_vs_cnt_x_y_lab_tuples = self.make_data_for_accuracy_plot(var_type, source)
+        sum_dims = ((BatchProperty.SOURCE,) if source is None else ()) + (BatchProperty.REF_COUNT_BIN,)
+        selection = ({} if source is None else {BatchProperty.SOURCE: source}) | {BatchProperty.VARIANT_TYPE: var_type}
+        totals_lag = select_and_sum(self.totals_slvrag, select=selection, sum=sum_dims)
+        true_la = torch.sum(AccuracyMetrics.TRUE_LG[:, None, :] * totals_lag, dim=-1)
+        false_la = torch.sum(AccuracyMetrics.FALSE_LG[:, None, :] * totals_lag, dim=-1)
+        result = []
+        for label in (Label.ARTIFACT, Label.VARIANT):
+            true_a, false_a = true_la[label], false_la[label]
+            total_a = true_a + false_a
+            non_empty_bin_indices = torch.argwhere(total_a >= 1)
+
+            alt_counts = counts_from_bin_indices(non_empty_bin_indices)
+            accuracies = true_a[non_empty_bin_indices] / total_a[non_empty_bin_indices]
+            result.append((alt_counts.tolist(), accuracies.tolist(), label))
+
+        acc_vs_cnt_x_y_lab_tuples = result
         plotting.simple_plot_on_axis(axis, acc_vs_cnt_x_y_lab_tuples, None, None)
 
     def plot_calibration_by_count(self, var_type: Variation, axis, source: int = None):

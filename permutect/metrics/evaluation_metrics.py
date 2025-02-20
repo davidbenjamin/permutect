@@ -117,6 +117,9 @@ class EvaluationMetrics:
             cal_fig_all_counts, cal_axes_all_counts = plt.subplots(num_rows, len(Variation), sharex='all', sharey='all', squeeze=False)
             roc_by_cnt_fig, roc_by_cnt_axes = plt.subplots(num_rows, len(Variation), sharex='all', sharey='all', squeeze=False, figsize=(2.5 * len(Variation), 2.5 * len(epoch_keys)), dpi=200)
 
+            # make accuracy plots: overall figure is rows = label, columns = variant
+            # each subplot is color map of accuracy where x is ref count, y is alt count
+
             for row_idx, key in enumerate(epoch_keys):
                 metric = self.metrics[key]
                 for var_type in Variation:
