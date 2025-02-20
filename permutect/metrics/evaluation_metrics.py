@@ -106,57 +106,53 @@ class EvaluationMetrics:
         # given_thresholds is a dict from Variation to float (logit-scaled) used in the ROC curves
         epoch_keys = self.metrics.keys()
         num_sources = next(iter(self.metrics.values())).num_sources
-        num_rows = len(epoch_keys)
+        DUMMY_ROW_NAMES = ["DUMMY ROW"]
+        num_rows = len(DUMMY_ROW_NAMES)
 
-        for source in chain(range(num_sources), [None]):
-            # grid of figures -- rows are epoch types, columns are variant types
-            # each subplot has two line graphs of accuracy vs alt count, one each for artifact, non-artifact
-            acc_vs_cnt_fig, acc_vs_cnt_axes = plt.subplots(num_rows, len(Variation), sharex='all', sharey='all', squeeze=False)
-            roc_fig, roc_axes = plt.subplots(num_rows, len(Variation), sharex='all', sharey='all', squeeze=False, figsize=(2.5 * len(Variation), 2.5 * len(epoch_keys)), dpi=200)
-            cal_fig, cal_axes = plt.subplots(num_rows, len(Variation), sharex='all', sharey='all', squeeze=False)
-            cal_fig_all_counts, cal_axes_all_counts = plt.subplots(num_rows, len(Variation), sharex='all', sharey='all', squeeze=False)
-            roc_by_cnt_fig, roc_by_cnt_axes = plt.subplots(num_rows, len(Variation), sharex='all', sharey='all', squeeze=False, figsize=(2.5 * len(Variation), 2.5 * len(epoch_keys)), dpi=200)
+        for epoch_type, metric in self.metrics.items():
+            for source in chain(range(num_sources), [None]):
+                # grid of figures -- rows are epoch types, columns are variant types
+                # each subplot has two line graphs of accuracy vs alt count, one each for artifact, non-artifact
+                acc_vs_cnt_fig, acc_vs_cnt_axes = plt.subplots(num_rows, len(Variation), sharex='all', sharey='all', squeeze=False)
+                roc_fig, roc_axes = plt.subplots(num_rows, len(Variation), sharex='all', sharey='all', squeeze=False, figsize=(2.5 * len(Variation), 2.5 * num_rows), dpi=200)
+                cal_fig, cal_axes = plt.subplots(num_rows, len(Variation), sharex='all', sharey='all', squeeze=False)
+                cal_fig_all_counts, cal_axes_all_counts = plt.subplots(num_rows, len(Variation), sharex='all', sharey='all', squeeze=False)
+                roc_by_cnt_fig, roc_by_cnt_axes = plt.subplots(num_rows, len(Variation), sharex='all', sharey='all', squeeze=False, figsize=(2.5 * len(Variation), 2.5 * num_rows), dpi=200)
 
-            # make accuracy plots: overall figure is rows = label, columns = variant
-            # each subplot is color map of accuracy where x is ref count, y is alt count
+                # make accuracy plots: overall figure is rows = label, columns = variant
+                # each subplot is color map of accuracy where x is ref count, y is alt count
 
-            for row_idx, key in enumerate(epoch_keys):
-                metric = self.metrics[key]
-                for var_type in Variation:
-                    given_threshold = None if given_thresholds is None else given_thresholds[var_type]
-                    metric.plot_accuracy(var_type, acc_vs_cnt_axes[row_idx, var_type], source)
-                    metric.plot_calibration_by_count(var_type, cal_axes[row_idx, var_type], source)
-                    metric.plot_calibration_all_counts(var_type, cal_axes_all_counts[row_idx, var_type], source)
-                    metric.plot_roc_curve(var_type, roc_axes[row_idx, var_type], given_threshold, sens_prec, source)
-                    metric.plot_roc_curves_by_count(var_type, roc_by_cnt_axes[row_idx, var_type], given_threshold, sens_prec, source)
-            # done collecting stats for all loaders and filling in subplots
+                for row, key in enumerate(DUMMY_ROW_NAMES):
+                    for var_type in Variation:
+                        given_threshold = None if given_thresholds is None else given_thresholds[var_type]
+                        metric.plot_accuracy(var_type, acc_vs_cnt_axes[row, var_type], source)
+                        metric.plot_calibration_by_count(var_type, cal_axes[row, var_type], source)
+                        metric.plot_calibration_all_counts(var_type, cal_axes_all_counts[row, var_type], source)
+                        metric.plot_roc_curve(var_type, roc_axes[row, var_type], given_threshold, sens_prec, source)
+                        metric.plot_roc_curves_by_count(var_type, roc_by_cnt_axes[row, var_type], given_threshold, sens_prec, source)
 
-            nonart_label = "sensitivity" if sens_prec else "non-artifact accuracy"
-            art_label = "precision" if sens_prec else "artifact accuracy"
+                nonart_label = "sensitivity" if sens_prec else "non-artifact accuracy"
+                art_label = "precision" if sens_prec else "artifact accuracy"
 
-            variation_types = [var_type.name for var_type in Variation]
-            row_names = [epoch_type.name for epoch_type in self.metrics.keys()]
-            plotting.tidy_subplots(acc_vs_cnt_fig, acc_vs_cnt_axes, x_label="alt count", y_label="accuracy", row_labels=row_names, column_labels=variation_types)
-            plotting.tidy_subplots(roc_fig, roc_axes, x_label=nonart_label, y_label=art_label, row_labels=row_names, column_labels=variation_types)
-            plotting.tidy_subplots(roc_by_cnt_fig, roc_by_cnt_axes, x_label=nonart_label, y_label=art_label, row_labels=row_names, column_labels=variation_types)
-            plotting.tidy_subplots(cal_fig, cal_axes, x_label="predicted logit", y_label="accuracy", row_labels=row_names, column_labels=variation_types)
-            plotting.tidy_subplots(cal_fig_all_counts, cal_axes_all_counts, x_label="predicted logit", y_label="accuracy", row_labels=row_names, column_labels=variation_types)
+                variation_types = [var_type.name for var_type in Variation]
+                plotting.tidy_subplots(acc_vs_cnt_fig, acc_vs_cnt_axes, x_label="alt count", y_label="accuracy", row_labels=DUMMY_ROW_NAMES, column_labels=variation_types)
+                plotting.tidy_subplots(roc_fig, roc_axes, x_label=nonart_label, y_label=art_label, row_labels=DUMMY_ROW_NAMES, column_labels=variation_types)
+                plotting.tidy_subplots(roc_by_cnt_fig, roc_by_cnt_axes, x_label=nonart_label, y_label=art_label, row_labels=DUMMY_ROW_NAMES, column_labels=variation_types)
+                plotting.tidy_subplots(cal_fig, cal_axes, x_label="predicted logit", y_label="accuracy", row_labels=DUMMY_ROW_NAMES, column_labels=variation_types)
+                plotting.tidy_subplots(cal_fig_all_counts, cal_axes_all_counts, x_label="predicted logit", y_label="accuracy", row_labels=DUMMY_ROW_NAMES, column_labels=variation_types)
 
-            name_suffix = "" if num_sources == 1 else (", all sources" if source is None else f", source {source}")
+                name_suffix = epoch_type.name + "" if num_sources == 1 else (", all sources" if source is None else f", source {source}")
 
-            summary_writer.add_figure("accuracy by alt count" + name_suffix, acc_vs_cnt_fig, global_step=epoch)
-            summary_writer.add_figure(" accuracy by logit output by count" + name_suffix, cal_fig, global_step=epoch)
-            summary_writer.add_figure(" accuracy by logit output" + name_suffix, cal_fig_all_counts, global_step=epoch)
-            summary_writer.add_figure(("sensitivity vs precision" if sens_prec else "variant accuracy vs artifact accuracy") + name_suffix, roc_fig, global_step=epoch)
-            summary_writer.add_figure(("sensitivity vs precision by alt count" if sens_prec else "variant accuracy vs artifact accuracy by alt count") + name_suffix, roc_by_cnt_fig, global_step=epoch)
+                summary_writer.add_figure("accuracy by alt count " + name_suffix, acc_vs_cnt_fig, global_step=epoch)
+                summary_writer.add_figure(" accuracy by logit output by count" + name_suffix, cal_fig, global_step=epoch)
+                summary_writer.add_figure(" accuracy by logit output" + name_suffix, cal_fig_all_counts, global_step=epoch)
+                summary_writer.add_figure(("sensitivity vs precision" if sens_prec else "variant accuracy vs artifact accuracy") + name_suffix, roc_fig, global_step=epoch)
+                summary_writer.add_figure(("sensitivity vs precision by alt count" if sens_prec else "variant accuracy vs artifact accuracy by alt count") + name_suffix, roc_by_cnt_fig, global_step=epoch)
 
-        # one more plot, different from the rest.  Here each epoch is its own figure, and within each figure the grid of subplots
-        # is by variant type and count.  Within each subplot we have overlapping density plots of artifact logit predictions for all
-        # combinations of Label and source
-        for key in epoch_keys:
-            metric = self.metrics[key]
+            # One more plot.  In each figure the grid of subplots is by variant type and count.  Within each subplot we have
+            # overlapping density plots of artifact logit predictions for all combinations of Label and source
             hist_fig, hist_ax = metric.make_logit_histograms()
-            summary_writer.add_figure(f"logit histograms ({Epoch(key).name})", hist_fig, global_step=epoch)
+            summary_writer.add_figure(f"logit histograms ({epoch_type.name})", hist_fig, global_step=epoch)
 
 
 def sample_indices_for_tensorboard(indices: List[int]):
