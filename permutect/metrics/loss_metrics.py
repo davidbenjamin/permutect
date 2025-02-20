@@ -10,7 +10,7 @@ from permutect.data.batch import Batch
 from permutect.data.datum import Datum
 from permutect.data.count_binning import NUM_REF_COUNT_BINS, NUM_ALT_COUNT_BINS, \
     NUM_LOGIT_BINS, logit_bin_indices, top_of_logit_bin, logits_from_bin_indices, logit_bin_name, count_bin_indices, \
-    count_bin_index, counts_from_bin_indices, count_bin_name, ALT_COUNT_BIN_BOUNDS, REF_COUNT_BIN_BOUNDS
+    count_bin_index, count_bin_name, ALT_COUNT_BIN_BOUNDS, REF_COUNT_BIN_BOUNDS
 from permutect.metrics import plotting
 from permutect.misc_utils import gpu_if_available
 from permutect.utils.array_utils import add_to_6d_array, select_and_sum
@@ -239,35 +239,6 @@ class AccuracyMetrics(BatchIndexedTotals):
         super().__init__(num_sources, device, include_logits=True)
         self.num_sources = num_sources
 
-    # TODO: quite a bit of duplication with the accuracy plot
-    # TODO: make a parent function called accuracy plot by count or something where the variant type
-    # TODO: yeah, really it's just one is accuracy vs count and one is accuracy vs logit
-    def make_data_for_calibration_plot(self, var_type: Variation, alt_count_bin: int, source: int = None, ):
-        """
-        if combine_alt_counts is False
-            return a list of tuples.  This outer list is over alt counts (not bins).  Each tuple consists of
-            (list of logits (x axis), list of accuracies (y axis), the alt count)
-            sum over source by default, select over source if given
-        if combine_alt_counts is True
-            return a Tuple (list of logits (x axis), list of accuracies (y axis))
-        """
-        assert self.has_been_sent_to_cpu, "Can't make plots before sending to CPU"
-        sum_dims = ((BatchProperty.SOURCE,) if source is None else ()) + \
-                   ((BatchProperty.ALT_COUNT_BIN,) if alt_count_bin is None else ()) + \
-                   (BatchProperty.REF_COUNT_BIN, )
-        selection = ({} if source is None else {BatchProperty.SOURCE: source}) | \
-                    ({} if alt_count_bin is None else {BatchProperty.ALT_COUNT_BIN: alt_count_bin}) | \
-                    {BatchProperty.VARIANT_TYPE: var_type}
-
-        totals_lg = select_and_sum(self.totals_slvrag, select=selection, sum=sum_dims)
-        true_g = torch.sum(AccuracyMetrics.TRUE_LG * totals_lg, dim=0)
-        false_g = torch.sum(AccuracyMetrics.FALSE_LG * totals_lg, dim=0)
-        total_g = true_g + false_g
-        non_empty_bin_indices = torch.argwhere(total_g >= 1)
-        logits = logits_from_bin_indices(non_empty_bin_indices)
-        accuracies = true_g[non_empty_bin_indices] / total_g[non_empty_bin_indices]
-        return logits.tolist(), accuracies.tolist(), ("calibration" if alt_count_bin is None else count_bin_name(alt_count_bin))
-
     def make_roc_data(self, var_type: Variation, source: int, alt_count_bin: int, sens_prec: bool):
         """
         :param var_type:
@@ -340,15 +311,27 @@ class AccuracyMetrics(BatchIndexedTotals):
         return plotting.color_plot_2d_on_axis(axis, np.array(ALT_COUNT_BIN_BOUNDS), np.array(REF_COUNT_BIN_BOUNDS), acc_ra, None, None,
                                        vmin=0, vmax=1)
 
-    def plot_calibration_by_count(self, var_type: Variation, axis, source: int = None):
+    def plot_calibration(self, axis, ref_count_bin: int, alt_count_bin: int, source: int):
         assert self.has_been_sent_to_cpu, "Can't make plots before sending to CPU"
-        acc_vs_logit_x_y_lab_tuples = [self.make_data_for_calibration_plot(var_type, alt_count_bin, source) for alt_count_bin in range(
-            NUM_ALT_COUNT_BINS)]
-        plotting.simple_plot_on_axis(axis, acc_vs_logit_x_y_lab_tuples, None, None)
-
-    def plot_calibration_all_counts(self, var_type: Variation, axis, source: int = None):
         assert self.has_been_sent_to_cpu, "Can't make plots before sending to CPU"
-        acc_vs_logit_x_y_lab_tuples = [self.make_data_for_calibration_plot(var_type, None, source)]
-        plotting.simple_plot_on_axis(axis, acc_vs_logit_x_y_lab_tuples, None, None)
+        sum_dims = ((BatchProperty.SOURCE,) if source is None else ()) + \
+                   ((BatchProperty.ALT_COUNT_BIN,) if alt_count_bin is None else ()) + \
+                   ((BatchProperty.REF_COUNT_BIN,) if ref_count_bin is None else ())
+        selection = ({} if source is None else {BatchProperty.SOURCE: source}) | \
+                    ({} if alt_count_bin is None else {BatchProperty.ALT_COUNT_BIN: alt_count_bin}) | \
+                    ({} if ref_count_bin is None else {BatchProperty.REF_COUNT_BIN: ref_count_bin})
+        totals_lvg = select_and_sum(self.totals_slvrag, select=selection, sum=sum_dims)
+        true_lvg = AccuracyMetrics.TRUE_LG.view(len(Label), 1, NUM_LOGIT_BINS) * totals_lvg
+        false_lvg = AccuracyMetrics.FALSE_LG.view(len(Label), 1, NUM_LOGIT_BINS) * totals_lvg
+        true_vg, false_vg = torch.sum(true_lvg, dim=0), torch.sum(false_lvg, dim=0)
+        x_y_lab_tuples = []
+        for var_type in Variation:
+            true_g, false_g = true_vg[var_type], false_vg[var_type]
+            total_g = true_g + false_g
+            non_empty_bin_indices = torch.argwhere(total_g >= 1)
+            logits = logits_from_bin_indices(non_empty_bin_indices)
+            accuracies = true_g[non_empty_bin_indices] / total_g[non_empty_bin_indices]
+            x_y_lab_tuples.append((logits, accuracies, var_type.name))
+        plotting.simple_plot_on_axis(axis, x_y_lab_tuples, None, None)
 
 
