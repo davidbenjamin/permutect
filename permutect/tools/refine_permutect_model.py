@@ -5,7 +5,7 @@ from torch.utils.tensorboard import SummaryWriter
 
 from permutect import constants
 from permutect.architecture.artifact_spectra import ArtifactSpectra
-from permutect.architecture.model_training import refine_permutect_model
+from permutect.architecture.model_training import train_permutect_model
 from permutect.architecture.permutect_model import load_model
 from permutect.architecture.posterior_model import plot_artifact_spectra
 from permutect.data.reads_dataset import ReadsDataset
@@ -85,7 +85,7 @@ def main_without_parsing(args):
     report_memory_usage("Creating ReadsDataset.")
     dataset = ReadsDataset(data_tarfile=getattr(args, constants.TRAIN_TAR_NAME), num_folds=10)
 
-    refine_permutect_model(model, dataset, training_params, summary_writer, epochs_per_evaluation=10, calibration_sources=calibration_sources)
+    train_permutect_model(model, dataset, training_params, summary_writer, epochs_per_evaluation=10, calibration_sources=calibration_sources)
 
     for n, var_type in enumerate(Variation):
         cal_fig, cal_axes = model.calibration[n].plot_calibration_module(model._device, model._dtype)

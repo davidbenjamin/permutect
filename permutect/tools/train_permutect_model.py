@@ -2,7 +2,7 @@ import argparse
 
 from torch.utils.tensorboard import SummaryWriter
 
-from permutect import constants, misc_utils
+from permutect import constants
 from permutect.architecture.permutect_model import PermutectModel, load_model
 from permutect.architecture.model_training import train_permutect_model
 from permutect.misc_utils import gpu_if_available
