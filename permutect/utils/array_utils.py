@@ -122,18 +122,19 @@ def select_and_sum(x: torch.Tensor, select: dict[int, int]={}, sum: Tuple[int]=(
 
     select_indices and sum_dims must be disjoint but need not include all input dimensions.
     """
-    # note that we keep the dimension for now
-    summed = x if len(sum) == 0 else torch.sum(x, dim=sum, keepdim=True)
 
-    # initialize indexing to be complete slices i.e. select all of summed
-    indices = [slice(dim_size) for dim_size in summed.shape]
+    # initialize indexing to be complete slices i.e. select everything, then use the given select_indices
+    indices = [slice(dim_size) for dim_size in x.shape]
+    for select_dim, select_index in select.items():
+        indices[select_dim] = slice(select_index, select_index + 1)     # one-element slice
 
-    # summed indices have length-1, so we select element 0:
+    selected = x[tuple(indices)]    # retains original dimensions; selected dimensions have length 1
+    summed = selected if len(sum) == 0 else torch.sum(selected, dim=sum, keepdim=True)  # still retain original dimension
+
+    # Finally, select element 0 from the selected and summed axes to contract the dimensions
     for sum_dim in sum:
         indices[sum_dim] = 0
-
-    # use the given select_indices
-    for select_dim, select_index in select.items():
-        indices[select_dim] = select_index
+    for select_dim in select.keys():
+        indices[select_dim] = 0
 
     return summed[tuple(indices)]

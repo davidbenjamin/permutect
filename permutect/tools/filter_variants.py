@@ -17,7 +17,7 @@ from permutect.data.posterior_data import PosteriorDataset, PosteriorDatum, Post
 from permutect.data.prefetch_generator import prefetch_generator
 from permutect.data.reads_batch import ReadsBatch
 from permutect.data.reads_dataset import ReadsDataset
-from permutect.data.count_binning import MAX_ALT_COUNT, count_bin_index, count_bin_name
+from permutect.data.count_binning import MAX_ALT_COUNT, ref_count_bin_name, alt_count_bin_index, alt_count_bin_name
 from permutect.metrics.evaluation_metrics import EvaluationMetrics, EmbeddingMetrics
 from permutect.metrics.posterior_result import PosteriorResult
 from permutect.misc_utils import report_memory_usage, gpu_if_available
@@ -329,7 +329,7 @@ def apply_filtering_to_vcf(input_vcf, output_vcf, contig_index_to_name_map, erro
             # note that this excludes the correctness part of embedding metrics, which is below
             embedding_metrics.label_metadata.append(label.name)
             embedding_metrics.type_metadata.append(variant_type.name)
-            embedding_metrics.truncated_count_metadata.append(count_bin_name(count_bin_index(min(MAX_ALT_COUNT, posterior_result.alt_count))))
+            embedding_metrics.truncated_count_metadata.append(alt_count_bin_name(alt_count_bin_index(min(MAX_ALT_COUNT, posterior_result.alt_count))))
             embedding_metrics.representations.append(posterior_result.embedding)
 
             correctness_label = "unknown"
@@ -373,6 +373,7 @@ def apply_filtering_to_vcf(input_vcf, output_vcf, contig_index_to_name_map, erro
     embedding_metrics.output_to_summary_writer(summary_writer, is_filter_variants=True)
 
     if labeled_truth:
+        evaluation_metrics.put_on_cpu()
         given_thresholds = {var_type: prob_to_logit(error_probability_thresholds[var_type]) for var_type in Variation}
         evaluation_metrics.make_plots(summary_writer, given_thresholds, sens_prec=True)
         evaluation_metrics.make_mistake_histograms(summary_writer)

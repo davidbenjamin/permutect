@@ -57,7 +57,7 @@ class Calibration(nn.Module):
     def forward(self, logits, ref_counts: Tensor, alt_counts: Tensor):
         return self.calibrated_logits(logits, ref_counts, alt_counts)
 
-    def plot_calibration(self):
+    def plot_calibration_module(self):
         device, dtype = self.final_adjustments.device, self.final_adjustments.dtype
         alt_counts = [1, 3, 5, 10, 15, 20]
         ref_counts = [1, 3, 5, 10, 15, 20]

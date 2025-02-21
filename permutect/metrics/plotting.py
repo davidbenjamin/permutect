@@ -40,6 +40,15 @@ def simple_plot_on_axis(ax, x_y_lab_tuples, x_label, y_label):
         ax.legend()
 
 
+# x bounds has length 1 greater than values's 0th dimension
+# y bounds has length 1 greater than values's 1st dimension
+def color_plot_2d_on_axis(ax, x_bounds, y_bounds, values, x_label, y_label, vmin: float = None, vmax: float = None):
+    mesh = ax.pcolormesh(x_bounds, y_bounds, values, vmin=vmin, vmax=vmax)
+    ax.set_xlabel(x_label)
+    ax.set_ylabel(y_label)
+    return mesh
+
+
 def simple_histograms_on_axis(ax, list_of_histogram_data, list_of_labels, num_bins):
     ax.hist(list_of_histogram_data, bins=num_bins, alpha=0.5, label=list_of_labels)
 
@@ -73,12 +82,12 @@ def grouped_bar_plot(heights_by_category, x_labels, y_label):
     return fig, ax
 
 
-def plot_roc_on_axis(list_of_tuple_lists, curve_labels, axis, sens_prec: bool, given_threshold: float = None):
+def plot_roc_on_axis(list_of_tuple_lists, curve_labels, axis, sens_prec: bool, thresholds: List[float]):
     # input is a list of lists
     # each constituent list is of tuples (threshold, nonartifact metric, artifact metric)
     x_y_lab_tuples = []
     small_dots, big_dots = [], []
-    for thresh_and_accs, curve_label in zip(list_of_tuple_lists, curve_labels):
+    for given_threshold, thresh_and_accs, curve_label in zip(thresholds, list_of_tuple_lists, curve_labels):
         nonart_metrics = [x[1] for x in thresh_and_accs]
         art_metrics = [x[2] for x in thresh_and_accs]
         x_y_lab_tuples.append((nonart_metrics, art_metrics, curve_label))

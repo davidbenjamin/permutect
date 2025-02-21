@@ -11,7 +11,7 @@ from torch.utils.data import Dataset, DataLoader
 from torch.utils.data.sampler import Sampler
 
 from mmap_ninja.ragged import RaggedMmap
-from permutect.data.count_binning import cap_ref_count
+from permutect.data.count_binning import cap_ref_count, cap_alt_count
 from permutect.data.reads_datum import ReadsDatum
 from permutect.data.reads_batch import ReadsBatch
 from permutect.metrics.loss_metrics import BatchIndexedTotals, BatchProperty
@@ -150,7 +150,7 @@ def make_base_data_generator_from_tarfile(data_tarfile):
     for file in data_files:
         for datum in ReadsDatum.load_list(file):
             ref_count = cap_ref_count(datum.get_ref_count())
-            alt_count = cap_ref_count(datum.get_alt_count())
+            alt_count = cap_alt_count(datum.get_alt_count())
             yield datum.copy_with_downsampled_reads(ref_count, alt_count)
 
 

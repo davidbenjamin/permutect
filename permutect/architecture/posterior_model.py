@@ -15,7 +15,7 @@ from permutect.data.datum import DEFAULT_GPU_FLOAT, DEFAULT_CPU_FLOAT
 from permutect.data.posterior_data import PosteriorBatch
 from permutect.data.prefetch_generator import prefetch_generator
 from permutect.metrics import plotting
-from permutect.data.count_binning import NUM_ALT_COUNT_BINS, count_from_bin_index, count_bin_index
+from permutect.data.count_binning import NUM_ALT_COUNT_BINS, count_from_alt_bin_index, alt_count_bin_index
 from permutect.misc_utils import StreamingAverage, gpu_if_available, backpropagate
 from permutect.utils.stats_utils import beta_binomial_log_lk
 from permutect.utils.enums import Variation, Call
@@ -322,14 +322,14 @@ class PosteriorModel(torch.nn.Module):
 
             for var_type, alt_count, error_prob in zip(batch.get_variant_types().cpu().tolist(), alt_counts, error_probs):
                 error_probs_by_type[var_type].append(error_prob)
-                error_probs_by_type_by_cnt[var_type][count_bin_index(alt_count)].append(error_prob)
+                error_probs_by_type_by_cnt[var_type][alt_count_bin_index(alt_count)].append(error_prob)
 
         thresholds_by_type = {}
         roc_fig, roc_axes = plt.subplots(1, len(Variation), sharex='all', sharey='all', squeeze=False)
         roc_by_cnt_fig, roc_by_cnt_axes = plt.subplots(1, len(Variation), sharex='all', sharey='all', squeeze=False, figsize=(10, 6), dpi=100)
         for var_type in Variation:
             # plot all count ROC curves for this variant type
-            count_bin_labels = [str(count_from_bin_index(count_bin)) for count_bin in range(NUM_ALT_COUNT_BINS)]
+            count_bin_labels = [str(count_from_alt_bin_index(count_bin)) for count_bin in range(NUM_ALT_COUNT_BINS)]
             _ = plotting.plot_theoretical_roc_on_axis(error_probs_by_type_by_cnt[var_type], count_bin_labels, roc_by_cnt_axes[0, var_type])
             best_threshold = plotting.plot_theoretical_roc_on_axis([error_probs_by_type[var_type]], [""], roc_axes[0, var_type])[0][0]
 
