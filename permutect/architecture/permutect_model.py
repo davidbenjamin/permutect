@@ -115,9 +115,6 @@ class PermutectModel(torch.nn.Module):
     def calibration_parameters(self):
         return self.calibration.parameters()
 
-    def final_calibration_shift_parameters(self):
-        return [cal.final_adjustments for cal in self.calibration]
-
     def set_epoch_type(self, epoch_type: Epoch):
         if epoch_type == Epoch.TRAIN:
             self.train(True)
