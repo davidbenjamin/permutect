@@ -5,6 +5,7 @@ from matplotlib import pyplot as plt
 from torch import nn, Tensor
 
 from permutect.architecture.monotonic import MonoDense
+from permutect.data.count_binning import MAX_REF_COUNT, MAX_ALT_COUNT
 from permutect.metrics import plotting
 
 
@@ -14,51 +15,40 @@ class Calibration(nn.Module):
         super(Calibration, self).__init__()
 
         # calibration takes [logit, ref count, alt count] as input and maps it to [calibrated logit]
-        # it is monotonically increasing in logit, unconstrained in ref and alt count
-        # we initialize it to calibrated logit = input logit
+        # it is split into two functions, one for logit > 0 and one for logit < 0
+        # Both are monotonically increasing in the input logit because the uncalibrated logit means something!
+        # The logit > 0 function is increasing in both the ref and alt count -- more reads imply more confidence --
+        # and the logit < 0 is decreasing in the counts for the same reason -- more negative is more confident.
 
-        # likewise, we cap the effective alt and ref counts and input logits to avoid arbitrarily large confidence
-        self.max_alt = nn.Parameter(torch.tensor(20.0))
-        self.max_ref = nn.Parameter(torch.tensor(20.0))
-        self.max_input_logit = nn.Parameter(torch.tensor(20.0))
+        #Finally, to ensure that zero maps to zero (we don't want calibration to shift predicitons, just modify confidence)
+        # we implement the logit > 0 and logit < 0 functions as f(logit, counts) = g(logit, count) - g(logit=0, counts),
+        # where g has the desired monotonicity.
 
-        center_spacing = 1
-        ref_center_spacing = 5
+        # the three input features are logit, ref count, alt count
+        # the positive logit function is increasing in logits, increasing in counts
+        # the negative logit function is increasing in logits, decreasing in counts
+        self.positive_fxn = MonoDense(3, hidden_layer_sizes + [1], 3, 0)
+        self.negative_fxn = MonoDense(3, hidden_layer_sizes + [1], 1, 2)
 
-        # centers of Gaussian comb featurizations
-        # note: even though they aren't learned and requires_grad is False, we still wrap them in nn.Parameter
-        # so that they can be sent to GPU recursively when the grandparent ArtifactModel is
-        self.alt_centers = nn.Parameter(torch.arange(start=1, end=20, step=center_spacing), requires_grad=False)
-        self.ref_centers = nn.Parameter(torch.arange(start=1, end=20, step=ref_center_spacing), requires_grad=False)
-
-        # increasing in the 1st feature, logits
-        # logit is one feature, then the Gaussian comb for alt and ref counts is the other
-        self.monotonic = MonoDense(1 + len(self.ref_centers) + len(self.alt_centers), hidden_layer_sizes + [1], 1, 0)
-
-        self.max_alt_count_for_adjustment = 20
 
         # Final layer of calibration is a count-dependent linear shift.  This is particularly useful when calibrating only on
         # a subset of data sources
-        self.final_adjustments = nn.Parameter(torch.zeros(self.max_alt_count_for_adjustment + 1), requires_grad=True)
+        # self.final_adjustments = nn.Parameter(torch.zeros(self.max_alt_count_for_adjustment + 1), requires_grad=True)
 
     def calibrated_logits(self, logits_b: Tensor, ref_counts_b: Tensor, alt_counts_b: Tensor):
-        logits_bc = torch.tanh(logits_b / self.max_input_logit)[:, None]
-
-        ref_comb_bc = torch.softmax(-torch.square(ref_counts_b[:, None] - self.ref_centers[None, :]).float(), dim=1)
-        alt_comb_bc = torch.softmax(-torch.square(alt_counts_b[:, None] - self.alt_centers[None, :]).float(), dim=1)
-        input_2d = torch.hstack([logits_bc, ref_comb_bc, alt_comb_bc])
-        calibrated_b = self.monotonic.forward(input_2d).squeeze()
-
-        counts_for_adjustment = torch.clamp(alt_counts_b, max=self.max_alt_count_for_adjustment).long()
-        adjustments = self.final_adjustments[counts_for_adjustment]
-
-        return calibrated_b + adjustments
+        # indices: 'b' for batch, 3 for logit, ref, alt
+        ref_b1 = ref_counts_b.view(-1, 1) / MAX_REF_COUNT
+        alt_b1 = alt_counts_b.view(-1, 1) / MAX_ALT_COUNT
+        monotonic_inputs_b3 = torch.hstack((logits_b.view(-1, 1), ref_b1, alt_b1))
+        zero_inputs_b3 = torch.hstack((torch.zeros_like(logits_b).view(-1, 1), ref_b1, alt_b1))
+        positive_output_b1 = self.positive_fxn.forward(monotonic_inputs_b3) - self.positive_fxn.forward(zero_inputs_b3)
+        negative_output_b1 = self.negative_fxn.forward(monotonic_inputs_b3) - self.negative_fxn.forward(zero_inputs_b3)
+        return torch.where(logits_b > 0, positive_output_b1.view(-1), negative_output_b1.view(-1))
 
     def forward(self, logits, ref_counts: Tensor, alt_counts: Tensor):
         return self.calibrated_logits(logits, ref_counts, alt_counts)
 
-    def plot_calibration_module(self):
-        device, dtype = self.final_adjustments.device, self.final_adjustments.dtype
+    def plot_calibration_module(self, device, dtype):
         alt_counts = [1, 3, 5, 10, 15, 20]
         ref_counts = [1, 3, 5, 10, 15, 20]
         logits = torch.arange(-10, 10, 0.1, device=device, dtype=dtype)
