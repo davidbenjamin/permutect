@@ -30,8 +30,7 @@ def train_permutect_model(model: PermutectModel, dataset: ReadsDataset, training
                           validation_fold: int = None, training_folds: List[int] = None, epochs_per_evaluation: int = None, calibration_sources: List[int] = None):
     device, dtype = model._device, model._dtype
     bce = nn.BCEWithLogitsLoss(reduction='none')  # no reduction because we may want to first multiply by weights for unbalanced data
-    alt_count_loss_func = torch.nn.MSELoss(reduction='none')
-    balancer = Balancer(dataset, learning_rate=training_params.learning_rate).to(device=device, dtype=dtype)
+    balancer = Balancer(dataset.num_sources(), device).to(device=device, dtype=dtype)
 
     num_sources = dataset.validate_sources()
     dataset.report_totals()
@@ -87,13 +86,13 @@ def train_permutect_model(model: PermutectModel, dataset: ReadsDataset, training
                 ref_frac, alt_frac = random.random(), random.random()
                 for downsample in (False, True):
                     batch = DownsampledReadsBatch(parent_batch, ref_frac, alt_frac) if downsample else parent_batch
+                    weights, source_weights = balancer.process_batch_and_compute_weights(batch)
                     labels = batch.get_training_labels()
 
                     representations, _ = model.calculate_representations(batch, weight_range=model._params.reweighting_range)
                     logits, precalibrated_logits = model.logits_from_reads_batch(representations, batch)
 
                     source_losses = model.compute_source_prediction_losses(representations, batch)
-                    source_weights = torch.zeros_like(logits, device=device) if num_sources == 1 else balancer.calculate_batch_source_weights(batch)
 
                     # TODO: is the average of un-calibrated and calibrated cross entropies really correct?
                     uncalibrated_cross_entropies = bce(precalibrated_logits, labels)
@@ -106,14 +105,12 @@ def train_permutect_model(model: PermutectModel, dataset: ReadsDataset, training
                     entropies = torch.nn.functional.binary_cross_entropy_with_logits(precalibrated_logits, probabilities, reduction='none')
                     unlabeled_losses = (1 - batch.get_is_labeled_mask()) * entropies
 
-                    # this updates the autobalancing as a side effect
-                    weights = balancer.calculate_autobalancing_weights(batch, probabilities)
-
                     alt_count_losses = model.compute_alt_count_losses(representations, batch)
                     alt_count_loss_metrics.record(batch, logits=None, values=alt_count_losses,  weights=weights)
 
                     # losses include weights and take labeled vs unlabeled into account
-                    losses = (labeled_losses + unlabeled_losses + alt_count_losses) * weights + (source_losses * source_weights)
+                    # yes, the weight for source loss *is* the product of weights with source_weights
+                    losses = weights * (labeled_losses + unlabeled_losses + alt_count_losses + source_losses * source_weights)
                     loss = torch.sum(losses)
 
                     loss_metrics.record(batch, None, labeled_losses + unlabeled_losses, weights)
@@ -139,6 +136,8 @@ def train_permutect_model(model: PermutectModel, dataset: ReadsDataset, training
             source_prediction_loss_metrics.report_marginals(f"Source prediction loss for {epoch_type.name} epoch {epoch}.")
 
             if (epochs_per_evaluation is not None and epoch % epochs_per_evaluation == 0) or (epoch == last_epoch):
+                balancer.make_plots(summary_writer, "balancer weights", epoch_type, epoch, type_of_plot="weights")
+                balancer.make_plots(summary_writer, "balancer counts", epoch_type, epoch, type_of_plot="counts")
                 loss_metrics.make_plots(summary_writer, "semisupervised loss", epoch_type, epoch)
                 loss_metrics.make_plots(summary_writer, "counts", epoch_type, epoch, type_of_plot="counts")
                 alt_count_loss_metrics.make_plots(summary_writer, "alt count loss", epoch_type, epoch)
@@ -146,7 +145,7 @@ def train_permutect_model(model: PermutectModel, dataset: ReadsDataset, training
 
                 print(f"performing evaluation on epoch {epoch}")
                 if epoch_type == Epoch.VALID:
-                    evaluate_model(model, epoch, dataset, train_loader, valid_loader, summary_writer, collect_embeddings=False, report_worst=False)
+                    evaluate_model(model, epoch, dataset, balancer, train_loader, valid_loader, summary_writer, collect_embeddings=False, report_worst=False)
 
         # done with training and validation for this epoch
         report_memory_usage(f"End of epoch {epoch}.")
@@ -156,11 +155,10 @@ def train_permutect_model(model: PermutectModel, dataset: ReadsDataset, training
     record_embeddings(model, train_loader, summary_writer)
 
 @torch.inference_mode()
-def collect_evaluation_data(model: PermutectModel, dataset: ReadsDataset, train_loader, valid_loader, report_worst: bool):
+def collect_evaluation_data(model: PermutectModel, dataset: ReadsDataset, balancer: Balancer, train_loader, valid_loader, report_worst: bool):
     # the keys are tuples of (Label; rounded alt count)
     worst_offenders_by_label_and_alt_count = defaultdict(lambda: PriorityQueue(WORST_OFFENDERS_QUEUE_SIZE))
 
-    balancer = Balancer(dataset).to(device=model._device, dtype=model._dtype)
     evaluation_metrics = EvaluationMetrics(num_sources=dataset.num_sources(), device=model._device)
     epoch_types = [Epoch.TRAIN, Epoch.VALID]
     for epoch_type in epoch_types:
@@ -170,7 +168,7 @@ def collect_evaluation_data(model: PermutectModel, dataset: ReadsDataset, train_
         batch: ReadsBatch
         for batch in tqdm(prefetch_generator(loader), mininterval=60, total=len(loader)):
             # these are the same weights used in training
-            weights = balancer.calculate_batch_weights(batch)
+            weights, _ = balancer.process_batch_and_compute_weights(batch)
             representations, _ = model.calculate_representations(batch, weight_range=model._params.reweighting_range)
             logits, _ = model.logits_from_reads_batch(representations, batch)
             evaluation_metrics.record_batch(epoch_type, batch, logits, weights)
@@ -201,11 +199,11 @@ def collect_evaluation_data(model: PermutectModel, dataset: ReadsDataset, train_
 
 
 @torch.inference_mode()
-def evaluate_model(model: PermutectModel, epoch: int, dataset: ReadsDataset, train_loader, valid_loader,
+def evaluate_model(model: PermutectModel, epoch: int, dataset: ReadsDataset, balancer: Balancer, train_loader, valid_loader,
                    summary_writer: SummaryWriter, collect_embeddings: bool = False, report_worst: bool = False):
 
     # self.freeze_all()
-    evaluation_metrics, worst_offenders_by_label_and_alt_count = collect_evaluation_data(model, dataset, train_loader, valid_loader, report_worst)
+    evaluation_metrics, worst_offenders_by_label_and_alt_count = collect_evaluation_data(model, dataset, balancer, train_loader, valid_loader, report_worst)
     evaluation_metrics.put_on_cpu()
     evaluation_metrics.make_plots(summary_writer, epoch=epoch)
 
@@ -247,11 +245,3 @@ def evaluate_model(model: PermutectModel, epoch: int, dataset: ReadsDataset, tra
                 metrics.representations.append(embedding)
         embedding_metrics.output_to_summary_writer(summary_writer, epoch=epoch)
     # done collecting data
-
-
-# TODO: these were copied from artifact model and probably could use some refactoring
-def evaluate_model_after_training(model: PermutectModel, dataset: ReadsDataset, batch_size, num_workers, summary_writer: SummaryWriter):
-    train_loader = dataset.make_data_loader(dataset.all_but_the_last_fold(), batch_size, model._device.type == 'cuda', num_workers)
-    valid_loader = dataset.make_data_loader(dataset.last_fold_only(), batch_size, model._device.type == 'cuda', num_workers)
-    evaluate_model(model, None, dataset, train_loader, valid_loader, summary_writer, collect_embeddings=True, report_worst=True)
-

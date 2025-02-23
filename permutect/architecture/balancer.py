@@ -1,104 +1,108 @@
-import torch
-from torch.nn import Module, Parameter, BCEWithLogitsLoss
+import math
 
-from permutect.data.batch import Batch
-from permutect.data.reads_dataset import ratio_with_pseudocount, ReadsDataset
-from permutect.metrics.loss_metrics import BatchProperty
-from permutect.data.count_binning import ref_count_bin_indices, alt_count_bin_indices
-from permutect.misc_utils import backpropagate
-from permutect.utils.array_utils import index_4d_array, index_3d_array
-from permutect.utils.enums import Label
+import numpy as np
+import torch
+from matplotlib import pyplot as plt
+from torch.nn import Module, Parameter
+from torch.utils.tensorboard import SummaryWriter
+
+from permutect.data.reads_batch import ReadsBatch
+from permutect.data.count_binning import alt_count_bin_indices, NUM_ALT_COUNT_BINS, NUM_REF_COUNT_BINS, \
+    ref_count_bin_indices, ALT_COUNT_BIN_BOUNDS, REF_COUNT_BIN_BOUNDS
+from permutect.metrics import plotting
+from permutect.utils.array_utils import index_5d_array, add_to_5d_array
+from permutect.utils.enums import Label, Variation, Epoch
 
 
 class Balancer(Module):
-    def __init__(self, dataset: ReadsDataset, learning_rate: float=0.001):
+    ATTENUATION_PER_DATUM = 0.99999
+    DATA_BEFORE_RECOMPUTE = 10000
+
+    def __init__(self, num_sources: int, device):
         super(Balancer, self).__init__()
-        # general balancing idea: if total along some axis eg label is T and count for one particular label is C,
-        # assign weight T/C -- then effective count is (T/C)*C = T, which is independent of label
-        # we therefore need sums along certain axes:
-        totals_slva = dataset.totals.get_marginal((BatchProperty.SOURCE, BatchProperty.LABEL, BatchProperty.VARIANT_TYPE, BatchProperty.ALT_COUNT_BIN))
-        totals_sva = dataset.totals.get_marginal((BatchProperty.SOURCE, BatchProperty.VARIANT_TYPE, BatchProperty.ALT_COUNT_BIN))
-        labeled_totals_sva = totals_sva - totals_slva[:, Label.UNLABELED, :, :]
-        totals_va = torch.sum(totals_sva, dim=0)  # sum over label and source for source-balancing
-        labeled_total = torch.sum(labeled_totals_sva)
+        self.device = device
+        self.num_sources = num_sources
+        self.count_since_last_recomputation = 0
 
-        label_balancing_weights_slva = ratio_with_pseudocount(labeled_totals_sva[:, None, :, :], totals_slva)
+        # not weighted, just the actual counts of data seen
+        self.counts_slvra = Parameter(torch.zeros(num_sources, len(Label), len(Variation), NUM_REF_COUNT_BINS, NUM_ALT_COUNT_BINS, device=device), requires_grad=False)
 
-        # next we want to normalize so that the average weight encountered on labeled data is 1 -- this way the learning rate
-        # parameter has a fixed meaning.
-        total_weight = torch.sum(totals_slva * label_balancing_weights_slva)
-        total_supervised_weight = total_weight - torch.sum(totals_slva[:, Label.UNLABELED, :, :] * label_balancing_weights_slva[:, Label.UNLABELED, :, :])
-        average_supervised_weight = total_supervised_weight / labeled_total
+        # initialize weights to be flat
+        self.weights_slvra = Parameter(torch.ones(num_sources, len(Label), len(Variation), NUM_REF_COUNT_BINS, NUM_ALT_COUNT_BINS, device=device), requires_grad=False)
 
-        # after the following line, average label-balancing weight encountered on labeled data is 1
-        label_balancing_weights_slva = label_balancing_weights_slva / average_supervised_weight
+        # the overall weights for adversarial source predicition are the regular weights times the source weights
+        self.source_weights_s = Parameter(torch.ones(num_sources, device=device), requires_grad=False)
 
-        # the balancing process can reduce the influence of unlabeled data to match that of labeled data, but we don't want to
-        # weight it strongly when there's little unlabeled data.  That is, if we have plenty of labeled data we are happy with
-        # supervised learning!
-        label_balancing_weights_slva[:, Label.UNLABELED, :, :] = \
-            torch.clip(label_balancing_weights_slva[:, Label.UNLABELED, :, :], min=0, max=1)
+    def process_batch_and_compute_weights(self, batch: ReadsBatch):
+        # this updates the counts that are used to compute weights, recomputes the weights, and returns the weights
+        # increment counts by 1
+        sources, labels, var_types = batch.get_sources(), batch.get_labels(), batch.get_variant_types()
+        ref_count_bins, alt_count_bins = ref_count_bin_indices(batch.get_ref_counts()), alt_count_bin_indices(batch.get_alt_counts())
+        add_to_5d_array(self.counts_slvra, sources, labels, var_types, ref_count_bins, alt_count_bins, values=torch.ones(batch.size(), device=self.device))
+        self.count_since_last_recomputation += batch.size()
 
-        # at this point, average labeled weight is 1 and weights balance artifacts with non-artifacts for each combination
-        # of source, count, and variant type
+        if self.count_since_last_recomputation > Balancer.DATA_BEFORE_RECOMPUTE:
+            art_to_nonart_ratios_svra = (self.counts_slvra[:, Label.ARTIFACT] + 0.01) / (self.counts_slvra[:, Label.VARIANT] + 0.01)
+            # TODO: perhaps don't recompute weights at every batch, as we do here
+            new_weights_slvra = torch.zeros_like(self.weights_slvra)
+            new_weights_slvra[:, Label.ARTIFACT] = torch.clip((1 + 1/art_to_nonart_ratios_svra)/2, min=0.01, max=100)
+            new_weights_slvra[:, Label.VARIANT] = torch.clip((1 + art_to_nonart_ratios_svra) / 2, min=0.01, max=100)
 
-        # weights for adversarial source prediction task.  Balance over sources for each count and variant type
-        source_balancing_weights_sva = ratio_with_pseudocount(totals_va[None, :, :], totals_sva)
+            counts_slv = torch.sum(self.counts_slvra, dim=(-2,-1))
+            unlabeled_weight_sv = torch.clip((counts_slv[:, Label.ARTIFACT] + counts_slv[:, Label.ARTIFACT])/counts_slv[:, Label.UNLABELED], 0, 1)
+            new_weights_slvra[:, Label.UNLABELED] = unlabeled_weight_sv.view(self.num_sources, len(Variation), 1, 1)
 
-        # we now normalize the source balancing weight to have the same total weights as supervised learning
-        # the average supervised count has been normalized to 1 so the total supervised weight is just the total labeled
-        # count.
-        total_source_balancing_weight = torch.sum(totals_sva * source_balancing_weights_sva)
-        source_balancing_weights_sva = source_balancing_weights_sva * labeled_total / total_source_balancing_weight
+            attenuation = math.pow(Balancer.ATTENUATION_PER_DATUM, self.count_since_last_recomputation)
+            self.weights_slvra.copy_(attenuation * self.weights_slvra + (1-attenuation)*new_weights_slvra)
 
-        # imbalanced unlabeled data can exert a bias just like labeled data.  These parameters keep track of the proportion
-        # of unlabeled data that seem to be artifacts in order to weight losses appropriately.  Each source, count, and
-        # variant type has its own proportion, stored as a logit-transformed probability
-        # initialized as artifact, non-artifact equally likely
-        self.totals_slva = Parameter(totals_slva, requires_grad=False)
-        self.label_balancing_weights_slva = Parameter(label_balancing_weights_slva, requires_grad=False)
-        self.source_balancing_weights_sva = Parameter(source_balancing_weights_sva, requires_grad=False)
-        self.proportion_logits_sva = Parameter(torch.zeros_like(self.totals_slva[:, Label.UNLABELED, :, :]), requires_grad=True)
-        self.optimizer = torch.optim.AdamW([self.proportion_logits_sva], lr=learning_rate)
-        self.bce = BCEWithLogitsLoss(reduction='none')
+            counts_s = torch.sum(counts_slv, dim=(-2, -1))
+            total_s = torch.sum(counts_s, dim=0, keepdim=True)
+            new_source_weights_s = (total_s / counts_s) / self.num_sources
+            self.source_weights_s.copy_(attenuation * self.source_weights_s + (1-attenuation)*new_source_weights_s)
+            self.count_since_last_recomputation = 0
+            # TODO: also attenuate counts -- multiply by an attenuation factor or something?
+        batch_weights = index_5d_array(self.weights_slvra, sources, labels, var_types, ref_count_bins, alt_count_bins)
+        source_weights = self.source_weights_s[sources]
+        return batch_weights, source_weights
 
-    def calculate_batch_weights(self, batch: Batch):
-        # TODO: we need a parameter to control the relative weight of unlabeled loss to labeled loss
-        alt_count_bins = alt_count_bin_indices(batch.get_alt_counts())
-        return index_4d_array(self.label_balancing_weights_slva, batch.get_sources(), batch.get_labels(), batch.get_variant_types(), alt_count_bins)
+    # TODO: lots of code duplication with the plotting in loss_metrics.py
+    def plot_weights(self, label: Label, var_type: Variation, axis, source: int):
+        """
+        for given Label and Variation, plot color map of (effective) data counts vs ref (x axis) and alt (y axis) counts
+        :return:
+        """
+        weights_ra = self.weights_slvra[source, label, var_type].cpu()
+        log_weights_ra = torch.clip(torch.log(weights_ra), -4, 4)
+        return plotting.color_plot_2d_on_axis(axis, np.array(ALT_COUNT_BIN_BOUNDS), np.array(REF_COUNT_BIN_BOUNDS), log_weights_ra, None, None,
+                                       vmin=-4, vmax=4)
 
-    # calculate weights that adjust for the estimated proportion on unlabeled data that are actually artifacts, non-artifacts
-    # as a side-effect of the calculation, also adjusts the estimated proportions with gradient descent
-    def calculate_autobalancing_weights(self, batch: Batch, probabilities: torch.Tensor):
-        # TODO: does this really need to be updated every batch?
-        # effective totals are labeled plus estimated contributions from unlabeled
-        # the proportion of unlabeled data that are artifacts
-        proportions_sva = torch.sigmoid(self.proportion_logits_sva.detach())
-        art_totals_sva = self.totals_slva[:, Label.ARTIFACT] + proportions_sva * self.totals_slva[:, Label.UNLABELED]
-        nonart_totals_sva = self.totals_slva[:, Label.VARIANT] + (1 - proportions_sva) * self.totals_slva[:, Label.UNLABELED]
-        totals_sva = art_totals_sva + nonart_totals_sva
+    def plot_counts(self, label: Label, var_type: Variation, axis, source: int):
+        """
+        for given Label and Variation, plot color map of (effective) data counts vs ref (x axis) and alt (y axis) counts
+        :return:
+        """
+        counts_lra = self.counts_slvra[source, :, var_type].cpu()
+        max_count = torch.max(counts_lra)
+        normalized_counts_ra = (counts_lra / max_count)[label] + 0.0001
+        log_normalized_count_ra = torch.clip(torch.log(normalized_counts_ra), -10, 0)
+        return plotting.color_plot_2d_on_axis(axis, np.array(ALT_COUNT_BIN_BOUNDS), np.array(REF_COUNT_BIN_BOUNDS), log_normalized_count_ra, None, None,
+                                       vmin=-10, vmax=0)
 
-        art_weights_sva = 0.5 * ratio_with_pseudocount(totals_sva, art_totals_sva)
-        nonart_weights_sva = 0.5 * ratio_with_pseudocount(totals_sva, nonart_totals_sva)
-
-        sources, variant_types = batch.get_sources(), batch.get_variant_types()
-        alt_count_bins = alt_count_bin_indices(batch.get_alt_counts())
-        labels, is_labeled_mask = batch.get_labels(), batch.get_is_labeled_mask()
-
-        # is_artifact is 1 / 0 if labeled as artifact / nonartifact; otherwise it's the estimated probability
-        art_weights = index_3d_array(art_weights_sva, sources, variant_types, alt_count_bins)
-        nonart_weights = index_3d_array(nonart_weights_sva, sources, variant_types, alt_count_bins)
-
-        is_artifact = is_labeled_mask * labels + (1 - is_labeled_mask) * probabilities.detach()
-        weights = is_artifact * art_weights + (1 - is_artifact) * nonart_weights
-
-        # backpropagate our estimated proportions of artifacts among unlabeled data.  Note that we detach the computed probabilities!!
-        artifact_prop_logits = index_3d_array(self.proportion_logits_sva, sources, variant_types, alt_count_bins)
-        artifact_proportion_losses = (1 - is_labeled_mask) * self.bce(artifact_prop_logits, probabilities.detach())
-        backpropagate(self.optimizer, torch.sum(artifact_proportion_losses))
-
-        return weights.detach() # should already be detached, but just in case
-
-    def calculate_batch_source_weights(self, batch: Batch):
-        alt_count_bins = alt_count_bin_indices(batch.get_alt_counts())
-        return index_3d_array(self.source_balancing_weights_sva, batch.get_sources(), batch.get_variant_types(), alt_count_bins)
+    def make_plots(self, summary_writer: SummaryWriter, prefix: str, epoch_type: Epoch, epoch: int = None, type_of_plot: str = "weights"):
+        for source in range(self.num_sources):
+            fig, axes = plt.subplots(len(Label), len(Variation), sharex='all', sharey='all', squeeze=False, figsize=(2.5 * len(Variation), 2.5 * len(Label)))
+            row_names = [label.name for label in Label]
+            variation_types = [var_type.name for var_type in Variation]
+            common_colormesh = None
+            for label in Label:
+                for var_type in Variation:
+                    if type_of_plot == "weights":
+                        common_colormesh = self.plot_weights(label, var_type, axes[label, var_type], source)
+                    elif type_of_plot == "counts":
+                        common_colormesh = self.plot_counts(label, var_type, axes[label, var_type], source)
+                    else:
+                        raise Exception("BAD")
+            fig.colorbar(common_colormesh)
+            plotting.tidy_subplots(fig, axes, x_label="alt count", y_label="ref count", row_labels=row_names, column_labels=variation_types)
+            name_suffix = epoch_type.name + "" if self.num_sources == 1 else (", all sources" if source is None else f", source {source}")
+            summary_writer.add_figure(prefix + name_suffix, fig, global_step=epoch)
