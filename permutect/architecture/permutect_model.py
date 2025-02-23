@@ -16,7 +16,7 @@ from permutect.data.datum import DEFAULT_GPU_FLOAT, DEFAULT_CPU_FLOAT
 from permutect.data.reads_batch import ReadsBatch
 from permutect.data.prefetch_generator import prefetch_generator
 from permutect.metrics.evaluation_metrics import EmbeddingMetrics
-from permutect.data.count_binning import alt_count_bin_index, alt_count_bin_name
+from permutect.data.count_binning import alt_count_bin_index, alt_count_bin_name, MAX_ALT_COUNT
 from permutect.parameters import ModelParameters
 from permutect.sets.ragged_sets import RaggedSets
 from permutect.misc_utils import unfreeze, freeze, gpu_if_available
@@ -86,11 +86,13 @@ class PermutectModel(torch.nn.Module):
         self.calibration = nn.ModuleList([Calibration(params.calibration_layers) for variant_type in Variation])
 
         self.alt_count_predictor = Adversarial(MLP([self.pooling_dimension()] + [30, -1, -1, -1, 1]), adversarial_strength=0.01)
+        self.alt_count_loss_func = torch.nn.MSELoss(reduction='none')
 
         # used for unlabeled domain adaptation -- needs to be reset depending on the number of sources, as well as
         # the particular sources used in training.  Note that we initialize as a trivial model with 1 source
         self.source_predictor = Adversarial(MLP([self.pooling_dimension()] + [1], batch_normalize=params.batch_normalize,
                 dropout_p=params.dropout_p), adversarial_strength=0.01)
+        self.num_sources = 1
 
         self.to(device=self._device, dtype=self._dtype)
 
@@ -99,6 +101,7 @@ class PermutectModel(torch.nn.Module):
         layers = [self.pooling_dimension()] + source_prediction_hidden_layers + [num_sources]
         self.source_predictor = Adversarial(MLP(layers, batch_normalize=self._params.batch_normalize,
             dropout_p=self._params.dropout_p), adversarial_strength=0.01).to(device=self._device, dtype=self._dtype)
+        self.num_sources = num_sources
 
     def pooling_dimension(self) -> int:
         return self.set_pooling.output_dimension()
@@ -175,6 +178,20 @@ class PermutectModel(torch.nn.Module):
 
     def logits_from_reads_batch(self, representations_2d: torch.Tensor, reads_batch: ReadsBatch):
         return self.logits_from_features(representations_2d, reads_batch.get_ref_counts(), reads_batch.get_alt_counts(), reads_batch.get_variant_types())
+
+    def compute_source_prediction_losses(self, representations_2d: torch.Tensor, batch: ReadsBatch) -> torch.Tensor:
+        if self.num_sources > 1:
+            source_logits = self.source_predictor.adversarial_forward(representations_2d)
+            source_probs = torch.nn.functional.softmax(source_logits, dim=-1)
+            source_targets = torch.nn.functional.one_hot(batch.get_sources().long(), self.num_sources)
+            return torch.sum(torch.square(source_probs - source_targets), dim=-1)
+        else:
+            return torch.zeros(batch.size(), device=self._device, dtype=self._dtype)
+
+    def compute_alt_count_losses(self, representations_2d: torch.Tensor, batch: ReadsBatch):
+        alt_count_pred = torch.sigmoid(self.alt_count_predictor.adversarial_forward(representations_2d).view(-1))
+        alt_count_target = batch.get_alt_counts().to(dtype=alt_count_pred.dtype) / MAX_ALT_COUNT
+        return self.alt_count_loss_func(alt_count_pred, alt_count_target)
 
     def make_dict_for_saving(self, artifact_log_priors=None, artifact_spectra=None):
         return {constants.STATE_DICT_NAME: self.state_dict(),
