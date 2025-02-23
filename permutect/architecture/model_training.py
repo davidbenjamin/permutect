@@ -26,104 +26,11 @@ from permutect.utils.enums import Variation, Epoch, Label
 WORST_OFFENDERS_QUEUE_SIZE = 100
 
 
-def train_permutect_model(model: PermutectModel, dataset: ReadsDataset, training_params: TrainingParameters,
-                          summary_writer: SummaryWriter, validation_fold: int = None, epochs_per_evaluation: int = None):
-    report_memory_usage("Beginning training.")
-    device, dtype = model._device, model._dtype
-    num_sources = dataset.num_sources()
-    is_cuda = device.type == 'cuda'
-    print(f"Is CUDA available? {is_cuda}")
-    dataset.report_totals()
-
-    alt_count_loss_func = torch.nn.MSELoss(reduction='none')
-
-    train_optimizer = torch.optim.AdamW(model.parameters(), lr=training_params.learning_rate, weight_decay=training_params.weight_decay)
-    train_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
-        train_optimizer, factor=0.2, patience=5, threshold=0.001, min_lr=(training_params.learning_rate/100), verbose=True)
-
-    bce = torch.nn.BCEWithLogitsLoss(reduction='none')
-    balancer = Balancer(dataset).to(device=device, dtype=dtype)
-
-    validation_fold_to_use = (dataset.num_folds - 1) if validation_fold is None else validation_fold
-    train_loader, valid_loader = dataset.make_train_and_valid_loaders(validation_fold_to_use, training_params.batch_size, is_cuda, training_params.num_workers)
-
-    first_epoch, last_epoch = 1, training_params.num_epochs
-    for epoch in trange(1, last_epoch + 1, desc="Epoch"):
-        model.alt_count_predictor.set_adversarial_strength((2/(1 + math.exp(-0.1*(epoch - 1)))) - 1) # alpha increases linearly
-        start_epoch = time.time()
-        report_memory_usage(f"Start of epoch {epoch}")
-        for epoch_type in (Epoch.TRAIN, Epoch.VALID):
-            model.set_epoch_type(epoch_type)
-            loss_metrics = BatchIndexedAverages(num_sources=num_sources, device=device, include_logits=False)
-            alt_count_loss_metrics = BatchIndexedAverages(num_sources=num_sources, device=device, include_logits=False)    # loss on the adversarial task
-
-            loader = train_loader if epoch_type == Epoch.TRAIN else valid_loader
-
-            for parent_batch in tqdm(prefetch_generator(loader), mininterval=60, total=len(loader)):
-                ref_frac, alt_frac = random.random(), random.random()
-                for downsample in (False, True):
-                    batch = DownsampledReadsBatch(parent_batch, ref_frac, alt_frac) if downsample else parent_batch
-                    # TODO: use the weight-balancing scheme that artifact model training uses
-                    weights = balancer.calculate_batch_weights(batch)
-
-                    representations, _ = model.calculate_representations(batch, weight_range=model._params.reweighting_range)
-                    calibrated_logits, uncalibrated_logits = model.logits_from_reads_batch(representations, batch)
-
-                    # TODO: code duplication with artifact model training
-                    # TODO: should we use calibrated logits?
-                    # base batch always has labels, but for unlabeled elements these labels are meaningless and is_labeled_mask is zero
-                    cross_entropies = bce(uncalibrated_logits, batch.get_training_labels())
-                    probabilities = torch.sigmoid(uncalibrated_logits)
-                    entropies = bce(uncalibrated_logits, probabilities)
-
-                    semisupervised_losses = batch.get_is_labeled_mask() * cross_entropies + (1 - batch.get_is_labeled_mask()) * entropies
-                    loss_metrics.record(batch, None, semisupervised_losses, weights)
-
-                    # TODO: use nonlinear transformation of counts
-                    # TODO: should alt count adversarial losses have label-balancing weights, too? (probably yes)
-                    alt_count_pred = torch.sigmoid(model.alt_count_predictor.adversarial_forward(representations).squeeze())
-                    alt_count_target = batch.get_alt_counts().to(dtype=alt_count_pred.dtype)/20
-                    alt_count_losses = alt_count_loss_func(alt_count_pred, alt_count_target)
-                    alt_count_loss_metrics.record(batch, logits=None, values=alt_count_losses, weights=torch.ones_like(alt_count_losses))
-
-                    loss = torch.sum((weights * semisupervised_losses) + alt_count_losses)
-
-                    if epoch_type == Epoch.TRAIN:
-                        backpropagate(train_optimizer, loss)
-                # done with this batch
-            # done with one epoch type -- training or validation -- for this epoch
-            if epoch_type == Epoch.TRAIN:
-                mean_over_labels = torch.mean(loss_metrics.get_marginal(BatchProperty.LABEL)).item()
-                train_scheduler.step(mean_over_labels)
-
-            loss_metrics.put_on_cpu()
-            alt_count_loss_metrics.put_on_cpu()
-            loss_metrics.write_to_summary_writer(epoch_type, epoch, summary_writer, prefix="semi-supervised-loss")
-            alt_count_loss_metrics.write_to_summary_writer(epoch_type, epoch, summary_writer, prefix="alt-count-loss")
-            loss_metrics.report_marginals(f"Semisupervised losses for {epoch_type.name} epoch {epoch}.")
-            alt_count_loss_metrics.report_marginals(f"Alt count prediction adversarial task loss for {epoch_type.name} epoch {epoch}.")
-
-            if (epochs_per_evaluation is not None and epoch % epochs_per_evaluation == 0) or (epoch == last_epoch):
-                loss_metrics.make_loss_plots(summary_writer, "semisupervised loss", epoch_type, epoch)
-                alt_count_loss_metrics.make_loss_plots(summary_writer, "alt count loss", epoch_type, epoch)
-
-                print(f"performing evaluation on epoch {epoch}")
-                if epoch_type == Epoch.VALID:
-                    evaluate_model(model, epoch, dataset, train_loader, valid_loader, summary_writer, collect_embeddings=False, report_worst=False)
-
-        report_memory_usage(f"End of epoch {epoch}.")
-        print(f"time elapsed(s): {time.time() - start_epoch:.1f}")
-        # done with training and validation for this epoch
-        # note that we have not learned the AF spectrum yet
-    # done with training
-
-    record_embeddings(model, train_loader, summary_writer)
-
-
-def refine_permutect_model(model: PermutectModel, dataset: ReadsDataset, training_params: TrainingParameters, summary_writer: SummaryWriter,
-                           validation_fold: int = None, training_folds: List[int] = None, epochs_per_evaluation: int = None, calibration_sources: List[int] = None):
+def train_permutect_model(model: PermutectModel, dataset: ReadsDataset, training_params: TrainingParameters, summary_writer: SummaryWriter,
+                          validation_fold: int = None, training_folds: List[int] = None, epochs_per_evaluation: int = None, calibration_sources: List[int] = None):
     device, dtype = model._device, model._dtype
     bce = nn.BCEWithLogitsLoss(reduction='none')  # no reduction because we may want to first multiply by weights for unbalanced data
+    alt_count_loss_func = torch.nn.MSELoss(reduction='none')
     balancer = Balancer(dataset, learning_rate=training_params.learning_rate).to(device=device, dtype=dtype)
 
     num_sources = dataset.validate_sources()
@@ -169,6 +76,7 @@ def refine_permutect_model(model: PermutectModel, dataset: ReadsDataset, trainin
                 # unfreeze(model.final_calibration_shift_parameters())  # unfreeze final calibration shift but everything else stays frozen
 
             loss_metrics = BatchIndexedAverages(num_sources=num_sources, device=device, include_logits=False)   # based on calibrated logits
+            alt_count_loss_metrics = BatchIndexedAverages(num_sources=num_sources, device=device, include_logits=False)
             source_prediction_loss_metrics = BatchIndexedAverages(num_sources=num_sources, device=device, include_logits=False)  # based on calibrated logits
 
             loader = (calibration_train_loader if epoch_type == Epoch.TRAIN else calibration_valid_loader) if is_calibration_epoch else \
@@ -212,8 +120,16 @@ def refine_permutect_model(model: PermutectModel, dataset: ReadsDataset, trainin
                     # this updates the autobalancing as a side effect
                     weights = balancer.calculate_autobalancing_weights(batch, probabilities)
 
+                    # TODO: use nonlinear transformation of counts
+                    # TODO: should alt count adversarial losses have label-balancing weights, too? (probably yes)
+                    alt_count_pred = torch.sigmoid(
+                        model.alt_count_predictor.adversarial_forward(representations).squeeze())
+                    alt_count_target = batch.get_alt_counts().to(dtype=alt_count_pred.dtype) / 20
+                    alt_count_losses = alt_count_loss_func(alt_count_pred, alt_count_target)
+                    alt_count_loss_metrics.record(batch, logits=None, values=alt_count_losses,  weights=weights)
+
                     # these losses include weights and take labeled vs unlabeled into account
-                    losses = (labeled_losses + unlabeled_losses) * weights + (source_prediction_losses * source_prediction_weights)
+                    losses = (labeled_losses + unlabeled_losses + alt_count_losses) * weights + (source_prediction_losses * source_prediction_weights)
                     loss = torch.sum(losses)
 
                     loss_metrics.record(batch, None, labeled_losses + unlabeled_losses, weights)
@@ -230,14 +146,17 @@ def refine_permutect_model(model: PermutectModel, dataset: ReadsDataset, trainin
                 train_scheduler.step(mean_over_labels)
 
             loss_metrics.put_on_cpu()
+            alt_count_loss_metrics.put_on_cpu()
             source_prediction_loss_metrics.put_on_cpu()
             loss_metrics.write_to_summary_writer(epoch_type, epoch, summary_writer, prefix="semisupervised-loss")
+            alt_count_loss_metrics.write_to_summary_writer(epoch_type, epoch, summary_writer, prefix="alt-count-loss")
             source_prediction_loss_metrics.write_to_summary_writer(epoch_type, epoch, summary_writer, prefix="source-loss")
             loss_metrics.report_marginals(f"Semisupervised loss for {epoch_type.name} epoch {epoch}.")
             source_prediction_loss_metrics.report_marginals(f"Source prediction loss for {epoch_type.name} epoch {epoch}.")
 
             if (epochs_per_evaluation is not None and epoch % epochs_per_evaluation == 0) or (epoch == last_epoch):
                 loss_metrics.make_loss_plots(summary_writer, "semisupervised loss", epoch_type, epoch)
+                alt_count_loss_metrics.make_loss_plots(summary_writer, "alt count loss", epoch_type, epoch)
                 source_prediction_loss_metrics.make_loss_plots(summary_writer, "source prediction loss", epoch_type, epoch)
 
                 print(f"performing evaluation on epoch {epoch}")
@@ -249,7 +168,7 @@ def refine_permutect_model(model: PermutectModel, dataset: ReadsDataset, trainin
         print(f"Time elapsed(s): {time.time() - start_of_epoch:.1f}")
         # note that we have not learned the AF spectrum yet
     # done with training
-
+    record_embeddings(model, train_loader, summary_writer)
 
 @torch.inference_mode()
 def collect_evaluation_data(model: PermutectModel, dataset: ReadsDataset, train_loader, valid_loader, report_worst: bool):

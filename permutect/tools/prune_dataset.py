@@ -4,7 +4,7 @@ import tarfile
 import tempfile
 from typing import List
 
-from permutect.architecture.model_training import refine_permutect_model
+from permutect.architecture.model_training import train_permutect_model
 from permutect.architecture.permutect_model import PermutectModel, load_model
 from tqdm.autonotebook import tqdm
 
@@ -141,7 +141,7 @@ def generate_pruned_data_for_all_folds(dataset: ReadsDataset, model: PermutectMo
 
         totals_l = dataset.totals.get_marginal((BatchProperty.LABEL, )) # totals by label
         label_art_frac = totals_l[Label.ARTIFACT].item() / (totals_l[Label.ARTIFACT].item() + totals_l[Label.VARIANT].item())
-        refine_permutect_model(model, dataset, training_params, summary_writer=summary_writer, training_folds=[pruning_fold])
+        train_permutect_model(model, dataset, training_params, summary_writer=summary_writer, training_folds=[pruning_fold])
 
         # TODO: maybe this should be done by variant type and/or count
         # learn pruning thresholds on the held-out data
