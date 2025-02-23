@@ -218,21 +218,41 @@ class BatchIndexedAverages:
         return plotting.color_plot_2d_on_axis(axis, np.array(ALT_COUNT_BIN_BOUNDS), np.array(REF_COUNT_BIN_BOUNDS), transformed_ra, None, None,
                                        vmin=0, vmax=1)
 
-    def make_loss_plots(self, summary_writer: SummaryWriter, prefix: str, epoch_type: Epoch, epoch: int = None):
+    # TODO: maybe move this to BatchIndexedTotals
+    def plot_counts(self, label: Label, var_type: Variation, axis, source: int = None):
+        """
+        for given Label and Variation, plot color map of (effective) data counts vs ref (x axis) and alt (y axis) counts
+        :return:
+        """
+        assert self.has_been_sent_to_cpu, "Can't make plots before sending to CPU"
+        max_for_this_source_and_variant_type = torch.max(self.counts.totals_slvrag[source, :, var_type])
+        sum_dims = ((BatchProperty.SOURCE,) if source is None else ()) + (BatchProperty.LOGIT_BIN,)
+        selection = ({} if source is None else {BatchProperty.SOURCE: source}) | \
+                    {BatchProperty.VARIANT_TYPE: var_type, BatchProperty.LABEL: label}
+
+        counts_ra = select_and_sum(self.counts.totals_slvrag, select=selection, sum=sum_dims)
+        normalized_counts_ra = counts_ra / max_for_this_source_and_variant_type
+        return plotting.color_plot_2d_on_axis(axis, np.array(ALT_COUNT_BIN_BOUNDS), np.array(REF_COUNT_BIN_BOUNDS), normalized_counts_ra, None, None,
+                                       vmin=0, vmax=1)
+
+    def make_plots(self, summary_writer: SummaryWriter, prefix: str, epoch_type: Epoch, epoch: int = None, type_of_plot: str = "loss"):
         assert self.has_been_sent_to_cpu, "Can't make plots before sending to CPU"
 
         for source in range(self.num_sources):
-            loss_fig, loss_axes = plt.subplots(len(Label), len(Variation), sharex='all', sharey='all', squeeze=False, figsize=(2.5 * len(Variation), 2.5 * len(Label)))
+            fig, axes = plt.subplots(len(Label), len(Variation), sharex='all', sharey='all', squeeze=False, figsize=(2.5 * len(Variation), 2.5 * len(Label)))
             row_names = [label.name for label in Label]
             variation_types = [var_type.name for var_type in Variation]
             common_colormesh = None
             for label in Label:
                 for var_type in Variation:
-                    common_colormesh = self.plot_losses(label, var_type, loss_axes[label, var_type], source)
-            loss_fig.colorbar(common_colormesh)
-            plotting.tidy_subplots(loss_fig, loss_axes, x_label="alt count", y_label="ref count", row_labels=row_names, column_labels=variation_types)
+                    if type_of_plot == "loss":
+                        common_colormesh = self.plot_losses(label, var_type, axes[label, var_type], source)
+                    elif type_of_plot == "counts":
+                        common_colormesh = self.plot_counts(label, var_type, axes[label, var_type], source)
+            fig.colorbar(common_colormesh)
+            plotting.tidy_subplots(fig, axes, x_label="alt count", y_label="ref count", row_labels=row_names, column_labels=variation_types)
             name_suffix = epoch_type.name + "" if self.num_sources == 1 else (", all sources" if source is None else f", source {source}")
-            summary_writer.add_figure(prefix + name_suffix, loss_fig, global_step=epoch)
+            summary_writer.add_figure(prefix + name_suffix, fig, global_step=epoch)
 
 
 def make_true_and_false_masks_lg():
