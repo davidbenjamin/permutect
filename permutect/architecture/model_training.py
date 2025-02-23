@@ -95,11 +95,9 @@ def train_permutect_model(model: PermutectModel, dataset: ReadsDataset, training
                     source_losses = model.compute_source_prediction_losses(representations, batch)
                     source_weights = torch.zeros_like(logits, device=device) if num_sources == 1 else balancer.calculate_batch_source_weights(batch)
 
+                    # TODO: is the average of un-calibrated and calibrated cross entropies really correct?
                     uncalibrated_cross_entropies = bce(precalibrated_logits, labels)
                     calibrated_cross_entropies = bce(logits, labels)
-
-                    # TODO: investigate whether using the average of un-calibrated and calibrated cross entropies is
-                    # TODO: really the right thing to do
                     labeled_losses = batch.get_is_labeled_mask() * (uncalibrated_cross_entropies + calibrated_cross_entropies) / 2
 
                     # unlabeled loss: entropy regularization. We use the uncalibrated logits because otherwise entropy
@@ -111,15 +109,10 @@ def train_permutect_model(model: PermutectModel, dataset: ReadsDataset, training
                     # this updates the autobalancing as a side effect
                     weights = balancer.calculate_autobalancing_weights(batch, probabilities)
 
-                    # TODO: use nonlinear transformation of counts
-                    # TODO: should alt count adversarial losses have label-balancing weights, too? (probably yes)
-                    alt_count_pred = torch.sigmoid(
-                        model.alt_count_predictor.adversarial_forward(representations).squeeze())
-                    alt_count_target = batch.get_alt_counts().to(dtype=alt_count_pred.dtype) / 20
-                    alt_count_losses = alt_count_loss_func(alt_count_pred, alt_count_target)
+                    alt_count_losses = model.compute_alt_count_losses(representations, batch)
                     alt_count_loss_metrics.record(batch, logits=None, values=alt_count_losses,  weights=weights)
 
-                    # these losses include weights and take labeled vs unlabeled into account
+                    # losses include weights and take labeled vs unlabeled into account
                     losses = (labeled_losses + unlabeled_losses + alt_count_losses) * weights + (source_losses * source_weights)
                     loss = torch.sum(losses)
 

@@ -16,7 +16,7 @@ from permutect.data.datum import DEFAULT_GPU_FLOAT, DEFAULT_CPU_FLOAT
 from permutect.data.reads_batch import ReadsBatch
 from permutect.data.prefetch_generator import prefetch_generator
 from permutect.metrics.evaluation_metrics import EmbeddingMetrics
-from permutect.data.count_binning import alt_count_bin_index, alt_count_bin_name
+from permutect.data.count_binning import alt_count_bin_index, alt_count_bin_name, MAX_ALT_COUNT
 from permutect.parameters import ModelParameters
 from permutect.sets.ragged_sets import RaggedSets
 from permutect.misc_utils import unfreeze, freeze, gpu_if_available
@@ -86,6 +86,7 @@ class PermutectModel(torch.nn.Module):
         self.calibration = nn.ModuleList([Calibration(params.calibration_layers) for variant_type in Variation])
 
         self.alt_count_predictor = Adversarial(MLP([self.pooling_dimension()] + [30, -1, -1, -1, 1]), adversarial_strength=0.01)
+        self.alt_count_loss_func = torch.nn.MSELoss(reduction='none')
 
         # used for unlabeled domain adaptation -- needs to be reset depending on the number of sources, as well as
         # the particular sources used in training.  Note that we initialize as a trivial model with 1 source
@@ -187,6 +188,10 @@ class PermutectModel(torch.nn.Module):
         else:
             return torch.zeros(batch.size(), device=self._device, dtype=self._dtype)
 
+    def compute_alt_count_losses(self, representations_2d: torch.Tensor, batch: ReadsBatch):
+        alt_count_pred = torch.sigmoid(self.alt_count_predictor.adversarial_forward(representations_2d).view(-1))
+        alt_count_target = batch.get_alt_counts().to(dtype=alt_count_pred.dtype) / MAX_ALT_COUNT
+        return self.alt_count_loss_func(alt_count_pred, alt_count_target)
 
     def make_dict_for_saving(self, artifact_log_priors=None, artifact_spectra=None):
         return {constants.STATE_DICT_NAME: self.state_dict(),
