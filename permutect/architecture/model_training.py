@@ -87,22 +87,13 @@ def train_permutect_model(model: PermutectModel, dataset: ReadsDataset, training
                 ref_frac, alt_frac = random.random(), random.random()
                 for downsample in (False, True):
                     batch = DownsampledReadsBatch(parent_batch, ref_frac, alt_frac) if downsample else parent_batch
-                    sources = batch.get_sources()
                     labels = batch.get_training_labels()
 
                     representations, _ = model.calculate_representations(batch, weight_range=model._params.reweighting_range)
                     logits, precalibrated_logits = model.logits_from_reads_batch(representations, batch)
 
-                    # one-hot prediction of sources
-                    if num_sources > 1:
-                        source_prediction_logits = model.source_predictor.adversarial_forward(representations)
-                        source_prediction_probs = torch.nn.functional.softmax(source_prediction_logits, dim=-1)
-                        source_prediction_targets = torch.nn.functional.one_hot(sources.long(), num_sources)
-                        source_prediction_losses = torch.sum(torch.square(source_prediction_probs - source_prediction_targets), dim=-1)
-                        source_prediction_weights = balancer.calculate_batch_source_weights(batch)
-                    else:
-                        source_prediction_losses = torch.zeros_like(logits, device=device)
-                        source_prediction_weights = torch.zeros_like(logits, device=device)
+                    source_losses = model.compute_source_prediction_losses(representations, batch)
+                    source_weights = torch.zeros_like(logits, device=device) if num_sources == 1 else balancer.calculate_batch_source_weights(batch)
 
                     uncalibrated_cross_entropies = bce(precalibrated_logits, labels)
                     calibrated_cross_entropies = bce(logits, labels)
@@ -129,11 +120,11 @@ def train_permutect_model(model: PermutectModel, dataset: ReadsDataset, training
                     alt_count_loss_metrics.record(batch, logits=None, values=alt_count_losses,  weights=weights)
 
                     # these losses include weights and take labeled vs unlabeled into account
-                    losses = (labeled_losses + unlabeled_losses + alt_count_losses) * weights + (source_prediction_losses * source_prediction_weights)
+                    losses = (labeled_losses + unlabeled_losses + alt_count_losses) * weights + (source_losses * source_weights)
                     loss = torch.sum(losses)
 
                     loss_metrics.record(batch, None, labeled_losses + unlabeled_losses, weights)
-                    source_prediction_loss_metrics.record(batch, None, source_prediction_losses, source_prediction_weights)
+                    source_prediction_loss_metrics.record(batch, None, source_losses, source_weights)
 
                     # calibration epochs freeze the model up to calibration, so I wonder if a purely unlabeled batch
                     # would cause lack of gradient problems. . .

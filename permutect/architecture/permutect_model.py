@@ -91,6 +91,7 @@ class PermutectModel(torch.nn.Module):
         # the particular sources used in training.  Note that we initialize as a trivial model with 1 source
         self.source_predictor = Adversarial(MLP([self.pooling_dimension()] + [1], batch_normalize=params.batch_normalize,
                 dropout_p=params.dropout_p), adversarial_strength=0.01)
+        self.num_sources = 1
 
         self.to(device=self._device, dtype=self._dtype)
 
@@ -99,6 +100,7 @@ class PermutectModel(torch.nn.Module):
         layers = [self.pooling_dimension()] + source_prediction_hidden_layers + [num_sources]
         self.source_predictor = Adversarial(MLP(layers, batch_normalize=self._params.batch_normalize,
             dropout_p=self._params.dropout_p), adversarial_strength=0.01).to(device=self._device, dtype=self._dtype)
+        self.num_sources = num_sources
 
     def pooling_dimension(self) -> int:
         return self.set_pooling.output_dimension()
@@ -175,6 +177,16 @@ class PermutectModel(torch.nn.Module):
 
     def logits_from_reads_batch(self, representations_2d: torch.Tensor, reads_batch: ReadsBatch):
         return self.logits_from_features(representations_2d, reads_batch.get_ref_counts(), reads_batch.get_alt_counts(), reads_batch.get_variant_types())
+
+    def compute_source_prediction_losses(self, representations_2d: torch.Tensor, batch: ReadsBatch) -> torch.Tensor:
+        if self.num_sources > 1:
+            source_logits = self.source_predictor.adversarial_forward(representations_2d)
+            source_probs = torch.nn.functional.softmax(source_logits, dim=-1)
+            source_targets = torch.nn.functional.one_hot(batch.get_sources().long(), self.num_sources)
+            return torch.sum(torch.square(source_probs - source_targets), dim=-1)
+        else:
+            return torch.zeros(batch.size(), device=self._device, dtype=self._dtype)
+
 
     def make_dict_for_saving(self, artifact_log_priors=None, artifact_spectra=None):
         return {constants.STATE_DICT_NAME: self.state_dict(),
