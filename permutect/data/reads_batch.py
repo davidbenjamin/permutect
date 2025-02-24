@@ -91,23 +91,27 @@ class DownsampledReadsBatch(ReadsBatch):
 
     # TODO: make fractions batch properties; that way eg we can downsample things with higher counts more heavily
     # TODO: this is compatible with the bernoulli_
-    def __init__(self, original_reads_batch: ReadsBatch, ref_fraction: float = 1.0, alt_fraction: float = 1.0):
+    def __init__(self, original_batch: ReadsBatch):
         """
         This is delicate.  We're constructing it without calling super().__init__
         """
-        self.data = original_reads_batch.data
+        self.data = original_batch.data
         self.device = self.data.device
-        self.reads_2d = original_reads_batch.reads_2d
+        self.reads_2d = original_batch.reads_2d
         self._finish_initializiation_from_data_array()
         # at this point all member variables needed by the parent class are available
 
         old_ref_counts, old_alt_counts = self.data[:, Datum.REF_COUNT_IDX], self.data[:, Datum.ALT_COUNT_IDX]
         old_total_ref, old_total_alt = torch.sum(old_ref_counts), torch.sum(old_alt_counts)
 
+        ref_fracs_b = torch.rand(original_batch.size(), device=self.device)
+        alt_fracs_b = torch.rand(original_batch.size(), device=self.device)
+        ref_probs_r = torch.repeat_interleave(ref_fracs_b, dim=0, repeats=old_ref_counts)
+        alt_probs_r = torch.repeat_interleave(alt_fracs_b, dim=0, repeats=old_alt_counts)
         keep_ref_mask = torch.zeros(old_total_ref, device=self.device, dtype=torch.int64)
-        keep_ref_mask.bernoulli_(p=ref_fraction)    # fills in-place with Bernoulli samples
+        keep_ref_mask.bernoulli_(p=ref_probs_r)    # fills in-place with Bernoulli samples
         keep_alt_mask = torch.zeros(old_total_alt, device=self.device, dtype=torch.int64)
-        keep_alt_mask.bernoulli_(p=alt_fraction)    # fills in-place with Bernoulli samples
+        keep_alt_mask.bernoulli_(p=alt_probs_r)    # fills in-place with Bernoulli samples
 
         # unlike ref, we need to ensure at least one alt read.  One way to do that is to set one random element from each range of alts
         # to be masked to keep.  If eg we have alt counts of 3, 4, 7, 2 in the batch, the cumsums starting from zero are
