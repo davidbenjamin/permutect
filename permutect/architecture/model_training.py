@@ -83,9 +83,8 @@ def train_permutect_model(model: PermutectModel, dataset: ReadsDataset, training
 
             batch: ReadsBatch
             for parent_batch in tqdm(prefetch_generator(loader), mininterval=60, total=len(loader)):
-                ref_frac, alt_frac = random.random(), random.random()
                 for downsample in (False, True):
-                    batch = DownsampledReadsBatch(parent_batch, ref_frac, alt_frac) if downsample else parent_batch
+                    batch = DownsampledReadsBatch(parent_batch) if downsample else parent_batch
                     weights, source_weights = balancer.process_batch_and_compute_weights(batch)
                     labels = batch.get_training_labels()
 
