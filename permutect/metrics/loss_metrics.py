@@ -114,12 +114,15 @@ class BatchIndexedTotals:
 
         num_sources = self.totals_slvrag.shape[BatchProperty.SOURCE]
         multiple_sources = num_sources > 1
-        source_zero_line_colors = {Label.VARIANT: 'red', Label.ARTIFACT: 'magenta', Label.UNLABELED: 'limegreen'}
-        other_source_line_colors = {Label.VARIANT: 'darkred', Label.ARTIFACT: 'darkmagenta', Label.UNLABELED: 'darkgreen'}
         for row, variation_type in enumerate(Variation):
             for count_bin in range(NUM_ALT_COUNT_BINS): # this is also the column index
                 selection={BatchProperty.VARIANT_TYPE: variation_type, BatchProperty.ALT_COUNT_BIN: count_bin}
                 totals_slg = select_and_sum(self.totals_slvrag, select=selection, sum=(BatchProperty.REF_COUNT_BIN,))
+
+                # The normalizing factor for each source, label is the sum over all logits for that source and label
+                # This renders a histogram into a sort of probability density plot for each source, label
+                normalization_slg = torch.sum(totals_slg, dim=-1, keepdim=True)
+                normalized_totals_slg = (totals_slg + 0.000001) / normalization_slg
 
                 # overlapping line plots for all source / label combinations
                 # source 0 is filled; others are not
@@ -127,13 +130,9 @@ class BatchIndexedTotals:
                 x_y_label_tuples = []
                 for source in range(num_sources):
                     for label in Label:
-                        totals_g = totals_slg[source, label, :]
-                        if torch.sum(totals_g).item() >= 1:
+                        if normalization_slg[source, label, 0].item() >= 1:
                             line_label = f"{label.name} ({source})" if multiple_sources else label.name
-                            # TODO: rearrange this old code to get colors right?
-                            # TODO: or maybe automatic colors are fine
-                            #color = source_zero_line_colors[label] if source == 0 else other_source_line_colors[label]
-                            x_y_label_tuples.append((x_axis_logits.cpu().numpy(), totals_g.cpu().numpy(), line_label))
+                            x_y_label_tuples.append((x_axis_logits.cpu().numpy(), normalized_totals_slg[source, label].cpu().numpy(), line_label))
                 plotting.simple_plot_on_axis(ax, x_y_label_tuples, None, None)
                 ax.legend()
 
