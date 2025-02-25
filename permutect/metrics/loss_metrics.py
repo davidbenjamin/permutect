@@ -94,11 +94,13 @@ class BatchIndexedTotals:
         ref_idx, alt_idx = ref_count_bin_index(datum.get_ref_count()), alt_count_bin_index(datum.get_alt_count())
         self.totals_slvrag[source, datum.get_label(), datum.get_variant_type(), ref_idx, alt_idx, 0] += value
 
-    def record(self, batch: Batch, logits: torch.Tensor, values: torch.Tensor):
+    def record(self, batch: Batch, logits: torch.Tensor, values: torch.Tensor, sources_override: torch.Tensor = None):
+        # sources override is something of a hack: for filtering, there is only one source, the sample being called,
+        # and we may want to use the source index for some other covariate, such as the type of Call
         # values is a 1D tensor
         assert batch.size() == len(values)
         assert not self.has_been_sent_to_cpu, "Can't record after already sending to CPU"
-        sources = batch.get_sources()
+        sources = batch.get_sources() if sources_override is None else sources_override
         logit_indices = logit_bin_indices(logits) if self.include_logits else torch.zeros_like(sources)
 
         add_to_6d_array(self.totals_slvrag, sources, batch.get_labels(), batch.get_variant_types(),
