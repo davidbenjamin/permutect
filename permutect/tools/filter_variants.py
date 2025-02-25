@@ -19,6 +19,7 @@ from permutect.data.reads_batch import ReadsBatch
 from permutect.data.reads_dataset import ReadsDataset
 from permutect.data.count_binning import MAX_ALT_COUNT, ref_count_bin_name, alt_count_bin_index, alt_count_bin_name
 from permutect.metrics.evaluation_metrics import EvaluationMetrics, EmbeddingMetrics
+from permutect.metrics.loss_metrics import BatchIndexedTotals
 from permutect.metrics.posterior_result import PosteriorResult
 from permutect.misc_utils import report_memory_usage, gpu_if_available
 from permutect.utils.allele_utils import trim_alleles_on_right, find_variant_type, truncate_bases_if_necessary
@@ -246,6 +247,9 @@ def apply_filtering_to_vcf(input_vcf, output_vcf, contig_index_to_name_map, erro
     print("Computing final error probabilities")
     passing_call_type = Call.GERMLINE if germline_mode else Call.SOMATIC
     evaluation_metrics = EvaluationMetrics(num_sources=1)
+
+    # Note: using BatchIndexedTotals in a hacky way, with Call replacing Source!
+    artifact_logit_metrics = BatchIndexedTotals(num_sources=len(Call), include_logits=True)
     encoding_to_posterior_results = {}
 
     batch: PosteriorBatch
@@ -263,6 +267,11 @@ def apply_filtering_to_vcf(input_vcf, output_vcf, contig_index_to_name_map, erro
         # TODO: this code here treats posterior_prob = 1/2 as the threshold
         # TODO: we could perhaps subtract the threshold to re-center at zero
         evaluation_metrics.record_batch(Epoch.TEST, batch, error_logits)
+
+        # TODO: calls should be most condifent call
+        # TODO: values should be the posterior probability assigned to that call
+        artifact_logit_metrics.record(batch=batch, logits=batch.get_artifact_logits(), values=torch.ones_like(error_logits),
+                                      sources_override=calls)
 
         artifact_logits = batch.get_artifact_logits().cpu().tolist()
         data = [Datum(datum_array) for datum_array in batch.get_data_2d()]

@@ -6,82 +6,56 @@ from torch import nn, IntTensor
 
 from permutect.metrics.plotting import simple_plot
 from permutect.misc_utils import backpropagate
-from permutect.utils.stats_utils import beta_binomial_log_lk
+from permutect.utils.stats_utils import beta_binomial_log_lk, uniform_binomial_log_lk
 from permutect.utils.enums import Variation
 
 
 class ArtifactSpectra(nn.Module):
     """
-    This model takes in 1D tensors (batch size, ) of alt counts and depths and a 2D tensor (batch size, len(Variation))
-    of one-hot-encoded variant types and computes the log likelihoods
-    log P(alt count | depth, variant type, spectrum parameters).
-
-    The probability P(alt count | depth) is a K-component beta binomial mixture model where each component is a beta binomial
-    P_k(a|d) = integral{Beta(f|alpha, beta) * Binom(a|d, f) df}.
-
-    This integral is exact and is implemented in beta_binomial()
-
-    Importantly, the beta shape parameter is *not* learnable.  We fix it at a high constant value in order to force the spectrum
-    to fall off very rapidly after its peak allele fraction.  Otherwise, the unrealistically long tail gives artificially
-    high likelihoods for artifacts at high allele fractions.
+    Mixture of uniform-binomial compound distributions for each variant type
     """
 
     def __init__(self, num_components: int):
         super(ArtifactSpectra, self).__init__()
-        self.beta = 100 # not a learnable parameter!
         self.K = num_components
         self.V = len(Variation)
 
-        self.weights0_pre_softmax_vk = torch.nn.Parameter(torch.ones(self.V, self.K))
+        self.weights_pre_softmax_vk = torch.nn.Parameter(torch.ones(self.V, self.K))
 
-        # for each component and variant type:
-        # weight_pre_softmax = weight0_pre_softmax + gamma * sigmoid(depth * kappa)
-        self.gamma_vk = torch.nn.Parameter(0.1 * torch.rand(self.V, self.K))
-        self.kappa_vk = torch.nn.Parameter(0.02 * torch.ones(self.V, self.K))
+        # the minima of the uniform-binomials, before before sent through a sigmoid
+        # initialize to be essentially zero (after the sigmoid)
+        initial_minima_pre_sigmoid_vk = -10*torch.ones(self.V, self.K)
+        self.min_pre_sigmoid_vk = torch.nn.Parameter(initial_minima_pre_sigmoid_vk)
 
-        # initialize evenly spaced alphas from 1 to 7 for each variant type
-        self.alpha0_pre_exp_vk = torch.nn.Parameter(torch.log(1 + 7 * (torch.arange(self.K) / self.K)).repeat(self.V, 1))
+        # to keep the maxima both greater than the minima and less than one, we say
+        # maxima = sigmoid(minima_pre_sigmoid + lengths_in_logit_space)
+        # initialize to
+        initial_maxima_pre_sigmoid_vk = -3 * torch.ones(self.V, self.K) + torch.rand(self.V, self.K)
+        self.lengths_in_logit_space_pre_exp_vk = torch.nn.Parameter(torch.log(initial_maxima_pre_sigmoid_vk - initial_minima_pre_sigmoid_vk))
 
-        self.eta_pre_exp_vk = torch.nn.Parameter(torch.ones(self.V, self.K))
-
-        self.delta_pre_exp_vk = torch.nn.Parameter(torch.log(torch.ones(self.V, self.K)/50))
-
-        # for each component and variant type:
-        # alpha = exp(alpha0_pre_exp - exp(eta_pre_exp)*sigmoid(depth * exp(delta_pre_exp)))
+    def get_minima_and_maxima_vk(self):
+        minima_vk = torch.sigmoid(self.min_pre_sigmoid_vk)
+        maxima_vk = torch.sigmoid(self.min_pre_sigmoid_vk + torch.exp(self.lengths_in_logit_space_pre_exp_vk))
+        return minima_vk, maxima_vk
 
     '''
     here x is a 2D tensor, 1st dimension batch, 2nd dimension being features that determine which Beta mixture to use
     n and k are 1D tensors, the only dimension being batch.
     '''
     def forward(self, variant_types_b: torch.IntTensor, depths_b, alt_counts_b):
-        # indexing convention: b is batch, v is variant type, k is cluster component
-        alt_counts_bk = alt_counts_b[:, None]
-        depths_bk = depths_b[:, None]
-
-        eta_vk = torch.exp(self.eta_pre_exp_vk)
-        delta_vk = torch.exp(self.delta_pre_exp_vk)
-
         var_types_b = variant_types_b.long()
-        alpha0_pre_exp_bk = self.alpha0_pre_exp_vk[var_types_b, :]
-        delta_bk = delta_vk[var_types_b, :]
-        eta_bk = eta_vk[var_types_b, :]
-        alpha_bk = torch.exp(alpha0_pre_exp_bk - eta_bk * torch.sigmoid(depths_bk * delta_bk))
-        beta_bk = self.beta * torch.ones_like(alpha_bk)
-        beta_binomial_likelihoods_bk = beta_binomial_log_lk(depths_bk, alt_counts_bk, alpha_bk, beta_bk)
 
-        if alpha_bk.isnan().any():
-            print("NaN found in alpha_bk")
-            assert 1 < 0, "FAIL"
+        depths_bk, alt_counts_bk = depths_b.view(-1, 1), alt_counts_b.view(-1, 1)
+        minima_vk, maxima_vk = self.get_minima_and_maxima_vk()
+        minima_bk, maxima_bk = minima_vk[var_types_b], maxima_vk[var_types_b]
+        log_lks_bk = uniform_binomial_log_lk(n=depths_bk, k=alt_counts_bk, x1=minima_bk, x2=maxima_bk)
 
-        weights0_pre_softmax_bk = self.weights0_pre_softmax_vk[var_types_b, :]
-        gamma_bk = self.gamma_vk[var_types_b, :]
-        kappa_bk = self.kappa_vk[var_types_b, :]
-        weights_pre_softmax_bk = weights0_pre_softmax_bk + gamma_bk * torch.sigmoid(depths_bk * kappa_bk)
-        log_weights_bk = torch.log_softmax(weights_pre_softmax_bk, dim=-1)    # softmax over component dimension
-
-        weighted_likelihoods_bk = log_weights_bk + beta_binomial_likelihoods_bk
-        result_b = torch.logsumexp(weighted_likelihoods_bk, dim=-1, keepdim=False)
+        log_weights_vk = torch.log_softmax(self.weights_pre_softmax_vk, dim=-1)  # softmax over component dimension
+        log_weights_bk = log_weights_vk[var_types_b]
+        weighted_log_lks_bk = log_lks_bk + log_weights_bk
+        result_b = torch.logsumexp(weighted_log_lks_bk, dim=-1)
         return result_b
+
 
     # TODO: utter code duplication with somatic spectrum
     def fit(self, num_epochs, types_b: IntTensor, depths_1d_tensor, alt_counts_1d_tensor, batch_size=64):
@@ -101,28 +75,13 @@ class ArtifactSpectra(nn.Module):
     '''
     def spectrum_density_vs_fraction(self, variant_type: Variation, depth: int):
         fractions_f = torch.arange(0.01, 0.99, 0.001)  # 1D tensor
+        weights_k = torch.softmax(self.weights_pre_softmax_vk[variant_type], dim=-1).cpu()
+        minima_vk, maxima_vk = self.get_minima_and_maxima_vk()
+        minima_k, maxima_k = minima_vk[variant_type].cpu(), maxima_vk[variant_type].cpu()
 
-        weights0_pre_softmax_k = self.weights0_pre_softmax_vk[variant_type]
-        gamma_k = self.gamma_vk[variant_type]
-        kappa_k = self.kappa_vk[variant_type]
-        alpha0_pre_exp_k = self.alpha0_pre_exp_vk[variant_type]
-        eta_k = torch.exp(self.eta_pre_exp_vk[variant_type])
-        delta_k = torch.exp(self.delta_pre_exp_vk[variant_type])
-
-        alpha_k = torch.exp(alpha0_pre_exp_k - eta_k * torch.sigmoid(depth * delta_k))
-        weights_pre_softmax_k = weights0_pre_softmax_k + gamma_k * torch.sigmoid(depth * kappa_k)
-
-        log_weights_k = torch.log_softmax(weights_pre_softmax_k, dim=0)
-        beta_k = self.beta * torch.ones_like(alpha_k)
-
-        # distribution done on CPU
-        dist = torch.distributions.beta.Beta(alpha_k.cpu(), beta_k.cpu())
-        log_densities_fk = dist.log_prob(fractions_f.unsqueeze(dim=-1))
-        log_weights_fk = log_weights_k.unsqueeze(dim=0).cpu()
-
-        log_weighted_densities_fk = log_weights_fk + log_densities_fk
-        densities_f = torch.exp(torch.logsumexp(log_weighted_densities_fk, dim=1, keepdim=False))
-
+        densities_f = torch.zeros_like(fractions_f)
+        for k in range(self.K):
+            densities_f += weights_k[k] * (fractions_f < maxima_k[k]) * (fractions_f > minima_k[k])
         return fractions_f, densities_f
 
     '''
