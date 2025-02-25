@@ -1,12 +1,13 @@
 from itertools import chain
 
 import torch
-from torch import nn
+from torch import nn, Tensor
 from torch.utils.tensorboard import SummaryWriter
 from tqdm.autonotebook import tqdm
 
 from permutect import constants
 from permutect.architecture.adversarial import Adversarial
+from permutect.architecture.balancer import Balancer
 from permutect.architecture.calibration import Calibration
 from permutect.architecture.dna_sequence_convolution import DNASequenceConvolution
 from permutect.architecture.gated_mlp import GatedRefAltMLP
@@ -21,6 +22,19 @@ from permutect.parameters import ModelParameters
 from permutect.sets.ragged_sets import RaggedSets
 from permutect.misc_utils import unfreeze, freeze, gpu_if_available
 from permutect.utils.enums import Variation, Epoch
+
+
+class BatchOutput:
+    """
+    simple container class for the output of the model over a single batch
+    :return:
+    """
+    def __init__(self, features: Tensor, uncalibrated_logits: Tensor, calibrated_logits: Tensor, weights: Tensor, source_weights: Tensor):
+        self.features = features
+        self.uncalibrated_logits = uncalibrated_logits
+        self.calibrated_logits = calibrated_logits
+        self.weights = weights
+        self.source_weights = source_weights
 
 
 def sums_over_chunks(tensor2d: torch.Tensor, chunk_size: int):
@@ -192,6 +206,13 @@ class PermutectModel(torch.nn.Module):
         alt_count_pred = torch.sigmoid(self.alt_count_predictor.adversarial_forward(representations_2d).view(-1))
         alt_count_target = batch.get_alt_counts().to(dtype=alt_count_pred.dtype) / MAX_ALT_COUNT
         return self.alt_count_loss_func(alt_count_pred, alt_count_target)
+
+    def compute_batch_output(self, batch: ReadsBatch, balancer: Balancer):
+        weights, source_weights = balancer.process_batch_and_compute_weights(batch)
+        features, _ = self.calculate_representations(batch, weight_range=self._params.reweighting_range)
+        calibrated_logits, uncalibrated_logits = self.logits_from_reads_batch(features, batch)
+        return BatchOutput(features=features, uncalibrated_logits=uncalibrated_logits, calibrated_logits=calibrated_logits,
+                           weights=weights, source_weights=weights*source_weights)
 
     def make_dict_for_saving(self, artifact_log_priors=None, artifact_spectra=None):
         return {constants.STATE_DICT_NAME: self.state_dict(),
