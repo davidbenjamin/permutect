@@ -268,10 +268,9 @@ def apply_filtering_to_vcf(input_vcf, output_vcf, contig_index_to_name_map, erro
         # TODO: we could perhaps subtract the threshold to re-center at zero
         evaluation_metrics.record_batch(Epoch.TEST, batch, error_logits)
 
-        # TODO: calls should be most condifent call
-        # TODO: values should be the posterior probability assigned to that call
-        artifact_logit_metrics.record(batch=batch, logits=batch.get_artifact_logits(), values=torch.ones_like(error_logits),
-                                      sources_override=calls)
+        most_confident_probs_b, most_confident_calls_b = torch.max(posterior_probs, dim=-1)
+        artifact_logit_metrics.record(batch=batch, logits=batch.get_artifact_logits(), values=most_confident_probs_b,
+                                      sources_override=most_confident_calls_b)
 
         artifact_logits = batch.get_artifact_logits().cpu().tolist()
         data = [Datum(datum_array) for datum_array in batch.get_data_2d()]
@@ -380,6 +379,13 @@ def apply_filtering_to_vcf(input_vcf, output_vcf, contig_index_to_name_map, erro
     unfiltered_vcf.close()
 
     embedding_metrics.output_to_summary_writer(summary_writer, is_filter_variants=True)
+
+    # recall that "sources" is really call type here
+    for call_type, metrics in zip(Call, artifact_logit_metrics.split_over_sources()):
+        metrics.put_on_cpu()
+        metrics.make_logit_histograms()
+        hist_fig, hist_ax = metrics.make_logit_histograms()
+        summary_writer.add_figure(f"artifact logit histograms for call type {call_type.name}", hist_fig)
 
     if labeled_truth:
         evaluation_metrics.put_on_cpu()

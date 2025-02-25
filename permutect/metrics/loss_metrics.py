@@ -1,6 +1,7 @@
+from __future__ import annotations
+
 from enum import IntEnum
-from itertools import chain
-from typing import Tuple
+from typing import Tuple, List
 
 import numpy as np
 import torch
@@ -50,6 +51,15 @@ class BatchIndexedTotals:
         self.device = device
         self.has_been_sent_to_cpu = False
         self.num_sources = num_sources
+
+    def split_over_sources(self) -> List[BatchIndexedTotals]:
+        # split into single-source BatchIndexedTotals
+        result = []
+        for source in range(self.num_sources):
+            element = BatchIndexedTotals(num_sources=1, device=self.device, include_logits=self.include_logits)
+            element.totals_slvrag[0].copy_(self.totals_slvrag[source])
+            result.append(element)
+        return result
 
     def put_on_cpu(self):
         """
