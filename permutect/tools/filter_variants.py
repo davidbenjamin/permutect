@@ -19,6 +19,7 @@ from permutect.data.reads_batch import ReadsBatch
 from permutect.data.reads_dataset import ReadsDataset
 from permutect.data.count_binning import MAX_ALT_COUNT, ref_count_bin_name, alt_count_bin_index, alt_count_bin_name
 from permutect.metrics.evaluation_metrics import EvaluationMetrics, EmbeddingMetrics
+from permutect.metrics.loss_metrics import BatchIndexedTotals
 from permutect.metrics.posterior_result import PosteriorResult
 from permutect.misc_utils import report_memory_usage, gpu_if_available
 from permutect.utils.allele_utils import trim_alleles_on_right, find_variant_type, truncate_bases_if_necessary
@@ -246,6 +247,7 @@ def apply_filtering_to_vcf(input_vcf, output_vcf, contig_index_to_name_map, erro
     print("Computing final error probabilities")
     passing_call_type = Call.GERMLINE if germline_mode else Call.SOMATIC
     evaluation_metrics = EvaluationMetrics(num_sources=1)
+    artifact_logit_metrics = BatchIndexedTotals(num_sources=len(Call), include_logits=True)
     encoding_to_posterior_results = {}
 
     batch: PosteriorBatch
@@ -263,6 +265,10 @@ def apply_filtering_to_vcf(input_vcf, output_vcf, contig_index_to_name_map, erro
         # TODO: this code here treats posterior_prob = 1/2 as the threshold
         # TODO: we could perhaps subtract the threshold to re-center at zero
         evaluation_metrics.record_batch(Epoch.TEST, batch, error_logits)
+
+        most_confident_probs_b, most_confident_calls_b = torch.max(posterior_probs, dim=-1)
+        artifact_logit_metrics.record(batch=batch, logits=batch.get_artifact_logits(), values=most_confident_probs_b,
+                                      sources_override=most_confident_calls_b)
 
         artifact_logits = batch.get_artifact_logits().cpu().tolist()
         data = [Datum(datum_array) for datum_array in batch.get_data_2d()]
@@ -371,6 +377,13 @@ def apply_filtering_to_vcf(input_vcf, output_vcf, contig_index_to_name_map, erro
     unfiltered_vcf.close()
 
     embedding_metrics.output_to_summary_writer(summary_writer, is_filter_variants=True)
+
+    # recall that "sources" is really call type here
+    for call_type, metrics in zip(Call, artifact_logit_metrics.split_over_sources()):
+        metrics.put_on_cpu()
+        metrics.make_logit_histograms()
+        hist_fig, hist_ax = metrics.make_logit_histograms()
+        summary_writer.add_figure(f"artifact logit histograms for call type {call_type.name}", hist_fig)
 
     if labeled_truth:
         evaluation_metrics.put_on_cpu()
