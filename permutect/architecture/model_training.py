@@ -83,42 +83,35 @@ def train_permutect_model(model: PermutectModel, dataset: ReadsDataset, training
 
             batch: ReadsBatch
             for parent_batch in tqdm(prefetch_generator(loader), mininterval=60, total=len(loader)):
-                for downsample in (False, True):
-                    batch = DownsampledReadsBatch(parent_batch) if downsample else parent_batch
-                    weights, source_weights = balancer.process_batch_and_compute_weights(batch)
+                downsampled_batch = DownsampledReadsBatch(parent_batch)
+                batches = [parent_batch, downsampled_batch]
+                outputs = [model.compute_batch_output(batch, balancer) for batch in batches]
+
+                # first handle the labeled loss and the adversarial tasks, which treat the parent and downsampled batches independently
+                loss = 0
+                for n, (batch, output) in enumerate(zip(batches, outputs)):
                     labels = batch.get_training_labels()
+                    is_labeled = batch.get_is_labeled_mask()
 
-                    representations, _ = model.calculate_representations(batch, weight_range=model._params.reweighting_range)
-                    logits, precalibrated_logits = model.logits_from_reads_batch(representations, batch)
+                    source_losses = model.compute_source_prediction_losses(output.features, batch)
+                    alt_count_losses = model.compute_alt_count_losses(output.features, batch)
+                    supervised_losses = is_labeled * bce(output.calibrated_logits, labels)
 
-                    source_losses = model.compute_source_prediction_losses(representations, batch)
+                    # unsupervised loss uses uncalibrated logits because different counts should NOT be the same after calibration,
+                    # but should be identical before.  Note that unsupervised losses is used with and without labels
+                    # This must be changed if we have more than one downsampled batch
+                    # TODO: should we detach() torch.sigmoid(other_output...)?
+                    other_output = outputs[1 if n == 0 else 0]
+                    unsupervised_losses = (1 - is_labeled) * bce(output.uncalibrated_logits, torch.sigmoid(other_output.uncalibrated_logits))
+                    loss += torch.sum(output.weights * (supervised_losses + unsupervised_losses + alt_count_losses) + output.source_weights * source_losses)
 
-                    # TODO: is the average of un-calibrated and calibrated cross entropies really correct?
-                    uncalibrated_cross_entropies = bce(precalibrated_logits, labels)
-                    calibrated_cross_entropies = bce(logits, labels)
-                    labeled_losses = batch.get_is_labeled_mask() * (uncalibrated_cross_entropies + calibrated_cross_entropies) / 2
+                    loss_metrics.record(batch, None, supervised_losses, is_labeled * output.weights)
+                    loss_metrics.record(batch, None, unsupervised_losses, (1 - is_labeled) * output.weights)
+                    source_prediction_loss_metrics.record(batch, None, source_losses, output.source_weights)
+                    alt_count_loss_metrics.record(batch, None, alt_count_losses, output.weights)
 
-                    # unlabeled loss: entropy regularization. We use the uncalibrated logits because otherwise entropy
-                    # regularization simply biases calibration to be overconfident.
-                    probabilities = torch.sigmoid(precalibrated_logits)
-                    entropies = torch.nn.functional.binary_cross_entropy_with_logits(precalibrated_logits, probabilities, reduction='none')
-                    unlabeled_losses = (1 - batch.get_is_labeled_mask()) * entropies
-
-                    alt_count_losses = model.compute_alt_count_losses(representations, batch)
-                    alt_count_loss_metrics.record(batch, logits=None, values=alt_count_losses,  weights=weights)
-
-                    # losses include weights and take labeled vs unlabeled into account
-                    # yes, the weight for source loss *is* the product of weights with source_weights
-                    losses = weights * (labeled_losses + unlabeled_losses + alt_count_losses + source_losses * source_weights)
-                    loss = torch.sum(losses)
-
-                    loss_metrics.record(batch, None, labeled_losses + unlabeled_losses, weights)
-                    source_prediction_loss_metrics.record(batch, None, source_losses, source_weights)
-
-                    # calibration epochs freeze the model up to calibration, so I wonder if a purely unlabeled batch
-                    # would cause lack of gradient problems. . .
-                    if epoch_type == Epoch.TRAIN:
-                        backpropagate(train_optimizer, loss)
+                if epoch_type == Epoch.TRAIN:
+                    backpropagate(train_optimizer, loss)
                 # done with this batch
             # done with one epoch type -- training or validation -- for this epoch
             if epoch_type == Epoch.TRAIN:
