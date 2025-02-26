@@ -1,7 +1,6 @@
-import math
-
 import torch
 from torch import nn, Tensor, IntTensor
+from torch.nn import Parameter
 
 from permutect.utils.enums import Variation
 from permutect.utils.stats_utils import uniform_binomial_log_lk
@@ -15,7 +14,7 @@ class NormalSeqErrorSpectrum(nn.Module):
     def __init__(self, max_mean: float):
         super(NormalSeqErrorSpectrum, self).__init__()
         self.max_mean = max_mean
-        self.means_pre_sigmoid_v = torch.nn.Parameter(torch.zeros(len(Variation)))
+        self.means_pre_sigmoid_v = Parameter(torch.zeros(len(Variation)))
 
     def forward(self, ref_counts_b: Tensor, alt_counts_b: Tensor, var_types_b: IntTensor):
         x1_b = torch.zeros_like(alt_counts_b)
