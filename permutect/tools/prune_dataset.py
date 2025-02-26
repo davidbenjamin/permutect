@@ -39,7 +39,7 @@ def calculate_pruning_thresholds(labeled_only_pruning_loader, model: PermutectMo
         for batch in tqdm(prefetch_generator(labeled_only_pruning_loader), mininterval=60, total=len(labeled_only_pruning_loader)):
             # TODO: should we use likelihoods as in evaluation or posteriors as in training???
             # TODO: does it even matter??
-            representations, _ = model.calculate_representations(batch, weight_range=model._params.reweighting_range)
+            representations, _ = model.calculate_features(batch, weight_range=model._params.reweighting_range)
             art_logits, _ = model.logits_from_reads_batch(representations, batch)
             art_probs = torch.sigmoid(art_logits.detach())
 
@@ -61,7 +61,7 @@ def calculate_pruning_thresholds(labeled_only_pruning_loader, model: PermutectMo
         art_conf_threshold = average_artifact_confidence.get()
         nonart_conf_threshold = average_nonartifact_confidence.get()
         for batch in tqdm(prefetch_generator(labeled_only_pruning_loader), mininterval=60, total=len(labeled_only_pruning_loader)):
-            representations, _ = model.calculate_representations(batch, weight_range=model._params.reweighting_range)
+            representations, _ = model.calculate_features(batch, weight_range=model._params.reweighting_range)
             predicted_artifact_logits, _ = model.logits_from_reads_batch(representations, batch)
             predicted_artifact_probs = torch.sigmoid(predicted_artifact_logits.detach())
 
@@ -112,7 +112,7 @@ def generated_pruned_data_for_fold(art_threshold: float, nonart_threshold: float
     reads_batch: ReadsBatch
     for reads_batch in tqdm(prefetch_generator(pruning_base_data_loader), mininterval=60, total=len(pruning_base_data_loader)):
         # apply the representation model AND the artifact model to go from the original read set to artifact logits
-        representation, _ = model.calculate_representations(reads_batch)
+        representation, _ = model.calculate_features(reads_batch)
 
         art_logits, _ = model.logits_from_reads_batch(representation, reads_batch)
         art_probs = torch.sigmoid(art_logits.detach())

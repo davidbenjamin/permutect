@@ -313,11 +313,11 @@ class PosteriorModel(torch.nn.Module):
         batch: PosteriorBatch
         for batch in tqdm(prefetch_generator(posterior_loader), mininterval=10, total=len(posterior_loader)):
             # TODO: should this be the original alt counts instead?
-            alt_counts = batch.get_alt_counts().cpu().tolist()
+            alt_counts_b = batch.get_alt_counts().cpu().tolist()
             # 0th column is true variant, subtract it from 1 to get error prob
-            error_probs = self.error_probabilities_b(batch, germline_mode).cpu().tolist()
+            error_probs_b = self.error_probabilities_b(batch, germline_mode).cpu().tolist()
 
-            for var_type, alt_count, error_prob in zip(batch.get_variant_types().cpu().tolist(), alt_counts, error_probs):
+            for var_type, alt_count, error_prob in zip(batch.get_variant_types().cpu().tolist(), alt_counts_b, error_probs_b):
                 error_probs_by_type[var_type].append(error_prob)
                 error_probs_by_type_by_cnt[var_type][alt_count_bin_index(alt_count)].append(error_prob)
 

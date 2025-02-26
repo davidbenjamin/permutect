@@ -161,7 +161,7 @@ def collect_evaluation_data(model: PermutectModel, dataset: ReadsDataset, balanc
         for batch in tqdm(prefetch_generator(loader), mininterval=60, total=len(loader)):
             # these are the same weights used in training
             weights, _ = balancer.process_batch_and_compute_weights(batch)
-            representations, _ = model.calculate_representations(batch, weight_range=model._params.reweighting_range)
+            representations, _ = model.calculate_features(batch, weight_range=model._params.reweighting_range)
             logits, _ = model.logits_from_reads_batch(representations, batch)
             evaluation_metrics.record_batch(epoch_type, batch, logits, weights)
 
@@ -216,7 +216,7 @@ def evaluate_model(model: PermutectModel, epoch: int, dataset: ReadsDataset, bal
         # now go over just the validation data and generate feature vectors / metadata for tensorboard projectors (UMAP)
         batch: ReadsBatch
         for batch in tqdm(prefetch_generator(valid_loader), mininterval=60, total=len(valid_loader)):
-            representations, _ = model.calculate_representations(batch, weight_range=model._params.reweighting_range)
+            representations, _ = model.calculate_features(batch, weight_range=model._params.reweighting_range)
             logits, _ = model.logits_from_reads_batch(representations, batch)
             pred = logits.detach().cpu()
             labels = batch.get_training_labels().cpu()

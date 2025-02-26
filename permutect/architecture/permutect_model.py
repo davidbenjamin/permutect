@@ -144,25 +144,24 @@ class PermutectModel(torch.nn.Module):
     def forward(self, batch: ReadsBatch):
         pass
 
-    # TODO: perhaps rename to calculate_features?
-    # here 'v' means "variant index within a batch", 'r' means "read index within a variant or the batch", 'e' means "index within an embedding"
-    # so, for example, "re" means a 2D tensor with all reads in the batch stacked and "vre" means a 3D tensor indexed
-    # first by variant within the batch, then the read
-    def calculate_representations(self, batch: ReadsBatch, weight_range: float = 0) -> torch.Tensor:
-        ref_counts, alt_counts = batch.get_ref_counts(), batch.get_alt_counts()
-        total_ref, total_alt = torch.sum(ref_counts).item(), torch.sum(alt_counts).item()
+    # here 'b' is the batch index, 'r' is the flattened read index, and 'e' means an embedding dimension
+    # so, for example, "re" means a 2D tensor with all reads in the batch stacked and "bre" means a 3D tensor indexed
+    # first by variant within the batch, then the read within the variant
+    def calculate_features(self, batch: ReadsBatch, weight_range: float = 0) -> torch.Tensor:
+        ref_counts_b, alt_counts_b = batch.get_ref_counts(), batch.get_alt_counts()
+        total_ref, total_alt = torch.sum(ref_counts_b).item(), torch.sum(alt_counts_b).item()
 
         read_embeddings_re = self.read_embedding.forward(batch.get_reads_2d().to(dtype=self._dtype))
-        info_embeddings_ve = self.info_embedding.forward(batch.get_info_2d().to(dtype=self._dtype))
-        ref_seq_embeddings_ve = self.haplotypes_cnn(batch.get_one_hot_haplotypes_2d().to(dtype=self._dtype))
-        info_and_seq_ve = torch.hstack((info_embeddings_ve, ref_seq_embeddings_ve))
-        info_and_seq_re = torch.vstack((torch.repeat_interleave(info_and_seq_ve, repeats=ref_counts, dim=0),
-                                       torch.repeat_interleave(info_and_seq_ve, repeats=alt_counts, dim=0)))
+        info_embeddings_be = self.info_embedding.forward(batch.get_info_2d().to(dtype=self._dtype))
+        ref_seq_embeddings_be = self.haplotypes_cnn(batch.get_one_hot_haplotypes_2d().to(dtype=self._dtype))
+        info_and_seq_be = torch.hstack((info_embeddings_be, ref_seq_embeddings_be))
+        info_and_seq_re = torch.vstack((torch.repeat_interleave(info_and_seq_be, repeats=ref_counts_b, dim=0),
+                                       torch.repeat_interleave(info_and_seq_be, repeats=alt_counts_b, dim=0)))
         reads_info_seq_re = torch.hstack((read_embeddings_re, info_and_seq_re))
 
         # TODO: might be a bug if every datum in batch has zero ref reads?
-        ref_bre = RaggedSets.from_flattened_tensor_and_sizes(reads_info_seq_re[:total_ref], ref_counts)
-        alt_bre = RaggedSets.from_flattened_tensor_and_sizes(reads_info_seq_re[total_ref:], alt_counts)
+        ref_bre = RaggedSets.from_flattened_tensor_and_sizes(reads_info_seq_re[:total_ref], ref_counts_b)
+        alt_bre = RaggedSets.from_flattened_tensor_and_sizes(reads_info_seq_re[total_ref:], alt_counts_b)
         _, transformed_alt_bre = self.ref_alt_reads_encoder.forward(ref_bre, alt_bre)
 
         # TODO: this old code has the random weighting logic which might still be valuable
@@ -179,40 +178,40 @@ class PermutectModel(torch.nn.Module):
         """
         result_be = self.set_pooling.forward(transformed_alt_bre)
 
-        return result_be, ref_seq_embeddings_ve # ref seq embeddings are useful later
+        return result_be, ref_seq_embeddings_be # ref seq embeddings are useful later
 
-    def logits_from_features(self, representations_2d: torch.Tensor, ref_counts: torch.IntTensor, alt_counts: torch.IntTensor,
-                           variant_types: torch.IntTensor):
-        uncalibrated_logits = self.artifact_classifier.forward(representations_2d).view(-1)
-        calibrated_logits = torch.zeros_like(uncalibrated_logits, device=self._device)
+    def logits_from_features(self, features_be: torch.Tensor, ref_counts_b: torch.IntTensor, alt_counts_b: torch.IntTensor,
+                             var_types_b: torch.IntTensor):
+        uncalibrated_logits_b = self.artifact_classifier.forward(features_be).view(-1)
+        calibrated_logits_b = torch.zeros_like(uncalibrated_logits_b, device=self._device)
         for n, _ in enumerate(Variation):
-            mask = (variant_types == n)
-            calibrated_logits += mask * self.calibration[n].forward(uncalibrated_logits, ref_counts, alt_counts)
-        return calibrated_logits, uncalibrated_logits
+            mask = (var_types_b == n)
+            calibrated_logits_b += mask * self.calibration[n].forward(uncalibrated_logits_b, ref_counts_b, alt_counts_b)
+        return calibrated_logits_b, uncalibrated_logits_b
 
-    def logits_from_reads_batch(self, representations_2d: torch.Tensor, reads_batch: ReadsBatch):
-        return self.logits_from_features(representations_2d, reads_batch.get_ref_counts(), reads_batch.get_alt_counts(), reads_batch.get_variant_types())
+    def logits_from_reads_batch(self, features_be: torch.Tensor, batch: ReadsBatch):
+        return self.logits_from_features(features_be, batch.get_ref_counts(), batch.get_alt_counts(), batch.get_variant_types())
 
-    def compute_source_prediction_losses(self, representations_2d: torch.Tensor, batch: ReadsBatch) -> torch.Tensor:
+    def compute_source_prediction_losses(self, features_be: torch.Tensor, batch: ReadsBatch) -> torch.Tensor:
         if self.num_sources > 1:
-            source_logits = self.source_predictor.adversarial_forward(representations_2d)
-            source_probs = torch.nn.functional.softmax(source_logits, dim=-1)
-            source_targets = torch.nn.functional.one_hot(batch.get_sources().long(), self.num_sources)
-            return torch.sum(torch.square(source_probs - source_targets), dim=-1)
+            source_logits_bs = self.source_predictor.adversarial_forward(features_be)
+            source_probs_bs = torch.nn.functional.softmax(source_logits_bs, dim=-1)
+            source_targets_bs = torch.nn.functional.one_hot(batch.get_sources().long(), self.num_sources)
+            return torch.sum(torch.square(source_probs_bs - source_targets_bs), dim=-1)
         else:
             return torch.zeros(batch.size(), device=self._device, dtype=self._dtype)
 
-    def compute_alt_count_losses(self, representations_2d: torch.Tensor, batch: ReadsBatch):
-        alt_count_pred = torch.sigmoid(self.alt_count_predictor.adversarial_forward(representations_2d).view(-1))
-        alt_count_target = batch.get_alt_counts().to(dtype=alt_count_pred.dtype) / MAX_ALT_COUNT
-        return self.alt_count_loss_func(alt_count_pred, alt_count_target)
+    def compute_alt_count_losses(self, features_be: torch.Tensor, batch: ReadsBatch):
+        alt_count_pred_b = torch.sigmoid(self.alt_count_predictor.adversarial_forward(features_be).view(-1))
+        alt_count_target_b = batch.get_alt_counts().to(dtype=alt_count_pred_b.dtype) / MAX_ALT_COUNT
+        return self.alt_count_loss_func(alt_count_pred_b, alt_count_target_b)
 
     def compute_batch_output(self, batch: ReadsBatch, balancer: Balancer):
-        weights, source_weights = balancer.process_batch_and_compute_weights(batch)
-        features, _ = self.calculate_representations(batch, weight_range=self._params.reweighting_range)
-        calibrated_logits, uncalibrated_logits = self.logits_from_reads_batch(features, batch)
-        return BatchOutput(features=features, uncalibrated_logits=uncalibrated_logits, calibrated_logits=calibrated_logits,
-                           weights=weights, source_weights=weights*source_weights)
+        weights_b, source_weights_b = balancer.process_batch_and_compute_weights(batch)
+        features_be, _ = self.calculate_features(batch, weight_range=self._params.reweighting_range)
+        calibrated_logits_b, uncalibrated_logits_b = self.logits_from_reads_batch(features_be, batch)
+        return BatchOutput(features=features_be, uncalibrated_logits=uncalibrated_logits_b, calibrated_logits=calibrated_logits_b,
+                           weights=weights_b, source_weights=weights_b*source_weights_b)
 
     def make_dict_for_saving(self, artifact_log_priors=None, artifact_spectra=None):
         return {constants.STATE_DICT_NAME: self.state_dict(),
@@ -269,7 +268,7 @@ def record_embeddings(model: PermutectModel, loader, summary_writer: SummaryWrit
 
     batch: ReadsBatch
     for batch in tqdm(prefetch_generator(loader), mininterval=60, total=len(loader)):
-        representations, ref_alt_seq_embeddings = model.calculate_representations(batch, weight_range=model._params.reweighting_range)
+        representations, ref_alt_seq_embeddings = model.calculate_features(batch, weight_range=model._params.reweighting_range)
 
         representations = representations.cpu()
         ref_alt_seq_embeddings = ref_alt_seq_embeddings.cpu()

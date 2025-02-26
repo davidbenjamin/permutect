@@ -206,13 +206,13 @@ def make_posterior_data_loader(dataset_file, input_vcf, contig_index_to_name_map
     posterior_data = []
     for list_of_base_data in plain_text_data.generate_normalized_data([dataset_file], chunk_size):
         report_memory_usage("Creating BaseDataset.")
-        reads_dataset = ReadsDataset(data_in_ram=list_of_base_data)
-        loader = reads_dataset.make_data_loader(reads_dataset.all_folds(), batch_size, pin_memory=torch.cuda.is_available(), num_workers=num_workers)
+        dataset = ReadsDataset(data_in_ram=list_of_base_data)
+        loader = dataset.make_data_loader(dataset.all_folds(), batch_size, pin_memory=torch.cuda.is_available(), num_workers=num_workers)
 
         print("creating posterior data for this chunk...")
         batch: ReadsBatch
         for batch in tqdm(prefetch_generator(loader), mininterval=60, total=len(loader)):
-            representations, _ = model.calculate_representations(batch, weight_range=model._params.reweighting_range)
+            representations, _ = model.calculate_features(batch, weight_range=model._params.reweighting_range)
             artifact_logits, _ = model.logits_from_reads_batch(representations, batch)
 
             for datum_array, logit, embedding in zip(batch.get_data_2d(),
