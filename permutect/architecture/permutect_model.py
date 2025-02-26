@@ -96,8 +96,7 @@ class PermutectModel(torch.nn.Module):
         self.artifact_classifier = MLP([self.set_pooling.output_dimension()] + [-1, -1, 1], batch_normalize=params.batch_normalize,
                                        dropout_p=params.dropout_p)
 
-        # one Calibration module for each variant type; that is, calibration depends on both count and type
-        self.calibration = nn.ModuleList([Calibration(params.calibration_layers) for variant_type in Variation])
+        self.calibration = Calibration(params.calibration_layers)
 
         self.alt_count_predictor = Adversarial(MLP([self.pooling_dimension()] + [30, -1, -1, -1, 1]), adversarial_strength=0.01)
         self.alt_count_loss_func = torch.nn.MSELoss(reduction='none')
@@ -182,10 +181,7 @@ class PermutectModel(torch.nn.Module):
 
     def logits_from_features(self, features_be: Tensor, ref_counts_b: IntTensor, alt_counts_b: IntTensor, var_types_b: IntTensor):
         uncalibrated_logits_b = self.artifact_classifier.forward(features_be).view(-1)
-        calibrated_logits_b = torch.zeros_like(uncalibrated_logits_b, device=self._device)
-        for n, _ in enumerate(Variation):
-            mask = (var_types_b == n)
-            calibrated_logits_b += mask * self.calibration[n].forward(uncalibrated_logits_b, ref_counts_b, alt_counts_b)
+        calibrated_logits_b = self.calibration.calibrated_logits(uncalibrated_logits_b, ref_counts_b, alt_counts_b, var_types_b)
         return calibrated_logits_b, uncalibrated_logits_b
 
     def logits_from_reads_batch(self, features_be: Tensor, batch: ReadsBatch):

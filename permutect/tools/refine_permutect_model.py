@@ -87,8 +87,8 @@ def main_without_parsing(args):
 
     train_permutect_model(model, dataset, training_params, summary_writer, epochs_per_evaluation=10, calibration_sources=calibration_sources)
 
-    for n, var_type in enumerate(Variation):
-        cal_fig, cal_axes = model.calibration[n].plot_calibration_module(model._device, model._dtype)
+    for var_type in Variation:
+        cal_fig, cal_axes = model.calibration.plot_calibration_module(model._device, model._dtype, var_type)
         summary_writer.add_figure("calibration by count for " + var_type.name, cal_fig)
 
     report_memory_usage("Finished training.")
