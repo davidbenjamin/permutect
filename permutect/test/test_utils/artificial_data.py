@@ -1,5 +1,8 @@
 import torch
 import random
+
+from torch import Tensor
+
 from permutect.data.reads_datum import ReadsDatum
 from permutect.utils.enums import Variation, Label
 from numpy.random import binomial
@@ -9,7 +12,7 @@ NUM_READ_FEATURES = 5
 
 
 # random isotropic Gaussian tensor, dilated by different amounts in each dimension
-def make_random_tensor(mean: torch.Tensor, std: torch.Tensor) -> torch.Tensor:
+def make_random_tensor(mean: Tensor, std: Tensor) -> Tensor:
     assert mean.size() == std.size()
 
     # TODO: random normal needs same length as mean
@@ -17,22 +20,22 @@ def make_random_tensor(mean: torch.Tensor, std: torch.Tensor) -> torch.Tensor:
 
 
 class RandomGATKInfoGenerator:
-    def __init__(self, mean: torch.Tensor, std: torch.Tensor):
+    def __init__(self, mean: Tensor, std: Tensor):
         assert len(mean) == len(std)
         self.mean = mean
         self.std = std
 
-    def generate(self) -> torch.Tensor:
+    def generate(self) -> Tensor:
         return make_random_tensor(self.mean, self.std)
 
 
 class RandomReadGenerator:
-    def __init__(self, mean: torch.Tensor, std: torch.Tensor):
+    def __init__(self, mean: Tensor, std: Tensor):
         assert len(mean) == len(std)
         self.mean = mean
         self.std = std
 
-    def generate(self, num_reads: int) -> torch.Tensor:
+    def generate(self, num_reads: int) -> Tensor:
         return torch.vstack([make_random_tensor(self.mean, self.std) for _ in range(num_reads)])
 
 

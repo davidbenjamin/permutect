@@ -31,8 +31,8 @@ def learn_artifact_priors_and_spectra(dataset: ReadsDataset, genomic_span_of_dat
 
     # turn the lists into tensors
     types_tensor = torch.LongTensor(types_list)
-    depths_tensor = torch.Tensor(depths_list).float()
-    alt_counts_tensor = torch.Tensor(alt_counts_list).float()
+    depths_tensor = torch.tensor(depths_list).float()
+    alt_counts_tensor = torch.tensor(alt_counts_list).float()
 
     log_artifact_priors = torch.log(artifact_counts / genomic_span_of_data)
     artifact_spectra = ArtifactSpectra(num_components=2)

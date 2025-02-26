@@ -37,7 +37,7 @@ class BatchOutput:
         self.source_weights = source_weights
 
 
-def sums_over_chunks(tensor2d: torch.Tensor, chunk_size: int):
+def sums_over_chunks(tensor2d: Tensor, chunk_size: int):
     assert len(tensor2d) % chunk_size == 0
     return torch.sum(tensor2d.reshape([len(tensor2d) // chunk_size, chunk_size, -1]), dim=1)
 
@@ -147,7 +147,7 @@ class PermutectModel(torch.nn.Module):
     # here 'b' is the batch index, 'r' is the flattened read index, and 'e' means an embedding dimension
     # so, for example, "re" means a 2D tensor with all reads in the batch stacked and "bre" means a 3D tensor indexed
     # first by variant within the batch, then the read within the variant
-    def calculate_features(self, batch: ReadsBatch, weight_range: float = 0) -> torch.Tensor:
+    def calculate_features(self, batch: ReadsBatch, weight_range: float = 0) -> Tensor:
         ref_counts_b, alt_counts_b = batch.get_ref_counts(), batch.get_alt_counts()
         total_ref, total_alt = torch.sum(ref_counts_b).item(), torch.sum(alt_counts_b).item()
 
@@ -180,7 +180,7 @@ class PermutectModel(torch.nn.Module):
 
         return result_be, ref_seq_embeddings_be # ref seq embeddings are useful later
 
-    def logits_from_features(self, features_be: torch.Tensor, ref_counts_b: torch.IntTensor, alt_counts_b: torch.IntTensor,
+    def logits_from_features(self, features_be: Tensor, ref_counts_b: torch.IntTensor, alt_counts_b: torch.IntTensor,
                              var_types_b: torch.IntTensor):
         uncalibrated_logits_b = self.artifact_classifier.forward(features_be).view(-1)
         calibrated_logits_b = torch.zeros_like(uncalibrated_logits_b, device=self._device)
@@ -189,10 +189,10 @@ class PermutectModel(torch.nn.Module):
             calibrated_logits_b += mask * self.calibration[n].forward(uncalibrated_logits_b, ref_counts_b, alt_counts_b)
         return calibrated_logits_b, uncalibrated_logits_b
 
-    def logits_from_reads_batch(self, features_be: torch.Tensor, batch: ReadsBatch):
+    def logits_from_reads_batch(self, features_be: Tensor, batch: ReadsBatch):
         return self.logits_from_features(features_be, batch.get_ref_counts(), batch.get_alt_counts(), batch.get_variant_types())
 
-    def compute_source_prediction_losses(self, features_be: torch.Tensor, batch: ReadsBatch) -> torch.Tensor:
+    def compute_source_prediction_losses(self, features_be: Tensor, batch: ReadsBatch) -> Tensor:
         if self.num_sources > 1:
             source_logits_bs = self.source_predictor.adversarial_forward(features_be)
             source_probs_bs = torch.nn.functional.softmax(source_logits_bs, dim=-1)
@@ -201,7 +201,7 @@ class PermutectModel(torch.nn.Module):
         else:
             return torch.zeros(batch.size(), device=self._device, dtype=self._dtype)
 
-    def compute_alt_count_losses(self, features_be: torch.Tensor, batch: ReadsBatch):
+    def compute_alt_count_losses(self, features_be: Tensor, batch: ReadsBatch):
         alt_count_pred_b = torch.sigmoid(self.alt_count_predictor.adversarial_forward(features_be).view(-1))
         alt_count_target_b = batch.get_alt_counts().to(dtype=alt_count_pred_b.dtype) / MAX_ALT_COUNT
         return self.alt_count_loss_func(alt_count_pred_b, alt_count_target_b)
@@ -248,7 +248,7 @@ def load_model(path, device: torch.device = gpu_if_available()):
     return model, artifact_log_priors, artifact_spectra_state_dict
 
 
-def permute_columns_independently(mat: torch.Tensor):
+def permute_columns_independently(mat: Tensor):
     assert mat.dim() == 2
     num_rows, num_cols = mat.size()
     weights = torch.ones(num_rows)

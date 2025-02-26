@@ -1,7 +1,7 @@
 import math
 
 import torch
-from torch import nn
+from torch import nn, Tensor
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -21,10 +21,10 @@ class NormalArtifactSpectrum(nn.Module):
         # if we don't initialize carefully all the weight is near (0.5,0.5) and the model gives basically zero
         # likelihood to low allele fractions
         with torch.no_grad():
-            self.W.weight.copy_(torch.Tensor([[1.7, 0], [0, 1.7]]))
-            self.W.bias.copy_(torch.Tensor([-0.1, -0.1]))
+            self.W.weight.copy_(Tensor([[1.7, 0], [0, 1.7]]))
+            self.W.bias.copy_(Tensor([-0.1, -0.1]))
 
-    def forward(self, tumor_alt_1d: torch.Tensor, tumor_ref_1d: torch.Tensor, normal_alt_1d: torch.Tensor, normal_ref_1d: torch.Tensor):
+    def forward(self, tumor_alt_1d: Tensor, tumor_ref_1d: Tensor, normal_alt_1d: Tensor, normal_ref_1d: Tensor):
         if torch.sum(normal_alt_1d) < 1:    # shortcut if no normal alts in the whole batch
             return -9999 * torch.ones_like(tumor_alt_1d)
         batch_size = len(tumor_alt_1d)

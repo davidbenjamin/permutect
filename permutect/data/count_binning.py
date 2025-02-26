@@ -1,8 +1,7 @@
 from math import floor
 
 import torch
-from torch import IntTensor
-
+from torch import IntTensor, Tensor
 
 # ref bins are {0-2}, {3-5}, {6-8} etc
 # alt bins are {1-3}, {4-6}, {7-9} etc
@@ -32,7 +31,7 @@ def cap_alt_count(alt_count: int) -> int:
     return min(alt_count, MAX_ALT_COUNT)
 
 
-def logit_bin_indices(logits_tensor: torch.Tensor) -> IntTensor:
+def logit_bin_indices(logits_tensor: Tensor) -> IntTensor:
     return torch.div(torch.clamp(logits_tensor, min=MIN_LOGIT, max=MAX_LOGIT) - MIN_LOGIT, LOGIT_BIN_SKIP, rounding_mode='floor').long()
 
 
@@ -40,7 +39,7 @@ def top_of_logit_bin(logit_bin_index: int) -> float:
     return MIN_LOGIT + (logit_bin_index +1) * LOGIT_BIN_SKIP
 
 
-def logits_from_bin_indices(logit_bin_indices: IntTensor) -> torch.Tensor:
+def logits_from_bin_indices(logit_bin_indices: IntTensor) -> Tensor:
     return (MIN_LOGIT + LOGIT_BIN_SKIP/2) + LOGIT_BIN_SKIP * logit_bin_indices
 
 

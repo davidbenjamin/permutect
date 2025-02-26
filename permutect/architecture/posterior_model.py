@@ -4,6 +4,7 @@ from math import ceil
 
 import torch
 from matplotlib import pyplot as plt
+from torch import Tensor
 from torch.utils.tensorboard import SummaryWriter
 from tqdm.autonotebook import trange, tqdm
 
@@ -103,20 +104,20 @@ class PosteriorModel(torch.nn.Module):
 
         self.to(device=self._device, dtype=self._dtype)
 
-    def make_unnormalized_priors_bc(self, variant_types_b: torch.IntTensor, allele_frequencies_1d: torch.Tensor) -> torch.Tensor:
+    def make_unnormalized_priors_bc(self, variant_types_b: torch.IntTensor, allele_frequencies_1d: Tensor) -> Tensor:
         result_bc = self._unnormalized_priors_vc[variant_types_b.long(), :].to(device=self._device, dtype=self._dtype)
         result_bc[:, Call.SEQ_ERROR] = 0
         result_bc[:, Call.GERMLINE] = -9999 if self.no_germline_mode else torch.log(1 - torch.square(1 - allele_frequencies_1d))     # 1 minus hom ref probability
         return result_bc   # batch size x len(CallType)
 
-    def posterior_probabilities_bc(self, batch: PosteriorBatch) -> torch.Tensor:
+    def posterior_probabilities_bc(self, batch: PosteriorBatch) -> Tensor:
         """
         :param batch:
         :return: non-log probabilities as a 2D tensor, indexed by batch 'b', Call type 'c'
         """
         return torch.nn.functional.softmax(self.log_relative_posteriors_bc(batch), dim=1)
 
-    def error_probabilities_b(self, batch: PosteriorBatch, germline_mode: bool = False) -> torch.Tensor:
+    def error_probabilities_b(self, batch: PosteriorBatch, germline_mode: bool = False) -> Tensor:
         """
         :param germline_mode: if True, germline classification is not considered an error mode
         :param batch:
@@ -125,7 +126,7 @@ class PosteriorModel(torch.nn.Module):
         assert not (germline_mode and self.no_germline_mode), "germline mode and no-germline mode are incompatible"
         return 1 - self.posterior_probabilities_bc(batch)[:, Call.GERMLINE if germline_mode else Call.SOMATIC]     # 0th column is variant
 
-    def log_posterior_and_ingredients(self, batch: PosteriorBatch) -> torch.Tensor:
+    def log_posterior_and_ingredients(self, batch: PosteriorBatch) -> Tensor:
         """
         :param batch:
         :batch.seq_error_log_likelihoods() is the probability that these *particular* reads exhibit the alt allele given a
@@ -185,7 +186,7 @@ class PosteriorModel(torch.nn.Module):
 
         return log_priors_bc, spectra_log_lks_bc, normal_log_lks_bc, log_posteriors_bc
 
-    def log_relative_posteriors_bc(self, batch: PosteriorBatch) -> torch.Tensor:
+    def log_relative_posteriors_bc(self, batch: PosteriorBatch) -> Tensor:
         _, _, _, log_posteriors_bc = self.log_posterior_and_ingredients(batch)
         return log_posteriors_bc
 
@@ -284,7 +285,7 @@ class PosteriorModel(torch.nn.Module):
                 # bar plot of log priors -- data is indexed by call type name, and x ticks are variant types
                 log_prior_bar_plot_data = defaultdict(list)
                 for var_type_idx, variant_type in enumerate(Variation):
-                    log_priors = torch.nn.functional.log_softmax(self.make_unnormalized_priors_bc(torch.LongTensor([var_type_idx]).to(device=self._device, dtype=self._dtype), torch.Tensor([0.001])), dim=-1)
+                    log_priors = torch.nn.functional.log_softmax(self.make_unnormalized_priors_bc(torch.LongTensor([var_type_idx]).to(device=self._device, dtype=self._dtype), torch.tensor([0.001])), dim=-1)
                     log_priors_cpu = log_priors.squeeze().detach().cpu()
                     for call_type in (Call.SOMATIC, Call.ARTIFACT, Call.NORMAL_ARTIFACT):
                         log_prior_bar_plot_data[call_type.name].append(log_priors_cpu[call_type])

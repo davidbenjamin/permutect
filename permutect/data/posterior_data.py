@@ -7,7 +7,7 @@ from typing import List, Iterable
 
 import numpy as np
 import torch
-from torch import IntTensor
+from torch import IntTensor, Tensor
 from torch.utils.data import Dataset, DataLoader
 
 from permutect.data.batch import Batch
@@ -22,8 +22,7 @@ class PosteriorDatum(Datum):
     MAF = 3
     NORMAL_MAF = 4
 
-    def __init__(self, datum_array, allele_frequency: float, artifact_logit: float, maf: float, normal_maf: float,
-                 embedding: torch.Tensor):
+    def __init__(self, datum_array, allele_frequency: float, artifact_logit: float, maf: float, normal_maf: float, embedding: Tensor):
         super().__init__(datum_array)
         self.embedding = embedding
 
@@ -60,19 +59,19 @@ class PosteriorBatch(Batch):
         new_batch.float_tensor = self.float_tensor.to(device=device, dtype=dtype, non_blocking=is_cuda)
         return new_batch
 
-    def get_tlods_from_m2(self) -> torch.Tensor:
+    def get_tlods_from_m2(self) -> Tensor:
         return self.float_tensor[:, PosteriorDatum.TLOD_FROM_M2]
 
-    def get_allele_frequencies(self) -> torch.Tensor:
+    def get_allele_frequencies(self) -> Tensor:
         return self.float_tensor[:, PosteriorDatum.ALLELE_FREQUENCY]
 
-    def get_artifact_logits(self) -> torch.Tensor:
+    def get_artifact_logits(self) -> Tensor:
         return self.float_tensor[:, PosteriorDatum.ARTIFACT_LOGIT]
 
-    def get_mafs(self) -> torch.Tensor:
+    def get_mafs(self) -> Tensor:
         return self.float_tensor[:, PosteriorDatum.MAF]
 
-    def get_normal_mafs(self) -> torch.Tensor:
+    def get_normal_mafs(self) -> Tensor:
         return self.float_tensor[:, PosteriorDatum.NORMAL_MAF]
 
     def get_original_normal_ref_counts(self) -> IntTensor:

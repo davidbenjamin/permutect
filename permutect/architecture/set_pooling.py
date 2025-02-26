@@ -1,6 +1,8 @@
 import torch
 from typing import List
 
+from torch import Tensor
+
 from permutect.architecture.mlp import MLP
 from permutect.sets.ragged_sets import RaggedSets
 
@@ -48,7 +50,7 @@ class SetPooling(torch.nn.Module):
 
         self.mlp3 = MLP([self.mlp1.output_dimension()] + final_mlp_layers, batch_normalize, dropout_p)
 
-    def forward(self, x_bsf: RaggedSets) -> torch.Tensor:
+    def forward(self, x_bsf: RaggedSets) -> Tensor:
         values_bsd = x_bsf.apply_elementwise(self.mlp1)
         weights_bsd = x_bsf.apply_elementwise(self.mlp2).softmax_within_sets()
 

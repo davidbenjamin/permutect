@@ -6,6 +6,7 @@ from typing import List
 import numpy as np
 import torch
 from matplotlib import pyplot as plt
+from torch import Tensor
 from torch.utils.tensorboard import SummaryWriter
 
 from permutect.data.batch import Batch
@@ -43,7 +44,7 @@ class EvaluationMetrics:
     # TODO: currently doesn't record unlabeled data at all
     # correct_call is boolean -- was the prediction correct?
     # the predicted logit is the logit corresponding to the predicted probability that call in question is an artifact / error
-    def record_batch(self, epoch_type: Epoch, batch: Batch, predicted_logits: torch.Tensor, weights: torch.Tensor = None):
+    def record_batch(self, epoch_type: Epoch, batch: Batch, predicted_logits: Tensor, weights: Tensor = None):
         assert not self.has_been_sent_to_cpu, "Can't record after already sending to CPU"
         labels = batch.get_labels()
         is_labeled = labels != Label.UNLABELED

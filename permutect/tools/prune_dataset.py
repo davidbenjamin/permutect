@@ -96,8 +96,8 @@ def calculate_pruning_thresholds(labeled_only_pruning_loader, model: PermutectMo
         print(f"Labeled non-artifact was actually artifact: {inv_nonart_error_rate:.3f}")
 
         print("calculating rank pruning thresholds")
-        nonart_threshold = torch.quantile(torch.Tensor(probs_of_agreeing_with_label[0]), inv_nonart_error_rate).item()
-        art_threshold = torch.quantile(torch.Tensor(probs_of_agreeing_with_label[1]), inv_art_error_rate).item()
+        nonart_threshold = torch.quantile(torch.tensor(probs_of_agreeing_with_label[0]), inv_nonart_error_rate).item()
+        art_threshold = torch.quantile(torch.tensor(probs_of_agreeing_with_label[1]), inv_art_error_rate).item()
 
         print("Rank pruning thresholds: ")
         print(f"Labeled artifacts are pruned if predicted artifact probability is less than {art_threshold:.3f}")

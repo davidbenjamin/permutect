@@ -3,6 +3,7 @@ from __future__ import annotations
 import math
 
 import torch
+from torch import Tensor
 
 
 def find_factors(n: int):
@@ -22,12 +23,12 @@ def prob_to_logit(prob: float):
     return math.log(clipped_prob / (1 - clipped_prob))
 
 
-def inverse_sigmoid(probs: torch.Tensor) -> torch.Tensor:
+def inverse_sigmoid(probs: Tensor) -> Tensor:
     clipped_probs = 0.5 + 0.9999999 * (probs - 0.5)
     return torch.log(clipped_probs / (1 - clipped_probs))
 
 
-def log_binomial_coefficient(n: torch.Tensor, k: torch.Tensor):
+def log_binomial_coefficient(n: Tensor, k: Tensor):
     return (n + 1).lgamma() - (k + 1).lgamma() - ((n - k) + 1).lgamma()
 
 
@@ -36,7 +37,7 @@ def f_score(tp, fp, total_true):
     return tp / (tp + (fp + fn) / 2)
 
 
-def add_in_log_space(x: torch.Tensor, y: torch.Tensor):
+def add_in_log_space(x: Tensor, y: Tensor):
     """
     implement result = log(exp(x) + exp(y)) in a numerically stable way by extracting the elementwise max:
     with M = torch.maximum(x,y); result = log(exp(M)exp(x-M) + exp(M)exp(y-M)) = M + log(exp(x-M) + exp(y-M))
@@ -48,7 +49,7 @@ def add_in_log_space(x: torch.Tensor, y: torch.Tensor):
     return m + torch.log(torch.exp(x-m) + torch.exp(y-m))
 
 
-def subtract_in_log_space(x: torch.Tensor, y: torch.Tensor):
+def subtract_in_log_space(x: Tensor, y: Tensor):
     """
     implement result = log(exp(x) - exp(y)) in a numerically stable way by extracting the elementwise max:
     with M = torch.maximum(x,y); result = log(exp(M)exp(x-M) - exp(M)exp(y-M)) = M + log(exp(x-M) - exp(y-M))

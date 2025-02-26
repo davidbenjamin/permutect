@@ -1,7 +1,7 @@
 import math
 
 import torch
-from torch import nn
+from torch import nn, Tensor
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -29,7 +29,7 @@ class NormalSeqErrorSpectrum(nn.Module):
         # TODO: magic constant initialization!!!
         self.mean_pre_sigmoid = torch.nn.Parameter(torch.tensor(0.0))
 
-    def forward(self, alt_counts_1d: torch.Tensor, ref_counts_1d: torch.Tensor):
+    def forward(self, alt_counts_1d: Tensor, ref_counts_1d: Tensor):
         batch_size = len(alt_counts_1d)
         fractions_2d = self.get_fractions(batch_size, self.num_samples)
 

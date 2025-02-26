@@ -1,4 +1,5 @@
 import torch
+from torch import Tensor
 from torch.distributions.binomial import Binomial
 from permutect.architecture.overdispersed_binomial_mixture import OverdispersedBinomialMixture
 
@@ -6,7 +7,7 @@ from permutect.architecture.overdispersed_binomial_mixture import OverdispersedB
 # given a discrete distribution of allele fractions between 0 and 1, and desired depths, generate alt counts,
 # fit a BetaBinomialMixture, and compare moments of the underlying Beta mixture (without the binomial part) to
 # those of the empirical allele fractions
-def test_on_discrete_af_distribution(fractions_1d: torch.Tensor, weights_1d: torch.Tensor, training_depths_1d: torch.Tensor,
+def test_on_discrete_af_distribution(fractions_1d: Tensor, weights_1d: Tensor, training_depths_1d: Tensor,
                                 num_components: int = 10, num_epochs=1000):
 
     idx = weights_1d.multinomial(num_samples=len(training_depths_1d), replacement=True)
@@ -20,7 +21,7 @@ def test_on_discrete_af_distribution(fractions_1d: torch.Tensor, weights_1d: tor
               alt_counts_1d_tensor=empirical_counts)
 
     # moments E[x], E[ln(x)], E[x ln(x)]
-    model_mean, model_log_mean, model_log_linear_mean = model.moments_of_underlying_beta_mixture(torch.Tensor([1]))
+    model_mean, model_log_mean, model_log_linear_mean = model.moments_of_underlying_beta_mixture(Tensor([1]))
 
     given_mean = torch.sum(weights_1d * fractions_1d)
     given_log_mean = torch.sum(weights_1d * torch.log(fractions_1d))
@@ -36,7 +37,7 @@ def test_single_component():
     for fraction in [0.05, 0.1, 0.5, 0.75]:
         for depth in [10, 100, 1000]:
             depths = depth*torch.ones(num_samples).int()
-            test_on_discrete_af_distribution(fractions_1d=torch.Tensor([fraction]), weights_1d=torch.Tensor([1.0]), training_depths_1d=depths)
+            test_on_discrete_af_distribution(fractions_1d=Tensor([fraction]), weights_1d=Tensor([1.0]), training_depths_1d=depths)
 
 
 def test_two_components():
@@ -45,7 +46,7 @@ def test_two_components():
     depths = depth * torch.ones(num_samples).int()
     for fraction_pair in [(0.1, 0.9), (0.2, 0.4), (0.4, 0.8)]:
         for weight_pair in [(0.5, 0.5), (0.25, 0.75), (0.1, 0.9)]:
-            test_on_discrete_af_distribution(fractions_1d=torch.Tensor(fraction_pair), weights_1d=torch.Tensor(weight_pair), training_depths_1d=depths)
+            test_on_discrete_af_distribution(fractions_1d=Tensor(fraction_pair), weights_1d=Tensor(weight_pair), training_depths_1d=depths)
 
 
 def test_three_components():
@@ -54,8 +55,8 @@ def test_three_components():
     depths = depth * torch.ones(num_samples).int()
     fractions = (0.1, 0.4, 0.7)
     for unnormalized_weights in [(1, 1, 1), (1, 4, 1), (1, 5, 9)]:
-        weights = torch.Tensor(unnormalized_weights) / sum(unnormalized_weights)
-        test_on_discrete_af_distribution(fractions_1d=torch.Tensor(fractions), weights_1d=weights, training_depths_1d=depths)
+        weights = Tensor(unnormalized_weights) / sum(unnormalized_weights)
+        test_on_discrete_af_distribution(fractions_1d=Tensor(fractions), weights_1d=weights, training_depths_1d=depths)
 
 
 def test_peak_over_background():
@@ -64,7 +65,7 @@ def test_peak_over_background():
     depths = depth * torch.ones(num_samples).int()
     fractions = (0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9)
     for unnormalized_weights in [(5, 1, 1, 1, 1, 1, 1, 1, 1), (1, 1, 1, 1, 5, 1, 1, 1, 1)]:
-        weights = torch.Tensor(unnormalized_weights) / sum(unnormalized_weights)
-        test_on_discrete_af_distribution(fractions_1d=torch.Tensor(fractions), weights_1d=weights,
+        weights = Tensor(unnormalized_weights) / sum(unnormalized_weights)
+        test_on_discrete_af_distribution(fractions_1d=Tensor(fractions), weights_1d=weights,
                                          training_depths_1d=depths)
 

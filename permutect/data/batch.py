@@ -1,7 +1,7 @@
 from typing import List
 
 import torch
-from torch import IntTensor, FloatTensor
+from torch import IntTensor, FloatTensor, Tensor
 import numpy as np
 
 from permutect.data.datum import Datum
@@ -60,7 +60,7 @@ class Batch:
     def get_original_normal_depths(self) -> IntTensor:
         return self.data[:, Datum.ORIGINAL_NORMAL_DEPTH_IDX]
 
-    def get_info_2d(self) -> torch.Tensor:
+    def get_info_2d(self) -> Tensor:
         return self.data[:, self.info_start:self.info_end] / Datum.FLOAT_TO_LONG_MULTIPLIER
 
     def get_haplotypes_2d(self) -> IntTensor:

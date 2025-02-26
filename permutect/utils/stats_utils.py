@@ -1,7 +1,7 @@
 import math
 
 import torch
-from torch import lgamma, logsumexp
+from torch import lgamma, logsumexp, Tensor
 
 from permutect.utils.math_utils import subtract_in_log_space
 
@@ -46,7 +46,7 @@ def gamma_binomial_log_lk(n, k, alpha, beta):
     return exponent_term + gamma_term - torch.log(n + 1)
 
 
-def _incomplete_beta_coeff(n: int, a: torch.Tensor, b: torch.Tensor, x: torch.Tensor):
+def _incomplete_beta_coeff(n: int, a: Tensor, b: Tensor, x: Tensor):
     """
     helper function for the incomplete beta continued fraction expansion
     n is the continued fraction coefficient, starting from n = 1
@@ -62,7 +62,7 @@ def _incomplete_beta_coeff(n: int, a: torch.Tensor, b: torch.Tensor, x: torch.Te
         return -(a+m)*(a+b+m)*x/((a+2*m)*(a+2*m+1))
 
 
-def _incomplete_beta_cf_base(a: torch.Tensor, b: torch.Tensor, x: torch.Tensor):
+def _incomplete_beta_cf_base(a: Tensor, b: Tensor, x: Tensor):
     """
     continued fraction approximation to the incomplete beta function:
     I(a,b,x) = int_{0 to x} t^(a-1) (1-t)^(b-1) dt
@@ -76,7 +76,7 @@ def _incomplete_beta_cf_base(a: torch.Tensor, b: torch.Tensor, x: torch.Tensor):
     return (x**a) * ((1-x)**b)/(a * cf)
 
 
-def _log_incomplete_beta_cf_base(a: torch.Tensor, b: torch.Tensor, x: torch.Tensor):
+def _log_incomplete_beta_cf_base(a: Tensor, b: Tensor, x: Tensor):
     """
     log space continued fraction approximation to the incomplete beta function:
     log I(a,b,x) = log int_{0 to x} t^(a-1) (1-t)^(b-1) dt
@@ -90,7 +90,7 @@ def _log_incomplete_beta_cf_base(a: torch.Tensor, b: torch.Tensor, x: torch.Tens
     return a * torch.log(x) + b * torch.log(1-x) - torch.log(a) - torch.log(cf)
 
 
-def incomplete_beta(a: torch.Tensor, b: torch.Tensor, x: torch.Tensor):
+def incomplete_beta(a: Tensor, b: Tensor, x: Tensor):
     """
     continued fraction approximation to the incomplete beta function:
     I(a,b,x) = int_{0 to x} t^(a-1) (1-t)^(b-1) dt
@@ -102,7 +102,7 @@ def incomplete_beta(a: torch.Tensor, b: torch.Tensor, x: torch.Tensor):
     return _incomplete_beta_cf_base(a, b, x)*small_x + (beta - _incomplete_beta_cf_base(b, a, 1 - x))*(1-small_x)
 
 
-def log_incomplete_beta(a: torch.Tensor, b: torch.Tensor, x: torch.Tensor):
+def log_incomplete_beta(a: Tensor, b: Tensor, x: Tensor):
     """
     log space continued fraction approximation to the incomplete beta function:
     log I(a,b,x) = log int_{0 to x} t^(a-1) (1-t)^(b-1) dt
@@ -144,7 +144,7 @@ def uniform_binomial_log_lk(n, k, x1, x2):
 """
 
 
-def uniform_binomial_log_lk(n: torch.Tensor, k: torch.Tensor, x1: torch.Tensor, x2: torch.Tensor):
+def uniform_binomial_log_lk(n: Tensor, k: Tensor, x1: Tensor, x2: Tensor):
     assert x1.shape == x2.shape
     interp = torch.arange(start=0.001, end=0.999, step=0.01).to(device=n.device)
     num_mix = len(interp)
