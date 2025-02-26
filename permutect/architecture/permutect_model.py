@@ -1,7 +1,7 @@
 from itertools import chain
 
 import torch
-from torch import nn, Tensor
+from torch import nn, Tensor, IntTensor
 from torch.utils.tensorboard import SummaryWriter
 from tqdm.autonotebook import tqdm
 
@@ -180,8 +180,7 @@ class PermutectModel(torch.nn.Module):
 
         return result_be, ref_seq_embeddings_be # ref seq embeddings are useful later
 
-    def logits_from_features(self, features_be: Tensor, ref_counts_b: torch.IntTensor, alt_counts_b: torch.IntTensor,
-                             var_types_b: torch.IntTensor):
+    def logits_from_features(self, features_be: Tensor, ref_counts_b: IntTensor, alt_counts_b: IntTensor, var_types_b: IntTensor):
         uncalibrated_logits_b = self.artifact_classifier.forward(features_be).view(-1)
         calibrated_logits_b = torch.zeros_like(uncalibrated_logits_b, device=self._device)
         for n, _ in enumerate(Variation):

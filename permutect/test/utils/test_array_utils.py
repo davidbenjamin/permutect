@@ -1,5 +1,5 @@
 import torch
-from torch import IntTensor, Tensor
+from torch import IntTensor, Tensor, LongTensor
 
 from permutect.utils.array_utils import cumsum_starting_from_zero, add_to_2d_array, select_and_sum
 
@@ -10,7 +10,7 @@ def test_cumsum_starting_from_zero():
 
 def test_add_to_array():
     x = torch.zeros(4,5).int()
-    add_to_2d_array(x, torch.LongTensor([0, 2]), torch.LongTensor([1, 3]), torch.IntTensor([7, 8]))
+    add_to_2d_array(x, LongTensor([0, 2]), LongTensor([1, 3]), IntTensor([7, 8]))
     assert x[0, 1] == 7
     assert x[2, 3] == 8
     assert torch.sum(x) == 15

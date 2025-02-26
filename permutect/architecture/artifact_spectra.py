@@ -1,12 +1,11 @@
 import math
 
 import torch
-from permutect import misc_utils
 from torch import nn, IntTensor
 
 from permutect.metrics.plotting import simple_plot
 from permutect.misc_utils import backpropagate
-from permutect.utils.stats_utils import beta_binomial_log_lk, uniform_binomial_log_lk
+from permutect.utils.stats_utils import uniform_binomial_log_lk
 from permutect.utils.enums import Variation
 
 
@@ -42,7 +41,7 @@ class ArtifactSpectra(nn.Module):
     here x is a 2D tensor, 1st dimension batch, 2nd dimension being features that determine which Beta mixture to use
     n and k are 1D tensors, the only dimension being batch.
     '''
-    def forward(self, variant_types_b: torch.IntTensor, depths_b, alt_counts_b):
+    def forward(self, variant_types_b: IntTensor, depths_b, alt_counts_b):
         var_types_b = variant_types_b.long()
 
         depths_bk, alt_counts_bk = depths_b.view(-1, 1), alt_counts_b.view(-1, 1)

@@ -2,7 +2,7 @@ from typing import Tuple
 
 import numpy as np
 import torch
-from torch import Tensor
+from torch import Tensor, IntTensor
 
 
 def index_2d_array(tens, idx0, idx1):
@@ -85,7 +85,7 @@ def downsample_tensor(tensor2d: np.ndarray, new_length: int):
 # for tensor of shape (R, C...) and row counts n1, n2. . nK, return a tensor of shape (K, C...) whose 1st row is the sum of the
 # first n1 rows of the input, 2nd row is the sum of the next n2 rows etc
 # note that this works for arbitrary C, including empty.  That is, it works for 1D, 2D, 3D etc input.
-def sums_over_rows(input_tensor: Tensor, counts: torch.IntTensor):
+def sums_over_rows(input_tensor: Tensor, counts: IntTensor):
     range_ends = torch.cumsum(counts, dim=0)
     assert range_ends[-1] == len(input_tensor)   # the counts need to add up!
 

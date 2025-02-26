@@ -4,7 +4,7 @@ from math import ceil
 
 import torch
 from matplotlib import pyplot as plt
-from torch import Tensor
+from torch import Tensor, IntTensor
 from torch.utils.tensorboard import SummaryWriter
 from tqdm.autonotebook import trange, tqdm
 
@@ -104,7 +104,7 @@ class PosteriorModel(torch.nn.Module):
 
         self.to(device=self._device, dtype=self._dtype)
 
-    def make_unnormalized_priors_bc(self, variant_types_b: torch.IntTensor, allele_frequencies_1d: Tensor) -> Tensor:
+    def make_unnormalized_priors_bc(self, variant_types_b: IntTensor, allele_frequencies_1d: Tensor) -> Tensor:
         result_bc = self._unnormalized_priors_vc[variant_types_b.long(), :].to(device=self._device, dtype=self._dtype)
         result_bc[:, Call.SEQ_ERROR] = 0
         result_bc[:, Call.GERMLINE] = -9999 if self.no_germline_mode else torch.log(1 - torch.square(1 - allele_frequencies_1d))     # 1 minus hom ref probability
