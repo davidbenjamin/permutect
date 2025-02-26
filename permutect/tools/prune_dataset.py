@@ -39,17 +39,17 @@ def calculate_pruning_thresholds(labeled_only_pruning_loader, model: PermutectMo
         for batch in tqdm(prefetch_generator(labeled_only_pruning_loader), mininterval=60, total=len(labeled_only_pruning_loader)):
             # TODO: should we use likelihoods as in evaluation or posteriors as in training???
             # TODO: does it even matter??
-            representations, _ = model.calculate_features(batch, weight_range=model._params.reweighting_range)
-            art_logits, _ = model.logits_from_reads_batch(representations, batch)
-            art_probs = torch.sigmoid(art_logits.detach())
+            features_be, _ = model.calculate_features(batch, weight_range=model._params.reweighting_range)
+            art_logits_b, _ = model.logits_from_reads_batch(features_be, batch)
+            art_probs_b = torch.sigmoid(art_logits_b.detach())
 
-            labels = batch.get_training_labels()
-            art_label_mask = (labels > 0.5)
-            nonart_label_mask = (labels < 0.5)
-            average_artifact_confidence.record_with_mask(art_probs, art_label_mask)
-            average_nonartifact_confidence.record_with_mask(1 - art_probs, nonart_label_mask)
+            labels_b = batch.get_training_labels()
+            art_label_mask = (labels_b > 0.5)
+            nonart_label_mask = (labels_b < 0.5)
+            average_artifact_confidence.record_with_mask(art_probs_b, art_label_mask)
+            average_nonartifact_confidence.record_with_mask(1 - art_probs_b, nonart_label_mask)
 
-            for art_prob, labeled_as_art in zip(art_probs.tolist(), art_label_mask.tolist()):
+            for art_prob, labeled_as_art in zip(art_probs_b.tolist(), art_label_mask.tolist()):
                 agreement_prob = art_prob if labeled_as_art else (1 - art_prob)
                 probs_of_agreeing_with_label[1 if labeled_as_art else 0].append(agreement_prob)
 
@@ -61,8 +61,8 @@ def calculate_pruning_thresholds(labeled_only_pruning_loader, model: PermutectMo
         art_conf_threshold = average_artifact_confidence.get()
         nonart_conf_threshold = average_nonartifact_confidence.get()
         for batch in tqdm(prefetch_generator(labeled_only_pruning_loader), mininterval=60, total=len(labeled_only_pruning_loader)):
-            representations, _ = model.calculate_features(batch, weight_range=model._params.reweighting_range)
-            predicted_artifact_logits, _ = model.logits_from_reads_batch(representations, batch)
+            features_be, _ = model.calculate_features(batch, weight_range=model._params.reweighting_range)
+            predicted_artifact_logits, _ = model.logits_from_reads_batch(features_be, batch)
             predicted_artifact_probs = torch.sigmoid(predicted_artifact_logits.detach())
 
             conf_art_mask = predicted_artifact_probs >= art_conf_threshold
@@ -106,20 +106,19 @@ def calculate_pruning_thresholds(labeled_only_pruning_loader, model: PermutectMo
         return art_threshold, nonart_threshold
 
 
-# generates BaseDatum(s) from the original dataset that *pass* the pruning thresholds
+# generates data from the original dataset that *pass* the pruning thresholds
 def generated_pruned_data_for_fold(art_threshold: float, nonart_threshold: float, pruning_base_data_loader, model: PermutectModel) -> List[int]:
     print("pruning the dataset")
     reads_batch: ReadsBatch
     for reads_batch in tqdm(prefetch_generator(pruning_base_data_loader), mininterval=60, total=len(pruning_base_data_loader)):
-        # apply the representation model AND the artifact model to go from the original read set to artifact logits
-        representation, _ = model.calculate_features(reads_batch)
+        features_be, _ = model.calculate_features(reads_batch)
 
-        art_logits, _ = model.logits_from_reads_batch(representation, reads_batch)
-        art_probs = torch.sigmoid(art_logits.detach())
+        art_logits_b, _ = model.logits_from_reads_batch(features_be, reads_batch)
+        art_probs_b = torch.sigmoid(art_logits_b.detach())
         art_label_mask = (reads_batch.get_training_labels() > 0.5)
         is_labeled_mask = (reads_batch.get_is_labeled_mask() > 0.5)
 
-        for art_prob, labeled_as_art, data_1d, reads_2d, is_labeled in zip(art_probs.tolist(), art_label_mask.tolist(),
+        for art_prob, labeled_as_art, data_1d, reads_2d, is_labeled in zip(art_probs_b.tolist(), art_label_mask.tolist(),
                 reads_batch.get_data_2d(), reads_batch.get_list_of_reads_2d(), is_labeled_mask.tolist()):
             datum = ReadsDatum(data_1d, reads_2d)
             if not is_labeled:

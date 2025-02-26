@@ -229,11 +229,11 @@ def evaluate_model(model: PermutectModel, epoch: int, dataset: ReadsDataset, bal
             correct_strings = [str(correctness) if is_labeled > 0.5 else "-1"
                              for (correctness, is_labeled) in zip(correct_b, is_labeled_list)]
 
-            for (metrics, embedding) in [(embedding_metrics, features_be.detach().cpu())]:
+            for (metrics, features_e) in [(embedding_metrics, features_be.detach().cpu())]:
                 metrics.label_metadata.extend(label_strings)
                 metrics.correct_metadata.extend(correct_strings)
                 metrics.type_metadata.extend([Variation(idx).name for idx in batch.get_variant_types().cpu().tolist()])
                 metrics.truncated_count_metadata.extend([alt_count_bin_name(alt_count_bin_index(alt_count)) for alt_count in batch.get_alt_counts().cpu().tolist()])
-                metrics.representations.append(embedding)
+                metrics.features.append(features_e)
         embedding_metrics.output_to_summary_writer(summary_writer, epoch=epoch)
     # done collecting data

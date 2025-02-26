@@ -177,7 +177,7 @@ class EmbeddingMetrics:
         self.correct_metadata = []  # list (extended by each batch), 1 if correct prediction, 0 if not
         self.type_metadata = []  # list of lists, strings of variant type
         self.truncated_count_metadata = []  # list of lists
-        self.representations = []  # list of 2D tensors (to be stacked into a single 2D tensor), representations over batches
+        self.features = []  # list of 2D tensors (to be stacked into a single 2D tensor), features over batches
 
     def output_to_summary_writer(self, summary_writer: SummaryWriter, prefix: str = "", is_filter_variants: bool = False, epoch: int = None):
         # downsample to a reasonable amount of UMAP data
@@ -206,7 +206,7 @@ class EmbeddingMetrics:
         idx = np.random.choice(len(all_metadata), size=min(NUM_DATA_FOR_TENSORBOARD_PROJECTION, len(all_metadata)), replace=False)
 '''
 
-        stacked_representations = torch.vstack(self.representations)
+        stacked_features = torch.vstack(self.features)
 
         # read average embeddings stratified by variant type
         for variant_type in Variation:
@@ -219,7 +219,7 @@ class EmbeddingMetrics:
             boring_to_keep = np.array([int(n) for n in boring])[np.random.choice(len(boring), size=boring_count, replace=False)]
             idx = sample_indices_for_tensorboard(np.hstack((boring_to_keep, np.array([int(n) for n in interesting]))))
 
-            summary_writer.add_embedding(stacked_representations[idx],
+            summary_writer.add_embedding(stacked_features[idx],
                                          metadata=[all_metadata[round(n)] for n in idx.tolist()],
                                          metadata_header=["Labels", "Correctness", "Types", "Counts"],
                                          tag=prefix+"embedding for variant type " + variant_name, global_step=epoch)
@@ -235,7 +235,7 @@ class EmbeddingMetrics:
             idx = sample_indices_for_tensorboard(np.hstack((boring_to_keep, np.array([int(n) for n in interesting]))))
 
             if len(idx) > 0:
-                summary_writer.add_embedding(stacked_representations[idx],
+                summary_writer.add_embedding(stacked_features[idx],
                                         metadata=[all_metadata[round(n)] for n in idx.tolist()],
                                         metadata_header=["Labels", "Correctness", "Types", "Counts"],
                                         tag=prefix+"embedding for alt count " + str(count), global_step=epoch)

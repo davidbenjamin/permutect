@@ -212,11 +212,11 @@ def make_posterior_data_loader(dataset_file, input_vcf, contig_index_to_name_map
         print("creating posterior data for this chunk...")
         batch: ReadsBatch
         for batch in tqdm(prefetch_generator(loader), mininterval=60, total=len(loader)):
-            representations, _ = model.calculate_features(batch, weight_range=model._params.reweighting_range)
-            artifact_logits, _ = model.logits_from_reads_batch(representations, batch)
+            features_be, _ = model.calculate_features(batch, weight_range=model._params.reweighting_range)
+            artifact_logits_b, _ = model.logits_from_reads_batch(features_be, batch)
 
             for datum_array, logit, embedding in zip(batch.get_data_2d(),
-                    artifact_logits.detach().tolist(), representations.cpu()):
+                    artifact_logits_b.detach().tolist(), features_be.cpu()):
                 datum = Datum(datum_array)
                 contig_name = contig_index_to_name_map[datum.get_contig()]
                 position = datum.get_position()
@@ -338,7 +338,7 @@ def apply_filtering_to_vcf(input_vcf, output_vcf, contig_index_to_name_map, erro
             embedding_metrics.label_metadata.append(label.name)
             embedding_metrics.type_metadata.append(variant_type.name)
             embedding_metrics.truncated_count_metadata.append(alt_count_bin_name(alt_count_bin_index(min(MAX_ALT_COUNT, posterior_result.alt_count))))
-            embedding_metrics.representations.append(posterior_result.embedding)
+            embedding_metrics.features.append(posterior_result.embedding)
 
             correctness_label = "unknown"
             if label != Label.UNLABELED:
