@@ -215,7 +215,7 @@ def make_posterior_data_loader(dataset_file, input_vcf, contig_index_to_name_map
             features_be, _ = model.calculate_features(batch, weight_range=model._params.reweighting_range)
             artifact_logits_b, _ = model.logits_from_reads_batch(features_be, batch)
 
-            for datum_array, logit, embedding in zip(batch.get_data_2d(),
+            for datum_array, logit, embedding in zip(batch.get_data_be(),
                     artifact_logits_b.detach().tolist(), features_be.cpu()):
                 datum = Datum(datum_array)
                 contig_name = contig_index_to_name_map[datum.get_contig()]
@@ -273,7 +273,7 @@ def apply_filtering_to_vcf(input_vcf, output_vcf, contig_index_to_name_map, erro
                                       sources_override=most_confident_calls_b)
 
         artifact_logits = batch.get_artifact_logits().cpu().tolist()
-        data = [Datum(datum_array) for datum_array in batch.get_data_2d()]
+        data = [Datum(datum_array) for datum_array in batch.get_data_be()]
         for datum, post_probs, logit, log_prior, log_spec, log_normal, embedding in zip(data, posterior_probs_bc, artifact_logits, log_priors_bc, spectra_log_lks_bc, normal_log_lks_bc, batch.embeddings):
             encoding = encode_datum(datum, contig_index_to_name_map)
             encoding_to_posterior_results[encoding] = PosteriorResult(artifact_logit=logit, posterior_probabilities=post_probs.tolist(),

@@ -60,10 +60,10 @@ class Batch:
     def get_original_normal_depths(self) -> IntTensor:
         return self.data[:, Datum.ORIGINAL_NORMAL_DEPTH_IDX]
 
-    def get_info_2d(self) -> Tensor:
+    def get_info_be(self) -> Tensor:
         return self.data[:, self.info_start:self.info_end] / Datum.FLOAT_TO_LONG_MULTIPLIER
 
-    def get_haplotypes_2d(self) -> IntTensor:
+    def get_haplotypes_bs(self) -> IntTensor:
         # each row is 1D array of integer array reference and alt haplotypes concatenated -- A, C, G, T, deletion = 0, 1, 2, 3, 4
         return self.data[:, self.haplotypes_start:self.haplotypes_end]
 
@@ -72,7 +72,7 @@ class Batch:
         self.data = self.data.pin_memory()
         return self
 
-    def get_data_2d(self) -> np.ndarray:
+    def get_data_be(self) -> np.ndarray:
         return self.data.cpu().numpy()
 
     def size(self) -> int:

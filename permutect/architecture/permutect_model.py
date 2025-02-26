@@ -151,9 +151,9 @@ class PermutectModel(torch.nn.Module):
         ref_counts_b, alt_counts_b = batch.get_ref_counts(), batch.get_alt_counts()
         total_ref, total_alt = torch.sum(ref_counts_b).item(), torch.sum(alt_counts_b).item()
 
-        read_embeddings_re = self.read_embedding.forward(batch.get_reads_2d().to(dtype=self._dtype))
-        info_embeddings_be = self.info_embedding.forward(batch.get_info_2d().to(dtype=self._dtype))
-        ref_seq_embeddings_be = self.haplotypes_cnn(batch.get_one_hot_haplotypes_2d().to(dtype=self._dtype))
+        read_embeddings_re = self.read_embedding.forward(batch.get_reads_re().to(dtype=self._dtype))
+        info_embeddings_be = self.info_embedding.forward(batch.get_info_be().to(dtype=self._dtype))
+        ref_seq_embeddings_be = self.haplotypes_cnn(batch.get_one_hot_haplotypes_bcs().to(dtype=self._dtype))
         info_and_seq_be = torch.hstack((info_embeddings_be, ref_seq_embeddings_be))
         info_and_seq_re = torch.vstack((torch.repeat_interleave(info_and_seq_be, repeats=ref_counts_b, dim=0),
                                        torch.repeat_interleave(info_and_seq_be, repeats=alt_counts_b, dim=0)))

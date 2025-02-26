@@ -17,8 +17,8 @@ def test_on_discrete_af_distribution(fractions_1d: Tensor, weights_1d: Tensor, t
     dummy_input = torch.ones(len(empirical_counts))
 
     model = OverdispersedBinomialMixture(input_size=1, num_components=num_components)
-    model.fit(num_epochs=num_epochs, types_b=dummy_input, depths_1d_tensor=training_depths_1d,
-              alt_counts_1d_tensor=empirical_counts)
+    model.fit(num_epochs=num_epochs, types_b=dummy_input, depths_b=training_depths_1d,
+              alt_counts_b=empirical_counts)
 
     # moments E[x], E[ln(x)], E[x ln(x)]
     model_mean, model_log_mean, model_log_linear_mean = model.moments_of_underlying_beta_mixture(Tensor([1]))

@@ -166,7 +166,7 @@ def collect_evaluation_data(model: PermutectModel, dataset: ReadsDataset, balanc
             evaluation_metrics.record_batch(epoch_type, batch, logits_b, weights_b)
 
             if report_worst:
-                for datum_array, predicted_logit in zip(batch.get_data_2d(), logits_b.detach().cpu().tolist()):
+                for datum_array, predicted_logit in zip(batch.get_data_be(), logits_b.detach().cpu().tolist()):
                     datum = Datum(datum_array)
                     wrong_call = (datum.get_label() == Label.ARTIFACT and predicted_logit < 0) or \
                                  (datum.get_label() == Label.VARIANT and predicted_logit > 0)

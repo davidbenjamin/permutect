@@ -24,35 +24,35 @@ class NormalArtifactSpectrum(nn.Module):
             self.W.weight.copy_(Tensor([[1.7, 0], [0, 1.7]]))
             self.W.bias.copy_(Tensor([-0.1, -0.1]))
 
-    def forward(self, tumor_alt_1d: Tensor, tumor_ref_1d: Tensor, normal_alt_1d: Tensor, normal_ref_1d: Tensor):
-        if torch.sum(normal_alt_1d) < 1:    # shortcut if no normal alts in the whole batch
-            return -9999 * torch.ones_like(tumor_alt_1d)
-        batch_size = len(tumor_alt_1d)
-        tumor_fractions_2d, normal_fractions_2d = self.get_tumor_and_normal_fraction(batch_size, self.num_samples)
+    def forward(self, tumor_alt_counts_b: Tensor, tumor_ref_counts_b: Tensor, normal_alt_counts_b: Tensor, normal_ref_counts_b: Tensor):
+        if torch.sum(normal_alt_counts_b) < 1:    # shortcut if no normal alts in the whole batch
+            return -9999 * torch.ones_like(tumor_alt_counts_b)
+        batch_size = len(tumor_alt_counts_b)
+        tumor_fractions_bs, normal_fractions_bs = self.get_tumor_and_normal_fractions_bs(batch_size, self.num_samples)
 
-        log_likelihoods_2d = torch.reshape(tumor_alt_1d, (batch_size, 1)) * torch.log(tumor_fractions_2d) \
-            + torch.reshape(tumor_ref_1d, (batch_size, 1)) * torch.log(1 - tumor_fractions_2d) \
-            + torch.reshape(normal_alt_1d, (batch_size, 1)) * torch.log(normal_fractions_2d) \
-            + torch.reshape(normal_ref_1d, (batch_size, 1)) * torch.log(1 - normal_fractions_2d)
+        log_lks_bs = torch.reshape(tumor_alt_counts_b, (batch_size, 1)) * torch.log(tumor_fractions_bs) \
+                             + torch.reshape(tumor_ref_counts_b, (batch_size, 1)) * torch.log(1 - tumor_fractions_bs) \
+                             + torch.reshape(normal_alt_counts_b, (batch_size, 1)) * torch.log(normal_fractions_bs) \
+                             + torch.reshape(normal_ref_counts_b, (batch_size, 1)) * torch.log(1 - normal_fractions_bs)
 
         # average over sample dimension
-        log_likelihoods_1d = torch.logsumexp(log_likelihoods_2d, dim=1) - math.log(self.num_samples)
+        log_lks_b = torch.logsumexp(log_lks_bs, dim=1) - math.log(self.num_samples)
 
         # zero likelihood if no alt in normal
-        no_alt_in_normal_mask = normal_alt_1d < 1
-        return -9999 * no_alt_in_normal_mask + log_likelihoods_1d * torch.logical_not(no_alt_in_normal_mask)
+        no_alt_in_normal_mask = normal_alt_counts_b < 1
+        return -9999 * no_alt_in_normal_mask + log_lks_b * torch.logical_not(no_alt_in_normal_mask)
 
-    def get_tumor_and_normal_fraction(self, batch_size, num_samples):
+    def get_tumor_and_normal_fractions_bs(self, batch_size, num_samples):
         gaussian_3d = torch.randn(batch_size, num_samples, 2)
         correlated_gaussian_3d = self.W.forward(gaussian_3d)
         # to prevent nans, map onto [EPSILON, 1 - EPSILON]
-        tumor_fractions_2d = EPSILON + (1 - 2 * EPSILON) * torch.sigmoid(correlated_gaussian_3d[:, :, 0])
-        normal_fractions_2d = EPSILON + (1 - 2 * EPSILON) * torch.sigmoid(correlated_gaussian_3d[:, :, 1])
-        return tumor_fractions_2d, normal_fractions_2d
+        tumor_fractions_bs = EPSILON + (1 - 2 * EPSILON) * torch.sigmoid(correlated_gaussian_3d[:, :, 0])
+        normal_fractions_bs = EPSILON + (1 - 2 * EPSILON) * torch.sigmoid(correlated_gaussian_3d[:, :, 1])
+        return tumor_fractions_bs, normal_fractions_bs
 
     # TODO: move this method to plotting
     def density_plot_on_axis(self, ax):
-        tumor_fractions_2d, normal_fractions_2d = self.get_tumor_and_normal_fraction(batch_size=1, num_samples=100000)
+        tumor_fractions_2d, normal_fractions_2d = self.get_tumor_and_normal_fractions_bs(batch_size=1, num_samples=100000)
         tumor_f = torch.squeeze(tumor_fractions_2d).detach().numpy()
         normal_f = torch.squeeze(normal_fractions_2d).detach().numpy()
 

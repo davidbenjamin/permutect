@@ -81,7 +81,7 @@ class ReadsDataset(Dataset):
     def __getitem__(self, index):
         if self._memory_map_mode:
             bottom_index = index * TENSORS_PER_BASE_DATUM
-            return ReadsDatum(datum_array=self._data[bottom_index + 1], reads_2d=self._data[bottom_index])
+            return ReadsDatum(datum_array=self._data[bottom_index + 1], reads_re=self._data[bottom_index])
         else:
             return self._data[index]
 
@@ -135,7 +135,7 @@ class ReadsDataset(Dataset):
 # from a generator that yields BaseDatum(s), create a generator that yields the two numpy arrays needed to reconstruct the datum
 def make_flattened_tensor_generator(reads_data_generator):
     for reads_datum in reads_data_generator:
-        yield reads_datum.get_reads_2d()
+        yield reads_datum.get_reads_re()
         yield reads_datum.get_array_1d()
 
 

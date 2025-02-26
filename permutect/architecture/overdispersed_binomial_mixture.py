@@ -1,7 +1,7 @@
 import math
 
 import torch
-from torch import nn, exp, logsumexp
+from torch import nn, exp, logsumexp, IntTensor
 from torch.nn.functional import softmax, log_softmax
 
 from permutect.metrics.plotting import simple_plot
@@ -147,17 +147,17 @@ class OverdispersedBinomialMixture(nn.Module):
         # recall, n and fractions are 1D tensors; result is also 1D tensor, one "success" count per datum
         return torch.distributions.binomial.Binomial(total_count=n, probs=fractions).sample()
 
-    def fit(self, num_epochs, types_b, depths_1d_tensor, alt_counts_1d_tensor, batch_size=64):
+    def fit(self, num_epochs: int, types_b, depths_b: IntTensor, alt_counts_b: IntTensor, batch_size: int=64):
         optimizer = torch.optim.Adam(self.parameters())
-        num_batches = math.ceil(len(alt_counts_1d_tensor) / batch_size)
+        num_batches = math.ceil(len(alt_counts_b) / batch_size)
 
         for epoch in range(num_epochs):
             for batch in range(num_batches):
                 batch_start = batch * batch_size
-                batch_end = min(batch_start + batch_size, len(alt_counts_1d_tensor))
+                batch_end = min(batch_start + batch_size, len(alt_counts_b))
                 batch_slice = slice(batch_start, batch_end)
-                loss = -torch.mean(self.forward(types_b[batch_slice], depths_1d_tensor[batch_slice],
-                                                alt_counts_1d_tensor[batch_slice]))
+                loss = -torch.mean(self.forward(types_b[batch_slice], depths_b[batch_slice],
+                                                alt_counts_b[batch_slice]))
                 backpropagate(optimizer, loss)
 
     '''

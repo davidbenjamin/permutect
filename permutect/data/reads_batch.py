@@ -34,33 +34,33 @@ class ReadsBatch(Batch):
 
     def __init__(self, data: List[ReadsDatum]):
         super().__init__(data)
-        list_of_ref_tensors = [item.get_ref_reads_2d() for item in data]
-        list_of_alt_tensors = [item.get_alt_reads_2d() for item in data]
-        self.reads_2d = torch.from_numpy(np.vstack(list_of_ref_tensors + list_of_alt_tensors))
+        list_of_ref_tensors = [item.get_ref_reads_re() for item in data]
+        list_of_alt_tensors = [item.get_alt_reads_re() for item in data]
+        self.reads_re = torch.from_numpy(np.vstack(list_of_ref_tensors + list_of_alt_tensors))
 
     # pin memory for all tensors that are sent to the GPU
     def pin_memory(self):
         super().pin_memory()
-        self.reads_2d = self.reads_2d.pin_memory()
+        self.reads_re = self.reads_re.pin_memory()
 
         return self
 
     def copy_to(self, device, dtype):
         is_cuda = device.type == 'cuda'
         new_batch = copy.copy(self)
-        new_batch.reads_2d = self.reads_2d.to(device=device, dtype=dtype, non_blocking=is_cuda)
+        new_batch.reads_re = self.reads_re.to(device=device, dtype=dtype, non_blocking=is_cuda)
         new_batch.data = self.data.to(device, non_blocking=is_cuda)  # don't cast dtype -- needs to stay integral!
         return new_batch
 
-    def get_reads_2d(self) -> Tensor:
-        return self.reads_2d
+    def get_reads_re(self) -> Tensor:
+        return self.reads_re
 
-    def get_one_hot_haplotypes_2d(self) -> Tensor:
+    def get_one_hot_haplotypes_bcs(self) -> Tensor:
         num_channels = 5
         # each row of haplotypes_2d is a ref haplotype concatenated horizontally with an alt haplotype of equal length
         # indices are b for batch, s index along DNA sequence, and later c for one-hot channel
         # h denotes horizontally concatenated sequences, first ref, then alt
-        haplotypes_bh = self.get_haplotypes_2d()
+        haplotypes_bh = self.get_haplotypes_bs()
         batch_size = len(haplotypes_bh)
         seq_length = haplotypes_bh.shape[1] // 2 # ref and alt have equal length and are h-stacked
 
@@ -74,12 +74,12 @@ class ReadsBatch(Batch):
 
     # useful for regenerating original data, for example in pruning.  Each original datum has its own reads_2d of ref
     # followed by alt
-    def get_list_of_reads_2d(self):
+    def get_list_of_reads_re(self):
         ref_counts, alt_counts = self.get_ref_counts(), self.get_alt_counts()
         total_ref = torch.sum(ref_counts).item()
-        ref_reads, alt_reads = self.get_reads_2d()[:total_ref], self.get_reads_2d()[total_ref:]
+        ref_reads_re, alt_reads_re = self.get_reads_re()[:total_ref], self.get_reads_re()[total_ref:]
         ref_splits, alt_splits = torch.cumsum(ref_counts)[:-1], torch.cumsum(alt_counts)[:-1]
-        ref_list, alt_list = torch.tensor_split(ref_reads, ref_splits), torch.tensor_split(alt_reads, alt_splits)
+        ref_list, alt_list = torch.tensor_split(ref_reads_re, ref_splits), torch.tensor_split(alt_reads_re, alt_splits)
         return [torch.vstack((refs, alts)).numpy() for refs, alts in zip(ref_list, alt_list)]
 
 
@@ -97,7 +97,7 @@ class DownsampledReadsBatch(ReadsBatch):
         """
         self.data = original_batch.data
         self.device = self.data.device
-        self.reads_2d = original_batch.reads_2d
+        self.reads_re = original_batch.reads_re
         self._finish_initializiation_from_data_array()
         # at this point all member variables needed by the parent class are available
 
@@ -148,15 +148,15 @@ class DownsampledReadsBatch(ReadsBatch):
         return self.alt_counts
 
     # override
-    def get_data_2d(self) -> np.ndarray:
+    def get_data_be(self) -> np.ndarray:
         result = self.data.cpu().numpy(force=True)  # force it to make a copy because we modify it
         result[:, Datum.REF_COUNT_IDX] = self.ref_counts.cpu().numpy()
         result[:, Datum.ALT_COUNT_IDX] = self.alt_counts.cpu().numpy()
         return result
 
     # override
-    def get_reads_2d(self) -> Tensor:
-        return self.reads_2d[self.read_indices]
+    def get_reads_re(self) -> Tensor:
+        return self.reads_re[self.read_indices]
 
 
 

@@ -140,8 +140,8 @@ def normalize_buffer(buffer, read_quantile_transform, info_quantile_transform, r
     EPSILON = 0.00001   # tiny quantity for jitter
 
     # 2D array.  Rows are ref/alt reads, columns are read features
-    all_ref = np.vstack([datum.get_ref_reads_2d() for datum in buffer])
-    all_reads = np.vstack([datum.reads_2d for datum in buffer])
+    all_ref = np.vstack([datum.get_ref_reads_re() for datum in buffer])
+    all_reads = np.vstack([datum.reads_re for datum in buffer])
 
     # 2D array.  Rows are read sets, columns are info features
     all_info = np.vstack([datum.get_info_1d() for datum in buffer])
@@ -167,15 +167,15 @@ def normalize_buffer(buffer, read_quantile_transform, info_quantile_transform, r
     all_reads_transformed = transform_except_for_binary_columns(all_reads_jittered, read_quantile_transform, binary_read_columns)
     all_info_transformed = transform_except_for_binary_columns(all_info_jittered, info_quantile_transform, binary_info_columns)
 
-    read_counts = np.array([len(datum.reads_2d) for datum in buffer])
+    read_counts = np.array([len(datum.reads_re) for datum in buffer])
     read_index_ranges = np.cumsum(read_counts)
 
     for n, datum in enumerate(buffer):
-        datum.reads_2d = all_reads_transformed[0 if n == 0 else read_index_ranges[n-1]:read_index_ranges[n]]
+        datum.reads_re = all_reads_transformed[0 if n == 0 else read_index_ranges[n - 1]:read_index_ranges[n]]
 
         # medians are an appropriate outlier-tolerant summary, except for binary columns where the mean makes more sense
-        alt_medians = np.median(datum.get_alt_reads_2d(), axis=0)
-        alt_means = np.mean(datum.get_alt_reads_2d(), axis=0)
+        alt_medians = np.median(datum.get_alt_reads_re(), axis=0)
+        alt_means = np.mean(datum.get_alt_reads_re(), axis=0)
 
         extra_info = binary_read_column_mask * alt_means + (1 - binary_read_column_mask) * alt_medians
         datum.set_info_1d(np.hstack([extra_info, all_info_transformed[n]]))

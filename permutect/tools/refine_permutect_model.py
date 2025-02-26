@@ -38,8 +38,8 @@ def learn_artifact_priors_and_spectra(dataset: ReadsDataset, genomic_span_of_dat
     artifact_spectra = ArtifactSpectra(num_components=2)
 
     # TODO: hard-coded num epochs!!!
-    artifact_spectra.fit(num_epochs=10, types_b=types_tensor, depths_1d_tensor=depths_tensor,
-                         alt_counts_1d_tensor=alt_counts_tensor, batch_size=64)
+    artifact_spectra.fit(num_epochs=10, types_b=types_tensor, depths_b=depths_tensor,
+                         alt_counts_b=alt_counts_tensor, batch_size=64)
 
     return log_artifact_priors, artifact_spectra
 

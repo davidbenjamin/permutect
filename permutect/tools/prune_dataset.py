@@ -118,9 +118,9 @@ def generated_pruned_data_for_fold(art_threshold: float, nonart_threshold: float
         art_label_mask = (reads_batch.get_training_labels() > 0.5)
         is_labeled_mask = (reads_batch.get_is_labeled_mask() > 0.5)
 
-        for art_prob, labeled_as_art, data_1d, reads_2d, is_labeled in zip(art_probs_b.tolist(), art_label_mask.tolist(),
-                reads_batch.get_data_2d(), reads_batch.get_list_of_reads_2d(), is_labeled_mask.tolist()):
-            datum = ReadsDatum(data_1d, reads_2d)
+        for art_prob, labeled_as_art, data_1d, reads_re, is_labeled in zip(art_probs_b.tolist(), art_label_mask.tolist(),
+                                                                           reads_batch.get_data_be(), reads_batch.get_list_of_reads_re(), is_labeled_mask.tolist()):
+            datum = ReadsDatum(data_1d, reads_re)
             if not is_labeled:
                 yield datum
             elif (labeled_as_art and art_prob < art_threshold) or ((not labeled_as_art) and (1-art_prob) < nonart_threshold):
