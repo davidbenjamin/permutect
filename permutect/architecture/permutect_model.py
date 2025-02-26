@@ -268,14 +268,14 @@ def record_embeddings(model: PermutectModel, loader, summary_writer: SummaryWrit
 
     batch: ReadsBatch
     for batch in tqdm(prefetch_generator(loader), mininterval=60, total=len(loader)):
-        representations, ref_alt_seq_embeddings = model.calculate_features(batch, weight_range=model._params.reweighting_range)
+        features_be, ref_alt_seq_embeddings_be = model.calculate_features(batch, weight_range=model._params.reweighting_range)
 
-        representations = representations.cpu()
-        ref_alt_seq_embeddings = ref_alt_seq_embeddings.cpu()
+        features_be = features_be.cpu()
+        ref_alt_seq_embeddings_be = ref_alt_seq_embeddings_be.cpu()
 
         labels = [("artifact" if label > 0.5 else "non-artifact") if is_labeled > 0.5 else "unlabeled" for (label, is_labeled) in
                   zip(batch.get_training_labels().tolist(), batch.get_is_labeled_mask().tolist())]
-        for (metrics, embeddings) in [(embedding_metrics, representations), (ref_alt_seq_metrics, ref_alt_seq_embeddings)]:
+        for (metrics, embeddings) in [(embedding_metrics, features_be), (ref_alt_seq_metrics, ref_alt_seq_embeddings_be)]:
             metrics.label_metadata.extend(labels)
             metrics.correct_metadata.extend(["unknown"] * batch.size())
             metrics.type_metadata.extend([Variation(idx).name for idx in batch.get_variant_types().tolist()])
