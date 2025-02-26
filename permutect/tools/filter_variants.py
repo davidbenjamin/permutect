@@ -255,26 +255,26 @@ def apply_filtering_to_vcf(input_vcf, output_vcf, contig_index_to_name_map, erro
     batch: PosteriorBatch
     for batch in tqdm(prefetch_generator(posterior_loader), mininterval=60, total=len(posterior_loader)):
         # posterior, along with intermediate tensors for debugging/interpretation
-        log_priors, spectra_lls, normal_lls, log_posteriors = \
+        log_priors_bc, spectra_log_lks_bc, normal_log_lks_bc, log_posteriors_bc = \
             posterior_model.log_posterior_and_ingredients(batch)
 
-        posterior_probs = torch.nn.functional.softmax(log_posteriors, dim=1)
-        error_probs = 1 - posterior_probs[:, passing_call_type]
-        error_logits = inverse_sigmoid(error_probs)
+        posterior_probs_bc = torch.nn.functional.softmax(log_posteriors_bc, dim=1)
+        error_probs_b = 1 - posterior_probs_bc[:, passing_call_type]
+        error_logits_b = inverse_sigmoid(error_probs_b)
         # this does nothing if the test dataset was generated without a truth VCF and thus has no labels
         # note that here we use error logits, not artifact logits
         # TODO: maybe also have an option to record relative to the computed probability thresholds.
         # TODO: this code here treats posterior_prob = 1/2 as the threshold
         # TODO: we could perhaps subtract the threshold to re-center at zero
-        evaluation_metrics.record_batch(Epoch.TEST, batch, error_logits)
+        evaluation_metrics.record_batch(Epoch.TEST, batch, error_logits_b)
 
-        most_confident_probs_b, most_confident_calls_b = torch.max(posterior_probs, dim=-1)
+        most_confident_probs_b, most_confident_calls_b = torch.max(posterior_probs_bc, dim=-1)
         artifact_logit_metrics.record(batch=batch, logits=batch.get_artifact_logits(), values=most_confident_probs_b,
                                       sources_override=most_confident_calls_b)
 
         artifact_logits = batch.get_artifact_logits().cpu().tolist()
         data = [Datum(datum_array) for datum_array in batch.get_data_2d()]
-        for datum, post_probs, logit, log_prior, log_spec, log_normal, embedding in zip(data, posterior_probs, artifact_logits, log_priors, spectra_lls, normal_lls, batch.embeddings):
+        for datum, post_probs, logit, log_prior, log_spec, log_normal, embedding in zip(data, posterior_probs_bc, artifact_logits, log_priors_bc, spectra_log_lks_bc, normal_log_lks_bc, batch.embeddings):
             encoding = encode_datum(datum, contig_index_to_name_map)
             encoding_to_posterior_results[encoding] = PosteriorResult(artifact_logit=logit, posterior_probabilities=post_probs.tolist(),
                 log_priors=log_prior, spectra_lls=log_spec, normal_lls=log_normal, label=datum.get_label(),
