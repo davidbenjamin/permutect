@@ -71,7 +71,7 @@ class ReadsDataset(Dataset):
             fold = n % num_folds
             self.indices_by_fold[fold].append(n)
 
-        self.num_read_features = self[0].get_reads_2d().shape[1]
+        self.num_read_features = self[0].get_reads_re().shape[1]
         self.num_info_features = len(self[0].get_info_1d())
         self.haplotypes_length = len(self[0].get_haplotypes_1d())
 

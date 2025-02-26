@@ -1,59 +1,24 @@
 import math
 
 import torch
-from torch import nn, Tensor
+from torch import nn, Tensor, IntTensor
 
-import matplotlib.pyplot as plt
-import numpy as np
+from permutect.utils.enums import Variation
+from permutect.utils.stats_utils import uniform_binomial_log_lk
 
 EPSILON = 0.0001
 
-# the mean of a half-normal distribution is related to the standard deviation sigma of its corresponding normal distribution by
-# sigma = mean * sqrt(pi/2)
-SQRT_PI_OVER_2 = math.sqrt(math.pi / 2)
-
 
 # we can't use a beta binomial for normal seq error because betas have such long tails that even if we constrain the mean
-# to be small there is too large a probability of a large allele fraction.  Here we assume an underlying half normal distribution on
-# the allele fraction ie it is a half normal-binomial.  Since these are not conjugate we have to explicitly sample and
-# essentially perform a brute force Monte Carlo integral.
+# to be small there is too large a probability of a large allele fraction.  Instead, we use a uniform binomial.
 class NormalSeqErrorSpectrum(nn.Module):
-    def __init__(self, num_samples: int, max_mean: float):
+    def __init__(self, max_mean: float):
         super(NormalSeqErrorSpectrum, self).__init__()
-
-        self.num_samples = num_samples
-
         self.max_mean = max_mean
+        self.means_pre_sigmoid_v = torch.nn.Parameter(torch.zeros(len(Variation)))
 
-        # this is 1/lambda parameter
-        # TODO: magic constant initialization!!!
-        self.mean_pre_sigmoid = torch.nn.Parameter(torch.tensor(0.0))
+    def forward(self, ref_counts_b: Tensor, alt_counts_b: Tensor, var_types_b: IntTensor):
+        x1_b = torch.zeros_like(alt_counts_b)
+        x2_b = 2 * self.max_mean * torch.sigmoid(self.mean_pre_sigmoid_v[var_types_b])
+        return uniform_binomial_log_lk(n=alt_counts_b + ref_counts_b, k=alt_counts_b, x1=x1_b, x2=x2_b)
 
-    def forward(self, alt_counts_b: Tensor, ref_counts_b: Tensor):
-        batch_size = len(alt_counts_b)
-        fractions_bs = self.get_fractions_bs(batch_size, self.num_samples)
-
-        log_lks_bs = alt_counts_b.view(-1, 1) * torch.log(fractions_bs) + ref_counts_b.view(-1, 1) * torch.log(1 - fractions_bs)
-
-        # average over sample dimension
-        log_lks_b = torch.logsumexp(log_lks_bs, dim=1) - math.log(self.num_samples)
-        combinatorial_term_b = torch.lgamma(alt_counts_b + ref_counts_b + 1) - torch.lgamma(alt_counts_b + 1) - torch.lgamma(ref_counts_b + 1)
-        return combinatorial_term_b + log_lks_b
-
-    def get_mean(self):
-        return torch.sigmoid(self.mean_pre_sigmoid) * self.max_mean
-
-    def get_fractions_bs(self, batch_size, num_samples):
-        actual_mean = torch.sigmoid(self.mean_pre_sigmoid) * self.max_mean
-        actual_sigma = SQRT_PI_OVER_2 * actual_mean
-        normal_samples_bs = torch.randn(batch_size, num_samples, device=actual_sigma.device)
-        half_normal_samples = torch.abs(normal_samples_bs)
-        fractions_2d_unbounded_bs = actual_sigma * half_normal_samples
-        # apply tanh to constrain fractions to [0, 1), and then to [EPSILON, 1 - EPSILON] for numerical stability
-        fractions_bs = EPSILON + (1 - 2*EPSILON)*torch.tanh(fractions_2d_unbounded_bs)
-        return fractions_bs
-
-    # TODO: move this method to plotting
-    def density_plot_on_axis(self, ax):
-        fractions = torch.squeeze(self.get_fractions_bs(1, 100000)).detach().numpy()
-        ax.hist(fractions, bins=1000, range=[0, 1])

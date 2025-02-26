@@ -84,13 +84,8 @@ class PosteriorModel(torch.nn.Module):
 
         # TODO introduce parameters class so that num_components is not hard-coded
         self.somatic_spectrum = SomaticSpectrum(num_components=5)
-
-        # artifact spectra for each variant type.  Variant type encoded as one-hot input vector.
         self.artifact_spectra = ArtifactSpectra(num_components=2)
-
-        # normal sequencing error spectra for each variant type.
-        self.normal_seq_error_spectra = torch.nn.ModuleList([NormalSeqErrorSpectrum(num_samples=50, max_mean=0.001) for _ in Variation])
-
+        self.normal_seq_error_spectra = NormalSeqErrorSpectrum(max_mean=0.001)
         self.normal_artifact_spectra = initialize_normal_artifact_spectra()
 
         # pre-softmax priors of different call types [log P(variant), log P(artifact), log P(seq error)] for each variant type
@@ -160,12 +155,7 @@ class PosteriorModel(torch.nn.Module):
         # spectra_log_likelihoods[:, Call.GERMLINE] is computed below
 
         normal_log_lks_bc = torch.zeros_like(log_priors_bc)
-        normal_seq_error_log_lks_b = torch.zeros_like(alt_counts_b).float()
-
-        for var_index, _ in enumerate(Variation):
-            var_type_mask_b = (var_types_b == var_index)
-            log_lks_for_var_type_b = self.normal_seq_error_spectra[var_index].forward(normal_alt_counts_b, batch.get_original_normal_ref_counts())
-            normal_seq_error_log_lks_b += var_type_mask_b * log_lks_for_var_type_b
+        normal_seq_error_log_lks_b = self.normal_seq_error_spectra.forward(batch.get_original_normal_ref_counts(), normal_alt_counts_b, var_types_b)
 
         normal_log_lks_bc[:, Call.SOMATIC] = normal_seq_error_log_lks_b
         normal_log_lks_bc[:, Call.ARTIFACT] = normal_seq_error_log_lks_b
@@ -262,16 +252,13 @@ class PosteriorModel(torch.nn.Module):
             if summary_writer is not None:
                 summary_writer.add_scalar("spectrum negative log evidence", epoch_loss.get(), epoch)
 
-                for variant_index, variant_type in enumerate(Variation):
-                    mean = self.normal_seq_error_spectra[variant_index].get_mean()
+                for variant_type in Variation:
+                    mean = self.normal_seq_error_spectra.max_mean * torch.sigmoid(self.normal_seq_error_spectra.means_pre_sigmoid_v[variant_type])
                     summary_writer.add_scalar("normal seq error mean fraction for " + variant_type.name, mean, epoch)
 
                 for depth in [10, 20, 30, 50, 100]:
                     art_spectra_fig, art_spectra_axs = plot_artifact_spectra(self.artifact_spectra, depth)
                     summary_writer.add_figure("Artifact AF Spectra at depth = " + str(depth), art_spectra_fig, epoch)
-
-                #normal_seq_error_spectra_fig, normal_seq_error_spectra_axs = plot_artifact_spectra(self.normal_seq_error_spectra)
-                #summary_writer.add_figure("Normal Seq Error AF Spectra", normal_seq_error_spectra_fig, epoch)
 
                 normal_artifact_spectra_fig, normal_artifact_spectra_axs = plot_artifact_spectra(self.normal_artifact_spectra)
                 summary_writer.add_figure("Normal Artifact AF Spectra", normal_artifact_spectra_fig, epoch)
