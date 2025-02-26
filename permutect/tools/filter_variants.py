@@ -247,6 +247,8 @@ def apply_filtering_to_vcf(input_vcf, output_vcf, contig_index_to_name_map, erro
     print("Computing final error probabilities")
     passing_call_type = Call.GERMLINE if germline_mode else Call.SOMATIC
     evaluation_metrics = EvaluationMetrics(num_sources=1)
+
+    # Note: using BatchIndexedTotals in a hacky way, with Call replacing Source!
     artifact_logit_metrics = BatchIndexedTotals(num_sources=len(Call), include_logits=True)
     encoding_to_posterior_results = {}
 
