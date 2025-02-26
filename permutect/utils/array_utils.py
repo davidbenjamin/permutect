@@ -6,7 +6,7 @@ import torch
 
 def index_2d_array(tens, idx0, idx1):
     dim0, dim1 = tens.shape
-    flattened_indices = (idx0 * dim1) + idx1
+    flattened_indices = idx1 + dim1 * idx0
     return tens.view(-1)[flattened_indices]
 
 
@@ -16,26 +16,25 @@ def index_3d_array(tens, idx0, idx1, idx2):
     result[n] = T[I[n], J[n], K[n]]
     """
     dim0, dim1, dim2 = tens.shape
-    flattened_indices = (idx0 * dim1 * dim2) + (idx1 * dim2) + idx2
+    flattened_indices = idx2 + dim2 * (idx1 + dim1 * idx0)
     return tens.view(-1)[flattened_indices]
 
 
 def index_4d_array(tens, idx0, idx1, idx2, idx3):
     dim0, dim1, dim2, dim3 = tens.shape
-    flattened_indices = (idx0 * dim1 * dim2 * dim3) + (idx1 * dim2 * dim3) + (idx2 * dim3) + idx3
+    flattened_indices = idx3 + dim3 * (idx2 + dim2 * (idx1 + dim1 * idx0))
     return tens.view(-1)[flattened_indices]
 
 
 def index_5d_array(tens, idx0, idx1, idx2, idx3, idx4):
     dim0, dim1, dim2, dim3, dim4 = tens.shape
-    flattened_indices = (idx0 * dim1 * dim2 * dim3 * dim4) + (idx1 * dim2 * dim3 * dim4) + (idx2 * dim3 * dim4) + (idx3 * dim4) + idx4
+    flattened_indices = idx4 + dim4 * (idx3 + dim3 * (idx2 + dim2 * (idx1 + dim1 * idx0)))
     return tens.view(-1)[flattened_indices]
 
 
 def index_6d_array(tens, idx0, idx1, idx2, idx3, idx4, idx5):
     dim0, dim1, dim2, dim3, dim4, dim5 = tens.shape
-    flattened_indices = (idx0 * dim1 * dim2 * dim3 * dim4 * dim5) + (idx1 * dim2 * dim3 * dim4 * dim5) + \
-                        (idx2 * dim3 * dim4 * dim5) + (idx3 * dim4 * dim5) + (idx4 * dim5) + idx5
+    flattened_indices = idx5 + dim5 * (idx4 + dim4 * (idx3 + dim3 * (idx2 + dim2 * (idx1 + dim1 * idx0))))
     return tens.view(-1)[flattened_indices]
 
 
@@ -43,7 +42,7 @@ def index_6d_array(tens, idx0, idx1, idx2, idx3, idx4, idx5):
 # note that the flattened view(-1) shares memory with the original tensor
 def add_to_2d_array(tens: torch.Tensor, idx0, idx1, values):
     dim0, dim1 = tens.shape
-    flattened_indices = (idx0 * dim1) + idx1
+    flattened_indices = idx1 + dim1 * idx0
     return tens.view(-1).index_add_(dim=0, index=flattened_indices, source=values)
 
 
@@ -53,26 +52,25 @@ def add_to_3d_array(tens: torch.Tensor, idx0, idx1, idx2, values):
     T[I[n], J[n], K[n]] += values[n]
     """
     dim0, dim1, dim2 = tens.shape
-    flattened_indices = (idx0 * dim1 * dim2) + (idx1 * dim2) + idx2
+    flattened_indices = idx2 + dim2 * (idx1 + dim1 * idx0)
     return tens.view(-1).index_add_(dim=0, index= flattened_indices, source=values)
 
 
 def add_to_4d_array(tens: torch.Tensor, idx0, idx1, idx2, idx3, values):
     dim0, dim1, dim2, dim3 = tens.shape
-    flattened_indices = (idx0 * dim1 * dim2 * dim3) + (idx1 * dim2 * dim3) + (idx2 * dim3) + idx3
+    flattened_indices = idx3 + dim3 * (idx2 + dim2 * (idx1 + dim1 * idx0))
     return tens.view(-1).index_add_(dim=0, index= flattened_indices, source=values)
 
 
 def add_to_5d_array(tens, idx0, idx1, idx2, idx3, idx4, values):
     dim0, dim1, dim2, dim3, dim4 = tens.shape
-    flattened_indices = (idx0 * dim1 * dim2 * dim3 * dim4) + (idx1 * dim2 * dim3 * dim4) + (idx2 * dim3 * dim4) + (idx3 * dim4) + idx4
+    flattened_indices = idx4 + dim4 * (idx3 + dim3 * (idx2 + dim2 * (idx1 + dim1 * idx0)))
     return tens.view(-1).index_add_(dim=0, index=flattened_indices, source=values)
 
 
 def add_to_6d_array(tens, idx0, idx1, idx2, idx3, idx4, idx5, values):
     dim0, dim1, dim2, dim3, dim4, dim5 = tens.shape
-    flattened_indices = (idx0 * dim1 * dim2 * dim3 * dim4 * dim5) + (idx1 * dim2 * dim3 * dim4 * dim5) + \
-                        (idx2 * dim3 * dim4 * dim5) + (idx3 * dim4 * dim5) + (idx4 * dim5) + idx5
+    flattened_indices = idx5 + dim5 * (idx4 + dim4 * (idx3 + dim3 * (idx2 + dim2 * (idx1 + dim1 * idx0))))
     return tens.view(-1).index_add_(dim=0, index=flattened_indices, source=values)
 
 
