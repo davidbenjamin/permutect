@@ -33,8 +33,7 @@ class NormalSeqErrorSpectrum(nn.Module):
         batch_size = len(alt_counts_b)
         fractions_bs = self.get_fractions_bs(batch_size, self.num_samples)
 
-        log_lks_bs = torch.reshape(alt_counts_b, (batch_size, 1)) * torch.log(fractions_bs) \
-                             + torch.reshape(ref_counts_b, (batch_size, 1)) * torch.log(1 - fractions_bs)
+        log_lks_bs = alt_counts_b.view(-1, 1) * torch.log(fractions_bs) + ref_counts_b.view(-1, 1) * torch.log(1 - fractions_bs)
 
         # average over sample dimension
         log_lks_b = torch.logsumexp(log_lks_bs, dim=1) - math.log(self.num_samples)

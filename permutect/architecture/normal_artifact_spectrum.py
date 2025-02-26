@@ -30,10 +30,10 @@ class NormalArtifactSpectrum(nn.Module):
         batch_size = len(tumor_alt_counts_b)
         tumor_fractions_bs, normal_fractions_bs = self.get_tumor_and_normal_fractions_bs(batch_size, self.num_samples)
 
-        log_lks_bs = torch.reshape(tumor_alt_counts_b, (batch_size, 1)) * torch.log(tumor_fractions_bs) \
-                             + torch.reshape(tumor_ref_counts_b, (batch_size, 1)) * torch.log(1 - tumor_fractions_bs) \
-                             + torch.reshape(normal_alt_counts_b, (batch_size, 1)) * torch.log(normal_fractions_bs) \
-                             + torch.reshape(normal_ref_counts_b, (batch_size, 1)) * torch.log(1 - normal_fractions_bs)
+        log_lks_bs = tumor_alt_counts_b.view(-1, 1) * torch.log(tumor_fractions_bs) \
+                             + tumor_ref_counts_b.view(-1, 1) * torch.log(1 - tumor_fractions_bs) \
+                             + normal_alt_counts_b.view(-1, 1) * torch.log(normal_fractions_bs) \
+                             + normal_ref_counts_b.view(-1, 1) * torch.log(1 - normal_fractions_bs)
 
         # average over sample dimension
         log_lks_b = torch.logsumexp(log_lks_bs, dim=1) - math.log(self.num_samples)
