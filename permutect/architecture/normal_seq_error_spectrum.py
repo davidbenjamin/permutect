@@ -18,6 +18,6 @@ class NormalSeqErrorSpectrum(nn.Module):
 
     def forward(self, ref_counts_b: Tensor, alt_counts_b: Tensor, var_types_b: IntTensor):
         x1_b = torch.zeros_like(alt_counts_b)
-        x2_b = 2 * self.max_mean * torch.sigmoid(self.mean_pre_sigmoid_v[var_types_b])
+        x2_b = 2 * self.max_mean * torch.sigmoid(self.means_pre_sigmoid_v[var_types_b])
         return uniform_binomial_log_lk(n=alt_counts_b + ref_counts_b, k=alt_counts_b, x1=x1_b, x2=x2_b)
 
