@@ -131,7 +131,7 @@ class PosteriorModel(torch.nn.Module):
         of length batch_size.
         :return:
         """
-        var_types_b = batch.get_variant_types().to(device=self._device, dtype=self._dtype)
+        var_types_b = batch.get_variant_types()
 
         # All log likelihood/relative posterior tensors below have shape batch.size() x len(CallType)
         # spectra tensors contain the likelihood that these *particular* reads (that is, not just the read count) are alt
