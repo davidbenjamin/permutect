@@ -7,6 +7,7 @@ import numpy as np
 import torch
 from matplotlib import pyplot as plt
 from torch import Tensor
+from torch.nn import Parameter
 from torch.utils.tensorboard import SummaryWriter
 
 from permutect.data.batch import Batch
@@ -17,7 +18,7 @@ from permutect.data.count_binning import NUM_REF_COUNT_BINS, NUM_ALT_COUNT_BINS,
     alt_count_bin_indices, alt_count_bin_name
 from permutect.metrics import plotting
 from permutect.misc_utils import gpu_if_available
-from permutect.utils.array_utils import add_to_6d_array, select_and_sum
+from permutect.utils.array_utils import add_to_6d_array, select_and_sum, index_5d_array
 from permutect.utils.enums import Variation, Epoch, Label
 
 
@@ -37,6 +38,30 @@ class BatchProperty(IntEnum):
 
     def get_name(self, n: int):
         return str(n) if self.names_list is None else self.names_list[n]
+
+# TODO: should be just Tensor, not Parameter, and index_by_batch should be a static method
+# TODO: acting on arbitrary tensor
+class BatchIndexedParameter(Parameter):
+    NUM_DIMS = 5
+
+    def __init__(self, data_slvra: Tensor, requires_grad: bool = True):
+        super().__init__(data_slvra, requires_grad=requires_grad)
+        self.num_sources = data_slvra.shape[0]
+        self.device = data_slvra.device
+        assert data_slvra.shape == (self.num_sources, len(Label), len(Variation), NUM_REF_COUNT_BINS, NUM_ALT_COUNT_BINS)
+
+    def index_by_batch(self, batch: Batch) -> Tensor:
+        # return a 1-D tensor where the nth element corresponds to the source, label etc the of the nth element of the batch
+        sources_b, labels_b, var_types_b = batch.get_sources(), batch.get_labels(), batch.get_variant_types()
+        ref_counts_b, alt_counts_b = batch.get_ref_counts(), batch.get_alt_counts()
+        ref_bins_b, alt_bins_b = ref_count_bin_indices(ref_counts_b), alt_count_bin_indices(alt_counts_b)
+        return index_5d_array(self, sources_b, labels_b, var_types_b, ref_bins_b, alt_bins_b)
+
+    @classmethod
+    def create_constant(cls, num_sources: int, value:float, device, requires_grad: bool = True):
+        data_slvra = value * torch.ones(num_sources, len(Label), len(Variation), NUM_REF_COUNT_BINS, NUM_ALT_COUNT_BINS, device=device, requires_grad=requires_grad)
+        result = cls(data_slvra=data_slvra, device=device, requires_grad=requires_grad)
+        return result
 
 
 class BatchIndexedTotals:
