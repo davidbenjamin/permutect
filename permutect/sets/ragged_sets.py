@@ -1,4 +1,5 @@
 import torch
+from torch import Tensor, LongTensor, IntTensor
 from torch_scatter import segment_csr
 
 # in Python 3.11 this would be from typing import Self
@@ -24,7 +25,7 @@ class RaggedSets:
     Example: sets of sizes 1,3,2; bounds = [0, 1, 4, 6]
     """
 
-    def __init__(self, flattened_tensor_nf: torch.Tensor, bounds_b: torch.LongTensor):
+    def __init__(self, flattened_tensor_nf: Tensor, bounds_b: LongTensor):
         self.flattened_tensor_nf = flattened_tensor_nf
 
         assert bounds_b[0] == 0
@@ -32,7 +33,7 @@ class RaggedSets:
         self.bounds_b = bounds_b
 
     @classmethod
-    def from_flattened_tensor_and_sizes(cls, flattened_tensor_nf: torch.Tensor, sizes_b: torch.IntTensor):
+    def from_flattened_tensor_and_sizes(cls, flattened_tensor_nf: Tensor, sizes_b: IntTensor):
         """
         construct, converting from sizes to bounds
         """
@@ -41,13 +42,13 @@ class RaggedSets:
         bounds_b = torch.cumsum(with_zero, dim=0)
         return cls(flattened_tensor_nf, bounds_b)
 
-    def get_sizes(self) -> torch.LongTensor:
+    def get_sizes(self) -> LongTensor:
         return torch.diff(self.bounds_b)
 
     def batch_size(self) -> int:
         return len(self.bounds_b) - 1
 
-    def expand_from_b_to_n(self, tensor_bf: torch.Tensor) -> torch.Tensor:
+    def expand_from_b_to_n(self, tensor_bf: Tensor) -> Tensor:
         """
         given input tensor tensor_bf with values for each set in the batch, expand by repeating so that
         output_nf has values for each element.  The b-th set gets repeated size[b] times
@@ -99,7 +100,7 @@ class RaggedSets:
         """
         return RaggedSets(self.flattened_tensor_nf + other.flattened_tensor_nf, self.bounds_b)
 
-    def broadcast_add(self, other_bf: torch.Tensor) -> ThisClass:
+    def broadcast_add(self, other_bf: Tensor) -> ThisClass:
         """
         given a 2D tensor Z_bf with same batch size and feature size, broadcast the addition over batches.  That is,
         result_bsf = X_bsf + other_bf
@@ -143,7 +144,7 @@ class RaggedSets:
         result_nf = exp_nf / denom_nf
         return RaggedSets(result_nf, self.bounds_b)
 
-    def means_over_sets(self, regularizer_f: torch.Tensor = None, regularizer_weight: float = 0.0001) -> torch.Tensor:
+    def means_over_sets(self, regularizer_f: Tensor = None, regularizer_weight: float = 0.0001) -> Tensor:
         """
         mean element of each set, with a regularizer to handle sets with zero or few elements.  The very small default
         regularizer weight means that the regularizer acts as an imputed value for empty sets and has basically no
@@ -156,7 +157,7 @@ class RaggedSets:
         means_bf = regularized_sums_bf / regularized_sizes_b.view(-1, 1)
         return means_bf
 
-    def sums_over_sets(self) -> torch.Tensor:
+    def sums_over_sets(self) -> Tensor:
         """
         sum of elements of each set. Returns a 2D tensor of shape Batch size x Feature size
         """

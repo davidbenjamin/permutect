@@ -206,17 +206,17 @@ def make_posterior_data_loader(dataset_file, input_vcf, contig_index_to_name_map
     posterior_data = []
     for list_of_base_data in plain_text_data.generate_normalized_data([dataset_file], chunk_size):
         report_memory_usage("Creating BaseDataset.")
-        reads_dataset = ReadsDataset(data_in_ram=list_of_base_data)
-        loader = reads_dataset.make_data_loader(reads_dataset.all_folds(), batch_size, pin_memory=torch.cuda.is_available(), num_workers=num_workers)
+        dataset = ReadsDataset(data_in_ram=list_of_base_data)
+        loader = dataset.make_data_loader(dataset.all_folds(), batch_size, pin_memory=torch.cuda.is_available(), num_workers=num_workers)
 
         print("creating posterior data for this chunk...")
         batch: ReadsBatch
         for batch in tqdm(prefetch_generator(loader), mininterval=60, total=len(loader)):
-            representations, _ = model.calculate_representations(batch, weight_range=model._params.reweighting_range)
-            artifact_logits, _ = model.logits_from_reads_batch(representations, batch)
+            features_be, _ = model.calculate_features(batch, weight_range=model._params.reweighting_range)
+            artifact_logits_b, _ = model.logits_from_reads_batch(features_be, batch)
 
-            for datum_array, logit, embedding in zip(batch.get_data_2d(),
-                    artifact_logits.detach().tolist(), representations.cpu()):
+            for datum_array, logit, embedding in zip(batch.get_data_be(),
+                    artifact_logits_b.detach().tolist(), features_be.cpu()):
                 datum = Datum(datum_array)
                 contig_name = contig_index_to_name_map[datum.get_contig()]
                 position = datum.get_position()
@@ -255,26 +255,26 @@ def apply_filtering_to_vcf(input_vcf, output_vcf, contig_index_to_name_map, erro
     batch: PosteriorBatch
     for batch in tqdm(prefetch_generator(posterior_loader), mininterval=60, total=len(posterior_loader)):
         # posterior, along with intermediate tensors for debugging/interpretation
-        log_priors, spectra_lls, normal_lls, log_posteriors = \
+        log_priors_bc, spectra_log_lks_bc, normal_log_lks_bc, log_posteriors_bc = \
             posterior_model.log_posterior_and_ingredients(batch)
 
-        posterior_probs = torch.nn.functional.softmax(log_posteriors, dim=1)
-        error_probs = 1 - posterior_probs[:, passing_call_type]
-        error_logits = inverse_sigmoid(error_probs)
+        posterior_probs_bc = torch.nn.functional.softmax(log_posteriors_bc, dim=1)
+        error_probs_b = 1 - posterior_probs_bc[:, passing_call_type]
+        error_logits_b = inverse_sigmoid(error_probs_b)
         # this does nothing if the test dataset was generated without a truth VCF and thus has no labels
         # note that here we use error logits, not artifact logits
         # TODO: maybe also have an option to record relative to the computed probability thresholds.
         # TODO: this code here treats posterior_prob = 1/2 as the threshold
         # TODO: we could perhaps subtract the threshold to re-center at zero
-        evaluation_metrics.record_batch(Epoch.TEST, batch, error_logits)
+        evaluation_metrics.record_batch(Epoch.TEST, batch, error_logits_b)
 
-        most_confident_probs_b, most_confident_calls_b = torch.max(posterior_probs, dim=-1)
+        most_confident_probs_b, most_confident_calls_b = torch.max(posterior_probs_bc, dim=-1)
         artifact_logit_metrics.record(batch=batch, logits=batch.get_artifact_logits(), values=most_confident_probs_b,
                                       sources_override=most_confident_calls_b)
 
         artifact_logits = batch.get_artifact_logits().cpu().tolist()
-        data = [Datum(datum_array) for datum_array in batch.get_data_2d()]
-        for datum, post_probs, logit, log_prior, log_spec, log_normal, embedding in zip(data, posterior_probs, artifact_logits, log_priors, spectra_lls, normal_lls, batch.embeddings):
+        data = [Datum(datum_array) for datum_array in batch.get_data_be()]
+        for datum, post_probs, logit, log_prior, log_spec, log_normal, embedding in zip(data, posterior_probs_bc, artifact_logits, log_priors_bc, spectra_log_lks_bc, normal_log_lks_bc, batch.embeddings):
             encoding = encode_datum(datum, contig_index_to_name_map)
             encoding_to_posterior_results[encoding] = PosteriorResult(artifact_logit=logit, posterior_probabilities=post_probs.tolist(),
                 log_priors=log_prior, spectra_lls=log_spec, normal_lls=log_normal, label=datum.get_label(),
@@ -329,7 +329,7 @@ def apply_filtering_to_vcf(input_vcf, output_vcf, contig_index_to_name_map, erro
 
             if called_as_error:
                 # get the error type with the largest posterior probability
-                highest_prob_indices = torch.topk(torch.Tensor(post_probs), 2).indices.tolist()
+                highest_prob_indices = torch.topk(torch.tensor(post_probs), 2).indices.tolist()
                 highest_prob_index = highest_prob_indices[1] if highest_prob_indices[0] == passing_call_type else highest_prob_indices[0]
                 error_call = list(Call)[highest_prob_index]
                 filters.add(FILTER_NAMES[highest_prob_index])
@@ -338,7 +338,7 @@ def apply_filtering_to_vcf(input_vcf, output_vcf, contig_index_to_name_map, erro
             embedding_metrics.label_metadata.append(label.name)
             embedding_metrics.type_metadata.append(variant_type.name)
             embedding_metrics.truncated_count_metadata.append(alt_count_bin_name(alt_count_bin_index(min(MAX_ALT_COUNT, posterior_result.alt_count))))
-            embedding_metrics.representations.append(posterior_result.embedding)
+            embedding_metrics.features.append(posterior_result.embedding)
 
             correctness_label = "unknown"
             if label != Label.UNLABELED:

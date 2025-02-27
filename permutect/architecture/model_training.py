@@ -90,25 +90,25 @@ def train_permutect_model(model: PermutectModel, dataset: ReadsDataset, training
                 # first handle the labeled loss and the adversarial tasks, which treat the parent and downsampled batches independently
                 loss = 0
                 for n, (batch, output) in enumerate(zip(batches, outputs)):
-                    labels = batch.get_training_labels()
-                    is_labeled = batch.get_is_labeled_mask()
+                    labels_b = batch.get_training_labels()
+                    is_labeled_b = batch.get_is_labeled_mask()
 
-                    source_losses = model.compute_source_prediction_losses(output.features, batch)
-                    alt_count_losses = model.compute_alt_count_losses(output.features, batch)
-                    supervised_losses = is_labeled * bce(output.calibrated_logits, labels)
+                    source_losses_b = model.compute_source_prediction_losses(output.features, batch)
+                    alt_count_losses_b = model.compute_alt_count_losses(output.features, batch)
+                    supervised_losses_b = is_labeled_b * bce(output.calibrated_logits, labels_b)
 
                     # unsupervised loss uses uncalibrated logits because different counts should NOT be the same after calibration,
                     # but should be identical before.  Note that unsupervised losses is used with and without labels
                     # This must be changed if we have more than one downsampled batch
                     # TODO: should we detach() torch.sigmoid(other_output...)?
                     other_output = outputs[1 if n == 0 else 0]
-                    unsupervised_losses = (1 - is_labeled) * bce(output.uncalibrated_logits, torch.sigmoid(other_output.uncalibrated_logits))
-                    loss += torch.sum(output.weights * (supervised_losses + unsupervised_losses + alt_count_losses) + output.source_weights * source_losses)
+                    unsupervised_losses_b = (1 - is_labeled_b) * bce(output.uncalibrated_logits, torch.sigmoid(other_output.uncalibrated_logits))
+                    loss += torch.sum(output.weights * (supervised_losses_b + unsupervised_losses_b + alt_count_losses_b) + output.source_weights * source_losses_b)
 
-                    loss_metrics.record(batch, None, supervised_losses, is_labeled * output.weights)
-                    loss_metrics.record(batch, None, unsupervised_losses, (1 - is_labeled) * output.weights)
-                    source_prediction_loss_metrics.record(batch, None, source_losses, output.source_weights)
-                    alt_count_loss_metrics.record(batch, None, alt_count_losses, output.weights)
+                    loss_metrics.record(batch, None, supervised_losses_b, is_labeled_b * output.weights)
+                    loss_metrics.record(batch, None, unsupervised_losses_b, (1 - is_labeled_b) * output.weights)
+                    source_prediction_loss_metrics.record(batch, None, source_losses_b, output.source_weights)
+                    alt_count_loss_metrics.record(batch, None, alt_count_losses_b, output.weights)
 
                 if epoch_type == Epoch.TRAIN:
                     backpropagate(train_optimizer, loss)
@@ -160,13 +160,13 @@ def collect_evaluation_data(model: PermutectModel, dataset: ReadsDataset, balanc
         batch: ReadsBatch
         for batch in tqdm(prefetch_generator(loader), mininterval=60, total=len(loader)):
             # these are the same weights used in training
-            weights, _ = balancer.process_batch_and_compute_weights(batch)
-            representations, _ = model.calculate_representations(batch, weight_range=model._params.reweighting_range)
-            logits, _ = model.logits_from_reads_batch(representations, batch)
-            evaluation_metrics.record_batch(epoch_type, batch, logits, weights)
+            weights_b, _ = balancer.process_batch_and_compute_weights(batch)
+            features_be, _ = model.calculate_features(batch, weight_range=model._params.reweighting_range)
+            logits_b, _ = model.logits_from_reads_batch(features_be, batch)
+            evaluation_metrics.record_batch(epoch_type, batch, logits_b, weights_b)
 
             if report_worst:
-                for datum_array, predicted_logit in zip(batch.get_data_2d(), logits.detach().cpu().tolist()):
+                for datum_array, predicted_logit in zip(batch.get_data_be(), logits_b.detach().cpu().tolist()):
                     datum = Datum(datum_array)
                     wrong_call = (datum.get_label() == Label.ARTIFACT and predicted_logit < 0) or \
                                  (datum.get_label() == Label.VARIANT and predicted_logit > 0)
@@ -216,24 +216,24 @@ def evaluate_model(model: PermutectModel, epoch: int, dataset: ReadsDataset, bal
         # now go over just the validation data and generate feature vectors / metadata for tensorboard projectors (UMAP)
         batch: ReadsBatch
         for batch in tqdm(prefetch_generator(valid_loader), mininterval=60, total=len(valid_loader)):
-            representations, _ = model.calculate_representations(batch, weight_range=model._params.reweighting_range)
-            logits, _ = model.logits_from_reads_batch(representations, batch)
-            pred = logits.detach().cpu()
-            labels = batch.get_training_labels().cpu()
-            correct = ((pred > 0) == (labels > 0.5)).tolist()
+            features_be, _ = model.calculate_features(batch, weight_range=model._params.reweighting_range)
+            logits_b, _ = model.logits_from_reads_batch(features_be, batch)
+            pred_b = logits_b.detach().cpu()
+            labels_b = batch.get_training_labels().cpu()
+            correct_b = ((pred_b > 0) == (labels_b > 0.5)).tolist()
             is_labeled_list = batch.get_is_labeled_mask().cpu().tolist()
 
             label_strings = [("artifact" if label > 0.5 else "non-artifact") if is_labeled > 0.5 else "unlabeled"
-                             for (label, is_labeled) in zip(labels.tolist(), is_labeled_list)]
+                             for (label, is_labeled) in zip(labels_b.tolist(), is_labeled_list)]
 
             correct_strings = [str(correctness) if is_labeled > 0.5 else "-1"
-                             for (correctness, is_labeled) in zip(correct, is_labeled_list)]
+                             for (correctness, is_labeled) in zip(correct_b, is_labeled_list)]
 
-            for (metrics, embedding) in [(embedding_metrics, representations.detach().cpu())]:
+            for (metrics, features_e) in [(embedding_metrics, features_be.detach().cpu())]:
                 metrics.label_metadata.extend(label_strings)
                 metrics.correct_metadata.extend(correct_strings)
                 metrics.type_metadata.extend([Variation(idx).name for idx in batch.get_variant_types().cpu().tolist()])
                 metrics.truncated_count_metadata.extend([alt_count_bin_name(alt_count_bin_index(alt_count)) for alt_count in batch.get_alt_counts().cpu().tolist()])
-                metrics.representations.append(embedding)
+                metrics.features.append(features_e)
         embedding_metrics.output_to_summary_writer(summary_writer, epoch=epoch)
     # done collecting data

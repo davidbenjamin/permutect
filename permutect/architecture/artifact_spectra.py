@@ -1,12 +1,11 @@
 import math
 
 import torch
-from permutect import misc_utils
 from torch import nn, IntTensor
 
 from permutect.metrics.plotting import simple_plot
 from permutect.misc_utils import backpropagate
-from permutect.utils.stats_utils import beta_binomial_log_lk, uniform_binomial_log_lk
+from permutect.utils.stats_utils import uniform_binomial_log_lk
 from permutect.utils.enums import Variation
 
 
@@ -42,7 +41,7 @@ class ArtifactSpectra(nn.Module):
     here x is a 2D tensor, 1st dimension batch, 2nd dimension being features that determine which Beta mixture to use
     n and k are 1D tensors, the only dimension being batch.
     '''
-    def forward(self, variant_types_b: torch.IntTensor, depths_b, alt_counts_b):
+    def forward(self, variant_types_b: IntTensor, depths_b, alt_counts_b):
         var_types_b = variant_types_b.long()
 
         depths_bk, alt_counts_bk = depths_b.view(-1, 1), alt_counts_b.view(-1, 1)
@@ -56,18 +55,17 @@ class ArtifactSpectra(nn.Module):
         result_b = torch.logsumexp(weighted_log_lks_bk, dim=-1)
         return result_b
 
-
     # TODO: utter code duplication with somatic spectrum
-    def fit(self, num_epochs, types_b: IntTensor, depths_1d_tensor, alt_counts_1d_tensor, batch_size=64):
+    def fit(self, num_epochs: int, types_b: IntTensor, depths_b: IntTensor, alt_counts_b: IntTensor, batch_size: int=64):
         optimizer = torch.optim.Adam(self.parameters())
-        num_batches = math.ceil(len(alt_counts_1d_tensor) / batch_size)
+        num_batches = math.ceil(len(alt_counts_b) / batch_size)
 
         for epoch in range(num_epochs):
             for batch in range(num_batches):
                 batch_start = batch * batch_size
-                batch_end = min(batch_start + batch_size, len(alt_counts_1d_tensor))
+                batch_end = min(batch_start + batch_size, len(alt_counts_b))
                 batch_slice = slice(batch_start, batch_end)
-                loss = -torch.mean(self.forward(types_b[batch_slice], depths_1d_tensor[batch_slice], alt_counts_1d_tensor[batch_slice]))
+                loss = -torch.mean(self.forward(types_b[batch_slice], depths_b[batch_slice], alt_counts_b[batch_slice]))
                 backpropagate(optimizer, loss)
 
     '''

@@ -32,8 +32,8 @@ def test_reads_batch():
 
     batch = permutect.data.reads_batch.ReadsBatch(data)
 
-    assert torch.equal(batch.get_one_hot_haplotypes_2d(),
-                       torch.Tensor([
+    assert torch.equal(batch.get_one_hot_haplotypes_bcs(),
+                       torch.tensor([
                            [[1,0,0],[0,1,1],[0,0,0],[0,0,0]],
                            [[0,0,0],[0,0,0],[1,0,1],[0,1,0]],
                            [[0,1,1],[0,0,0],[0,0,0],[1,0,0]]
@@ -41,10 +41,10 @@ def test_reads_batch():
                        )
     assert batch.size() == 3
 
-    assert batch.get_reads_2d().shape[0] == sum(ref_counts) + sum(alt_counts)
-    assert batch.get_reads_2d().shape[1] == num_read_features
+    assert batch.get_reads_re().shape[0] == sum(ref_counts) + sum(alt_counts)
+    assert batch.get_reads_re().shape[1] == num_read_features
 
-    assert batch.get_info_2d().shape[0] == 3
+    assert batch.get_info_be().shape[0] == 3
 
     assert batch.labels.tolist() == [1.0, 0.0, 1.0]
 

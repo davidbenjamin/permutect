@@ -31,15 +31,15 @@ def learn_artifact_priors_and_spectra(dataset: ReadsDataset, genomic_span_of_dat
 
     # turn the lists into tensors
     types_tensor = torch.LongTensor(types_list)
-    depths_tensor = torch.Tensor(depths_list).float()
-    alt_counts_tensor = torch.Tensor(alt_counts_list).float()
+    depths_tensor = torch.tensor(depths_list).float()
+    alt_counts_tensor = torch.tensor(alt_counts_list).float()
 
     log_artifact_priors = torch.log(artifact_counts / genomic_span_of_data)
     artifact_spectra = ArtifactSpectra(num_components=2)
 
     # TODO: hard-coded num epochs!!!
-    artifact_spectra.fit(num_epochs=10, types_b=types_tensor, depths_1d_tensor=depths_tensor,
-                         alt_counts_1d_tensor=alt_counts_tensor, batch_size=64)
+    artifact_spectra.fit(num_epochs=10, types_b=types_tensor, depths_b=depths_tensor,
+                         alt_counts_b=alt_counts_tensor, batch_size=64)
 
     return log_artifact_priors, artifact_spectra
 
@@ -87,8 +87,8 @@ def main_without_parsing(args):
 
     train_permutect_model(model, dataset, training_params, summary_writer, epochs_per_evaluation=10, calibration_sources=calibration_sources)
 
-    for n, var_type in enumerate(Variation):
-        cal_fig, cal_axes = model.calibration[n].plot_calibration_module(model._device, model._dtype)
+    for var_type in Variation:
+        cal_fig, cal_axes = model.calibration.plot_calibration_module(var_type=var_type, device=model._device, dtype=model._dtype)
         summary_writer.add_figure("calibration by count for " + var_type.name, cal_fig)
 
     report_memory_usage("Finished training.")

@@ -2,6 +2,7 @@ import psutil
 import tarfile
 import os
 import torch
+from torch import Tensor
 
 
 def report_memory_usage(message: str = ""):
@@ -88,18 +89,18 @@ class StreamingAverage:
         self._sum += value_sum
 
     # record only values masked as true
-    def record_with_mask(self, values: torch.Tensor, mask: torch.Tensor):
+    def record_with_mask(self, values: Tensor, mask: Tensor):
         self._count += torch.sum(mask).item()
         self._sum += torch.sum(values*mask).item()
 
     # record values with different weights
     # values and mask should live on same device as self._sum
-    def record_with_weights(self, values: torch.Tensor, weights: torch.Tensor):
+    def record_with_weights(self, values: Tensor, weights: Tensor):
         self._count += torch.sum(weights).item()
         self._sum += torch.sum(values * weights).item()
 
 
-def backpropagate(optimizer: torch.optim.Optimizer, loss: torch.Tensor):
+def backpropagate(optimizer: torch.optim.Optimizer, loss: Tensor):
     optimizer.zero_grad(set_to_none=True)
     loss.backward()
     optimizer.step()

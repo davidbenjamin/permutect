@@ -20,7 +20,7 @@ def test_reads_datum():
 
     snv_datum = ReadsDatum.from_gatk("AC", Variation.SNV, ref_tensor, alt_tensor, gatk_info_tensor, label, source)
 
-    assert torch.equal(snv_datum.reads_2d, np.vstack([ref_tensor, alt_tensor]))
+    assert torch.equal(snv_datum.reads_re, np.vstack([ref_tensor, alt_tensor]))
     assert permutect.utils.allele_utils.get_variant_type() == Variation.SNV
     assert snv_datum.get_label() == label
 

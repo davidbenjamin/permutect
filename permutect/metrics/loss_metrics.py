@@ -6,6 +6,7 @@ from typing import Tuple, List
 import numpy as np
 import torch
 from matplotlib import pyplot as plt
+from torch import Tensor
 from torch.utils.tensorboard import SummaryWriter
 
 from permutect.data.batch import Batch
@@ -94,7 +95,7 @@ class BatchIndexedTotals:
         ref_idx, alt_idx = ref_count_bin_index(datum.get_ref_count()), alt_count_bin_index(datum.get_alt_count())
         self.totals_slvrag[source, datum.get_label(), datum.get_variant_type(), ref_idx, alt_idx, 0] += value
 
-    def record(self, batch: Batch, logits: torch.Tensor, values: torch.Tensor, sources_override: torch.Tensor = None):
+    def record(self, batch: Batch, logits: Tensor, values: Tensor, sources_override: Tensor = None):
         # sources override is something of a hack: for filtering, there is only one source, the sample being called,
         # and we may want to use the source index for some other covariate, such as the type of Call
         # values is a 1D tensor
@@ -106,10 +107,10 @@ class BatchIndexedTotals:
         add_to_6d_array(self.totals_slvrag, sources, batch.get_labels(), batch.get_variant_types(),
                         ref_count_bin_indices(batch.get_ref_counts()), alt_count_bin_indices(batch.get_alt_counts()), logit_indices, values)
 
-    def get_totals(self) -> torch.Tensor:
+    def get_totals(self) -> Tensor:
         return self.totals_slvrag
 
-    def get_marginal(self, *properties: Tuple[BatchProperty, ...]) -> torch.Tensor:
+    def get_marginal(self, *properties: Tuple[BatchProperty, ...]) -> Tensor:
         """
         sum over all but one or more batch properties.
         For example self.get_marginal(BatchProperty.SOURCE, BatchProperty.LABEL) yields a (num sources x len(Label)) output
@@ -173,16 +174,16 @@ class BatchIndexedAverages:
         self.has_been_sent_to_cpu = True
         return self
 
-    def record(self, batch: Batch, logits: torch.Tensor, values: torch.Tensor, weights: torch.Tensor=None):
+    def record(self, batch: Batch, logits: Tensor, values: Tensor, weights: Tensor=None):
         assert not self.has_been_sent_to_cpu, "Can't record after already sending to CPU"
         weights_to_use = torch.ones_like(values) if weights is None else weights
         self.totals.record(batch, logits, (values*weights_to_use).detach())
         self.counts.record(batch, logits, weights_to_use.detach())
 
-    def get_averages(self) -> torch.Tensor:
+    def get_averages(self) -> Tensor:
         return self.totals.get_totals() / (0.001 + self.counts.get_totals())
 
-    def get_marginal(self, *properties: Tuple[BatchProperty, ...]) -> torch.Tensor:
+    def get_marginal(self, *properties: Tuple[BatchProperty, ...]) -> Tensor:
         return self.totals.get_marginal(properties) / self.counts.get_marginal(properties)
 
     def report_marginals(self, message: str):
