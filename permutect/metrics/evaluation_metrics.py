@@ -10,6 +10,7 @@ from torch import Tensor
 from torch.utils.tensorboard import SummaryWriter
 
 from permutect.data.batch import Batch
+from permutect.data.batch_indexing import BatchIndices
 from permutect.metrics import plotting
 from permutect.metrics.loss_metrics import AccuracyMetrics
 from permutect.data.count_binning import NUM_ALT_COUNT_BINS, count_from_ref_bin_index, NUM_REF_COUNT_BINS, \
@@ -42,14 +43,11 @@ class EvaluationMetrics:
         return self
 
     # TODO: currently doesn't record unlabeled data at all
-    # correct_call is boolean -- was the prediction correct?
-    # the predicted logit is the logit corresponding to the predicted probability that call in question is an artifact / error
-    def record_batch(self, epoch_type: Epoch, batch: Batch, predicted_logits: Tensor, weights: Tensor = None):
+    def record_batch(self, epoch_type: Epoch, batch_indices: BatchIndices, weights: Tensor = None):
         assert not self.has_been_sent_to_cpu, "Can't record after already sending to CPU"
-        labels = batch.get_labels()
-        is_labeled = labels != Label.UNLABELED
-        weights_with_labeled_mask = is_labeled * (weights if weights is not None else torch.ones(batch.size(), device=predicted_logits.device))
-        self.metrics[epoch_type].record(batch, predicted_logits, weights_with_labeled_mask)
+        is_labeled = batch_indices.labels != Label.UNLABELED
+        weights_with_labeled_mask = is_labeled * (weights if weights is not None else torch.ones_like(batch_indices.sources))
+        self.metrics[epoch_type].record(batch_indices, weights_with_labeled_mask)
 
     # track bad calls when filtering is given an optional evaluation truth VCF
     def record_mistake(self, posterior_result: PosteriorResult, call: Call):

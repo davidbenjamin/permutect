@@ -12,6 +12,7 @@ from permutect import constants
 from permutect.architecture.posterior_model import PosteriorModel
 from permutect.architecture.permutect_model import PermutectModel, load_model
 from permutect.data import plain_text_data
+from permutect.data.batch_indexing import BatchIndices
 from permutect.data.datum import Datum
 from permutect.data.posterior_data import PosteriorDataset, PosteriorDatum, PosteriorBatch
 from permutect.data.prefetch_generator import prefetch_generator
@@ -266,11 +267,13 @@ def apply_filtering_to_vcf(input_vcf, output_vcf, contig_index_to_name_map, erro
         # TODO: maybe also have an option to record relative to the computed probability thresholds.
         # TODO: this code here treats posterior_prob = 1/2 as the threshold
         # TODO: we could perhaps subtract the threshold to re-center at zero
-        evaluation_metrics.record_batch(Epoch.TEST, batch, error_logits_b)
+        evaluation_batch_indices = BatchIndices(batch, num_sources=1, logits=error_logits_b)
+        evaluation_metrics.record_batch(Epoch.TEST, evaluation_batch_indices)
 
         most_confident_probs_b, most_confident_calls_b = torch.max(posterior_probs_bc, dim=-1)
-        artifact_logit_metrics.record(batch=batch, logits=batch.get_artifact_logits(), values=most_confident_probs_b,
-                                      sources_override=most_confident_calls_b)
+
+        artifact_logit_batch_indices = BatchIndices(batch, num_sources=len(Call), logits=batch.get_artifact_logits(), sources_override=most_confident_calls_b)
+        artifact_logit_metrics.record(artifact_logit_batch_indices, values=most_confident_probs_b)
 
         artifact_logits = batch.get_artifact_logits().cpu().tolist()
         data = [Datum(datum_array) for datum_array in batch.get_data_be()]

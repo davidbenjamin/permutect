@@ -3,7 +3,7 @@ from __future__ import annotations
 from enum import IntEnum
 
 import torch
-from torch import Tensor
+from torch import Tensor, IntTensor
 
 from permutect.data.batch import Batch
 from permutect.data.count_binning import ref_count_bin_name, NUM_REF_COUNT_BINS, alt_count_bin_name, NUM_ALT_COUNT_BINS, \
@@ -32,8 +32,12 @@ class BatchProperty(IntEnum):
 
 
 class BatchIndices:
-    def __init__(self, batch: Batch, num_sources: int, logits: Tensor = None):
-        self.sources = batch.get_sources()
+    def __init__(self, batch: Batch, num_sources: int, logits: Tensor = None, sources_override: IntTensor=None):
+        """
+        sources override is used for something of a hack where in filtering there is only one source, so we use the
+        source dimensipn to instead represent the call type
+        """
+        self.sources = batch.get_sources() if sources_override is None else sources_override
         self.labels = batch.get_labels()
         self.var_types = batch.get_variant_types()
         self.ref_counts = batch.get_ref_counts()
@@ -42,7 +46,7 @@ class BatchIndices:
         self.alt_count_bins = alt_count_bin_indices(self.alt_counts)
         self.logit_bins = logit_bin_indices(logits) if logits is not None else None
 
-        dims_without_logits = (num_sources, len (Label), len(Variation), NUM_REF_COUNT_BINS, NUM_ALT_COUNT_BINS)
+        dims_without_logits = (num_sources, len(Label), len(Variation), NUM_REF_COUNT_BINS, NUM_ALT_COUNT_BINS)
         idx_without_logits = (self.sources, self.labels, self.var_types, self.ref_count_bins, self.alt_count_bins)
         self.flattened_idx_without_logits = flattened_indices(dims_without_logits, idx_without_logits)
 
@@ -66,8 +70,17 @@ class BatchIndices:
         elif tens.dim == 6:
             return tens.view(-1)[self.flattened_idx_with_logits]
         else:
-            raise Exception("ot implemented.")
+            raise Exception("not implemented.")
 
+    def increment_tensor(self, tens: Tensor, values: Tensor):
+        # Similar, but implements: x_slvra[source[i], label[i], variant type[i], ref bin[i], alt bin[i]] += values[i]
+        # Addition is in-place. The flattened view(-1) shares memory with the original tensor
+        if tens.dim == 5:
+            return tens.view(-1).index_add_(dim=0, index=self.flattened_idx_without_logits, source=values)
+        elif tens.dim == 6:
+            return tens.view(-1).index_add_(dim=0, index=self.flattened_idx_with_logits, source=values)
+        else:
+            raise Exception("not implemented.")
 
 def make_batch_indexed_tensor(num_sources: int, device=gpu_if_available(), include_logits: bool=False, value:float = 0):
     # make tensor with indices slvra and optionally g:

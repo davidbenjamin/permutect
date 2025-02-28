@@ -10,7 +10,7 @@ from torch.nn import Parameter
 from torch.utils.tensorboard import SummaryWriter
 
 from permutect.data.batch import Batch
-from permutect.data.batch_indexing import BatchProperty, make_batch_indexed_tensor
+from permutect.data.batch_indexing import BatchProperty, make_batch_indexed_tensor, BatchIndices
 from permutect.data.datum import Datum
 from permutect.data.count_binning import NUM_REF_COUNT_BINS, NUM_ALT_COUNT_BINS, \
     NUM_LOGIT_BINS, logit_bin_indices, top_of_logit_bin, logits_from_bin_indices, ref_count_bin_indices, \
@@ -77,18 +77,9 @@ class BatchIndexedTotals:
         ref_idx, alt_idx = ref_count_bin_index(datum.get_ref_count()), alt_count_bin_index(datum.get_alt_count())
         self.totals_slvrag[source, datum.get_label(), datum.get_variant_type(), ref_idx, alt_idx] += value
 
-    # TODO: use the BatchIndices class here!!!!
-    def record(self, batch: Batch, logits: Tensor, values: Tensor, sources_override: Tensor = None):
-        # sources override is something of a hack: for filtering, there is only one source, the sample being called,
-        # and we may want to use the source index for some other covariate, such as the type of Call
-        # values is a 1D tensor
-        assert batch.size() == len(values)
+    def record(self, batch_indices: BatchIndices, values: Tensor):
         assert not self.has_been_sent_to_cpu, "Can't record after already sending to CPU"
-        sources = batch.get_sources() if sources_override is None else sources_override
-        logit_indices = logit_bin_indices(logits) if self.include_logits else torch.zeros_like(sources)
-
-        add_at_index(self.totals_slvrag, (sources, batch.get_labels(), batch.get_variant_types(),
-                        ref_count_bin_indices(batch.get_ref_counts()), alt_count_bin_indices(batch.get_alt_counts()), logit_indices), values)
+        batch_indices.increment_tensor(self.totals_slvrag, values)
 
     def get_totals(self) -> Tensor:
         return self.totals_slvrag
@@ -99,6 +90,8 @@ class BatchIndexedTotals:
         For example self.get_marginal(BatchProperty.SOURCE, BatchProperty.LABEL) yields a (num sources x len(Label)) output
         """
         property_set = set(*properties)
+
+        # TODO: I think this is wrong because we don't always keep the dummy logit index if not used
         other_dims = tuple(n for n in range(BatchIndexedTotals.NUM_DIMS) if n not in property_set)
         return torch.sum(self.totals_slvrag, dim=other_dims)
 
@@ -157,11 +150,11 @@ class BatchIndexedAverages:
         self.has_been_sent_to_cpu = True
         return self
 
-    def record(self, batch: Batch, logits: Tensor, values: Tensor, weights: Tensor=None):
+    def record(self, batch_indices: BatchIndices, values: Tensor, weights: Tensor=None):
         assert not self.has_been_sent_to_cpu, "Can't record after already sending to CPU"
         weights_to_use = torch.ones_like(values) if weights is None else weights
-        self.totals.record(batch, logits, (values*weights_to_use).detach())
-        self.counts.record(batch, logits, weights_to_use.detach())
+        self.totals.record(batch_indices, (values*weights_to_use).detach())
+        self.counts.record(batch_indices, weights_to_use.detach())
 
     def get_averages(self) -> Tensor:
         return self.totals.get_totals() / (0.001 + self.counts.get_totals())

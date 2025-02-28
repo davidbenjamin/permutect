@@ -22,13 +22,13 @@ def flattened_indices(shape: Tuple[int], idx: Tuple[IntTensor]):
         raise Exception("Not implemented yet.")
 
 
-def index_tensor(tens: Tensor, idx: Tuple[IntTensor]):
+def index_tensor(tens: Tensor, idx: Tuple[IntTensor]) -> Tensor:
     return tens.view(-1)[flattened_indices(tens.shape, idx)]
 
 
 # add in-place
 # note that the flattened view(-1) shares memory with the original tensor
-def add_at_index(tens: Tensor, idx: Tuple[IntTensor], values: Tensor):
+def add_at_index(tens: Tensor, idx: Tuple[IntTensor], values: Tensor) -> Tensor:
     return tens.view(-1).index_add_(dim=0, index=flattened_indices(tens.shape, idx), source=values)
 
 
