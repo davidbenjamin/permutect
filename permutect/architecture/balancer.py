@@ -3,6 +3,7 @@ import math
 import numpy as np
 import torch
 from matplotlib import pyplot as plt
+from torch import Tensor
 from torch.distributions import Beta
 from torch.nn import Module, Parameter
 from torch.utils.tensorboard import SummaryWriter
@@ -58,9 +59,10 @@ class Balancer(Module):
 
 
     def fit_downsampling_parameters(self, undownsampled_counts_slvra: Tensor):
+        pass
         # I could do this fully vectorized without a for loop, but in this case I think it's actually more readable
-        beta_binom_densities_slvrar
-        downsampled_counts_slvra =
+        #beta_binom_densities_slvrar
+        #downsampled_counts_slvra =
 
 
     def process_batch_and_compute_weights(self, batch: ReadsBatch):
