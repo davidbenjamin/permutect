@@ -22,37 +22,13 @@ from permutect.utils.array_utils import select_and_sum, index_tensor, add_at_ind
 from permutect.utils.enums import Variation, Epoch, Label
 
 
-# TODO: should be just Tensor, not Parameter, and index_by_batch should be a static method
-# TODO: acting on arbitrary tensor
-class BatchIndexedParameter(Parameter):
-    NUM_DIMS = 5
-
-    def __init__(self, data_slvra: Tensor, requires_grad: bool = True):
-        super().__init__(data_slvra, requires_grad=requires_grad)
-        self.num_sources = data_slvra.shape[0]
-        self.device = data_slvra.device
-        assert data_slvra.shape == (self.num_sources, len(Label), len(Variation), NUM_REF_COUNT_BINS, NUM_ALT_COUNT_BINS)
-
-    def index_by_batch(self, batch: Batch) -> Tensor:
-        # return a 1-D tensor where the nth element corresponds to the source, label etc the of the nth element of the batch
-        sources_b, labels_b, var_types_b = batch.get_sources(), batch.get_labels(), batch.get_variant_types()
-        ref_counts_b, alt_counts_b = batch.get_ref_counts(), batch.get_alt_counts()
-        ref_bins_b, alt_bins_b = ref_count_bin_indices(ref_counts_b), alt_count_bin_indices(alt_counts_b)
-        return index_tensor(self, (sources_b, labels_b, var_types_b, ref_bins_b, alt_bins_b))
-
-    @classmethod
-    def create_constant(cls, num_sources: int, value:float, device, requires_grad: bool = True):
-        data_slvra = value * torch.ones(num_sources, len(Label), len(Variation), NUM_REF_COUNT_BINS, NUM_ALT_COUNT_BINS, device=device, requires_grad=requires_grad)
-        result = cls(data_slvra=data_slvra, device=device, requires_grad=requires_grad)
-        return result
-
-
 class BatchIndexedTotals:
     NUM_DIMS = 6
     """
     stores sums, indexed by batch properties source (s), label (l), variant type (v), ref count (r), alt count (a), logit (g)
     """
     def __init__(self, num_sources: int, device=gpu_if_available(), include_logits: bool = False):
+        # note: if include logits is false, the g dimension is absent
         self.totals_slvrag = make_batch_indexed_tensor(num_sources=num_sources, device=device, include_logits=include_logits, value=0)
         self.include_logits = include_logits
         self.device = device
@@ -84,13 +60,13 @@ class BatchIndexedTotals:
         if new_num_sources < old_num_sources:
             self.totals_slvrag = self.totals_slvrag[:new_num_sources]
         elif new_num_sources > old_num_sources:
-            new_totals = torch.zeros((new_num_sources, len(Label), len(Variation), NUM_REF_COUNT_BINS,
-                                      NUM_ALT_COUNT_BINS, NUM_LOGIT_BINS), device=self.totals_slvrag.device)
+            new_totals = make_batch_indexed_tensor(num_sources=new_num_sources, device=self.device, include_logits=self.include_logits, value=0)
             new_totals[:old_num_sources] = self.totals_slvrag
             self.totals_slvrag = new_totals
         self.num_sources = new_num_sources
 
     def record_datum(self, datum: Datum, value: float = 1.0, grow_source_if_necessary: bool = True):
+        assert not self.include_logits, "this only works when not including logits"
         source = datum.get_source()
         if source >= self.num_sources:
             if grow_source_if_necessary:
@@ -99,8 +75,9 @@ class BatchIndexedTotals:
                 raise Exception("Datum source doesn't fit.")
         # no logits here
         ref_idx, alt_idx = ref_count_bin_index(datum.get_ref_count()), alt_count_bin_index(datum.get_alt_count())
-        self.totals_slvrag[source, datum.get_label(), datum.get_variant_type(), ref_idx, alt_idx, 0] += value
+        self.totals_slvrag[source, datum.get_label(), datum.get_variant_type(), ref_idx, alt_idx] += value
 
+    # TODO: use the BatchIndices class here!!!!
     def record(self, batch: Batch, logits: Tensor, values: Tensor, sources_override: Tensor = None):
         # sources override is something of a hack: for filtering, there is only one source, the sample being called,
         # and we may want to use the source index for some other covariate, such as the type of Call
