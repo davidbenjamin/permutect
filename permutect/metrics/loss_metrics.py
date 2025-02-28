@@ -1,140 +1,27 @@
 from __future__ import annotations
 
-from typing import Tuple, List
+from typing import Tuple
 
 import numpy as np
 import torch
 from matplotlib import pyplot as plt
 from torch import Tensor
-from torch.nn import Parameter
 from torch.utils.tensorboard import SummaryWriter
 
 from permutect.data.batch import Batch
-from permutect.data.batch_indexing import BatchProperty, make_batch_indexed_tensor, BatchIndices
-from permutect.data.datum import Datum
-from permutect.data.count_binning import NUM_REF_COUNT_BINS, NUM_ALT_COUNT_BINS, \
-    NUM_LOGIT_BINS, logit_bin_indices, top_of_logit_bin, logits_from_bin_indices, ref_count_bin_indices, \
-    ref_count_bin_index, ALT_COUNT_BIN_BOUNDS, REF_COUNT_BIN_BOUNDS, alt_count_bin_index, \
-    alt_count_bin_indices, alt_count_bin_name
+from permutect.data.batch_indexing import BatchProperty, BatchIndexedTotals
+from permutect.data.count_binning import NUM_LOGIT_BINS, top_of_logit_bin, logits_from_bin_indices, \
+    ALT_COUNT_BIN_BOUNDS, REF_COUNT_BIN_BOUNDS
 from permutect.metrics import plotting
 from permutect.misc_utils import gpu_if_available
-from permutect.utils.array_utils import select_and_sum, index_tensor, add_at_index
+from permutect.utils.array_utils import select_and_sum
 from permutect.utils.enums import Variation, Epoch, Label
-
-
-class BatchIndexedTotals:
-    NUM_DIMS = 6
-    """
-    stores sums, indexed by batch properties source (s), label (l), variant type (v), ref count (r), alt count (a), logit (g)
-    """
-    def __init__(self, num_sources: int, device=gpu_if_available(), include_logits: bool = False):
-        # note: if include logits is false, the g dimension is absent
-        self.totals_slvrag = make_batch_indexed_tensor(num_sources=num_sources, device=device, include_logits=include_logits, value=0)
-        self.include_logits = include_logits
-        self.device = device
-        self.has_been_sent_to_cpu = False
-        self.num_sources = num_sources
-
-    def split_over_sources(self) -> List[BatchIndexedTotals]:
-        # split into single-source BatchIndexedTotals
-        result = []
-        for source in range(self.num_sources):
-            element = BatchIndexedTotals(num_sources=1, device=self.device, include_logits=self.include_logits)
-            element.totals_slvrag[0].copy_(self.totals_slvrag[source])
-            result.append(element)
-        return result
-
-    def put_on_cpu(self):
-        """
-        Do this at the end of an epoch so that the whole tensor is on CPU in one operation rather than computing various
-        marginals etc on GPU and sending them each to CPU for plotting etc.
-        :return:
-        """
-        self.totals_slvrag = self.totals_slvrag.cpu()
-        self.device = torch.device('cpu')
-        self.has_been_sent_to_cpu = True
-        return self
-
-    def resize_sources(self, new_num_sources):
-        old_num_sources = self.num_sources
-        if new_num_sources < old_num_sources:
-            self.totals_slvrag = self.totals_slvrag[:new_num_sources]
-        elif new_num_sources > old_num_sources:
-            new_totals = make_batch_indexed_tensor(num_sources=new_num_sources, device=self.device, include_logits=self.include_logits, value=0)
-            new_totals[:old_num_sources] = self.totals_slvrag
-            self.totals_slvrag = new_totals
-        self.num_sources = new_num_sources
-
-    def record_datum(self, datum: Datum, value: float = 1.0, grow_source_if_necessary: bool = True):
-        assert not self.include_logits, "this only works when not including logits"
-        source = datum.get_source()
-        if source >= self.num_sources:
-            if grow_source_if_necessary:
-                self.resize_sources(source + 1)
-            else:
-                raise Exception("Datum source doesn't fit.")
-        # no logits here
-        ref_idx, alt_idx = ref_count_bin_index(datum.get_ref_count()), alt_count_bin_index(datum.get_alt_count())
-        self.totals_slvrag[source, datum.get_label(), datum.get_variant_type(), ref_idx, alt_idx] += value
-
-    def record(self, batch_indices: BatchIndices, values: Tensor):
-        assert not self.has_been_sent_to_cpu, "Can't record after already sending to CPU"
-        batch_indices.increment_tensor(self.totals_slvrag, values)
-
-    def get_totals(self) -> Tensor:
-        return self.totals_slvrag
-
-    def get_marginal(self, *properties: Tuple[BatchProperty, ...]) -> Tensor:
-        """
-        sum over all but one or more batch properties.
-        For example self.get_marginal(BatchProperty.SOURCE, BatchProperty.LABEL) yields a (num sources x len(Label)) output
-        """
-        property_set = set(*properties)
-
-        # TODO: I think this is wrong because we don't always keep the dummy logit index if not used
-        other_dims = tuple(n for n in range(BatchIndexedTotals.NUM_DIMS) if n not in property_set)
-        return torch.sum(self.totals_slvrag, dim=other_dims)
-
-    def make_logit_histograms(self):
-        assert self.has_been_sent_to_cpu, "Can't make plots before sending to CPU"
-        fig, axes = plt.subplots(len(Variation), NUM_ALT_COUNT_BINS, sharex='all', sharey='all', squeeze=False,
-                                 figsize=(2.5 * NUM_ALT_COUNT_BINS, 2.5 * len(Variation)), dpi=200)
-        x_axis_logits = logits_from_bin_indices(torch.tensor(range(NUM_LOGIT_BINS)))
-
-        num_sources = self.totals_slvrag.shape[BatchProperty.SOURCE]
-        multiple_sources = num_sources > 1
-        for row, variation_type in enumerate(Variation):
-            for count_bin in range(NUM_ALT_COUNT_BINS): # this is also the column index
-                selection={BatchProperty.VARIANT_TYPE: variation_type, BatchProperty.ALT_COUNT_BIN: count_bin}
-                totals_slg = select_and_sum(self.totals_slvrag, select=selection, sum=(BatchProperty.REF_COUNT_BIN,))
-
-                # The normalizing factor for each source, label is the sum over all logits for that source and label
-                # This renders a histogram into a sort of probability density plot for each source, label
-                normalization_slg = torch.sum(totals_slg, dim=-1, keepdim=True)
-                normalized_totals_slg = (totals_slg + 0.000001) / normalization_slg
-
-                # overlapping line plots for all source / label combinations
-                # source 0 is filled; others are not
-                ax = axes[row, count_bin]
-                x_y_label_tuples = []
-                for source in range(num_sources):
-                    for label in Label:
-                        if normalization_slg[source, label, 0].item() >= 1:
-                            line_label = f"{label.name} ({source})" if multiple_sources else label.name
-                            x_y_label_tuples.append((x_axis_logits.cpu().numpy(), normalized_totals_slg[source, label].cpu().numpy(), line_label))
-                plotting.simple_plot_on_axis(ax, x_y_label_tuples, None, None)
-                ax.legend()
-
-        column_names = [alt_count_bin_name(count_idx) for count_idx in range(NUM_ALT_COUNT_BINS)]
-        row_names = [var_type.name for var_type in Variation]
-        plotting.tidy_subplots(fig, axes, x_label="predicted logit", y_label="frequency", row_labels=row_names, column_labels=column_names)
-        return fig, axes
 
 
 class BatchIndexedAverages:
     def __init__(self, num_sources: int, device=gpu_if_available()):
-        self.totals = BatchIndexedTotals(num_sources, device)
-        self.counts = BatchIndexedTotals(num_sources, device)
+        self.totals_slvra = BatchIndexedTotals(num_sources, device)
+        self.counts_slvra = BatchIndexedTotals(num_sources, device)
         self.num_sources = num_sources
         self.has_been_sent_to_cpu = False
 
@@ -144,30 +31,28 @@ class BatchIndexedAverages:
         marginals etc on GPU and sending them each to CPU for plotting etc.
         :return:
         """
-        self.totals.put_on_cpu()
-        self.counts.put_on_cpu()
+        self.totals_slvra.put_on_cpu()
+        self.counts_slvra.put_on_cpu()
         self.has_been_sent_to_cpu = True
         return self
 
     def record(self, batch: Batch, values: Tensor, weights: Tensor=None):
         assert not self.has_been_sent_to_cpu, "Can't record after already sending to CPU"
         weights_to_use = torch.ones_like(values) if weights is None else weights
-        self.totals.record(batch_indices, (values*weights_to_use).detach())
-        self.counts.record(batch_indices, weights_to_use.detach())
+        self.totals_slvra.record(batch_indices, (values * weights_to_use).detach())
+        self.counts_slvra.record(batch_indices, weights_to_use.detach())
 
     def get_averages(self) -> Tensor:
-        return self.totals.get_totals() / (0.001 + self.counts.get_totals())
+        return self.totals_slvra.get_totals() / (0.001 + self.counts_slvra.get_totals())
 
     def get_marginal(self, *properties: Tuple[BatchProperty, ...]) -> Tensor:
-        return self.totals.get_marginal(properties) / self.counts.get_marginal(properties)
+        return self.totals_slvra.get_marginal(properties) / self.counts_slvra.get_marginal(properties)
 
     def report_marginals(self, message: str):
         assert self.has_been_sent_to_cpu, "Can't report marginals before sending to CPU"
         print(message)
         batch_property: BatchProperty
-        for batch_property in BatchProperty:
-            if batch_property == BatchProperty.LOGIT_BIN:
-                continue
+        for batch_property in (b for b in BatchProperty if b != BatchProperty.LOGIT_BIN):
             values = self.get_marginal(batch_property).tolist()
             print(f"Marginalizing by {batch_property.name}")
             for n, ave in enumerate(values):
@@ -194,12 +79,13 @@ class BatchIndexedAverages:
         :return:
         """
         assert self.has_been_sent_to_cpu, "Can't make plots before sending to CPU"
+        # TODO: only if include logits
         sum_dims = ((BatchProperty.SOURCE,) if source is None else ()) + (BatchProperty.LOGIT_BIN,)
         selection = ({} if source is None else {BatchProperty.SOURCE: source}) | \
                     {BatchProperty.VARIANT_TYPE: var_type, BatchProperty.LABEL: label}
 
-        totals_ra = select_and_sum(self.totals.totals_slvrag, select=selection, sum=sum_dims)
-        counts_ra = select_and_sum(self.counts.totals_slvrag, select=selection, sum=sum_dims)
+        totals_ra = select_and_sum(self.totals_slvra.totals_slvrag, select=selection, sum=sum_dims)
+        counts_ra = select_and_sum(self.counts_slvra.totals_slvrag, select=selection, sum=sum_dims)
         average_ra = totals_ra / (counts_ra + 0.001)
         transformed_ra = torch.pow(average_ra, 1/3)     # cube root is a good scaling
         return plotting.color_plot_2d_on_axis(axis, np.array(ALT_COUNT_BIN_BOUNDS), np.array(REF_COUNT_BIN_BOUNDS), transformed_ra, None, None,
@@ -212,12 +98,13 @@ class BatchIndexedAverages:
         :return:
         """
         assert self.has_been_sent_to_cpu, "Can't make plots before sending to CPU"
-        max_for_this_source_and_variant_type = torch.max(self.counts.totals_slvrag[source, :, var_type])
+        max_for_this_source_and_variant_type = torch.max(self.counts_slvra.totals_slvrag[source, :, var_type])
+        # TODO: only if include logits
         sum_dims = ((BatchProperty.SOURCE,) if source is None else ()) + (BatchProperty.LOGIT_BIN,)
         selection = ({} if source is None else {BatchProperty.SOURCE: source}) | \
                     {BatchProperty.VARIANT_TYPE: var_type, BatchProperty.LABEL: label}
 
-        counts_ra = select_and_sum(self.counts.totals_slvrag, select=selection, sum=sum_dims)
+        counts_ra = select_and_sum(self.counts_slvra.totals_slvrag, select=selection, sum=sum_dims)
         normalized_counts_ra = counts_ra / max_for_this_source_and_variant_type
         return plotting.color_plot_2d_on_axis(axis, np.array(ALT_COUNT_BIN_BOUNDS), np.array(REF_COUNT_BIN_BOUNDS), normalized_counts_ra, None, None,
                                        vmin=0, vmax=1)

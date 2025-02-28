@@ -18,7 +18,7 @@ from permutect.data.datum import Datum
 from permutect.data.prefetch_generator import prefetch_generator
 from permutect.metrics.evaluation_metrics import EmbeddingMetrics, EvaluationMetrics
 from permutect.metrics.loss_metrics import BatchIndexedAverages
-from permutect.data.batch_indexing import BatchProperty, BatchIndices, BatchIndicesWithLogits
+from permutect.data.batch_indexing import BatchProperty
 from permutect.data.count_binning import alt_count_bin_index, round_alt_count_to_bin_center, alt_count_bin_name
 from permutect.parameters import TrainingParameters
 from permutect.misc_utils import report_memory_usage, backpropagate, freeze, unfreeze
@@ -91,7 +91,6 @@ def train_permutect_model(model: PermutectModel, dataset: ReadsDataset, training
                 # first handle the labeled loss and the adversarial tasks, which treat the parent and downsampled batches independently
                 loss = 0
                 for n, (batch, output) in enumerate(zip(batches, outputs)):
-                    batch_indices_with_logits = BatchIndicesWithLogits(batch, logits=output.calibrated_logits)
                     labels_b = batch.get_training_labels()
                     is_labeled_b = batch.get_is_labeled_mask()
 
@@ -162,7 +161,8 @@ def collect_evaluation_data(model: PermutectModel, dataset: ReadsDataset, balanc
         batch: ReadsBatch
         for batch in tqdm(prefetch_generator(loader), mininterval=60, total=len(loader)):
             output = model.compute_batch_output(batch, balancer)
-            batch_indices_with_logits = BatchIndicesWithLogits(batch, logits=output.calibrated_logits)
+
+            # TODO: use logits=output.calibrated_logits in record_batch
             evaluation_metrics.record_batch(epoch_type, batch_indices, output.weights)
 
             if report_worst:
