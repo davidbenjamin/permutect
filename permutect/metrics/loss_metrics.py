@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from enum import IntEnum
 from typing import Tuple, List
 
 import numpy as np
@@ -11,33 +10,17 @@ from torch.nn import Parameter
 from torch.utils.tensorboard import SummaryWriter
 
 from permutect.data.batch import Batch
+from permutect.data.batch_indexing import BatchProperty, make_batch_indexed_tensor
 from permutect.data.datum import Datum
 from permutect.data.count_binning import NUM_REF_COUNT_BINS, NUM_ALT_COUNT_BINS, \
-    NUM_LOGIT_BINS, logit_bin_indices, top_of_logit_bin, logits_from_bin_indices, logit_bin_name, ref_count_bin_indices, \
-    ref_count_bin_index, ref_count_bin_name, ALT_COUNT_BIN_BOUNDS, REF_COUNT_BIN_BOUNDS, alt_count_bin_index, \
+    NUM_LOGIT_BINS, logit_bin_indices, top_of_logit_bin, logits_from_bin_indices, ref_count_bin_indices, \
+    ref_count_bin_index, ALT_COUNT_BIN_BOUNDS, REF_COUNT_BIN_BOUNDS, alt_count_bin_index, \
     alt_count_bin_indices, alt_count_bin_name
 from permutect.metrics import plotting
 from permutect.misc_utils import gpu_if_available
-from permutect.utils.array_utils import add_to_6d_array, select_and_sum, index_5d_array
+from permutect.utils.array_utils import select_and_sum, index_tensor, add_at_index
 from permutect.utils.enums import Variation, Epoch, Label
 
-
-class BatchProperty(IntEnum):
-    SOURCE = (0, None)
-    LABEL = (1, [label.name for label in Label])
-    VARIANT_TYPE = (2, [var_type.name for var_type in Variation])
-    REF_COUNT_BIN = (3, [ref_count_bin_name(idx) for idx in range(NUM_REF_COUNT_BINS)])
-    ALT_COUNT_BIN = (4, [alt_count_bin_name(idx) for idx in range(NUM_ALT_COUNT_BINS)])
-    LOGIT_BIN = (5, [logit_bin_name(idx) for idx in range(NUM_LOGIT_BINS)])
-
-    def __new__(cls, value, names_list):
-        member = int.__new__(cls, value)
-        member._value_ = value
-        member.names_list = names_list
-        return member
-
-    def get_name(self, n: int):
-        return str(n) if self.names_list is None else self.names_list[n]
 
 # TODO: should be just Tensor, not Parameter, and index_by_batch should be a static method
 # TODO: acting on arbitrary tensor
@@ -55,7 +38,7 @@ class BatchIndexedParameter(Parameter):
         sources_b, labels_b, var_types_b = batch.get_sources(), batch.get_labels(), batch.get_variant_types()
         ref_counts_b, alt_counts_b = batch.get_ref_counts(), batch.get_alt_counts()
         ref_bins_b, alt_bins_b = ref_count_bin_indices(ref_counts_b), alt_count_bin_indices(alt_counts_b)
-        return index_5d_array(self, sources_b, labels_b, var_types_b, ref_bins_b, alt_bins_b)
+        return index_tensor(self, (sources_b, labels_b, var_types_b, ref_bins_b, alt_bins_b))
 
     @classmethod
     def create_constant(cls, num_sources: int, value:float, device, requires_grad: bool = True):
@@ -70,9 +53,7 @@ class BatchIndexedTotals:
     stores sums, indexed by batch properties source (s), label (l), variant type (v), ref count (r), alt count (a), logit (g)
     """
     def __init__(self, num_sources: int, device=gpu_if_available(), include_logits: bool = False):
-        self.totals_slvrag = torch.zeros((num_sources, len(Label), len(Variation), NUM_REF_COUNT_BINS,
-                                          NUM_ALT_COUNT_BINS, NUM_LOGIT_BINS), device=device)
-        assert self.totals_slvrag.dim() == len(BatchProperty)
+        self.totals_slvrag = make_batch_indexed_tensor(num_sources=num_sources, device=device, include_logits=include_logits, value=0)
         self.include_logits = include_logits
         self.device = device
         self.has_been_sent_to_cpu = False
@@ -129,8 +110,8 @@ class BatchIndexedTotals:
         sources = batch.get_sources() if sources_override is None else sources_override
         logit_indices = logit_bin_indices(logits) if self.include_logits else torch.zeros_like(sources)
 
-        add_to_6d_array(self.totals_slvrag, sources, batch.get_labels(), batch.get_variant_types(),
-                        ref_count_bin_indices(batch.get_ref_counts()), alt_count_bin_indices(batch.get_alt_counts()), logit_indices, values)
+        add_at_index(self.totals_slvrag, (sources, batch.get_labels(), batch.get_variant_types(),
+                        ref_count_bin_indices(batch.get_ref_counts()), alt_count_bin_indices(batch.get_alt_counts()), logit_indices), values)
 
     def get_totals(self) -> Tensor:
         return self.totals_slvrag
@@ -335,7 +316,7 @@ class AccuracyMetrics(BatchIndexedTotals):
         assert self.has_been_sent_to_cpu, "Can't make plots before sending to CPU"
         sum_dims = ((BatchProperty.SOURCE,) if source is None else ()) + \
                    ((BatchProperty.REF_COUNT_BIN,) if ref_count_bin is None else ()) + \
-                    ((BatchProperty.ALT_COUNT_BIN,) if alt_count_bin is None else ())
+                   ((BatchProperty.ALT_COUNT_BIN,) if alt_count_bin is None else ())
         selection = ({} if source is None else {BatchProperty.SOURCE: source}) | \
                     ({} if ref_count_bin is None else {BatchProperty.REF_COUNT_BIN: ref_count_bin}) | \
                     ({} if alt_count_bin is None else {BatchProperty.ALT_COUNT_BIN: alt_count_bin}) | \

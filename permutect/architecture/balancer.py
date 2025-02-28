@@ -8,11 +8,10 @@ from torch.nn import Module, Parameter
 from torch.utils.tensorboard import SummaryWriter
 
 from permutect.data.reads_batch import ReadsBatch
-from permutect.data.count_binning import alt_count_bin_indices, NUM_ALT_COUNT_BINS, NUM_REF_COUNT_BINS, \
-    ref_count_bin_indices, ALT_COUNT_BIN_BOUNDS, REF_COUNT_BIN_BOUNDS
+from permutect.data.count_binning import alt_count_bin_indices, ref_count_bin_indices, ALT_COUNT_BIN_BOUNDS, REF_COUNT_BIN_BOUNDS
 from permutect.metrics import plotting
 from permutect.metrics.loss_metrics import BatchIndexedParameter
-from permutect.utils.array_utils import index_5d_array, add_to_5d_array, index_2d_array
+from permutect.utils.array_utils import index_tensor, add_at_index
 from permutect.utils.enums import Label, Variation, Epoch
 
 
@@ -69,7 +68,7 @@ class Balancer(Module):
         # increment counts by 1
         sources, labels, var_types = batch.get_sources(), batch.get_labels(), batch.get_variant_types()
         ref_count_bins, alt_count_bins = ref_count_bin_indices(batch.get_ref_counts()), alt_count_bin_indices(batch.get_alt_counts())
-        add_to_5d_array(self.counts_slvra, sources, labels, var_types, ref_count_bins, alt_count_bins, values=torch.ones(batch.size(), device=self.device))
+        add_at_index(self.counts_slvra, (sources, labels, var_types, ref_count_bins, alt_count_bins), values=torch.ones(batch.size(), device=self.device))
         self.count_since_last_recomputation += batch.size()
 
         if self.count_since_last_recomputation > Balancer.DATA_BEFORE_RECOMPUTE:
@@ -92,7 +91,7 @@ class Balancer(Module):
             self.source_weights_s.copy_(attenuation * self.source_weights_s + (1-attenuation)*new_source_weights_s)
             self.count_since_last_recomputation = 0
             # TODO: also attenuate counts -- multiply by an attenuation factor or something?
-        batch_weights = index_5d_array(self.weights_slvra, sources, labels, var_types, ref_count_bins, alt_count_bins)
+        batch_weights = index_tensor(self.weights_slvra, (sources, labels, var_types, ref_count_bins, alt_count_bins))
         source_weights = self.source_weights_s[sources]
         return batch_weights, source_weights
 
