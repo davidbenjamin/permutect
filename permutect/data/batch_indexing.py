@@ -32,7 +32,7 @@ class BatchProperty(IntEnum):
 
 
 class BatchIndices:
-    def __init__(self, batch: Batch, num_sources: int, logits: Tensor = None, sources_override: IntTensor=None):
+    def __init__(self, batch: Batch, logits: Tensor = None, sources_override: IntTensor=None):
         """
         sources override is used for something of a hack where in filtering there is only one source, so we use the
         source dimensipn to instead represent the call type
@@ -46,7 +46,12 @@ class BatchIndices:
         self.alt_count_bins = alt_count_bin_indices(self.alt_counts)
         self.logit_bins = logit_bin_indices(logits) if logits is not None else None
 
-        dims_without_logits = (num_sources, len(Label), len(Variation), NUM_REF_COUNT_BINS, NUM_ALT_COUNT_BINS)
+        # We do something kind of dangerous-seeming here: sources is the zeroth dimension and so the formula for
+        # flattened indices *doesn't depend on the number of sources* since the stride from one source to the next is the
+        # product of all the *other* dimensionlities.  Thus we can set the zeroth dimension to anythiong we want!
+        # Just to make sure that this doesn't cause a silent error, we set it to None so that things will blow up
+        # if my little analysis here is wrong
+        dims_without_logits = (None, len(Label), len(Variation), NUM_REF_COUNT_BINS, NUM_ALT_COUNT_BINS)
         idx_without_logits = (self.sources, self.labels, self.var_types, self.ref_count_bins, self.alt_count_bins)
         self.flattened_idx_without_logits = flattened_indices(dims_without_logits, idx_without_logits)
 
@@ -54,6 +59,20 @@ class BatchIndices:
         dims_with_logits = None if logits is None else (dims_without_logits + (NUM_LOGIT_BINS,))
         idx_with_logits = None if logits is None else (idx_without_logits + (self.logit_bins, ))
         self.flattened_idx_with_logits = None if logits is None else flattened_indices(dims_with_logits, idx_with_logits)
+
+    def add_logits(self, logits: Tensor):
+        """
+        Sometimes we need BatchIndices before logits have been computed, but later need indices for the same batch with logits.
+        Rather than make a new object from scratch, it's very simple to just add the logits
+        :param logits:
+        :return:
+        """
+        assert self.logit_bins is None, "This BatchIndices object already has logits"
+        self.logit_bins = logit_bin_indices(logits)
+
+        # because logits are the last index, the flattened indices with logits are related to those without
+        self.flattened_idx_with_logits = self.logit_bins + NUM_LOGIT_BINS * self.flattened_idx_without_logits
+
 
     def get_flattened_indices(self, include_logits: bool = False):
         return self.flattened_idx_with_logits if include_logits else self.flattened_idx_without_logits

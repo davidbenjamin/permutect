@@ -20,6 +20,13 @@ class Batch:
         self.info_start = self.haplotypes_end
         info_length = self.data[0, Datum.INFO_LENGTH_IDX]
         self.info_end = self.info_start + info_length
+        self.lazy_batch_indices = None
+
+    def batch_indices(self):
+        if self.lazy_batch_indices is not None:
+            return self.lazy_batch_indices
+        else:
+
 
     # get the original IntEnum format (VARIANT = 0, ARTIFACT = 1, UNLABELED = 2) labels
     def get_labels(self) -> IntTensor:

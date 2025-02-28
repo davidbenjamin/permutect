@@ -86,12 +86,13 @@ def train_permutect_model(model: PermutectModel, dataset: ReadsDataset, training
             for parent_batch in tqdm(prefetch_generator(loader), mininterval=60, total=len(loader)):
                 downsampled_batch = DownsampledReadsBatch(parent_batch)
                 batches = [parent_batch, downsampled_batch]
-                outputs = [model.compute_batch_output(batch, balancer) for batch in batches]
+                batch_idx = [BatchIndices(batch) for batch in batches] # no logits yet
+                outputs = [model.compute_batch_output(batch, batch_indices, balancer) for (batch, batch_indices) in zip(batches, batch_idx)]
 
                 # first handle the labeled loss and the adversarial tasks, which treat the parent and downsampled batches independently
                 loss = 0
-                for n, (batch, output) in enumerate(zip(batches, outputs)):
-                    batch_indices = BatchIndices(batch, num_sources=num_sources, logits=output.calibrated_logits)
+                for n, (batch_indices, output) in enumerate(zip(batch_idx, outputs)):
+                    batch_indices.add_logits(output.calibrated_logits)
                     labels_b = batch.get_training_labels()
                     is_labeled_b = batch.get_is_labeled_mask()
 
@@ -161,8 +162,9 @@ def collect_evaluation_data(model: PermutectModel, dataset: ReadsDataset, balanc
 
         batch: ReadsBatch
         for batch in tqdm(prefetch_generator(loader), mininterval=60, total=len(loader)):
-            output = model.compute_batch_output(batch, balancer)
-            batch_indices = BatchIndices(batch, num_sources=dataset.num_sources(), logits=output.calibrated_logits)
+            batch_indices = BatchIndices(batch)
+            output = model.compute_batch_output(batch, batch_indices, balancer)
+            batch_indices.add_logits(output.calibrated_logits)
             evaluation_metrics.record_batch(epoch_type, batch_indices, output.weights)
 
             if report_worst:

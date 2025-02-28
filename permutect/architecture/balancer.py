@@ -65,7 +65,7 @@ class Balancer(Module):
         #downsampled_counts_slvra =
 
 
-    def process_batch_and_compute_weights(self, batch: ReadsBatch):
+    def process_batch_and_compute_weights(self, batch_indices: BatchIndices):
         # this updates the counts that are used to compute weights, recomputes the weights, and returns the weights
         # increment counts by 1
         sources, labels, var_types = batch.get_sources(), batch.get_labels(), batch.get_variant_types()
