@@ -4,6 +4,7 @@ import torch
 from torch import IntTensor, FloatTensor, Tensor
 import numpy as np
 
+from permutect.data.batch_indexing import BatchIndices
 from permutect.data.datum import Datum
 from permutect.utils.enums import Label
 
@@ -22,11 +23,12 @@ class Batch:
         self.info_end = self.info_start + info_length
         self.lazy_batch_indices = None
 
-    def batch_indices(self):
+    def batch_indices(self) -> BatchIndices:
         if self.lazy_batch_indices is not None:
             return self.lazy_batch_indices
         else:
-
+            self.lazy_batch_indices = BatchIndices(self)
+            return self.lazy_batch_indices
 
     # get the original IntEnum format (VARIANT = 0, ARTIFACT = 1, UNLABELED = 2) labels
     def get_labels(self) -> IntTensor:

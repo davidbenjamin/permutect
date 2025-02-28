@@ -132,10 +132,9 @@ class BatchIndexedTotals:
 
 
 class BatchIndexedAverages:
-    def __init__(self, num_sources: int, device=gpu_if_available(), include_logits: bool = False):
-        self.totals = BatchIndexedTotals(num_sources, device, include_logits)
-        self.counts = BatchIndexedTotals(num_sources, device, include_logits)
-        self.include_logits = include_logits
+    def __init__(self, num_sources: int, device=gpu_if_available()):
+        self.totals = BatchIndexedTotals(num_sources, device)
+        self.counts = BatchIndexedTotals(num_sources, device)
         self.num_sources = num_sources
         self.has_been_sent_to_cpu = False
 
@@ -150,7 +149,7 @@ class BatchIndexedAverages:
         self.has_been_sent_to_cpu = True
         return self
 
-    def record(self, batch_indices: BatchIndices, values: Tensor, weights: Tensor=None):
+    def record(self, batch: Batch, values: Tensor, weights: Tensor=None):
         assert not self.has_been_sent_to_cpu, "Can't record after already sending to CPU"
         weights_to_use = torch.ones_like(values) if weights is None else weights
         self.totals.record(batch_indices, (values*weights_to_use).detach())
@@ -167,7 +166,7 @@ class BatchIndexedAverages:
         print(message)
         batch_property: BatchProperty
         for batch_property in BatchProperty:
-            if batch_property == BatchProperty.LOGIT_BIN and not self.include_logits:
+            if batch_property == BatchProperty.LOGIT_BIN:
                 continue
             values = self.get_marginal(batch_property).tolist()
             print(f"Marginalizing by {batch_property.name}")

@@ -202,8 +202,8 @@ class PermutectModel(torch.nn.Module):
         alt_count_target_b = batch.get_alt_counts().to(dtype=alt_count_pred_b.dtype) / MAX_ALT_COUNT
         return self.alt_count_loss_func(alt_count_pred_b, alt_count_target_b)
 
-    def compute_batch_output(self, batch: ReadsBatch, batch_indices: BatchIndices, balancer: Balancer):
-        weights_b, source_weights_b = balancer.process_batch_and_compute_weights(batch_indices)
+    def compute_batch_output(self, batch: ReadsBatch, balancer: Balancer):
+        weights_b, source_weights_b = balancer.process_batch_and_compute_weights(batch)
         features_be, _ = self.calculate_features(batch, weight_range=self._params.reweighting_range)
         calibrated_logits_b, uncalibrated_logits_b = self.logits_from_reads_batch(features_be, batch)
         return BatchOutput(features=features_be, uncalibrated_logits=uncalibrated_logits_b, calibrated_logits=calibrated_logits_b,

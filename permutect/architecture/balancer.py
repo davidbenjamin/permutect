@@ -65,12 +65,10 @@ class Balancer(Module):
         #downsampled_counts_slvra =
 
 
-    def process_batch_and_compute_weights(self, batch_indices: BatchIndices):
+    def process_batch_and_compute_weights(self, batch: ReadsBatch):
         # this updates the counts that are used to compute weights, recomputes the weights, and returns the weights
         # increment counts by 1
-        sources, labels, var_types = batch.get_sources(), batch.get_labels(), batch.get_variant_types()
-        ref_count_bins, alt_count_bins = ref_count_bin_indices(batch.get_ref_counts()), alt_count_bin_indices(batch.get_alt_counts())
-        add_at_index(self.counts_slvra, (sources, labels, var_types, ref_count_bins, alt_count_bins), values=torch.ones(batch.size(), device=self.device))
+        batch.batch_indices().increment_tensor(self.counts_slvra, values=torch.ones(batch.size(), device=self.device))
         self.count_since_last_recomputation += batch.size()
 
         if self.count_since_last_recomputation > Balancer.DATA_BEFORE_RECOMPUTE:
