@@ -31,7 +31,7 @@ class BatchProperty(IntEnum):
 
 
 class BatchIndices:
-    def __init__(self, batch: Batch, logits: Tensor = None):
+    def __init__(self, batch: Batch, num_sources: int, logits: Tensor = None):
         self.sources = batch.get_sources()
         self.labels = batch.get_labels()
         self.var_types = batch.get_variant_types()
@@ -41,7 +41,15 @@ class BatchIndices:
         self.alt_count_bins = alt_count_bin_indices(self.alt_counts)
         self.logit_bins = logit_bin_indices(logits) if logits is not None else None
 
+        dims_without_logits = (num_sources, len (Label), len(Variation), NUM_REF_COUNT_BINS, NUM_ALT_COUNT_BINS)
+        idx_without_logits = (self.sources, self.labels, self.var_types, self.ref_count_bins, self.alt_count_bins)\
 
+        # TODO: left off here
+        idx_with_logits = None if logits is None else (idx_without_logits + (self.logit_bins, ))
+
+
+                             + \
+              ( () if logits is None else (self.logit_bins, ))
 
 
 
