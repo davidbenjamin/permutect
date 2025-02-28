@@ -9,6 +9,7 @@ from permutect.data.batch import Batch
 from permutect.data.count_binning import ref_count_bin_name, NUM_REF_COUNT_BINS, alt_count_bin_name, NUM_ALT_COUNT_BINS, \
     logit_bin_name, NUM_LOGIT_BINS, alt_count_bin_indices, ref_count_bin_indices, logit_bin_indices
 from permutect.misc_utils import gpu_if_available
+from permutect.utils.array_utils import flattened_indices
 from permutect.utils.enums import Label, Variation
 
 
@@ -42,15 +43,30 @@ class BatchIndices:
         self.logit_bins = logit_bin_indices(logits) if logits is not None else None
 
         dims_without_logits = (num_sources, len (Label), len(Variation), NUM_REF_COUNT_BINS, NUM_ALT_COUNT_BINS)
-        idx_without_logits = (self.sources, self.labels, self.var_types, self.ref_count_bins, self.alt_count_bins)\
+        idx_without_logits = (self.sources, self.labels, self.var_types, self.ref_count_bins, self.alt_count_bins)
+        self.flattened_idx_without_logits = flattened_indices(dims_without_logits, idx_without_logits)
 
         # TODO: left off here
+        dims_with_logits = None if logits is None else (dims_without_logits + (NUM_LOGIT_BINS,))
         idx_with_logits = None if logits is None else (idx_without_logits + (self.logit_bins, ))
+        self.flattened_idx_with_logits = None if logits is None else flattened_indices(dims_with_logits, idx_with_logits)
 
+    def get_flattened_indices(self, include_logits: bool = False):
+        return self.flattened_idx_with_logits if include_logits else self.flattened_idx_without_logits
 
-                             + \
-              ( () if logits is None else (self.logit_bins, ))
-
+    def index_into_tensor(self, tens: Tensor):
+        """
+        given either 5D batch-indexed tensor x_slvra or 6D batch-indexed tensor x_slvrag, get the 1D tensor
+        result[i] = x_slvra[source[i], label[i], variant type[i], ref bin[i], alt bin[i]] and likewise for the 6D case.
+        This is equivalent to flattening x and indexing by the cached flattened indices
+        :return:
+        """
+        if tens.dim == 5:
+            return tens.view(-1)[self.flattened_idx_without_logits]
+        elif tens.dim == 6:
+            return tens.view(-1)[self.flattened_idx_with_logits]
+        else:
+            raise Exception("ot implemented.")
 
 
 def make_batch_indexed_tensor(num_sources: int, device=gpu_if_available(), include_logits: bool=False, value:float = 0):
