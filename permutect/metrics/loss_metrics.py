@@ -9,7 +9,7 @@ from torch import Tensor
 from torch.utils.tensorboard import SummaryWriter
 
 from permutect.data.batch import Batch
-from permutect.data.batch_indexing import BatchProperty, BatchIndexedTotals
+from permutect.data.batch_indexing import BatchProperty, BatchIndexedTensor
 from permutect.data.count_binning import NUM_LOGIT_BINS, top_of_logit_bin, logits_from_bin_indices, \
     ALT_COUNT_BIN_BOUNDS, REF_COUNT_BIN_BOUNDS
 from permutect.metrics import plotting
@@ -18,10 +18,10 @@ from permutect.utils.array_utils import select_and_sum
 from permutect.utils.enums import Variation, Epoch, Label
 
 
-class BatchIndexedAverages:
+class LossMetrics:
     def __init__(self, num_sources: int, device=gpu_if_available()):
-        self.totals_slvra = BatchIndexedTotals(num_sources, device)
-        self.counts_slvra = BatchIndexedTotals(num_sources, device)
+        self.totals_slvra = BatchIndexedTensor(num_sources, device)
+        self.counts_slvra = BatchIndexedTensor(num_sources, device)
         self.num_sources = num_sources
         self.has_been_sent_to_cpu = False
 
@@ -39,8 +39,8 @@ class BatchIndexedAverages:
     def record(self, batch: Batch, values: Tensor, weights: Tensor=None):
         assert not self.has_been_sent_to_cpu, "Can't record after already sending to CPU"
         weights_to_use = torch.ones_like(values) if weights is None else weights
-        self.totals_slvra.record(batch_indices, (values * weights_to_use).detach())
-        self.counts_slvra.record(batch_indices, weights_to_use.detach())
+        self.totals_slvra.record(batch, (values * weights_to_use).detach())
+        self.counts_slvra.record(batch, weights_to_use.detach())
 
     def get_averages(self) -> Tensor:
         return self.totals_slvra.get_totals() / (0.001 + self.counts_slvra.get_totals())
@@ -65,9 +65,7 @@ class BatchIndexedAverages:
         """
         assert self.has_been_sent_to_cpu, "Can't write to sumamry writer before sending to CPU"
         batch_property: BatchProperty
-        for batch_property in BatchProperty:
-            if batch_property == BatchProperty.LOGIT_BIN and not self.include_logits:
-                continue
+        for batch_property in (b for b in BatchProperty if b != BatchProperty.LOGIT_BIN):
             marginals = self.get_marginal(batch_property)
             for n, average in enumerate(marginals.tolist()):
                 heading = f"{prefix}/{epoch_type.name}/{batch_property.name}/{batch_property.get_name(n)}"
@@ -80,12 +78,12 @@ class BatchIndexedAverages:
         """
         assert self.has_been_sent_to_cpu, "Can't make plots before sending to CPU"
         # TODO: only if include logits
-        sum_dims = ((BatchProperty.SOURCE,) if source is None else ()) + (BatchProperty.LOGIT_BIN,)
+        sum_dims = ((BatchProperty.SOURCE,) if source is None else ())
         selection = ({} if source is None else {BatchProperty.SOURCE: source}) | \
                     {BatchProperty.VARIANT_TYPE: var_type, BatchProperty.LABEL: label}
 
-        totals_ra = select_and_sum(self.totals_slvra.totals_slvrag, select=selection, sum=sum_dims)
-        counts_ra = select_and_sum(self.counts_slvra.totals_slvrag, select=selection, sum=sum_dims)
+        totals_ra = select_and_sum(self.totals_slvra.tens, select=selection, sum=sum_dims)
+        counts_ra = select_and_sum(self.counts_slvra.tens, select=selection, sum=sum_dims)
         average_ra = totals_ra / (counts_ra + 0.001)
         transformed_ra = torch.pow(average_ra, 1/3)     # cube root is a good scaling
         return plotting.color_plot_2d_on_axis(axis, np.array(ALT_COUNT_BIN_BOUNDS), np.array(REF_COUNT_BIN_BOUNDS), transformed_ra, None, None,
@@ -98,13 +96,13 @@ class BatchIndexedAverages:
         :return:
         """
         assert self.has_been_sent_to_cpu, "Can't make plots before sending to CPU"
-        max_for_this_source_and_variant_type = torch.max(self.counts_slvra.totals_slvrag[source, :, var_type])
+        max_for_this_source_and_variant_type = torch.max(self.counts_slvra.tens[source, :, var_type])
         # TODO: only if include logits
-        sum_dims = ((BatchProperty.SOURCE,) if source is None else ()) + (BatchProperty.LOGIT_BIN,)
+        sum_dims = ((BatchProperty.SOURCE,) if source is None else ())
         selection = ({} if source is None else {BatchProperty.SOURCE: source}) | \
                     {BatchProperty.VARIANT_TYPE: var_type, BatchProperty.LABEL: label}
 
-        counts_ra = select_and_sum(self.counts_slvra.totals_slvrag, select=selection, sum=sum_dims)
+        counts_ra = select_and_sum(self.counts_slvra.tens, select=selection, sum=sum_dims)
         normalized_counts_ra = counts_ra / max_for_this_source_and_variant_type
         return plotting.color_plot_2d_on_axis(axis, np.array(ALT_COUNT_BIN_BOUNDS), np.array(REF_COUNT_BIN_BOUNDS), normalized_counts_ra, None, None,
                                        vmin=0, vmax=1)
@@ -154,7 +152,7 @@ def make_true_and_false_masks_lg():
     return true_lg, false_lg
 
 
-class AccuracyMetrics(BatchIndexedTotals):
+class AccuracyMetrics(BatchIndexedTensor):
     TRUE_LG, FALSE_LG = make_true_and_false_masks_lg()
 
     """
@@ -178,7 +176,7 @@ class AccuracyMetrics(BatchIndexedTotals):
                     ({} if alt_count_bin is None else {BatchProperty.ALT_COUNT_BIN: alt_count_bin}) | \
                     {BatchProperty.VARIANT_TYPE: variant_type}
 
-        totals_lg = select_and_sum(self.totals_slvrag, select=selection, sum=sum_dims)
+        totals_lg = select_and_sum(self.tens, select=selection, sum=sum_dims)
         # starting point is threshold below bottom bin, hence everything is considered artifact, hence 1) everything labeled
         # non-artifact is a false negative, 2) there are no true positives, 3) there are no false positives
         true_positive, false_positive = 0, 0
@@ -220,7 +218,7 @@ class AccuracyMetrics(BatchIndexedTotals):
         selection = ({} if source is None else {BatchProperty.SOURCE: source}) | {BatchProperty.VARIANT_TYPE: var_type}
 
         # don't select label yet because we have to multiply by the truth mask
-        totals_lrag = select_and_sum(self.totals_slvrag, select=selection, sum=sum_dims)
+        totals_lrag = select_and_sum(self.tens, select=selection, sum=sum_dims)
         true_lrag = AccuracyMetrics.TRUE_LG.view(len(Label), 1, 1, NUM_LOGIT_BINS) * totals_lrag
         false_lrag = AccuracyMetrics.FALSE_LG.view(len(Label), 1, 1, NUM_LOGIT_BINS) * totals_lrag
         true_ra, false_ra = torch.sum(true_lrag[label], dim=-1), torch.sum(false_lrag[label], dim=-1)
@@ -237,7 +235,7 @@ class AccuracyMetrics(BatchIndexedTotals):
         selection = ({} if source is None else {BatchProperty.SOURCE: source}) | \
                     ({} if alt_count_bin is None else {BatchProperty.ALT_COUNT_BIN: alt_count_bin}) | \
                     ({} if ref_count_bin is None else {BatchProperty.REF_COUNT_BIN: ref_count_bin})
-        totals_lvg = select_and_sum(self.totals_slvrag, select=selection, sum=sum_dims)
+        totals_lvg = select_and_sum(self.tens, select=selection, sum=sum_dims)
         true_lvg = AccuracyMetrics.TRUE_LG.view(len(Label), 1, NUM_LOGIT_BINS) * totals_lvg
         false_lvg = AccuracyMetrics.FALSE_LG.view(len(Label), 1, NUM_LOGIT_BINS) * totals_lvg
         true_vg, false_vg = torch.sum(true_lvg, dim=0), torch.sum(false_lvg, dim=0)

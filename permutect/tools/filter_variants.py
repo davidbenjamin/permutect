@@ -12,7 +12,7 @@ from permutect import constants
 from permutect.architecture.posterior_model import PosteriorModel
 from permutect.architecture.permutect_model import PermutectModel, load_model
 from permutect.data import plain_text_data
-from permutect.data.batch_indexing import BatchIndices, BatchIndexedTotals
+from permutect.data.batch_indexing import BatchIndices, BatchIndexedTensor
 from permutect.data.datum import Datum
 from permutect.data.posterior_data import PosteriorDataset, PosteriorDatum, PosteriorBatch
 from permutect.data.prefetch_generator import prefetch_generator
@@ -249,7 +249,7 @@ def apply_filtering_to_vcf(input_vcf, output_vcf, contig_index_to_name_map, erro
     evaluation_metrics = EvaluationMetrics(num_sources=1)
 
     # Note: using BatchIndexedTotals in a hacky way, with Call replacing Source!
-    artifact_logit_metrics = BatchIndexedTotals(num_sources=len(Call), include_logits=True)
+    artifact_logit_metrics = BatchIndexedTensor(num_sources=len(Call), include_logits=True)
     encoding_to_posterior_results = {}
 
     batch: PosteriorBatch
@@ -270,9 +270,8 @@ def apply_filtering_to_vcf(input_vcf, output_vcf, contig_index_to_name_map, erro
         evaluation_metrics.record_batch(Epoch.TEST, evaluation_batch_indices)
 
         most_confident_probs_b, most_confident_calls_b = torch.max(posterior_probs_bc, dim=-1)
-
-        artifact_logit_batch_indices = BatchIndices(batch, logits=batch.get_artifact_logits(), sources_override=most_confident_calls_b)
-        artifact_logit_metrics.record(artifact_logit_batch_indices, values=most_confident_probs_b)
+        artifact_logit_metrics.record_with_sources_and_logits(batch, values=most_confident_probs_b,
+            source_override=most_confident_calls_b, logits=batch.get_artifact_logits())
 
         artifact_logits = batch.get_artifact_logits().cpu().tolist()
         data = [Datum(datum_array) for datum_array in batch.get_data_be()]

@@ -17,7 +17,7 @@ from permutect.data.reads_dataset import ReadsDataset
 from permutect.data.datum import Datum
 from permutect.data.prefetch_generator import prefetch_generator
 from permutect.metrics.evaluation_metrics import EmbeddingMetrics, EvaluationMetrics
-from permutect.metrics.loss_metrics import BatchIndexedAverages
+from permutect.metrics.loss_metrics import LossMetrics
 from permutect.data.batch_indexing import BatchProperty
 from permutect.data.count_binning import alt_count_bin_index, round_alt_count_to_bin_center, alt_count_bin_name
 from permutect.parameters import TrainingParameters
@@ -75,9 +75,9 @@ def train_permutect_model(model: PermutectModel, dataset: ReadsDataset, training
                 unfreeze(model.calibration_parameters())  # unfreeze calibration but everything else stays frozen
                 # unfreeze(model.final_calibration_shift_parameters())  # unfreeze final calibration shift but everything else stays frozen
 
-            loss_metrics = BatchIndexedAverages(num_sources=num_sources, device=device)   # based on calibrated logits
-            alt_count_loss_metrics = BatchIndexedAverages(num_sources=num_sources, device=device)
-            source_prediction_loss_metrics = BatchIndexedAverages(num_sources=num_sources, device=device)  # based on calibrated logits
+            loss_metrics = LossMetrics(num_sources=num_sources, device=device)   # based on calibrated logits
+            alt_count_loss_metrics = LossMetrics(num_sources=num_sources, device=device)
+            source_prediction_loss_metrics = LossMetrics(num_sources=num_sources, device=device)  # based on calibrated logits
 
             loader = (calibration_train_loader if epoch_type == Epoch.TRAIN else calibration_valid_loader) if is_calibration_epoch else \
                 (train_loader if epoch_type == Epoch.TRAIN else valid_loader)

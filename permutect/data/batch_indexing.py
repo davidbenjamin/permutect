@@ -37,6 +37,8 @@ class BatchProperty(IntEnum):
 
 
 class BatchIndices:
+    PRODUCT_OF_NON_SOURCE_DIMS_INCLUDING_LOGITS = len(Label) * len(Variation) * NUM_REF_COUNT_BINS * NUM_ALT_COUNT_BINS * NUM_LOGIT_BINS
+
     def __init__(self, batch: Batch, logits: Tensor = None, sources_override: IntTensor=None):
         """
         sources override is used for something of a hack where in filtering there is only one source, so we use the
@@ -89,6 +91,17 @@ class BatchIndices:
             assert tens.dim == 6, "Tensor must have 6 dimensions: source, label, variant type, ref count, alt count, logit"
             return tens.view(-1).index_add_(dim=0, index=self._flattened_idx_with_logits(logits), source=values)
 
+    def increment_tensor_with_sources_and_logits(self, tens: Tensor, values: Tensor, sources_override: IntTensor, logits: Tensor):
+        # we sometimes need to override the sources (in filter_variants.py there is a hack where we use the Call type
+        # in place of the sources).  This is how we do that.
+        assert tens.dim == 6, "Tensor must have 6 dimensions: source, label, variant type, ref count, alt count, logit"
+        indices_with_logits = self._flattened_idx_with_logits(logits)
+
+        # eg, if the dimensions after source are 2, 3, 4 then every increase of the source by 1 is accompanied by an increase
+        # of 2x3x4 = 24 in the flattened indices.
+        indices = BatchIndices.PRODUCT_OF_NON_SOURCE_DIMS_INCLUDING_LOGITS * (sources_override - self.sources)
+        return tens.view(-1).index_add_(dim=0, index=indices, source=values)
+
 
 def make_batch_indexed_tensor(num_sources: int, device=gpu_if_available(), include_logits: bool=False, value:float = 0):
     # make tensor with indices slvra and optionally g:
@@ -99,25 +112,25 @@ def make_batch_indexed_tensor(num_sources: int, device=gpu_if_available(), inclu
         return value * torch.ones((num_sources, len(Label), len(Variation), NUM_REF_COUNT_BINS, NUM_ALT_COUNT_BINS, NUM_LOGIT_BINS), device=device)
 
 
-class BatchIndexedTotals:
+class BatchIndexedTensor:
     NUM_DIMS = 6
     """
     stores sums, indexed by batch properties source (s), label (l), variant type (v), ref count (r), alt count (a), logit (g)
     """
     def __init__(self, num_sources: int, device=gpu_if_available(), include_logits: bool = False):
         # note: if include logits is false, the g dimension is absent
-        self.totals_slvrag = make_batch_indexed_tensor(num_sources=num_sources, device=device, include_logits=include_logits, value=0)
+        self.tens = make_batch_indexed_tensor(num_sources=num_sources, device=device, include_logits=include_logits, value=0)
         self.include_logits = include_logits
         self.device = device
         self.has_been_sent_to_cpu = False
         self.num_sources = num_sources
 
-    def split_over_sources(self) -> List[BatchIndexedTotals]:
+    def split_over_sources(self) -> List[BatchIndexedTensor]:
         # split into single-source BatchIndexedTotals
         result = []
         for source in range(self.num_sources):
-            element = BatchIndexedTotals(num_sources=1, device=self.device, include_logits=self.include_logits)
-            element.totals_slvrag[0].copy_(self.totals_slvrag[source])
+            element = BatchIndexedTensor(num_sources=1, device=self.device, include_logits=self.include_logits)
+            element.tens[0].copy_(self.tens[source])
             result.append(element)
         return result
 
@@ -127,7 +140,7 @@ class BatchIndexedTotals:
         marginals etc on GPU and sending them each to CPU for plotting etc.
         :return:
         """
-        self.totals_slvrag = self.totals_slvrag.cpu()
+        self.tens = self.tens.cpu()
         self.device = torch.device('cpu')
         self.has_been_sent_to_cpu = True
         return self
@@ -135,11 +148,11 @@ class BatchIndexedTotals:
     def resize_sources(self, new_num_sources):
         old_num_sources = self.num_sources
         if new_num_sources < old_num_sources:
-            self.totals_slvrag = self.totals_slvrag[:new_num_sources]
+            self.tens = self.tens[:new_num_sources]
         elif new_num_sources > old_num_sources:
             new_totals = make_batch_indexed_tensor(num_sources=new_num_sources, device=self.device, include_logits=self.include_logits, value=0)
-            new_totals[:old_num_sources] = self.totals_slvrag
-            self.totals_slvrag = new_totals
+            new_totals[:old_num_sources] = self.tens
+            self.tens = new_totals
         self.num_sources = new_num_sources
 
     def record_datum(self, datum: Datum, value: float = 1.0, grow_source_if_necessary: bool = True):
@@ -152,14 +165,20 @@ class BatchIndexedTotals:
                 raise Exception("Datum source doesn't fit.")
         # no logits here
         ref_idx, alt_idx = ref_count_bin_index(datum.get_ref_count()), alt_count_bin_index(datum.get_alt_count())
-        self.totals_slvrag[source, datum.get_label(), datum.get_variant_type(), ref_idx, alt_idx] += value
+        self.tens[source, datum.get_label(), datum.get_variant_type(), ref_idx, alt_idx] += value
 
-    def record(self, batch_indices: BatchIndices, values: Tensor):
+    def record(self, batch: Batch, values: Tensor, logits: Tensor=None):
         assert not self.has_been_sent_to_cpu, "Can't record after already sending to CPU"
-        batch_indices.increment_tensor(self.totals_slvrag, values)
+        batch.batch_indices().increment_tensor(self.tens, values=values, logits=logits)
+
+    def record_with_sources_and_logits(self, batch: Batch, values: Tensor, sources_override: IntTensor, logits: Tensor):
+        assert not self.has_been_sent_to_cpu, "Can't record after already sending to CPU"
+        batch.batch_indices().increment_tensor_with_sources_and_logits(self.tens, values=values, sources_override=sources_override, logits=logits)
+
+
 
     def get_totals(self) -> Tensor:
-        return self.totals_slvrag
+        return self.tens
 
     def get_marginal(self, *properties: Tuple[BatchProperty, ...]) -> Tensor:
         """
@@ -167,10 +186,9 @@ class BatchIndexedTotals:
         For example self.get_marginal(BatchProperty.SOURCE, BatchProperty.LABEL) yields a (num sources x len(Label)) output
         """
         property_set = set(*properties)
-
-        # TODO: I think this is wrong because we don't always keep the dummy logit index if not used
-        other_dims = tuple(n for n in range(BatchIndexedTotals.NUM_DIMS) if n not in property_set)
-        return torch.sum(self.totals_slvrag, dim=other_dims)
+        num_dims = len(BatchProperty) - (0 if self.include_logits else 1)
+        other_dims = tuple(n for n in range(num_dims) if n not in property_set)
+        return torch.sum(self.tens, dim=other_dims)
 
     def make_logit_histograms(self):
         assert self.has_been_sent_to_cpu, "Can't make plots before sending to CPU"
@@ -178,12 +196,12 @@ class BatchIndexedTotals:
                                  figsize=(2.5 * NUM_ALT_COUNT_BINS, 2.5 * len(Variation)), dpi=200)
         x_axis_logits = logits_from_bin_indices(torch.tensor(range(NUM_LOGIT_BINS)))
 
-        num_sources = self.totals_slvrag.shape[BatchProperty.SOURCE]
+        num_sources = self.tens.shape[BatchProperty.SOURCE]
         multiple_sources = num_sources > 1
         for row, variation_type in enumerate(Variation):
             for count_bin in range(NUM_ALT_COUNT_BINS): # this is also the column index
                 selection={BatchProperty.VARIANT_TYPE: variation_type, BatchProperty.ALT_COUNT_BIN: count_bin}
-                totals_slg = select_and_sum(self.totals_slvrag, select=selection, sum=(BatchProperty.REF_COUNT_BIN,))
+                totals_slg = select_and_sum(self.tens, select=selection, sum=(BatchProperty.REF_COUNT_BIN,))
 
                 # The normalizing factor for each source, label is the sum over all logits for that source and label
                 # This renders a histogram into a sort of probability density plot for each source, label

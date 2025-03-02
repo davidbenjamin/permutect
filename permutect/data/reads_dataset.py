@@ -14,7 +14,7 @@ from mmap_ninja.ragged import RaggedMmap
 from permutect.data.count_binning import cap_ref_count, cap_alt_count
 from permutect.data.reads_datum import ReadsDatum
 from permutect.data.reads_batch import ReadsBatch
-from permutect.data.batch_indexing import BatchProperty, BatchIndexedTotals
+from permutect.data.batch_indexing import BatchProperty, BatchIndexedTensor
 from permutect.utils.enums import Variation, Label
 
 TENSORS_PER_BASE_DATUM = 2  # 1) 2D reads (ref and alt), 1) 1D concatenated stuff
@@ -36,7 +36,7 @@ class ReadsDataset(Dataset):
         assert data_in_ram is not None or data_tarfile is not None, "No data given"
         assert data_in_ram is None or data_tarfile is None, "Data given from both RAM and tarfile"
         self.num_folds = num_folds
-        self.totals_slvra = BatchIndexedTotals(num_sources=1, device=torch.device('cpu'), include_logits=False)   # on CPU
+        self.totals_slvra = BatchIndexedTensor(num_sources=1, device=torch.device('cpu'), include_logits=False)   # on CPU
 
         if data_in_ram is not None:
             self._data = data_in_ram
