@@ -16,7 +16,7 @@ from permutect import constants
 from permutect.data.reads_batch import ReadsBatch
 from permutect.data.reads_datum import ReadsDatum
 from permutect.data.prefetch_generator import prefetch_generator
-from permutect.data.batch_indexing import BatchProperty
+from permutect.data.batch import BatchProperty
 from permutect.parameters import add_training_params_to_parser, TrainingParameters
 from permutect.data.reads_dataset import ReadsDataset
 from permutect.tools.refine_permutect_model import parse_training_params

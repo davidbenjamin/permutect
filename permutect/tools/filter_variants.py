@@ -12,13 +12,13 @@ from permutect import constants
 from permutect.architecture.posterior_model import PosteriorModel
 from permutect.architecture.permutect_model import PermutectModel, load_model
 from permutect.data import plain_text_data
-from permutect.data.batch_indexing import BatchIndices, BatchIndexedTensor
+from permutect.data.batch import BatchIndexedTensor
 from permutect.data.datum import Datum
 from permutect.data.posterior_data import PosteriorDataset, PosteriorDatum, PosteriorBatch
 from permutect.data.prefetch_generator import prefetch_generator
 from permutect.data.reads_batch import ReadsBatch
 from permutect.data.reads_dataset import ReadsDataset
-from permutect.data.count_binning import MAX_ALT_COUNT, ref_count_bin_name, alt_count_bin_index, alt_count_bin_name
+from permutect.data.count_binning import MAX_ALT_COUNT, alt_count_bin_index, alt_count_bin_name
 from permutect.metrics.evaluation_metrics import EvaluationMetrics, EmbeddingMetrics
 from permutect.metrics.posterior_result import PosteriorResult
 from permutect.misc_utils import report_memory_usage, gpu_if_available

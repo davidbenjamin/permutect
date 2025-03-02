@@ -10,10 +10,9 @@ from torch import Tensor
 from torch.utils.tensorboard import SummaryWriter
 
 from permutect.data.batch import Batch
-from permutect.data.batch_indexing import BatchIndices
 from permutect.metrics import plotting
 from permutect.metrics.loss_metrics import AccuracyMetrics
-from permutect.data.count_binning import NUM_ALT_COUNT_BINS, count_from_ref_bin_index, NUM_REF_COUNT_BINS, \
+from permutect.data.count_binning import NUM_ALT_COUNT_BINS, NUM_REF_COUNT_BINS, \
     ref_count_bin_name, count_from_alt_bin_index, alt_count_bin_name
 from permutect.metrics.posterior_result import PosteriorResult
 from permutect.misc_utils import gpu_if_available

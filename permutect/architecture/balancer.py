@@ -8,7 +8,7 @@ from torch.distributions import Beta
 from torch.nn import Module, Parameter
 from torch.utils.tensorboard import SummaryWriter
 
-from permutect.data.batch_indexing import make_batch_indexed_tensor, BatchIndices
+from permutect.data.batch import Batch, make_batch_indexed_tensor
 from permutect.data.reads_batch import ReadsBatch
 from permutect.data.count_binning import ALT_COUNT_BIN_BOUNDS, REF_COUNT_BIN_BOUNDS
 from permutect.metrics import plotting
@@ -46,7 +46,8 @@ class Balancer(Module):
         self.to(device=device)
 
     # TODO: compute multiple sets of samplings
-    def compute_downsampling_fractions(self, batch_indices: BatchIndices):
+    def compute_downsampling_fractions(self, batch: Batch):
+        batch_indices = batch.batch_indices()
         alpha_ref_b = batch_indices.index_into_tensor(torch.exp(self.alpha_ref_pre_exp_slvra))
         beta_ref_b = batch_indices.index_into_tensor(torch.exp(self.beta_ref_pre_exp_slvra))
         alpha_alt_b = batch_indices.index_into_tensor(torch.exp(self.alpha_alt_pre_exp_slvra))

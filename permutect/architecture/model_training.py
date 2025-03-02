@@ -18,7 +18,7 @@ from permutect.data.datum import Datum
 from permutect.data.prefetch_generator import prefetch_generator
 from permutect.metrics.evaluation_metrics import EmbeddingMetrics, EvaluationMetrics
 from permutect.metrics.loss_metrics import LossMetrics
-from permutect.data.batch_indexing import BatchProperty
+from permutect.data.batch import BatchProperty
 from permutect.data.count_binning import alt_count_bin_index, round_alt_count_to_bin_center, alt_count_bin_name
 from permutect.parameters import TrainingParameters
 from permutect.misc_utils import report_memory_usage, backpropagate, freeze, unfreeze

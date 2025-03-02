@@ -14,7 +14,7 @@ from mmap_ninja.ragged import RaggedMmap
 from permutect.data.count_binning import cap_ref_count, cap_alt_count
 from permutect.data.reads_datum import ReadsDatum
 from permutect.data.reads_batch import ReadsBatch
-from permutect.data.batch_indexing import BatchProperty, BatchIndexedTensor
+from permutect.data.batch import BatchProperty, BatchIndexedTensor
 from permutect.utils.enums import Variation, Label
 
 TENSORS_PER_BASE_DATUM = 2  # 1) 2D reads (ref and alt), 1) 1D concatenated stuff

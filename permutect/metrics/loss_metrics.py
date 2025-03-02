@@ -8,8 +8,7 @@ from matplotlib import pyplot as plt
 from torch import Tensor
 from torch.utils.tensorboard import SummaryWriter
 
-from permutect.data.batch import Batch
-from permutect.data.batch_indexing import BatchProperty, BatchIndexedTensor
+from permutect.data.batch import Batch, BatchProperty, BatchIndexedTensor
 from permutect.data.count_binning import NUM_LOGIT_BINS, top_of_logit_bin, logits_from_bin_indices, \
     ALT_COUNT_BIN_BOUNDS, REF_COUNT_BIN_BOUNDS
 from permutect.metrics import plotting

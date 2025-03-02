@@ -13,7 +13,6 @@ from permutect.architecture.dna_sequence_convolution import DNASequenceConvoluti
 from permutect.architecture.gated_mlp import GatedRefAltMLP
 from permutect.architecture.mlp import MLP
 from permutect.architecture.set_pooling import SetPooling
-from permutect.data.batch_indexing import BatchIndices
 from permutect.data.datum import DEFAULT_GPU_FLOAT, DEFAULT_CPU_FLOAT
 from permutect.data.reads_batch import ReadsBatch
 from permutect.data.prefetch_generator import prefetch_generator
