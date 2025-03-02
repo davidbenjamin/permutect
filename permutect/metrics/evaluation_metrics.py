@@ -45,7 +45,7 @@ class EvaluationMetrics:
     def record_batch(self, epoch_type: Epoch, batch: Batch, logits: Tensor, weights: Tensor = None):
         assert not self.has_been_sent_to_cpu, "Can't record after already sending to CPU"
         is_labeled = batch.batch_indices().labels != Label.UNLABELED
-        weights_with_labeled_mask = is_labeled * (weights if weights is not None else torch.ones_like(batch.batch_indices().sources))
+        weights_with_labeled_mask = is_labeled * (weights if weights is not None else torch.ones_like(logits))
         self.accuracy_metrics_by_epoch_type[epoch_type].record(batch, values=weights_with_labeled_mask, logits=logits)
 
     # track bad calls when filtering is given an optional evaluation truth VCF
