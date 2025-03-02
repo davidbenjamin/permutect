@@ -10,9 +10,9 @@ from torch.utils.tensorboard import SummaryWriter
 
 from permutect.data.batch_indexing import make_batch_indexed_tensor, BatchIndices
 from permutect.data.reads_batch import ReadsBatch
-from permutect.data.count_binning import alt_count_bin_indices, ref_count_bin_indices, ALT_COUNT_BIN_BOUNDS, REF_COUNT_BIN_BOUNDS
+from permutect.data.count_binning import ALT_COUNT_BIN_BOUNDS, REF_COUNT_BIN_BOUNDS
 from permutect.metrics import plotting
-from permutect.utils.array_utils import index_tensor, add_at_index
+from permutect.utils.array_utils import index_tensor
 from permutect.utils.enums import Label, Variation, Epoch
 
 

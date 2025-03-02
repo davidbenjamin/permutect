@@ -266,8 +266,7 @@ def apply_filtering_to_vcf(input_vcf, output_vcf, contig_index_to_name_map, erro
         # TODO: maybe also have an option to record relative to the computed probability thresholds.
         # TODO: this code here treats posterior_prob = 1/2 as the threshold
         # TODO: we could perhaps subtract the threshold to re-center at zero
-        evaluation_batch_indices = BatchIndices(batch, logits=error_logits_b)
-        evaluation_metrics.record_batch(Epoch.TEST, evaluation_batch_indices)
+        evaluation_metrics.record_batch(Epoch.TEST, batch, logits=error_logits_b)
 
         most_confident_probs_b, most_confident_calls_b = torch.max(posterior_probs_bc, dim=-1)
         artifact_logit_metrics.record_with_sources_and_logits(batch, values=most_confident_probs_b,

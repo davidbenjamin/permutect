@@ -162,8 +162,7 @@ def collect_evaluation_data(model: PermutectModel, dataset: ReadsDataset, balanc
         for batch in tqdm(prefetch_generator(loader), mininterval=60, total=len(loader)):
             output = model.compute_batch_output(batch, balancer)
 
-            # TODO: use logits=output.calibrated_logits in record_batch
-            evaluation_metrics.record_batch(epoch_type, batch_indices, output.weights)
+            evaluation_metrics.record_batch(epoch_type, batch, logits=output.calibrated_logits, weights=output.weights)
 
             if report_worst:
                 for datum_array, predicted_logit in zip(batch.get_data_be(), output.calibrated_logits.detach().cpu().tolist()):

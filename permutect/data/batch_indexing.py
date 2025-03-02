@@ -39,19 +39,18 @@ class BatchProperty(IntEnum):
 class BatchIndices:
     PRODUCT_OF_NON_SOURCE_DIMS_INCLUDING_LOGITS = len(Label) * len(Variation) * NUM_REF_COUNT_BINS * NUM_ALT_COUNT_BINS * NUM_LOGIT_BINS
 
-    def __init__(self, batch: Batch, logits: Tensor = None, sources_override: IntTensor=None):
+    def __init__(self, batch: Batch, logits: Tensor = None):
         """
         sources override is used for something of a hack where in filtering there is only one source, so we use the
         source dimensipn to instead represent the call type
         """
-        self.sources = batch.get_sources() if sources_override is None else sources_override
+        self.sources = batch.get_sources()
         self.labels = batch.get_labels()
         self.var_types = batch.get_variant_types()
         self.ref_counts = batch.get_ref_counts()
         self.ref_count_bins = ref_count_bin_indices(self.ref_counts)
         self.alt_counts = batch.get_alt_counts()
         self.alt_count_bins = alt_count_bin_indices(self.alt_counts)
-        self.logit_bins = logit_bin_indices(logits) if logits is not None else None
 
         # We do something kind of dangerous-seeming here: sources is the zeroth dimension and so the formula for
         # flattened indices *doesn't depend on the number of sources* since the stride from one source to the next is the
@@ -99,7 +98,7 @@ class BatchIndices:
 
         # eg, if the dimensions after source are 2, 3, 4 then every increase of the source by 1 is accompanied by an increase
         # of 2x3x4 = 24 in the flattened indices.
-        indices = BatchIndices.PRODUCT_OF_NON_SOURCE_DIMS_INCLUDING_LOGITS * (sources_override - self.sources)
+        indices = indices_with_logits + BatchIndices.PRODUCT_OF_NON_SOURCE_DIMS_INCLUDING_LOGITS * (sources_override - self.sources)
         return tens.view(-1).index_add_(dim=0, index=indices, source=values)
 
 
@@ -173,9 +172,8 @@ class BatchIndexedTensor:
 
     def record_with_sources_and_logits(self, batch: Batch, values: Tensor, sources_override: IntTensor, logits: Tensor):
         assert not self.has_been_sent_to_cpu, "Can't record after already sending to CPU"
+        assert self.include_logits, "Tensor lacks a logit dimension"
         batch.batch_indices().increment_tensor_with_sources_and_logits(self.tens, values=values, sources_override=sources_override, logits=logits)
-
-
 
     def get_totals(self) -> Tensor:
         return self.tens

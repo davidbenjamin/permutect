@@ -43,11 +43,11 @@ class EvaluationMetrics:
         return self
 
     # TODO: currently doesn't record unlabeled data at all
-    def record_batch(self, epoch_type: Epoch, batch_indices: BatchIndices, weights: Tensor = None):
+    def record_batch(self, epoch_type: Epoch, batch: Batch, logits: Tensor, weights: Tensor = None):
         assert not self.has_been_sent_to_cpu, "Can't record after already sending to CPU"
-        is_labeled = batch_indices.labels != Label.UNLABELED
-        weights_with_labeled_mask = is_labeled * (weights if weights is not None else torch.ones_like(batch_indices.sources))
-        self.accuracy_metrics_by_epoch_type[epoch_type].record(batch_indices, weights_with_labeled_mask)
+        is_labeled = batch.batch_indices().labels != Label.UNLABELED
+        weights_with_labeled_mask = is_labeled * (weights if weights is not None else torch.ones_like(batch.batch_indices().sources))
+        self.accuracy_metrics_by_epoch_type[epoch_type].record(batch, values=weights_with_labeled_mask, logits=logits)
 
     # track bad calls when filtering is given an optional evaluation truth VCF
     def record_mistake(self, posterior_result: PosteriorResult, call: Call):
