@@ -270,7 +270,7 @@ def apply_filtering_to_vcf(input_vcf, output_vcf, contig_index_to_name_map, erro
 
         most_confident_probs_b, most_confident_calls_b = torch.max(posterior_probs_bc, dim=-1)
         artifact_logit_metrics.record_with_sources_and_logits(batch, values=most_confident_probs_b,
-            source_override=most_confident_calls_b, logits=batch.get_artifact_logits())
+            sources_override=most_confident_calls_b, logits=batch.get_artifact_logits())
 
         artifact_logits = batch.get_artifact_logits().cpu().tolist()
         data = [Datum(datum_array) for datum_array in batch.get_data_be()]
