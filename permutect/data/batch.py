@@ -202,15 +202,6 @@ class BatchIndexedTensor:
         self.has_been_sent_to_cpu = False
         self.num_sources = num_sources
 
-    def split_over_sources(self) -> List[BatchIndexedTensor]:
-        # split into single-source BatchIndexedTotals
-        result = []
-        for source in range(self.num_sources):
-            element = BatchIndexedTensor(num_sources=1, device=self.device, include_logits=self.include_logits)
-            element.tens[0].copy_(self.tens[source])
-            result.append(element)
-        return result
-
     def put_on_cpu(self):
         """
         Do this at the end of an epoch so that the whole tensor is on CPU in one operation rather than computing various
@@ -266,37 +257,3 @@ class BatchIndexedTensor:
         other_dims = tuple(n for n in range(num_dims) if n not in property_set)
         return torch.sum(self.tens, dim=other_dims)
 
-    def make_logit_histograms(self):
-        assert self.has_been_sent_to_cpu, "Can't make plots before sending to CPU"
-        fig, axes = plt.subplots(len(Variation), NUM_ALT_COUNT_BINS, sharex='all', sharey='all', squeeze=False,
-                                 figsize=(2.5 * NUM_ALT_COUNT_BINS, 2.5 * len(Variation)), dpi=200)
-        x_axis_logits = logits_from_bin_indices(torch.tensor(range(NUM_LOGIT_BINS)))
-
-        num_sources = self.tens.shape[BatchProperty.SOURCE]
-        multiple_sources = num_sources > 1
-        for row, variation_type in enumerate(Variation):
-            for count_bin in range(NUM_ALT_COUNT_BINS): # this is also the column index
-                selection={BatchProperty.VARIANT_TYPE: variation_type, BatchProperty.ALT_COUNT_BIN: count_bin}
-                totals_slg = select_and_sum(self.tens, select=selection, sum=(BatchProperty.REF_COUNT_BIN,))
-
-                # The normalizing factor for each source, label is the sum over all logits for that source and label
-                # This renders a histogram into a sort of probability density plot for each source, label
-                normalization_slg = torch.sum(totals_slg, dim=-1, keepdim=True)
-                normalized_totals_slg = (totals_slg + 0.000001) / normalization_slg
-
-                # overlapping line plots for all source / label combinations
-                # source 0 is filled; others are not
-                ax = axes[row, count_bin]
-                x_y_label_tuples = []
-                for source in range(num_sources):
-                    for label in Label:
-                        if normalization_slg[source, label, 0].item() >= 1:
-                            line_label = f"{label.name} ({source})" if multiple_sources else label.name
-                            x_y_label_tuples.append((x_axis_logits.cpu().numpy(), normalized_totals_slg[source, label].cpu().numpy(), line_label))
-                plotting.simple_plot_on_axis(ax, x_y_label_tuples, None, None)
-                ax.legend()
-
-        column_names = [alt_count_bin_name(count_idx) for count_idx in range(NUM_ALT_COUNT_BINS)]
-        row_names = [var_type.name for var_type in Variation]
-        plotting.tidy_subplots(fig, axes, x_label="predicted logit", y_label="frequency", row_labels=row_names, column_labels=column_names)
-        return fig, axes

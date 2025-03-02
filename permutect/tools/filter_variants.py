@@ -20,6 +20,7 @@ from permutect.data.reads_batch import ReadsBatch
 from permutect.data.reads_dataset import ReadsDataset
 from permutect.data.count_binning import MAX_ALT_COUNT, alt_count_bin_index, alt_count_bin_name
 from permutect.metrics.evaluation_metrics import EvaluationMetrics, EmbeddingMetrics
+from permutect.metrics.loss_metrics import AccuracyMetrics
 from permutect.metrics.posterior_result import PosteriorResult
 from permutect.misc_utils import report_memory_usage, gpu_if_available
 from permutect.utils.allele_utils import trim_alleles_on_right, find_variant_type, truncate_bases_if_necessary
@@ -249,7 +250,7 @@ def apply_filtering_to_vcf(input_vcf, output_vcf, contig_index_to_name_map, erro
     evaluation_metrics = EvaluationMetrics(num_sources=1)
 
     # Note: using BatchIndexedTotals in a hacky way, with Call replacing Source!
-    artifact_logit_metrics = BatchIndexedTensor(num_sources=len(Call), include_logits=True)
+    artifact_logit_metrics = AccuracyMetrics(num_sources=len(Call))
     encoding_to_posterior_results = {}
 
     batch: PosteriorBatch
@@ -381,9 +382,9 @@ def apply_filtering_to_vcf(input_vcf, output_vcf, contig_index_to_name_map, erro
     embedding_metrics.output_to_summary_writer(summary_writer, is_filter_variants=True)
 
     # recall that "sources" is really call type here
+    metrics: AccuracyMetrics
     for call_type, metrics in zip(Call, artifact_logit_metrics.split_over_sources()):
         metrics.put_on_cpu()
-        metrics.make_logit_histograms()
         hist_fig, hist_ax = metrics.make_logit_histograms()
         summary_writer.add_figure(f"artifact logit histograms for call type {call_type.name}", hist_fig)
 

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Tuple
+from typing import Tuple, List
 
 import numpy as np
 import torch
@@ -10,7 +10,7 @@ from torch.utils.tensorboard import SummaryWriter
 
 from permutect.data.batch import Batch, BatchProperty, BatchIndexedTensor
 from permutect.data.count_binning import NUM_LOGIT_BINS, top_of_logit_bin, logits_from_bin_indices, \
-    ALT_COUNT_BIN_BOUNDS, REF_COUNT_BIN_BOUNDS
+    ALT_COUNT_BIN_BOUNDS, REF_COUNT_BIN_BOUNDS, NUM_ALT_COUNT_BINS, alt_count_bin_name
 from permutect.metrics import plotting
 from permutect.misc_utils import gpu_if_available
 from permutect.utils.array_utils import select_and_sum
@@ -165,6 +165,15 @@ class AccuracyMetrics(BatchIndexedTensor):
         super().__init__(num_sources, device, include_logits=True)
         self.num_sources = num_sources
 
+    def split_over_sources(self) -> List[AccuracyMetrics]:
+        # split into single-source BatchIndexedTotals
+        result = []
+        for source in range(self.num_sources):
+            element = AccuracyMetrics(num_sources=1, device=self.device)
+            element.tens[0].copy_(self.tens[source])
+            result.append(element)
+        return result
+
     def make_roc_data(self, ref_count_bin: int, alt_count_bin: int, source: int, variant_type: Variation, sens_prec: bool):
         assert self.has_been_sent_to_cpu, "Can't make plots before sending to CPU"
         sum_dims = ((BatchProperty.SOURCE,) if source is None else ()) + \
@@ -247,5 +256,40 @@ class AccuracyMetrics(BatchIndexedTensor):
             accuracies = true_g[non_empty_bin_indices] / total_g[non_empty_bin_indices]
             x_y_lab_tuples.append((logits, accuracies, var_type.name))
         plotting.simple_plot_on_axis(axis, x_y_lab_tuples, None, None)
+
+    def make_logit_histograms(self):
+        assert self.has_been_sent_to_cpu, "Can't make plots before sending to CPU"
+        fig, axes = plt.subplots(len(Variation), NUM_ALT_COUNT_BINS, sharex='all', sharey='all', squeeze=False,
+                                 figsize=(2.5 * NUM_ALT_COUNT_BINS, 2.5 * len(Variation)), dpi=200)
+        x_axis_logits = logits_from_bin_indices(torch.tensor(range(NUM_LOGIT_BINS)))
+
+        num_sources = self.tens.shape[BatchProperty.SOURCE]
+        multiple_sources = num_sources > 1
+        for row, variation_type in enumerate(Variation):
+            for count_bin in range(NUM_ALT_COUNT_BINS): # this is also the column index
+                selection={BatchProperty.VARIANT_TYPE: variation_type, BatchProperty.ALT_COUNT_BIN: count_bin}
+                totals_slg = select_and_sum(self.tens, select=selection, sum=(BatchProperty.REF_COUNT_BIN,))
+
+                # The normalizing factor for each source, label is the sum over all logits for that source and label
+                # This renders a histogram into a sort of probability density plot for each source, label
+                normalization_slg = torch.sum(totals_slg, dim=-1, keepdim=True)
+                normalized_totals_slg = (totals_slg + 0.000001) / normalization_slg
+
+                # overlapping line plots for all source / label combinations
+                # source 0 is filled; others are not
+                ax = axes[row, count_bin]
+                x_y_label_tuples = []
+                for source in range(num_sources):
+                    for label in Label:
+                        if normalization_slg[source, label, 0].item() >= 1:
+                            line_label = f"{label.name} ({source})" if multiple_sources else label.name
+                            x_y_label_tuples.append((x_axis_logits.cpu().numpy(), normalized_totals_slg[source, label].cpu().numpy(), line_label))
+                plotting.simple_plot_on_axis(ax, x_y_label_tuples, None, None)
+                ax.legend()
+
+        column_names = [alt_count_bin_name(count_idx) for count_idx in range(NUM_ALT_COUNT_BINS)]
+        row_names = [var_type.name for var_type in Variation]
+        plotting.tidy_subplots(fig, axes, x_label="predicted logit", y_label="frequency", row_labels=row_names, column_labels=column_names)
+        return fig, axes
 
 
