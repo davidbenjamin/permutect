@@ -152,26 +152,26 @@ class BatchIndices:
         :return:
         """
         if logits is None:
-            assert tens.dim == 5, "Tensor must have 5 dimensions: source, label, variant type, ref count, alt count"
+            assert tens.dim() == 5, "Tensor must have 5 dimensions: source, label, variant type, ref count, alt count"
             return tens.view(-1)[self.flattened_idx]
         else:
-            assert tens.dim == 6, "Tensor must have 6 dimensions: source, label, variant type, ref count, alt count, logit"
+            assert tens.dim() == 6, "Tensor must have 6 dimensions: source, label, variant type, ref count, alt count, logit"
             return tens.view(-1)[self._flattened_idx_with_logits(logits)]
 
     def increment_tensor(self, tens: Tensor, values: Tensor, logits: Tensor = None):
         # Similar, but implements: x_slvra[source[i], label[i], variant type[i], ref bin[i], alt bin[i]] += values[i]
         # Addition is in-place. The flattened view(-1) shares memory with the original tensor
         if logits is None:
-            assert tens.dim == 5, "Tensor must have 5 dimensions: source, label, variant type, ref count, alt count"
+            assert tens.dim() == 5, "Tensor must have 5 dimensions: source, label, variant type, ref count, alt count"
             return tens.view(-1).index_add_(dim=0, index=self.flattened_idx, source=values)
         else:
-            assert tens.dim == 6, "Tensor must have 6 dimensions: source, label, variant type, ref count, alt count, logit"
+            assert tens.dim() == 6, "Tensor must have 6 dimensions: source, label, variant type, ref count, alt count, logit"
             return tens.view(-1).index_add_(dim=0, index=self._flattened_idx_with_logits(logits), source=values)
 
     def increment_tensor_with_sources_and_logits(self, tens: Tensor, values: Tensor, sources_override: IntTensor, logits: Tensor):
         # we sometimes need to override the sources (in filter_variants.py there is a hack where we use the Call type
         # in place of the sources).  This is how we do that.
-        assert tens.dim == 6, "Tensor must have 6 dimensions: source, label, variant type, ref count, alt count, logit"
+        assert tens.dim() == 6, "Tensor must have 6 dimensions: source, label, variant type, ref count, alt count, logit"
         indices_with_logits = self._flattened_idx_with_logits(logits)
 
         # eg, if the dimensions after source are 2, 3, 4 then every increase of the source by 1 is accompanied by an increase

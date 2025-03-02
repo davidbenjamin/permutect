@@ -92,8 +92,8 @@ class Balancer(Module):
             self.source_weights_s.copy_(attenuation * self.source_weights_s + (1-attenuation)*new_source_weights_s)
             self.count_since_last_recomputation = 0
             # TODO: also attenuate counts -- multiply by an attenuation factor or something?
-        batch_weights = index_tensor(self.weights_slvra, (sources, labels, var_types, ref_count_bins, alt_count_bins))
-        source_weights = self.source_weights_s[sources]
+        batch_weights = batch.batch_indices().index_into_tensor(self.weights_slvra)
+        source_weights = self.source_weights_s[batch.batch_indices().sources]
         return batch_weights, source_weights
 
     # TODO: lots of code duplication with the plotting in loss_metrics.py
