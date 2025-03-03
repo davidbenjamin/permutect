@@ -19,8 +19,8 @@ from permutect.utils.enums import Variation, Epoch, Label
 
 class LossMetrics:
     def __init__(self, num_sources: int, device=gpu_if_available()):
-        self.totals_slvra = BatchIndexedTensor(num_sources, device)
-        self.counts_slvra = BatchIndexedTensor(num_sources, device)
+        self.totals_slvra = BatchIndexedTensor.make_zeros(num_sources=num_sources, device=device)
+        self.counts_slvra = BatchIndexedTensor.make_zeros(num_sources=num_sources, device=device)
         self.num_sources = num_sources
         self.has_been_sent_to_cpu = False
 
@@ -30,8 +30,8 @@ class LossMetrics:
         marginals etc on GPU and sending them each to CPU for plotting etc.
         :return:
         """
-        self.totals_slvra.put_on_cpu()
-        self.counts_slvra.put_on_cpu()
+        self.totals_slvra = self.totals_slvra.cpu()
+        self.counts_slvra = self.counts_slvra.cpu()
         self.has_been_sent_to_cpu = True
         return self
 
@@ -81,8 +81,8 @@ class LossMetrics:
         selection = ({} if source is None else {BatchProperty.SOURCE: source}) | \
                     {BatchProperty.VARIANT_TYPE: var_type, BatchProperty.LABEL: label}
 
-        totals_ra = select_and_sum(self.totals_slvra.tens, select=selection, sum=sum_dims)
-        counts_ra = select_and_sum(self.counts_slvra.tens, select=selection, sum=sum_dims)
+        totals_ra = select_and_sum(self.totals_slvra._data, select=selection, sum=sum_dims)
+        counts_ra = select_and_sum(self.counts_slvra._data, select=selection, sum=sum_dims)
         average_ra = totals_ra / (counts_ra + 0.001)
         transformed_ra = torch.pow(average_ra, 1/3)     # cube root is a good scaling
         return plotting.color_plot_2d_on_axis(axis, np.array(ALT_COUNT_BIN_BOUNDS), np.array(REF_COUNT_BIN_BOUNDS), transformed_ra, None, None,
@@ -95,13 +95,13 @@ class LossMetrics:
         :return:
         """
         assert self.has_been_sent_to_cpu, "Can't make plots before sending to CPU"
-        max_for_this_source_and_variant_type = torch.max(self.counts_slvra.tens[source, :, var_type])
+        max_for_this_source_and_variant_type = torch.max(self.counts_slvra._data[source, :, var_type])
         # TODO: only if include logits
         sum_dims = ((BatchProperty.SOURCE,) if source is None else ())
         selection = ({} if source is None else {BatchProperty.SOURCE: source}) | \
                     {BatchProperty.VARIANT_TYPE: var_type, BatchProperty.LABEL: label}
 
-        counts_ra = select_and_sum(self.counts_slvra.tens, select=selection, sum=sum_dims)
+        counts_ra = select_and_sum(self.counts_slvra._data, select=selection, sum=sum_dims)
         normalized_counts_ra = counts_ra / max_for_this_source_and_variant_type
         return plotting.color_plot_2d_on_axis(axis, np.array(ALT_COUNT_BIN_BOUNDS), np.array(REF_COUNT_BIN_BOUNDS), normalized_counts_ra, None, None,
                                        vmin=0, vmax=1)
@@ -170,12 +170,11 @@ class AccuracyMetrics(BatchIndexedTensor):
         result = []
         for source in range(self.num_sources):
             element = AccuracyMetrics(num_sources=1, device=self.device)
-            element.tens[0].copy_(self.tens[source])
+            element._data[0].copy_(self._data[source])
             result.append(element)
         return result
 
     def make_roc_data(self, ref_count_bin: int, alt_count_bin: int, source: int, variant_type: Variation, sens_prec: bool):
-        assert self.has_been_sent_to_cpu, "Can't make plots before sending to CPU"
         sum_dims = ((BatchProperty.SOURCE,) if source is None else ()) + \
                    ((BatchProperty.REF_COUNT_BIN,) if ref_count_bin is None else ()) + \
                    ((BatchProperty.ALT_COUNT_BIN,) if alt_count_bin is None else ())
@@ -184,7 +183,7 @@ class AccuracyMetrics(BatchIndexedTensor):
                     ({} if alt_count_bin is None else {BatchProperty.ALT_COUNT_BIN: alt_count_bin}) | \
                     {BatchProperty.VARIANT_TYPE: variant_type}
 
-        totals_lg = select_and_sum(self.tens, select=selection, sum=sum_dims)
+        totals_lg = select_and_sum(self._data, select=selection, sum=sum_dims)
         # starting point is threshold below bottom bin, hence everything is considered artifact, hence 1) everything labeled
         # non-artifact is a false negative, 2) there are no true positives, 3) there are no false positives
         true_positive, false_positive = 0, 0
@@ -210,7 +209,6 @@ class AccuracyMetrics(BatchIndexedTensor):
         return result
 
     def plot_roc(self, axis, ref_count_bin: int, alt_count_bin: int, source: int, given_thresholds, sens_prec: bool = False):
-        assert self.has_been_sent_to_cpu, "Can't make plots before sending to CPU"
         thresh_nonart_art_tuples = [self.make_roc_data(ref_count_bin, alt_count_bin, source, var_type, sens_prec) for var_type in Variation]
         curve_labels = [var_type.name for var_type in Variation]
         thresholds = ([None]*len(Variation)) if given_thresholds is None else [given_thresholds[var_type] for var_type in Variation]
@@ -221,12 +219,11 @@ class AccuracyMetrics(BatchIndexedTensor):
         for given Label and Variation, plot color map of accuracy vs ref (x axis) and alt (y axis) counts
         :return:
         """
-        assert self.has_been_sent_to_cpu, "Can't make plots before sending to CPU"
         sum_dims = ((BatchProperty.SOURCE,) if source is None else ())
         selection = ({} if source is None else {BatchProperty.SOURCE: source}) | {BatchProperty.VARIANT_TYPE: var_type}
 
         # don't select label yet because we have to multiply by the truth mask
-        totals_lrag = select_and_sum(self.tens, select=selection, sum=sum_dims)
+        totals_lrag = select_and_sum(self._data, select=selection, sum=sum_dims)
         true_lrag = AccuracyMetrics.TRUE_LG.view(len(Label), 1, 1, NUM_LOGIT_BINS) * totals_lrag
         false_lrag = AccuracyMetrics.FALSE_LG.view(len(Label), 1, 1, NUM_LOGIT_BINS) * totals_lrag
         true_ra, false_ra = torch.sum(true_lrag[label], dim=-1), torch.sum(false_lrag[label], dim=-1)
@@ -235,15 +232,13 @@ class AccuracyMetrics(BatchIndexedTensor):
                                        vmin=0, vmax=1)
 
     def plot_calibration(self, axis, ref_count_bin: int, alt_count_bin: int, source: int):
-        assert self.has_been_sent_to_cpu, "Can't make plots before sending to CPU"
-        assert self.has_been_sent_to_cpu, "Can't make plots before sending to CPU"
         sum_dims = ((BatchProperty.SOURCE,) if source is None else ()) + \
                    ((BatchProperty.ALT_COUNT_BIN,) if alt_count_bin is None else ()) + \
                    ((BatchProperty.REF_COUNT_BIN,) if ref_count_bin is None else ())
         selection = ({} if source is None else {BatchProperty.SOURCE: source}) | \
                     ({} if alt_count_bin is None else {BatchProperty.ALT_COUNT_BIN: alt_count_bin}) | \
                     ({} if ref_count_bin is None else {BatchProperty.REF_COUNT_BIN: ref_count_bin})
-        totals_lvg = select_and_sum(self.tens, select=selection, sum=sum_dims)
+        totals_lvg = select_and_sum(self._data, select=selection, sum=sum_dims)
         true_lvg = AccuracyMetrics.TRUE_LG.view(len(Label), 1, NUM_LOGIT_BINS) * totals_lvg
         false_lvg = AccuracyMetrics.FALSE_LG.view(len(Label), 1, NUM_LOGIT_BINS) * totals_lvg
         true_vg, false_vg = torch.sum(true_lvg, dim=0), torch.sum(false_lvg, dim=0)
@@ -258,17 +253,16 @@ class AccuracyMetrics(BatchIndexedTensor):
         plotting.simple_plot_on_axis(axis, x_y_lab_tuples, None, None)
 
     def make_logit_histograms(self):
-        assert self.has_been_sent_to_cpu, "Can't make plots before sending to CPU"
         fig, axes = plt.subplots(len(Variation), NUM_ALT_COUNT_BINS, sharex='all', sharey='all', squeeze=False,
                                  figsize=(2.5 * NUM_ALT_COUNT_BINS, 2.5 * len(Variation)), dpi=200)
         x_axis_logits = logits_from_bin_indices(torch.tensor(range(NUM_LOGIT_BINS)))
 
-        num_sources = self.tens.shape[BatchProperty.SOURCE]
+        num_sources = self._data.shape[BatchProperty.SOURCE]
         multiple_sources = num_sources > 1
         for row, variation_type in enumerate(Variation):
             for count_bin in range(NUM_ALT_COUNT_BINS): # this is also the column index
                 selection={BatchProperty.VARIANT_TYPE: variation_type, BatchProperty.ALT_COUNT_BIN: count_bin}
-                totals_slg = select_and_sum(self.tens, select=selection, sum=(BatchProperty.REF_COUNT_BIN,))
+                totals_slg = select_and_sum(self._data, select=selection, sum=(BatchProperty.REF_COUNT_BIN,))
 
                 # The normalizing factor for each source, label is the sum over all logits for that source and label
                 # This renders a histogram into a sort of probability density plot for each source, label

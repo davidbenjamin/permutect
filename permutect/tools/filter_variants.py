@@ -382,14 +382,14 @@ def apply_filtering_to_vcf(input_vcf, output_vcf, contig_index_to_name_map, erro
     embedding_metrics.output_to_summary_writer(summary_writer, is_filter_variants=True)
 
     # recall that "sources" is really call type here
+    artifact_logit_metrics = artifact_logit_metrics.cpu()
+    evaluation_metrics.put_on_cpu()
     metrics: AccuracyMetrics
     for call_type, metrics in zip(Call, artifact_logit_metrics.split_over_sources()):
-        metrics.put_on_cpu()
         hist_fig, hist_ax = metrics.make_logit_histograms()
         summary_writer.add_figure(f"artifact logit histograms for call type {call_type.name}", hist_fig)
 
     if labeled_truth:
-        evaluation_metrics.put_on_cpu()
         given_thresholds = {var_type: prob_to_logit(error_probability_thresholds[var_type]) for var_type in Variation}
         evaluation_metrics.make_plots(summary_writer, given_thresholds, sens_prec=True)
         evaluation_metrics.make_mistake_histograms(summary_writer)

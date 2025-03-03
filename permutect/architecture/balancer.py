@@ -8,11 +8,10 @@ from torch.distributions import Beta
 from torch.nn import Module, Parameter
 from torch.utils.tensorboard import SummaryWriter
 
-from permutect.data.batch import Batch, make_batch_indexed_tensor
+from permutect.data.batch import Batch, BatchIndexedTensor
 from permutect.data.reads_batch import ReadsBatch
 from permutect.data.count_binning import ALT_COUNT_BIN_BOUNDS, REF_COUNT_BIN_BOUNDS
 from permutect.metrics import plotting
-from permutect.utils.array_utils import index_tensor
 from permutect.utils.enums import Label, Variation, Epoch
 
 
@@ -27,10 +26,11 @@ class Balancer(Module):
         self.count_since_last_recomputation = 0
 
         # not weighted, just the actual counts of data seen
-        self.counts_slvra = Parameter(make_batch_indexed_tensor(num_sources=num_sources, include_logits=False, value=0.0), requires_grad=False)
+        BatchIndexedTensor.make_zeros(num_sources=num_sources)
+        self.counts_slvra = Parameter(BatchIndexedTensor.make_zeros(num_sources=num_sources), requires_grad=False)
 
         # initialize weights to be flat
-        self.weights_slvra = Parameter(make_batch_indexed_tensor(num_sources=num_sources, include_logits=False, value=1.0), requires_grad=False)
+        self.weights_slvra = Parameter(BatchIndexedTensor.make_ones(num_sources=num_sources), requires_grad=False)
 
         # the overall weights for adversarial source prediction are the regular weights times the source weights
         self.source_weights_s = Parameter(torch.ones(num_sources), requires_grad=False)
@@ -39,10 +39,10 @@ class Balancer(Module):
         # for data with ref count r and alt count a we have distributions Beta_ref = (alpha_ref[r,a], beta_ref[r,a]) and
         # Beta_alt = (alpha_alt[r,a], beta_alt[r,a]) from which we sample the downsampling ref and alt fractions (and then
         # in downsampling a binomial draw of reads to keep happens).
-        self.alpha_ref_pre_exp_slvra = Parameter(make_batch_indexed_tensor(num_sources=num_sources, include_logits=False, value=0.0), requires_grad=False)
-        self.beta_ref_pre_exp_slvra = Parameter(make_batch_indexed_tensor(num_sources=num_sources, include_logits=False, value=0.0), requires_grad=False)
-        self.alpha_alt_pre_exp_slvra = Parameter(make_batch_indexed_tensor(num_sources=num_sources, include_logits=False, value=0.0), requires_grad=False)
-        self.beta_alt_pre_exp_slvra = Parameter(make_batch_indexed_tensor(num_sources=num_sources, include_logits=False, value=0.0), requires_grad=False)
+        self.alpha_ref_pre_exp_slvra = Parameter(BatchIndexedTensor.make_zeros(num_sources=num_sources), requires_grad=False)
+        self.beta_ref_pre_exp_slvra = Parameter(BatchIndexedTensor.make_zeros(num_sources=num_sources), requires_grad=False)
+        self.alpha_alt_pre_exp_slvra = Parameter(BatchIndexedTensor.make_zeros(num_sources=num_sources), requires_grad=False)
+        self.beta_alt_pre_exp_slvra = Parameter(BatchIndexedTensor.make_zeros(num_sources=num_sources), requires_grad=False)
         self.to(device=device)
 
     # TODO: compute multiple sets of samplings

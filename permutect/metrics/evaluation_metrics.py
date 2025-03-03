@@ -36,8 +36,8 @@ class EvaluationMetrics:
         marginals etc on GPU and sending them each to CPU for plotting etc.
         :return:
         """
-        for accuracy_metrics in self.accuracy_metrics_by_epoch_type.values():
-            accuracy_metrics.put_on_cpu()
+        for key, val in self.accuracy_metrics_by_epoch_type.items():
+            self.accuracy_metrics_by_epoch_type[key] = val.cpu()
         self.has_been_sent_to_cpu = True
         return self
 
