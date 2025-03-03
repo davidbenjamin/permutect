@@ -5,7 +5,7 @@ from typing import Tuple, List
 import numpy as np
 import torch
 from matplotlib import pyplot as plt
-from torch import Tensor
+from torch import Tensor, IntTensor
 from torch.utils.tensorboard import SummaryWriter
 
 from permutect.data.batch import Batch, BatchProperty, BatchIndexedTensor
@@ -171,6 +171,10 @@ class AccuracyMetrics(BatchIndexedTensor):
     def create(cls, num_sources: int, device=gpu_if_available()):
         shape = (num_sources, len(Label), len(Variation), NUM_REF_COUNT_BINS, NUM_ALT_COUNT_BINS, NUM_LOGIT_BINS)
         return cls(torch.zeros(shape, device=device))
+
+    def record_with_sources_and_logits(self, batch: Batch, values: Tensor, sources_override: IntTensor, logits: Tensor):
+        assert self.include_logits, "Tensor lacks a logit dimension"
+        batch.batch_indices().increment_tensor_with_sources_and_logits(self, values=values, sources_override=sources_override, logits=logits)
 
     def split_over_sources(self) -> List[AccuracyMetrics]:
         # split into single-source BatchIndexedTotals

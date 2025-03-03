@@ -47,11 +47,10 @@ class Balancer(Module):
 
     # TODO: compute multiple sets of samplings
     def compute_downsampling_fractions(self, batch: Batch):
-        batch_indices = batch.batch_indices()
-        alpha_ref_b = batch_indices.index_into_tensor(torch.exp(self.alpha_ref_pre_exp_slvra))
-        beta_ref_b = batch_indices.index_into_tensor(torch.exp(self.beta_ref_pre_exp_slvra))
-        alpha_alt_b = batch_indices.index_into_tensor(torch.exp(self.alpha_alt_pre_exp_slvra))
-        beta_alt_b = batch_indices.index_into_tensor(torch.exp(self.beta_alt_pre_exp_slvra))
+        alpha_ref_b = torch.exp(self.alpha_ref_pre_exp_slvra).index_by_batch(batch)
+        beta_ref_b = torch.exp(self.beta_ref_pre_exp_slvra).index_by_batch(batch)
+        alpha_alt_b = torch.exp(self.alpha_alt_pre_exp_slvra).index_by_batch(batch)
+        beta_alt_b = torch.exp(self.beta_alt_pre_exp_slvra).index_by_batch(batch)
 
         ref_fractions_b = Beta(alpha_ref_b, beta_ref_b).sample()
         alt_fractions_b = Beta(alpha_alt_b, beta_alt_b).sample()

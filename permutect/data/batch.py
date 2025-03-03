@@ -144,34 +144,34 @@ class BatchIndices:
         logit_bins = logit_bin_indices(logits)
         return logit_bins + NUM_LOGIT_BINS * self.flattened_idx
 
-    def index_into_tensor(self, tens: Tensor, logits: Tensor = None):
+    def index_into_tensor(self, tens: BatchIndexedTensor, logits: Tensor = None):
         """
         given 5D batch-indexed tensor x_slvra get the 1D tensor
         result[i] = x_slvra[source[i], label[i], variant type[i], ref bin[i], alt bin[i]]
         This is equivalent to flattening x and indexing by the cached flattened indices
         :return:
         """
-        if logits is None:
-            assert tens.dim() == 5, "Tensor must have 5 dimensions: source, label, variant type, ref count, alt count"
+        if logits is None and not tens.include_logits:
             return tens.view(-1)[self.flattened_idx]
-        else:
-            assert tens.dim() == 6, "Tensor must have 6 dimensions: source, label, variant type, ref count, alt count, logit"
+        elif logits is not None and tens.include_logits:
             return tens.view(-1)[self._flattened_idx_with_logits(logits)]
+        else:
+            raise Exception("Logits are used if and only if batch-indexed tensor to be indexed includes a logit dimension.")
 
-    def increment_tensor(self, tens: Tensor, values: Tensor, logits: Tensor = None):
+    def increment_tensor(self, tens: BatchIndexedTensor, values: Tensor, logits: Tensor = None):
         # Similar, but implements: x_slvra[source[i], label[i], variant type[i], ref bin[i], alt bin[i]] += values[i]
         # Addition is in-place. The flattened view(-1) shares memory with the original tensor
-        if logits is None:
-            assert tens.dim() == 5, "Tensor must have 5 dimensions: source, label, variant type, ref count, alt count"
+        if logits is None and not tens.include_logits:
             return tens.view(-1).index_add_(dim=0, index=self.flattened_idx, source=values)
-        else:
-            assert tens.dim() == 6, "Tensor must have 6 dimensions: source, label, variant type, ref count, alt count, logit"
+        elif logits is not None and tens.include_logits:
             return tens.view(-1).index_add_(dim=0, index=self._flattened_idx_with_logits(logits), source=values)
+        else:
+            raise Exception("Logits are used if and only if batch-indexed tensor to be indexed includes a logit dimension.")
 
-    def increment_tensor_with_sources_and_logits(self, tens: Tensor, values: Tensor, sources_override: IntTensor, logits: Tensor):
+    def increment_tensor_with_sources_and_logits(self, tens: BatchIndexedTensor, values: Tensor, sources_override: IntTensor, logits: Tensor):
         # we sometimes need to override the sources (in filter_variants.py there is a hack where we use the Call type
         # in place of the sources).  This is how we do that.
-        assert tens.dim() == 6, "Tensor must have 6 dimensions: source, label, variant type, ref count, alt count, logit"
+        assert tens.include_logits, "Tensor must have a logit dimension"
         indices_with_logits = self._flattened_idx_with_logits(logits)
 
         # eg, if the dimensions after source are 2, 3, 4 then every increase of the source by 1 is accompanied by an increase
@@ -231,6 +231,9 @@ class BatchIndexedTensor(Tensor):
         shape = (base_shape + (NUM_LOGIT_BINS,)) if self.include_logits else base_shape
         self.resize_(shape)
 
+    def index_by_batch(self, batch: Batch, logits: Tensor = None):
+        return batch.batch_indices().index_into_tensor(self, logits)
+
     # TODO: move to subclass as in comments below
     def record_datum(self, datum: Datum, value: float = 1.0, grow_source_if_necessary: bool = True):
         assert not self.include_logits, "this only works when not including logits"
@@ -247,11 +250,6 @@ class BatchIndexedTensor(Tensor):
     # TODO: move to a metrics subclass -- this class should really only be for indexing, not recording
     def record(self, batch: Batch, values: Tensor, logits: Tensor=None):
         batch.batch_indices().increment_tensor(self, values=values, logits=logits)
-
-    # TODO: ditto, move to metrics subclass
-    def record_with_sources_and_logits(self, batch: Batch, values: Tensor, sources_override: IntTensor, logits: Tensor):
-        assert self.include_logits, "Tensor lacks a logit dimension"
-        batch.batch_indices().increment_tensor_with_sources_and_logits(self, values=values, sources_override=sources_override, logits=logits)
 
     def get_marginal(self, *properties: Tuple[BatchProperty, ...]) -> Tensor:
         """
