@@ -103,7 +103,7 @@ class EvaluationMetrics:
     def make_plots(self, summary_writer: SummaryWriter, given_thresholds=None, sens_prec: bool = False, epoch: int = None):
         assert self.has_been_sent_to_cpu, "Can't make plots before sending to CPU"
         # given_thresholds is a dict from Variation to float (logit-scaled) used in the ROC curves
-        num_sources = next(iter(self.accuracy_metrics_by_epoch_type.values())).num_sources
+        num_sources = next(iter(self.accuracy_metrics_by_epoch_type.values())).num_sources()
         ref_count_bins = list(range(NUM_REF_COUNT_BINS)) + [None]
         alt_count_bins = list(range(NUM_ALT_COUNT_BINS)) + [None]
         ref_count_names = [ref_count_bin_name(bin_idx) for bin_idx in range(NUM_REF_COUNT_BINS)] + ["ALL"]

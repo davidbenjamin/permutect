@@ -206,6 +206,9 @@ class BatchIndexedTensor(Tensor):
     def has_logits(self) -> bool:
         return self.dim() == 6
 
+    def num_sources(self) -> int:
+        return self.shape[0]
+
     @classmethod
     def make_zeros(cls, num_sources: int, include_logits: bool = False, device=gpu_if_available()):
         base_shape = (num_sources, len(Label), len(Variation), NUM_REF_COUNT_BINS, NUM_ALT_COUNT_BINS)
