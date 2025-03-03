@@ -205,13 +205,11 @@ class BatchIndexedTensor(Tensor):
     # sharing the underlying data.  That is, it essentially casts to a BatchIndexedTensor in-place
     # we don't check that the shape is correct.
     @staticmethod
-    def __new__(cls, data: Tensor, dtype=None, requires_grad=False):
-        return torch.Tensor._make_subclass(cls, data, dtype=(data.dtype if dtype is None else dtype), requires_grad=requires_grad)
+    def __new__(cls, data: Tensor, requires_grad=False):
+        return torch.Tensor._make_subclass(cls, data)
 
     # I think this needs to have the same signature as __new__?
-    def __init__(self, data: Tensor, dtype=None, requires_grad=False):
-        # TODO: is this necessary???
-        self._data = data
+    def __init__(self, data: Tensor):
         assert data.dim() == 5 or data.dim() == 6, "batch-indexed tensors have either 5 or 6 dimensions"
         self.include_logits = data.dim() == 6
         self.num_sources = data.shape[0]
@@ -227,12 +225,6 @@ class BatchIndexedTensor(Tensor):
         base_shape = (num_sources, len(Label), len(Variation), NUM_REF_COUNT_BINS, NUM_ALT_COUNT_BINS)
         shape = (base_shape + (NUM_LOGIT_BINS,)) if include_logits else base_shape
         return cls(torch.ones(shape, device=device))
-
-    # TODO: delete this one
-    def __init__(self, num_sources: int, device=gpu_if_available(), include_logits: bool = False):
-        # note: if include logits is false, the g dimension is absent
-        self.include_logits = include_logits
-        self.num_sources = num_sources
 
     def resize_sources(self, new_num_sources):
         base_shape = (new_num_sources, len(Label), len(Variation), NUM_REF_COUNT_BINS, NUM_ALT_COUNT_BINS)
@@ -250,20 +242,16 @@ class BatchIndexedTensor(Tensor):
                 raise Exception("Datum source doesn't fit.")
         # no logits here
         ref_idx, alt_idx = ref_count_bin_index(datum.get_ref_count()), alt_count_bin_index(datum.get_alt_count())
-        self._data[source, datum.get_label(), datum.get_variant_type(), ref_idx, alt_idx] += value
+        self[source, datum.get_label(), datum.get_variant_type(), ref_idx, alt_idx] += value
 
     # TODO: move to a metrics subclass -- this class should really only be for indexing, not recording
     def record(self, batch: Batch, values: Tensor, logits: Tensor=None):
-        batch.batch_indices().increment_tensor(self._data, values=values, logits=logits)
+        batch.batch_indices().increment_tensor(self, values=values, logits=logits)
 
     # TODO: ditto, move to metrics subclass
     def record_with_sources_and_logits(self, batch: Batch, values: Tensor, sources_override: IntTensor, logits: Tensor):
         assert self.include_logits, "Tensor lacks a logit dimension"
-        batch.batch_indices().increment_tensor_with_sources_and_logits(self._data, values=values, sources_override=sources_override, logits=logits)
-
-    # TODO: this is unncessary since now it subclasses Tensor
-    def get_totals(self) -> Tensor:
-        return self._data
+        batch.batch_indices().increment_tensor_with_sources_and_logits(self, values=values, sources_override=sources_override, logits=logits)
 
     def get_marginal(self, *properties: Tuple[BatchProperty, ...]) -> Tensor:
         """
@@ -273,5 +261,5 @@ class BatchIndexedTensor(Tensor):
         property_set = set(*properties)
         num_dims = len(BatchProperty) - (0 if self.include_logits else 1)
         other_dims = tuple(n for n in range(num_dims) if n not in property_set)
-        return torch.sum(self._data, dim=other_dims)
+        return torch.sum(self, dim=other_dims)
 

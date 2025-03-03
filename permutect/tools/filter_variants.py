@@ -250,7 +250,7 @@ def apply_filtering_to_vcf(input_vcf, output_vcf, contig_index_to_name_map, erro
     evaluation_metrics = EvaluationMetrics(num_sources=1)
 
     # Note: using BatchIndexedTotals in a hacky way, with Call replacing Source!
-    artifact_logit_metrics = AccuracyMetrics(num_sources=len(Call))
+    artifact_logit_metrics = AccuracyMetrics.create(num_sources=len(Call))
     encoding_to_posterior_results = {}
 
     batch: PosteriorBatch

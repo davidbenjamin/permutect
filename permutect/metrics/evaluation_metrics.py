@@ -24,7 +24,7 @@ NUM_DATA_FOR_TENSORBOARD_PROJECTION = 10000
 class EvaluationMetrics:
     def __init__(self, num_sources, device=gpu_if_available()):
         # we will have a map from epoch type to EvaluationMetricsForOneEpochType
-        self.accuracy_metrics_by_epoch_type = defaultdict(lambda: AccuracyMetrics(num_sources, device))
+        self.accuracy_metrics_by_epoch_type = defaultdict(lambda: AccuracyMetrics.create(num_sources, device))
 
         # list of (PosteriorResult, Call) tuples
         self.mistakes = []
