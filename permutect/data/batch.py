@@ -151,9 +151,9 @@ class BatchIndices:
         This is equivalent to flattening x and indexing by the cached flattened indices
         :return:
         """
-        if logits is None and not tens.include_logits:
+        if logits is None and not tens.has_logits():
             return tens.view(-1)[self.flattened_idx]
-        elif logits is not None and tens.include_logits:
+        elif logits is not None and tens.has_logits():
             return tens.view(-1)[self._flattened_idx_with_logits(logits)]
         else:
             raise Exception("Logits are used if and only if batch-indexed tensor to be indexed includes a logit dimension.")
@@ -161,9 +161,9 @@ class BatchIndices:
     def increment_tensor(self, tens: BatchIndexedTensor, values: Tensor, logits: Tensor = None):
         # Similar, but implements: x_slvra[source[i], label[i], variant type[i], ref bin[i], alt bin[i]] += values[i]
         # Addition is in-place. The flattened view(-1) shares memory with the original tensor
-        if logits is None and not tens.include_logits:
+        if logits is None and not tens.has_logits():
             return tens.view(-1).index_add_(dim=0, index=self.flattened_idx, source=values)
-        elif logits is not None and tens.include_logits:
+        elif logits is not None and tens.has_logits():
             return tens.view(-1).index_add_(dim=0, index=self._flattened_idx_with_logits(logits), source=values)
         else:
             raise Exception("Logits are used if and only if batch-indexed tensor to be indexed includes a logit dimension.")
@@ -171,7 +171,7 @@ class BatchIndices:
     def increment_tensor_with_sources_and_logits(self, tens: BatchIndexedTensor, values: Tensor, sources_override: IntTensor, logits: Tensor):
         # we sometimes need to override the sources (in filter_variants.py there is a hack where we use the Call type
         # in place of the sources).  This is how we do that.
-        assert tens.include_logits, "Tensor must have a logit dimension"
+        assert tens.has_logits(), "Tensor must have a logit dimension"
         indices_with_logits = self._flattened_idx_with_logits(logits)
 
         # eg, if the dimensions after source are 2, 3, 4 then every increase of the source by 1 is accompanied by an increase
@@ -180,24 +180,14 @@ class BatchIndices:
         return tens.view(-1).index_add_(dim=0, index=indices, source=values)
 
 
-def make_batch_indexed_tensor(num_sources: int, device=gpu_if_available(), include_logits: bool=False, value:float = 0):
-    # make tensor with indices slvra and optionally g:
-    # 's' (source), 'l' (Label), 'v' (Variation), 'r' (ref count bin), 'a' (aklt count bin), 'g' (logit bin)
-    if include_logits:
-        return value * torch.ones((num_sources, len(Label), len(Variation), NUM_REF_COUNT_BINS, NUM_ALT_COUNT_BINS, NUM_LOGIT_BINS), device=device)
-    else:
-        return value * torch.ones((num_sources, len(Label), len(Variation), NUM_REF_COUNT_BINS, NUM_ALT_COUNT_BINS), device=device)
-
-
 class BatchIndexedTensor(Tensor):
-    NUM_DIMS = 6
     """
     stores sums, indexed by batch properties source (s), label (l), variant type (v), ref count (r), alt count (a)
     and, optionally, logit (g).
     
     It's worth noting that as of Pytorch 1.7: 1) when this is wrapped in a Parameter the resulting Parameter works
     for autograd and remains an instance of this class, 2) torch functions like exp etc acting on this class return
-    an isntance of this class, 3) addition and multiplication by regular torch Tensors ALSO yield a resulting instance
+    an instance of this class, 3) addition and multiplication by regular torch Tensors ALSO yield a resulting instance
     of this class, 4) indexing this class also produces an instance of this class, which is DEFINITELY undesired.
     """
 
@@ -205,14 +195,16 @@ class BatchIndexedTensor(Tensor):
     # sharing the underlying data.  That is, it essentially casts to a BatchIndexedTensor in-place
     # we don't check that the shape is correct.
     @staticmethod
-    def __new__(cls, data: Tensor, requires_grad=False):
+    def __new__(cls, data: Tensor):
         return torch.Tensor._make_subclass(cls, data)
 
     # I think this needs to have the same signature as __new__?
     def __init__(self, data: Tensor):
         assert data.dim() == 5 or data.dim() == 6, "batch-indexed tensors have either 5 or 6 dimensions"
-        self.include_logits = data.dim() == 6
         self.num_sources = data.shape[0]
+
+    def has_logits(self) -> bool:
+        return self.dim() == 6
 
     @classmethod
     def make_zeros(cls, num_sources: int, include_logits: bool = False, device=gpu_if_available()):
@@ -228,7 +220,7 @@ class BatchIndexedTensor(Tensor):
 
     def resize_sources(self, new_num_sources):
         base_shape = (new_num_sources, len(Label), len(Variation), NUM_REF_COUNT_BINS, NUM_ALT_COUNT_BINS)
-        shape = (base_shape + (NUM_LOGIT_BINS,)) if self.include_logits else base_shape
+        shape = (base_shape + (NUM_LOGIT_BINS,)) if self.has_logits() else base_shape
         self.resize_(shape)
 
     def index_by_batch(self, batch: Batch, logits: Tensor = None):
@@ -236,7 +228,7 @@ class BatchIndexedTensor(Tensor):
 
     # TODO: move to subclass as in comments below
     def record_datum(self, datum: Datum, value: float = 1.0, grow_source_if_necessary: bool = True):
-        assert not self.include_logits, "this only works when not including logits"
+        assert not self.has_logits(), "this only works when not including logits"
         source = datum.get_source()
         if source >= self.num_sources:
             if grow_source_if_necessary:
@@ -257,7 +249,7 @@ class BatchIndexedTensor(Tensor):
         For example self.get_marginal(BatchProperty.SOURCE, BatchProperty.LABEL) yields a (num sources x len(Label)) output
         """
         property_set = set(*properties)
-        num_dims = len(BatchProperty) - (0 if self.include_logits else 1)
+        num_dims = len(BatchProperty) - (0 if self.has_logits() else 1)
         other_dims = tuple(n for n in range(num_dims) if n not in property_set)
         return torch.sum(self, dim=other_dims)
 
