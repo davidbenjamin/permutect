@@ -165,7 +165,6 @@ class AccuracyMetrics(BatchIndexedTensor):
     # I think this needs to have the same signature as __new__?
     def __init__(self, data: Tensor):
         assert data.dim() == 6, "needs 6 dimensions"
-        self.num_sources = data.shape[0]
 
     @classmethod
     def create(cls, num_sources: int, device=gpu_if_available()):
