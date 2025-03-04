@@ -222,9 +222,11 @@ class BatchIndexedTensor(Tensor):
         return cls(torch.ones(shape, device=device))
 
     def resize_sources(self, new_num_sources):
+        old_num_sources = self.num_sources()
         base_shape = (new_num_sources, len(Label), len(Variation), NUM_REF_COUNT_BINS, NUM_ALT_COUNT_BINS)
         shape = (base_shape + (NUM_LOGIT_BINS,)) if self.has_logits() else base_shape
         self.resize_(shape)
+        self[old_num_sources:] = 0
 
     def index_by_batch(self, batch: Batch, logits: Tensor = None):
         return batch.batch_indices().index_into_tensor(self, logits)
