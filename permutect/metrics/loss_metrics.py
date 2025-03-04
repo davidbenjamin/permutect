@@ -178,7 +178,7 @@ class AccuracyMetrics(BatchIndexedTensor):
     def split_over_sources(self) -> List[AccuracyMetrics]:
         # split into single-source BatchIndexedTotals
         result = []
-        for source in range(self.num_sources):
+        for source in range(self.num_sources()):
             element = AccuracyMetrics.create(num_sources=1, device=self.device)
             element[0].copy_(self[source])
             result.append(element)
