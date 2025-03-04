@@ -86,7 +86,7 @@ class ReadsDataset(Dataset):
             return self._data[index]
 
     def num_sources(self) -> int:
-        return self.totals_slvra.num_sources
+        return self.totals_slvra.num_sources()
 
     def report_totals(self):
         totals_slv = self.totals_slvra.get_marginal((BatchProperty.SOURCE, BatchProperty.LABEL, BatchProperty.VARIANT_TYPE))

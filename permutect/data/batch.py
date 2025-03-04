@@ -201,7 +201,6 @@ class BatchIndexedTensor(Tensor):
     # I think this needs to have the same signature as __new__?
     def __init__(self, data: Tensor):
         assert data.dim() == 5 or data.dim() == 6, "batch-indexed tensors have either 5 or 6 dimensions"
-        self.num_sources = data.shape[0]
 
     def has_logits(self) -> bool:
         return self.dim() == 6
@@ -235,7 +234,7 @@ class BatchIndexedTensor(Tensor):
     def record_datum(self, datum: Datum, value: float = 1.0, grow_source_if_necessary: bool = True):
         assert not self.has_logits(), "this only works when not including logits"
         source = datum.get_source()
-        if source >= self.num_sources:
+        if source >= self.num_sources():
             if grow_source_if_necessary:
                 self.resize_sources(source + 1)
             else:
