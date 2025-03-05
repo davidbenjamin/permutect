@@ -5,6 +5,7 @@ from torch.nn import Module, Parameter
 from permutect.data.batch import BatchIndexedTensor
 from permutect.data.count_binning import MAX_REF_COUNT, MIN_ALT_COUNT, MAX_ALT_COUNT, NUM_REF_COUNT_BINS, \
     NUM_ALT_COUNT_BINS, ref_count_bin_index, alt_count_bin_index, COUNT_BIN_SKIP
+from permutect.misc_utils import backpropagate
 from permutect.utils.enums import Label, Variation
 from permutect.utils.stats_utils import beta_binomial_log_lk
 
@@ -34,8 +35,8 @@ class Downsampler(Module):
         alt_haz = raw_alt_counts_a.view(1, -1, 1)       # h, v are dummy indices for broadcasting
         downalt_haz = raw_alt_counts_a.view(1, 1, -1)   # H, a are dummy indices for broadcasting
 
-        ref_trans_kry = torch.exp(beta_binomial_log_lk(n=ref_kry, k=downref_kry, alpha=alpha_k11, beta=beta_k11))
-        alt_trans_haz = torch.exp(beta_binomial_log_lk(n=alt_haz, k=downalt_haz, alpha=alpha_k11, beta=beta_k11))
+        ref_trans_kry = torch.where(ref_kry >= downref_kry, torch.exp(beta_binomial_log_lk(n=ref_kry, k=downref_kry, alpha=alpha_k11, beta=beta_k11)), 0)
+        alt_trans_haz = torch.where(alt_haz >= downalt_haz, torch.exp( beta_binomial_log_lk(n=alt_haz, k=downalt_haz, alpha=alpha_k11, beta=beta_k11)), 0)
 
         # now we need to bin this.  If you think about it carefully, the appropriate thing to do is *sum* over downsampled
         # counts that correspond to the same bin and to *average* over original counts.  We could do this in some fancy vectorized
@@ -70,10 +71,6 @@ class Downsampler(Module):
         self.alt_weights_pre_softmax_slvrah = Parameter(torch.zeros(num_sources, len(Label), len(Variation), NUM_REF_COUNT_BINS,
                 NUM_ALT_COUNT_BINS, len(Downsampler.BETA_BASIS_SHAPES)), requires_grad=True)
 
-        # TODO: check that the code below is unneeded.  I think we get exp(-inf) = 0 when k > n, which is what we want.
-        # note the "where" here -- transition probability is zero when the downsampled count exceeds the original count
-        # ref_trans_kry = torch.where(ref_kry >= downref_kru, torch.exp(log_ref_trans_kru), 0)
-
     def calculate_expected_downsampled_counts(self, counts_slvra: BatchIndexedTensor):
         ref_weights_slvrak = torch.softmax(self.ref_weights_pre_softmax_slvrak, dim=-1)
         alt_weights_slvrah = torch.softmax(self.alt_weights_pre_softmax_slvrah, dim=-1)
@@ -82,6 +79,24 @@ class Downsampler(Module):
         # result_slvyz = sum_{rakh} counts_slvra * ref_weights_slvrak * alt_weights_slvrah * ref_trans_kry * alt_trans_haz
         result_slvyz = torch.einsum("slvra, slvrak, slvrah, kry, haz->slvyz",
                      counts_slvra, ref_weights_slvrak, alt_weights_slvrah, self.binned_ref_trans_kry, self.binned_alt_trans_haz)
+        return result_slvyz
 
-        # TODO: look up howto einsum this
+    def optimize_downsampling_balance(self, counts_slvra: BatchIndexedTensor):
+        # this just puts the different slv bins onto a common scale for numerical stability
+        normalized_counts_slvra = counts_slvra / torch.mean(counts_slvra, dim=(-2, -1), keepdim=True)
 
+        optimizer = torch.optim.AdamW(self.parameters())
+        # TODO: magic constant -- choose when to end optimization more intelligently
+        for step in range(10000):
+            expected_slvyz = self.calculate_expected_downsampled_counts(counts_slvra)
+
+            # divide by the total over all counts for each slv bin to get a probability distribution over output r/a count bins
+            normalized_slvyz = expected_slvyz / torch.sum(expected_slvyz, dim=(-2, -1), keepdim=True)
+
+            # we want downsampled counts to be as even as possible among all ref and alt count bins.  This is equivalent
+            # to minimizing the sum of squared downsampled counts.  Since the downsampling
+            # preserves total probability, it can't minimize this loss by scaling down the result.  It can only minimize
+            # it by redistributing.
+            sums_of_squares_slv = torch.sum(torch.square(normalized_slvyz), dim=(-2,-1))
+            loss = torch.sum(sums_of_squares_slv)
+            backpropagate(optimizer, loss)
