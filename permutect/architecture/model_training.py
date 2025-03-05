@@ -11,6 +11,7 @@ from torch.utils.tensorboard import SummaryWriter
 from tqdm import trange, tqdm
 
 from permutect.architecture.balancer import Balancer
+from permutect.architecture.downsampler import Downsampler
 from permutect.architecture.permutect_model import PermutectModel, record_embeddings
 from permutect.data.reads_batch import DownsampledReadsBatch, ReadsBatch
 from permutect.data.reads_dataset import ReadsDataset
@@ -31,7 +32,11 @@ def train_permutect_model(model: PermutectModel, dataset: ReadsDataset, training
                           validation_fold: int = None, training_folds: List[int] = None, epochs_per_evaluation: int = None, calibration_sources: List[int] = None):
     device, dtype = model._device, model._dtype
     bce = nn.BCEWithLogitsLoss(reduction='none')  # no reduction because we may want to first multiply by weights for unbalanced data
-    balancer = Balancer(dataset.num_sources(), device).to(device=device, dtype=dtype)
+    balancer = Balancer(num_sources=dataset.num_sources(), device=device).to(device=device, dtype=dtype)
+    downsampler: Downsampler = Downsampler(num_sources=dataset.num_sources()).to(device=device, dtype=dtype)
+
+    print("fitting downsampler parameters to the dataset")
+    downsampler.optimize_downsampling_balance(dataset.totals_slvra)
 
     num_sources = dataset.validate_sources()
     dataset.report_totals()
@@ -84,7 +89,10 @@ def train_permutect_model(model: PermutectModel, dataset: ReadsDataset, training
 
             batch: ReadsBatch
             for parent_batch in tqdm(prefetch_generator(loader), mininterval=60, total=len(loader)):
-                downsampled_batch = DownsampledReadsBatch(parent_batch)
+                # TODO: really to get the assumed balance we should only train on downsampled batches.  But using one
+                # TODO: downsampled batch with the proper balance will still go a long way
+                ref_fracs_b, alt_fracs_b = downsampler.calculate_downsampling_fractions(batch)
+                downsampled_batch = DownsampledReadsBatch(parent_batch, ref_fracs_b=ref_fracs_b, alt_fracs_b=alt_fracs_b)
                 batches = [parent_batch, downsampled_batch]
                 outputs = [model.compute_batch_output(batch, balancer) for batch in batches]
 
