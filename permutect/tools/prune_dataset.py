@@ -16,7 +16,7 @@ from permutect import constants
 from permutect.data.reads_batch import ReadsBatch
 from permutect.data.reads_datum import ReadsDatum
 from permutect.data.prefetch_generator import prefetch_generator
-from permutect.metrics.loss_metrics import BatchProperty
+from permutect.data.batch import BatchProperty
 from permutect.parameters import add_training_params_to_parser, TrainingParameters
 from permutect.data.reads_dataset import ReadsDataset
 from permutect.tools.refine_permutect_model import parse_training_params
@@ -138,7 +138,7 @@ def generate_pruned_data_for_all_folds(dataset: ReadsDataset, model: PermutectMo
         summary_writer = SummaryWriter(tensorboard_dir + "/fold_" + str(pruning_fold))
         report_memory_usage(f"Pruning data from fold {pruning_fold} of {NUM_FOLDS}.")
 
-        totals_l = dataset.totals.get_marginal((BatchProperty.LABEL, )) # totals by label
+        totals_l = dataset.totals_slvra.get_marginal((BatchProperty.LABEL,)) # totals by label
         label_art_frac = totals_l[Label.ARTIFACT].item() / (totals_l[Label.ARTIFACT].item() + totals_l[Label.VARIANT].item())
         train_permutect_model(model, dataset, training_params, summary_writer=summary_writer, training_folds=[pruning_fold])
 

@@ -12,14 +12,15 @@ from permutect import constants
 from permutect.architecture.posterior_model import PosteriorModel
 from permutect.architecture.permutect_model import PermutectModel, load_model
 from permutect.data import plain_text_data
+from permutect.data.batch import BatchIndexedTensor
 from permutect.data.datum import Datum
 from permutect.data.posterior_data import PosteriorDataset, PosteriorDatum, PosteriorBatch
 from permutect.data.prefetch_generator import prefetch_generator
 from permutect.data.reads_batch import ReadsBatch
 from permutect.data.reads_dataset import ReadsDataset
-from permutect.data.count_binning import MAX_ALT_COUNT, ref_count_bin_name, alt_count_bin_index, alt_count_bin_name
+from permutect.data.count_binning import MAX_ALT_COUNT, alt_count_bin_index, alt_count_bin_name
 from permutect.metrics.evaluation_metrics import EvaluationMetrics, EmbeddingMetrics
-from permutect.metrics.loss_metrics import BatchIndexedTotals
+from permutect.metrics.loss_metrics import AccuracyMetrics
 from permutect.metrics.posterior_result import PosteriorResult
 from permutect.misc_utils import report_memory_usage, gpu_if_available
 from permutect.utils.allele_utils import trim_alleles_on_right, find_variant_type, truncate_bases_if_necessary
@@ -249,7 +250,7 @@ def apply_filtering_to_vcf(input_vcf, output_vcf, contig_index_to_name_map, erro
     evaluation_metrics = EvaluationMetrics(num_sources=1)
 
     # Note: using BatchIndexedTotals in a hacky way, with Call replacing Source!
-    artifact_logit_metrics = BatchIndexedTotals(num_sources=len(Call), include_logits=True)
+    artifact_logit_metrics = AccuracyMetrics.create(num_sources=len(Call))
     encoding_to_posterior_results = {}
 
     batch: PosteriorBatch
@@ -266,11 +267,11 @@ def apply_filtering_to_vcf(input_vcf, output_vcf, contig_index_to_name_map, erro
         # TODO: maybe also have an option to record relative to the computed probability thresholds.
         # TODO: this code here treats posterior_prob = 1/2 as the threshold
         # TODO: we could perhaps subtract the threshold to re-center at zero
-        evaluation_metrics.record_batch(Epoch.TEST, batch, error_logits_b)
+        evaluation_metrics.record_batch(Epoch.TEST, batch, logits=error_logits_b)
 
         most_confident_probs_b, most_confident_calls_b = torch.max(posterior_probs_bc, dim=-1)
-        artifact_logit_metrics.record(batch=batch, logits=batch.get_artifact_logits(), values=most_confident_probs_b,
-                                      sources_override=most_confident_calls_b)
+        artifact_logit_metrics.record_with_sources_and_logits(batch, values=most_confident_probs_b,
+            sources_override=most_confident_calls_b, logits=batch.get_artifact_logits())
 
         artifact_logits = batch.get_artifact_logits().cpu().tolist()
         data = [Datum(datum_array) for datum_array in batch.get_data_be()]
@@ -381,14 +382,14 @@ def apply_filtering_to_vcf(input_vcf, output_vcf, contig_index_to_name_map, erro
     embedding_metrics.output_to_summary_writer(summary_writer, is_filter_variants=True)
 
     # recall that "sources" is really call type here
+    artifact_logit_metrics = artifact_logit_metrics.cpu()
+    evaluation_metrics.put_on_cpu()
+    metrics: AccuracyMetrics
     for call_type, metrics in zip(Call, artifact_logit_metrics.split_over_sources()):
-        metrics.put_on_cpu()
-        metrics.make_logit_histograms()
         hist_fig, hist_ax = metrics.make_logit_histograms()
         summary_writer.add_figure(f"artifact logit histograms for call type {call_type.name}", hist_fig)
 
     if labeled_truth:
-        evaluation_metrics.put_on_cpu()
         given_thresholds = {var_type: prob_to_logit(error_probability_thresholds[var_type]) for var_type in Variation}
         evaluation_metrics.make_plots(summary_writer, given_thresholds, sens_prec=True)
         evaluation_metrics.make_mistake_histograms(summary_writer)

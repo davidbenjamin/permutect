@@ -14,7 +14,7 @@ from mmap_ninja.ragged import RaggedMmap
 from permutect.data.count_binning import cap_ref_count, cap_alt_count
 from permutect.data.reads_datum import ReadsDatum
 from permutect.data.reads_batch import ReadsBatch
-from permutect.metrics.loss_metrics import BatchIndexedTotals, BatchProperty
+from permutect.data.batch import BatchProperty, BatchIndexedTensor
 from permutect.utils.enums import Variation, Label
 
 TENSORS_PER_BASE_DATUM = 2  # 1) 2D reads (ref and alt), 1) 1D concatenated stuff
@@ -36,7 +36,7 @@ class ReadsDataset(Dataset):
         assert data_in_ram is not None or data_tarfile is not None, "No data given"
         assert data_in_ram is None or data_tarfile is None, "Data given from both RAM and tarfile"
         self.num_folds = num_folds
-        self.totals = BatchIndexedTotals(num_sources=1, device=torch.device('cpu'), include_logits=False)   # on CPU
+        self.totals_slvra = BatchIndexedTensor.make_zeros(num_sources=1, include_logits=False, device=torch.device('cpu'))
 
         if data_in_ram is not None:
             self._data = data_in_ram
@@ -67,7 +67,7 @@ class ReadsDataset(Dataset):
         self.indices_by_fold = [[] for _ in range(num_folds)]
 
         for n, datum in enumerate(self):
-            self.totals.record_datum(datum)
+            self.totals_slvra.record_datum(datum)
             fold = n % num_folds
             self.indices_by_fold[fold].append(n)
 
@@ -86,10 +86,10 @@ class ReadsDataset(Dataset):
             return self._data[index]
 
     def num_sources(self) -> int:
-        return self.totals.num_sources
+        return self.totals_slvra.num_sources()
 
     def report_totals(self):
-        totals_slv = self.totals.get_marginal((BatchProperty.SOURCE, BatchProperty.LABEL, BatchProperty.VARIANT_TYPE))
+        totals_slv = self.totals_slvra.get_marginal((BatchProperty.SOURCE, BatchProperty.LABEL, BatchProperty.VARIANT_TYPE))
         for source in range(len(totals_slv)):
             print(f"Data counts for source {source}:")
             for var_type in Variation:
@@ -112,7 +112,7 @@ class ReadsDataset(Dataset):
 
     def validate_sources(self) -> int:
         num_sources = self.num_sources()
-        totals_by_source_s = self.totals.get_marginal((BatchProperty.SOURCE, ))
+        totals_by_source_s = self.totals_slvra.get_marginal((BatchProperty.SOURCE,))
         if num_sources == 1:
             print("Data come from a single source")
         else:

@@ -17,7 +17,8 @@ from permutect.data.reads_dataset import ReadsDataset
 from permutect.data.datum import Datum
 from permutect.data.prefetch_generator import prefetch_generator
 from permutect.metrics.evaluation_metrics import EmbeddingMetrics, EvaluationMetrics
-from permutect.metrics.loss_metrics import BatchIndexedAverages, BatchProperty
+from permutect.metrics.loss_metrics import LossMetrics
+from permutect.data.batch import BatchProperty
 from permutect.data.count_binning import alt_count_bin_index, round_alt_count_to_bin_center, alt_count_bin_name
 from permutect.parameters import TrainingParameters
 from permutect.misc_utils import report_memory_usage, backpropagate, freeze, unfreeze
@@ -74,9 +75,9 @@ def train_permutect_model(model: PermutectModel, dataset: ReadsDataset, training
                 unfreeze(model.calibration_parameters())  # unfreeze calibration but everything else stays frozen
                 # unfreeze(model.final_calibration_shift_parameters())  # unfreeze final calibration shift but everything else stays frozen
 
-            loss_metrics = BatchIndexedAverages(num_sources=num_sources, device=device, include_logits=False)   # based on calibrated logits
-            alt_count_loss_metrics = BatchIndexedAverages(num_sources=num_sources, device=device, include_logits=False)
-            source_prediction_loss_metrics = BatchIndexedAverages(num_sources=num_sources, device=device, include_logits=False)  # based on calibrated logits
+            loss_metrics = LossMetrics(num_sources=num_sources, device=device)   # based on calibrated logits
+            alt_count_loss_metrics = LossMetrics(num_sources=num_sources, device=device)
+            source_prediction_loss_metrics = LossMetrics(num_sources=num_sources, device=device)  # based on calibrated logits
 
             loader = (calibration_train_loader if epoch_type == Epoch.TRAIN else calibration_valid_loader) if is_calibration_epoch else \
                 (train_loader if epoch_type == Epoch.TRAIN else valid_loader)
@@ -105,10 +106,10 @@ def train_permutect_model(model: PermutectModel, dataset: ReadsDataset, training
                     unsupervised_losses_b = (1 - is_labeled_b) * bce(output.uncalibrated_logits, torch.sigmoid(other_output.uncalibrated_logits))
                     loss += torch.sum(output.weights * (supervised_losses_b + unsupervised_losses_b + alt_count_losses_b) + output.source_weights * source_losses_b)
 
-                    loss_metrics.record(batch, None, supervised_losses_b, is_labeled_b * output.weights)
-                    loss_metrics.record(batch, None, unsupervised_losses_b, (1 - is_labeled_b) * output.weights)
-                    source_prediction_loss_metrics.record(batch, None, source_losses_b, output.source_weights)
-                    alt_count_loss_metrics.record(batch, None, alt_count_losses_b, output.weights)
+                    loss_metrics.record(batch, supervised_losses_b, is_labeled_b * output.weights)
+                    loss_metrics.record(batch, unsupervised_losses_b, (1 - is_labeled_b) * output.weights)
+                    source_prediction_loss_metrics.record(batch, source_losses_b, output.source_weights)
+                    alt_count_loss_metrics.record(batch, alt_count_losses_b, output.weights)
 
                 if epoch_type == Epoch.TRAIN:
                     backpropagate(train_optimizer, loss)
@@ -159,14 +160,12 @@ def collect_evaluation_data(model: PermutectModel, dataset: ReadsDataset, balanc
 
         batch: ReadsBatch
         for batch in tqdm(prefetch_generator(loader), mininterval=60, total=len(loader)):
-            # these are the same weights used in training
-            weights_b, _ = balancer.process_batch_and_compute_weights(batch)
-            features_be, _ = model.calculate_features(batch, weight_range=model._params.reweighting_range)
-            logits_b, _ = model.logits_from_reads_batch(features_be, batch)
-            evaluation_metrics.record_batch(epoch_type, batch, logits_b, weights_b)
+            output = model.compute_batch_output(batch, balancer)
+
+            evaluation_metrics.record_batch(epoch_type, batch, logits=output.calibrated_logits, weights=output.weights)
 
             if report_worst:
-                for datum_array, predicted_logit in zip(batch.get_data_be(), logits_b.detach().cpu().tolist()):
+                for datum_array, predicted_logit in zip(batch.get_data_be(), output.calibrated_logits.detach().cpu().tolist()):
                     datum = Datum(datum_array)
                     wrong_call = (datum.get_label() == Label.ARTIFACT and predicted_logit < 0) or \
                                  (datum.get_label() == Label.VARIANT and predicted_logit > 0)

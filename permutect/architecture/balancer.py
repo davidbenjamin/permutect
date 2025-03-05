@@ -3,14 +3,15 @@ import math
 import numpy as np
 import torch
 from matplotlib import pyplot as plt
+from torch import Tensor
+from torch.distributions import Beta
 from torch.nn import Module, Parameter
 from torch.utils.tensorboard import SummaryWriter
 
+from permutect.data.batch import Batch, BatchIndexedTensor
 from permutect.data.reads_batch import ReadsBatch
-from permutect.data.count_binning import alt_count_bin_indices, NUM_ALT_COUNT_BINS, NUM_REF_COUNT_BINS, \
-    ref_count_bin_indices, ALT_COUNT_BIN_BOUNDS, REF_COUNT_BIN_BOUNDS
+from permutect.data.count_binning import ALT_COUNT_BIN_BOUNDS, REF_COUNT_BIN_BOUNDS
 from permutect.metrics import plotting
-from permutect.utils.array_utils import index_5d_array, add_to_5d_array
 from permutect.utils.enums import Label, Variation, Epoch
 
 
@@ -25,20 +26,49 @@ class Balancer(Module):
         self.count_since_last_recomputation = 0
 
         # not weighted, just the actual counts of data seen
-        self.counts_slvra = Parameter(torch.zeros(num_sources, len(Label), len(Variation), NUM_REF_COUNT_BINS, NUM_ALT_COUNT_BINS, device=device), requires_grad=False)
+        BatchIndexedTensor.make_zeros(num_sources=num_sources)
+        self.counts_slvra = Parameter(BatchIndexedTensor.make_zeros(num_sources=num_sources), requires_grad=False)
 
         # initialize weights to be flat
-        self.weights_slvra = Parameter(torch.ones(num_sources, len(Label), len(Variation), NUM_REF_COUNT_BINS, NUM_ALT_COUNT_BINS, device=device), requires_grad=False)
+        self.weights_slvra = Parameter(BatchIndexedTensor.make_ones(num_sources=num_sources), requires_grad=False)
 
-        # the overall weights for adversarial source predicition are the regular weights times the source weights
-        self.source_weights_s = Parameter(torch.ones(num_sources, device=device), requires_grad=False)
+        # the overall weights for adversarial source prediction are the regular weights times the source weights
+        self.source_weights_s = Parameter(torch.ones(num_sources), requires_grad=False)
+
+        # Beta binomial shape parameters for ref and alt count balancing by downsampling
+        # for data with ref count r and alt count a we have distributions Beta_ref = (alpha_ref[r,a], beta_ref[r,a]) and
+        # Beta_alt = (alpha_alt[r,a], beta_alt[r,a]) from which we sample the downsampling ref and alt fractions (and then
+        # in downsampling a binomial draw of reads to keep happens).
+        self.alpha_ref_pre_exp_slvra = Parameter(BatchIndexedTensor.make_zeros(num_sources=num_sources), requires_grad=False)
+        self.beta_ref_pre_exp_slvra = Parameter(BatchIndexedTensor.make_zeros(num_sources=num_sources), requires_grad=False)
+        self.alpha_alt_pre_exp_slvra = Parameter(BatchIndexedTensor.make_zeros(num_sources=num_sources), requires_grad=False)
+        self.beta_alt_pre_exp_slvra = Parameter(BatchIndexedTensor.make_zeros(num_sources=num_sources), requires_grad=False)
+        self.to(device=device)
+
+    # TODO: compute multiple sets of samplings
+    def compute_downsampling_fractions(self, batch: Batch):
+        alpha_ref_b = torch.exp(self.alpha_ref_pre_exp_slvra).index_by_batch(batch)
+        beta_ref_b = torch.exp(self.beta_ref_pre_exp_slvra).index_by_batch(batch)
+        alpha_alt_b = torch.exp(self.alpha_alt_pre_exp_slvra).index_by_batch(batch)
+        beta_alt_b = torch.exp(self.beta_alt_pre_exp_slvra).index_by_batch(batch)
+
+        ref_fractions_b = Beta(alpha_ref_b, beta_ref_b).sample()
+        alt_fractions_b = Beta(alpha_alt_b, beta_alt_b).sample()
+
+        return ref_fractions_b, alt_fractions_b
+
+
+    def fit_downsampling_parameters(self, undownsampled_counts_slvra: Tensor):
+        pass
+        # I could do this fully vectorized without a for loop, but in this case I think it's actually more readable
+        #beta_binom_densities_slvrar
+        #downsampled_counts_slvra =
+
 
     def process_batch_and_compute_weights(self, batch: ReadsBatch):
         # this updates the counts that are used to compute weights, recomputes the weights, and returns the weights
         # increment counts by 1
-        sources, labels, var_types = batch.get_sources(), batch.get_labels(), batch.get_variant_types()
-        ref_count_bins, alt_count_bins = ref_count_bin_indices(batch.get_ref_counts()), alt_count_bin_indices(batch.get_alt_counts())
-        add_to_5d_array(self.counts_slvra, sources, labels, var_types, ref_count_bins, alt_count_bins, values=torch.ones(batch.size(), device=self.device))
+        batch.batch_indices().increment_tensor(self.counts_slvra, values=torch.ones(batch.size(), device=self.device))
         self.count_since_last_recomputation += batch.size()
 
         if self.count_since_last_recomputation > Balancer.DATA_BEFORE_RECOMPUTE:
@@ -61,8 +91,8 @@ class Balancer(Module):
             self.source_weights_s.copy_(attenuation * self.source_weights_s + (1-attenuation)*new_source_weights_s)
             self.count_since_last_recomputation = 0
             # TODO: also attenuate counts -- multiply by an attenuation factor or something?
-        batch_weights = index_5d_array(self.weights_slvra, sources, labels, var_types, ref_count_bins, alt_count_bins)
-        source_weights = self.source_weights_s[sources]
+        batch_weights = batch.batch_indices().index_into_tensor(self.weights_slvra)
+        source_weights = self.source_weights_s[batch.batch_indices().sources]
         return batch_weights, source_weights
 
     # TODO: lots of code duplication with the plotting in loss_metrics.py

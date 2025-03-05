@@ -12,7 +12,7 @@ from torch.utils.tensorboard import SummaryWriter
 from permutect.data.batch import Batch
 from permutect.metrics import plotting
 from permutect.metrics.loss_metrics import AccuracyMetrics
-from permutect.data.count_binning import NUM_ALT_COUNT_BINS, count_from_ref_bin_index, NUM_REF_COUNT_BINS, \
+from permutect.data.count_binning import NUM_ALT_COUNT_BINS, NUM_REF_COUNT_BINS, \
     ref_count_bin_name, count_from_alt_bin_index, alt_count_bin_name
 from permutect.metrics.posterior_result import PosteriorResult
 from permutect.misc_utils import gpu_if_available
@@ -24,7 +24,7 @@ NUM_DATA_FOR_TENSORBOARD_PROJECTION = 10000
 class EvaluationMetrics:
     def __init__(self, num_sources, device=gpu_if_available()):
         # we will have a map from epoch type to EvaluationMetricsForOneEpochType
-        self.metrics = defaultdict(lambda: AccuracyMetrics(num_sources, device))
+        self.accuracy_metrics_by_epoch_type = defaultdict(lambda: AccuracyMetrics.create(num_sources, device))
 
         # list of (PosteriorResult, Call) tuples
         self.mistakes = []
@@ -36,20 +36,17 @@ class EvaluationMetrics:
         marginals etc on GPU and sending them each to CPU for plotting etc.
         :return:
         """
-        for metric in self.metrics.values():
-            metric.put_on_cpu()
+        for key, val in self.accuracy_metrics_by_epoch_type.items():
+            self.accuracy_metrics_by_epoch_type[key] = val.cpu()
         self.has_been_sent_to_cpu = True
         return self
 
     # TODO: currently doesn't record unlabeled data at all
-    # correct_call is boolean -- was the prediction correct?
-    # the predicted logit is the logit corresponding to the predicted probability that call in question is an artifact / error
-    def record_batch(self, epoch_type: Epoch, batch: Batch, predicted_logits: Tensor, weights: Tensor = None):
+    def record_batch(self, epoch_type: Epoch, batch: Batch, logits: Tensor, weights: Tensor = None):
         assert not self.has_been_sent_to_cpu, "Can't record after already sending to CPU"
-        labels = batch.get_labels()
-        is_labeled = labels != Label.UNLABELED
-        weights_with_labeled_mask = is_labeled * (weights if weights is not None else torch.ones(batch.size(), device=predicted_logits.device))
-        self.metrics[epoch_type].record(batch, predicted_logits, weights_with_labeled_mask)
+        is_labeled = batch.batch_indices().labels != Label.UNLABELED
+        weights_with_labeled_mask = is_labeled * (weights if weights is not None else torch.ones_like(logits))
+        self.accuracy_metrics_by_epoch_type[epoch_type].record(batch, values=weights_with_labeled_mask, logits=logits)
 
     # track bad calls when filtering is given an optional evaluation truth VCF
     def record_mistake(self, posterior_result: PosteriorResult, call: Call):
@@ -106,13 +103,14 @@ class EvaluationMetrics:
     def make_plots(self, summary_writer: SummaryWriter, given_thresholds=None, sens_prec: bool = False, epoch: int = None):
         assert self.has_been_sent_to_cpu, "Can't make plots before sending to CPU"
         # given_thresholds is a dict from Variation to float (logit-scaled) used in the ROC curves
-        num_sources = next(iter(self.metrics.values())).num_sources
+        num_sources = next(iter(self.accuracy_metrics_by_epoch_type.values())).num_sources()
         ref_count_bins = list(range(NUM_REF_COUNT_BINS)) + [None]
         alt_count_bins = list(range(NUM_ALT_COUNT_BINS)) + [None]
         ref_count_names = [ref_count_bin_name(bin_idx) for bin_idx in range(NUM_REF_COUNT_BINS)] + ["ALL"]
         alt_count_names = [alt_count_bin_name(bin_idx) for bin_idx in range(NUM_ALT_COUNT_BINS)] + ["ALL"]
 
-        for epoch_type, metric in self.metrics.items():
+        accuracy_metrics: AccuracyMetrics
+        for epoch_type, accuracy_metrics in self.accuracy_metrics_by_epoch_type.items():
             for source in chain(range(num_sources), [None]):
                 acc_fig, acc_axes = plt.subplots(2, len(Variation), sharex='all', sharey='all', squeeze=False, figsize=(2.5 * len(Variation), 2.5 * 2))
                 cal_fig, cal_axes = plt.subplots(len(ref_count_bins), len(alt_count_bins), sharex='all', sharey='all', squeeze=False)
@@ -125,13 +123,13 @@ class EvaluationMetrics:
                 common_colormesh = None
                 for row, label in enumerate(accuracy_rows):
                     for col, var_type in enumerate(Variation):
-                        common_colormesh = metric.plot_accuracy(label, var_type, acc_axes[row, col], source)
+                        common_colormesh = accuracy_metrics.plot_accuracy(label, var_type, acc_axes[row, col], source)
                 acc_fig.colorbar(common_colormesh)
 
                 for row, ref_count_bin in enumerate(ref_count_bins):
                     for col, alt_count_bin in enumerate(alt_count_bins):
-                        metric.plot_calibration(cal_axes[row, col], ref_count_bin, alt_count_bin, source)
-                        metric.plot_roc(roc_axes[row, col], ref_count_bin, alt_count_bin, source, given_thresholds, sens_prec)
+                        accuracy_metrics.plot_calibration(cal_axes[row, col], ref_count_bin, alt_count_bin, source)
+                        accuracy_metrics.plot_roc(roc_axes[row, col], ref_count_bin, alt_count_bin, source, given_thresholds, sens_prec)
 
                 nonart_label = "sensitivity" if sens_prec else "non-artifact accuracy"
                 art_label = "precision" if sens_prec else "artifact accuracy"
@@ -149,7 +147,7 @@ class EvaluationMetrics:
 
             # One more plot.  In each figure the grid of subplots is by variant type and count.  Within each subplot we have
             # overlapping density plots of artifact logit predictions for all combinations of Label and source
-            hist_fig, hist_ax = metric.make_logit_histograms()
+            hist_fig, hist_ax = accuracy_metrics.make_logit_histograms()
             summary_writer.add_figure(f"logit histograms ({epoch_type.name})", hist_fig, global_step=epoch)
 
 
