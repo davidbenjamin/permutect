@@ -91,7 +91,7 @@ def train_permutect_model(model: PermutectModel, dataset: ReadsDataset, training
             for parent_batch in tqdm(prefetch_generator(loader), mininterval=60, total=len(loader)):
                 # TODO: really to get the assumed balance we should only train on downsampled batches.  But using one
                 # TODO: downsampled batch with the proper balance will still go a long way
-                ref_fracs_b, alt_fracs_b = downsampler.calculate_downsampling_fractions(batch)
+                ref_fracs_b, alt_fracs_b = downsampler.calculate_downsampling_fractions(parent_batch)
                 downsampled_batch = DownsampledReadsBatch(parent_batch, ref_fracs_b=ref_fracs_b, alt_fracs_b=alt_fracs_b)
                 batches = [parent_batch, downsampled_batch]
                 outputs = [model.compute_batch_output(batch, balancer) for batch in batches]

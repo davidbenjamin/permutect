@@ -13,14 +13,14 @@ from permutect.utils.stats_utils import beta_binomial_log_lk
 
 class Downsampler(Module):
     # downsampling is done as a mixture of beta binomials with a *fixed* set of basis beta distributions
-    BETA_BASIS_SHAPES = [(1, 1), (1, 5), (5, 1), (5, 5)]
+    BETA_BASIS_SHAPES = [(1., 1.), (1., 5.), (5., 1.), (5., 5.)]
 
     def __init__(self, num_sources: int):
         super(Downsampler, self).__init__()
         self.num_sources = num_sources
 
-        self.alpha_k = Parameter(torch.tensor([shape[0] for shape in Downsampler.BETA_BASIS_SHAPES]))
-        self.beta_k = Parameter(torch.tensor([shape[1] for shape in Downsampler.BETA_BASIS_SHAPES]))
+        self.alpha_k = Parameter(torch.tensor([shape[0] for shape in Downsampler.BETA_BASIS_SHAPES]), requires_grad=False)
+        self.beta_k = Parameter(torch.tensor([shape[1] for shape in Downsampler.BETA_BASIS_SHAPES]), requires_grad=False)
 
         # these are 3D -- with two dummy read count indices -- for broadcasting
         alpha_k11 = torch.tensor([shape[0] for shape in Downsampler.BETA_BASIS_SHAPES]).view(-1, 1, 1)
@@ -77,13 +77,13 @@ class Downsampler(Module):
 
         # these will be learned and frozen!!
         self.trained_ref_weights_slvrak = Parameter(torch.softmax(self.ref_weights_pre_softmax_slvrak, dim=-1), requires_grad=False)
-        self.trained_alt_weights_slvrak = Parameter(torch.softmax(self.alt_weights_pre_softmax_slvrak, dim=-1), requires_grad=False)
+        self.trained_alt_weights_slvrah = Parameter(torch.softmax(self.alt_weights_pre_softmax_slvrah, dim=-1), requires_grad=False)
 
     def calculate_downsampling_fractions(self, batch: Batch) -> Tensor:
         # we will flatten all the batch indices -- slvra, but not k -- to get a 2D tensor indexed by the batch's
         # flattened indices ('f') and the downsampler's mixture index k
         ref_weights_fk = self.trained_ref_weights_slvrak.view(-1, len(Downsampler.BETA_BASIS_SHAPES))
-        alt_weights_fk = self.trained_alt_weights_slvrak.view(-1, len(Downsampler.BETA_BASIS_SHAPES))
+        alt_weights_fk = self.trained_alt_weights_slvrah.view(-1, len(Downsampler.BETA_BASIS_SHAPES))
 
         # use the weights for choosing from random samples
         ref_weights_bk = ref_weights_fk[batch.batch_indices().flattened_idx]
@@ -94,8 +94,8 @@ class Downsampler(Module):
 
         alpha_ref_b, beta_ref_b = self.alpha_k[refk_b], self.beta_k[refk_b]
         alpha_alt_b, beta_alt_b = self.alpha_k[altk_b], self.beta_k[altk_b]
-        ref_fracs_b = Beta(alpha=alpha_ref_b, beta=beta_ref_b).sample()
-        alt_fracs_b = Beta(alpha=alpha_alt_b, beta=beta_alt_b).sample()
+        ref_fracs_b = Beta(alpha_ref_b, beta_ref_b).sample().view(-1)
+        alt_fracs_b = Beta(alpha_alt_b, beta_alt_b).sample().view(-1)
         return ref_fracs_b, alt_fracs_b
 
     def calculate_expected_downsampled_counts(self, counts_slvra: BatchIndexedTensor):
@@ -129,4 +129,4 @@ class Downsampler(Module):
             backpropagate(optimizer, loss)
 
         self.trained_ref_weights_slvrak.copy_(torch.softmax(self.ref_weights_pre_softmax_slvrak, dim=-1))
-        self.trained_alt_weights_slvrak.copy_(torch.softmax(self.alt_weights_pre_softmax_slvrak, dim=-1))
+        self.trained_alt_weights_slvrah.copy_(torch.softmax(self.alt_weights_pre_softmax_slvrah, dim=-1))
