@@ -60,8 +60,8 @@ class Downsampler(Module):
                 downalt_bin = 0 if downalt < MIN_ALT_COUNT else alt_count_bin_index(downalt)
                 binned_alt_trans_haz[:, alt_bin, downalt_bin] += alt_trans_haz[:, alt, downalt]
 
-        self.binned_ref_trans_kru = Parameter(binned_ref_trans_kry/ COUNT_BIN_SKIP, requires_grad=False)
-        self.binned_alt_trans_hav = Parameter(binned_alt_trans_haz / COUNT_BIN_SKIP, requires_grad=False)
+        self.binned_ref_trans_kry = Parameter(binned_ref_trans_kry / COUNT_BIN_SKIP, requires_grad=False)
+        self.binned_alt_trans_haz = Parameter(binned_alt_trans_haz / COUNT_BIN_SKIP, requires_grad=False)
 
         # for each source/label/var type/ ref/alt bin we have mixture component weights for both ref and alt downsampling
         # 'k' and 'h' are both indices to denote the mixture components
@@ -80,6 +80,8 @@ class Downsampler(Module):
 
         # in words, we're calculating (recall that y, z are downsampled ref, alt count bins)
         # result_slvyz = sum_{rakh} counts_slvra * ref_weights_slvrak * alt_weights_slvrah * ref_trans_kry * alt_trans_haz
+        result_slvyz = torch.einsum("slvra, slvrak, slvrah, kry, haz->slvyz",
+                     counts_slvra, ref_weights_slvrak, alt_weights_slvrah, self.binned_ref_trans_kry, self.binned_alt_trans_haz)
 
         # TODO: look up howto einsum this
 
