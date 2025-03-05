@@ -36,7 +36,7 @@ def train_permutect_model(model: PermutectModel, dataset: ReadsDataset, training
     downsampler: Downsampler = Downsampler(num_sources=dataset.num_sources()).to(device=device, dtype=dtype)
 
     print("fitting downsampler parameters to the dataset")
-    downsampler.optimize_downsampling_balance(dataset.totals_slvra)
+    downsampler.optimize_downsampling_balance(dataset.totals_slvra.to(device=device))
 
     num_sources = dataset.validate_sources()
     dataset.report_totals()
