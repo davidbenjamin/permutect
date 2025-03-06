@@ -109,8 +109,6 @@ class Downsampler(Module):
         return result_slvyz
 
     def optimize_downsampling_balance(self, counts_slvra: BatchIndexedTensor):
-        # this just puts the different slv bins onto a common scale for numerical stability
-        normalized_counts_slvra = counts_slvra / torch.mean(counts_slvra, dim=(-2, -1), keepdim=True)
 
         optimizer = torch.optim.AdamW(self.parameters())
         # TODO: magic constant -- choose when to end optimization more intelligently
