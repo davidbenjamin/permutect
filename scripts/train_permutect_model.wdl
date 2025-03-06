@@ -20,6 +20,7 @@ workflow TrainPermutectModel {
         Array[String] ref_seq_layer_strings
         String? extra_args
         Int? gpu_count
+        Int? training_mem
 
         String permutect_docker
         Int? preemptible
@@ -38,6 +39,7 @@ workflow TrainPermutectModel {
             inference_batch_size = inference_batch_size,
             num_workers = num_workers,
             gpu_count = gpu_count,
+            mem = training_mem,
             dropout_p = dropout_p,
             reweighting_range = reweighting_range,
             read_layers = read_layers,
