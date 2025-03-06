@@ -77,6 +77,7 @@ def train_permutect_model(model: PermutectModel, dataset: ReadsDataset, training
             # in calibration epoch, freeze the model except for calibration
             if is_calibration_epoch and epoch_type == Epoch.TRAIN:
                 freeze(model.parameters())
+                unfreeze(model.set_pooling.parameters())
                 unfreeze(model.artifact_classifier.parameters())
                 unfreeze(model.calibration_parameters())  # unfreeze calibration but everything else stays frozen
                 # unfreeze(model.final_calibration_shift_parameters())  # unfreeze final calibration shift but everything else stays frozen
