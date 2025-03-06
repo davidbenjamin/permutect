@@ -99,7 +99,7 @@ def train_permutect_model(model: PermutectModel, dataset: ReadsDataset, training
                 downsampled_batch2 = DownsampledReadsBatch(parent_batch, ref_fracs_b=ref_fracs_b, alt_fracs_b=alt_fracs_b)
                 batches = [downsampled_batch1, downsampled_batch2]
                 outputs = [model.compute_batch_output(batch, balancer) for batch in batches]
-                parent_output = model.compute_batch_output(parent_batch, balancer)
+                #parent_output = model.compute_batch_output(parent_batch, balancer)
 
                 # first handle the labeled loss and the adversarial tasks, which treat the parent and downsampled batches independently
                 loss = 0
@@ -116,7 +116,7 @@ def train_permutect_model(model: PermutectModel, dataset: ReadsDataset, training
                     # This must be changed if we have more than one downsampled batch
                     # TODO: should we detach() torch.sigmoid(other_output...)?
                     other_output = outputs[1 if n == 0 else 0]
-                    unsupervised_losses_b = (1 - is_labeled_b) * bce(output.uncalibrated_logits, torch.sigmoid(parent_output.uncalibrated_logits))
+                    unsupervised_losses_b = (1 - is_labeled_b) * bce(output.uncalibrated_logits, torch.sigmoid(other_output.uncalibrated_logits))
                     loss += torch.sum(output.weights * (supervised_losses_b + unsupervised_losses_b + alt_count_losses_b) + output.source_weights * source_losses_b)
 
                     loss_metrics.record(batch, supervised_losses_b, is_labeled_b * output.weights)
