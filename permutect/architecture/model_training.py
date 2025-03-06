@@ -151,7 +151,7 @@ def train_permutect_model(model: PermutectModel, dataset: ReadsDataset, training
 
                 print(f"performing evaluation on epoch {epoch}")
                 if epoch_type == Epoch.VALID:
-                    evaluate_model(model, epoch, dataset, balancer, train_loader, valid_loader, summary_writer, collect_embeddings=False, report_worst=False)
+                    evaluate_model(model, epoch, dataset, balancer, downsampler, train_loader, valid_loader, summary_writer, collect_embeddings=False, report_worst=False)
 
         # done with training and validation for this epoch
         report_memory_usage(f"End of epoch {epoch}.")
@@ -161,7 +161,8 @@ def train_permutect_model(model: PermutectModel, dataset: ReadsDataset, training
     record_embeddings(model, train_loader, summary_writer)
 
 @torch.inference_mode()
-def collect_evaluation_data(model: PermutectModel, dataset: ReadsDataset, balancer: Balancer, train_loader, valid_loader, report_worst: bool):
+def collect_evaluation_data(model: PermutectModel, dataset: ReadsDataset, balancer: Balancer, downsampler: Downsampler,
+                            train_loader, valid_loader, report_worst: bool):
     # the keys are tuples of (Label; rounded alt count)
     worst_offenders_by_label_and_alt_count = defaultdict(lambda: PriorityQueue(WORST_OFFENDERS_QUEUE_SIZE))
 
@@ -171,43 +172,47 @@ def collect_evaluation_data(model: PermutectModel, dataset: ReadsDataset, balanc
         assert epoch_type == Epoch.TRAIN or epoch_type == Epoch.VALID  # not doing TEST here
         loader = train_loader if epoch_type == Epoch.TRAIN else valid_loader
 
-        batch: ReadsBatch
-        for batch in tqdm(prefetch_generator(loader), mininterval=60, total=len(loader)):
-            output = model.compute_batch_output(batch, balancer)
+        parent_batch: ReadsBatch
+        for parent_batch in tqdm(prefetch_generator(loader), mininterval=60, total=len(loader)):
+            # TODO: magic constant
+            for _ in range(3):
+                ref_fracs_b, alt_fracs_b = downsampler.calculate_downsampling_fractions(parent_batch)
+                batch = DownsampledReadsBatch(parent_batch, ref_fracs_b=ref_fracs_b, alt_fracs_b=alt_fracs_b)
+                output = model.compute_batch_output(batch, balancer)
 
-            evaluation_metrics.record_batch(epoch_type, batch, logits=output.calibrated_logits, weights=output.weights)
+                evaluation_metrics.record_batch(epoch_type, batch, logits=output.calibrated_logits, weights=output.weights)
 
-            if report_worst:
-                for datum_array, predicted_logit in zip(batch.get_data_be(), output.calibrated_logits.detach().cpu().tolist()):
-                    datum = Datum(datum_array)
-                    wrong_call = (datum.get_label() == Label.ARTIFACT and predicted_logit < 0) or \
-                                 (datum.get_label() == Label.VARIANT and predicted_logit > 0)
-                    if wrong_call:
-                        alt_count = datum.get_alt_count()
-                        rounded_count = round_alt_count_to_bin_center(alt_count)
-                        confidence = abs(predicted_logit)
+                if report_worst:
+                    for datum_array, predicted_logit in zip(batch.get_data_be(), output.calibrated_logits.detach().cpu().tolist()):
+                        datum = Datum(datum_array)
+                        wrong_call = (datum.get_label() == Label.ARTIFACT and predicted_logit < 0) or \
+                                     (datum.get_label() == Label.VARIANT and predicted_logit > 0)
+                        if wrong_call:
+                            alt_count = datum.get_alt_count()
+                            rounded_count = round_alt_count_to_bin_center(alt_count)
+                            confidence = abs(predicted_logit)
 
-                        # the 0th aka highest priority element in the queue is the one with the lowest confidence
-                        pqueue = worst_offenders_by_label_and_alt_count[(Label(datum.get_label()), rounded_count)]
+                            # the 0th aka highest priority element in the queue is the one with the lowest confidence
+                            pqueue = worst_offenders_by_label_and_alt_count[(Label(datum.get_label()), rounded_count)]
 
-                        # clear space if this confidence is more egregious
-                        if pqueue.full() and pqueue.queue[0][0] < confidence:
-                            pqueue.get()  # discards the least confident bad call
+                            # clear space if this confidence is more egregious
+                            if pqueue.full() and pqueue.queue[0][0] < confidence:
+                                pqueue.get()  # discards the least confident bad call
 
-                        if not pqueue.full():  # if space was cleared or if it wasn't full already
-                            pqueue.put((confidence, str(datum.get_contig()) + ":" + str(
-                                datum.get_position()) + ':' + datum.get_ref_allele() + "->" + datum.get_alt_allele()))
+                            if not pqueue.full():  # if space was cleared or if it wasn't full already
+                                pqueue.put((confidence, str(datum.get_contig()) + ":" + str(
+                                    datum.get_position()) + ':' + datum.get_ref_allele() + "->" + datum.get_alt_allele()))
         # done with this epoch type
     # done collecting data
     return evaluation_metrics, worst_offenders_by_label_and_alt_count
 
 
 @torch.inference_mode()
-def evaluate_model(model: PermutectModel, epoch: int, dataset: ReadsDataset, balancer: Balancer, train_loader, valid_loader,
+def evaluate_model(model: PermutectModel, epoch: int, dataset: ReadsDataset, balancer: Balancer, downsampler: Downsampler, train_loader, valid_loader,
                    summary_writer: SummaryWriter, collect_embeddings: bool = False, report_worst: bool = False):
 
     # self.freeze_all()
-    evaluation_metrics, worst_offenders_by_label_and_alt_count = collect_evaluation_data(model, dataset, balancer, train_loader, valid_loader, report_worst)
+    evaluation_metrics, worst_offenders_by_label_and_alt_count = collect_evaluation_data(model, dataset, balancer, downsampler, train_loader, valid_loader, report_worst)
     evaluation_metrics.put_on_cpu()
     evaluation_metrics.make_plots(summary_writer, epoch=epoch)
 
