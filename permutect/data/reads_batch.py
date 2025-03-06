@@ -88,10 +88,7 @@ class DownsampledReadsBatch(ReadsBatch):
     wrapper class that downsamples reads on the fly without copying data
     This lets us produce multiple count augmentations from a single batch very efficiently
     """
-
-    # TODO: make fractions batch properties; that way eg we can downsample things with higher counts more heavily
-    # TODO: this is compatible with the bernoulli_
-    def __init__(self, original_batch: ReadsBatch):
+    def __init__(self, original_batch: ReadsBatch, ref_fracs_b: Tensor, alt_fracs_b: Tensor):
         """
         This is delicate.  We're constructing it without calling super().__init__
         """
@@ -104,8 +101,6 @@ class DownsampledReadsBatch(ReadsBatch):
         old_ref_counts, old_alt_counts = self.data[:, Datum.REF_COUNT_IDX], self.data[:, Datum.ALT_COUNT_IDX]
         old_total_ref, old_total_alt = torch.sum(old_ref_counts), torch.sum(old_alt_counts)
 
-        ref_fracs_b = torch.rand(original_batch.size(), device=self.device)
-        alt_fracs_b = torch.rand(original_batch.size(), device=self.device)
         ref_probs_r = torch.repeat_interleave(ref_fracs_b, dim=0, repeats=old_ref_counts)
         alt_probs_r = torch.repeat_interleave(alt_fracs_b, dim=0, repeats=old_alt_counts)
         keep_ref_mask = torch.zeros(old_total_ref, device=self.device, dtype=torch.int64)
