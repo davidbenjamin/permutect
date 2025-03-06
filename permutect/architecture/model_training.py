@@ -77,8 +77,8 @@ def train_permutect_model(model: PermutectModel, dataset: ReadsDataset, training
             # in calibration epoch, freeze the model except for calibration
             if is_calibration_epoch and epoch_type == Epoch.TRAIN:
                 freeze(model.parameters())
-                unfreeze(model.set_pooling.parameters())
-                unfreeze(model.artifact_classifier.parameters())
+                #unfreeze(model.set_pooling.parameters())
+                #unfreeze(model.artifact_classifier.parameters())
                 unfreeze(model.calibration_parameters())  # unfreeze calibration but everything else stays frozen
                 # unfreeze(model.final_calibration_shift_parameters())  # unfreeze final calibration shift but everything else stays frozen
 
@@ -94,8 +94,8 @@ def train_permutect_model(model: PermutectModel, dataset: ReadsDataset, training
                 # TODO: really to get the assumed balance we should only train on downsampled batches.  But using one
                 # TODO: downsampled batch with the proper balance will still go a long way
                 ref_fracs_b, alt_fracs_b = downsampler.calculate_downsampling_fractions(parent_batch)
-                downsampled_batch = DownsampledReadsBatch(parent_batch, ref_fracs_b=ref_fracs_b, alt_fracs_b=alt_fracs_b)
-                batches = [parent_batch, downsampled_batch]
+                downsampled_batch1 = DownsampledReadsBatch(parent_batch, ref_fracs_b=ref_fracs_b, alt_fracs_b=alt_fracs_b)
+                batches = [parent_batch, downsampled_batch1]
                 outputs = [model.compute_batch_output(batch, balancer) for batch in batches]
 
                 # first handle the labeled loss and the adversarial tasks, which treat the parent and downsampled batches independently
