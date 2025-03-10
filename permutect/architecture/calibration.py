@@ -29,8 +29,8 @@ class Calibration(nn.Module):
         # the input features are logit, ref count, alt count, var_type embedding
         # the positive logit function is increasing in logits, increasing in counts
         # the negative logit function is increasing in logits, decreasing in counts
-        self.positive_fxn = MonoDense(3 + Calibration.VAR_TYPE_EMBEDDING_DIM, hidden_layer_sizes + [1], 3, 0)
-        self.negative_fxn = MonoDense(3 + Calibration.VAR_TYPE_EMBEDDING_DIM, hidden_layer_sizes + [1], 1, 2)
+        self.positive_fxn = MonoDense(3 + Calibration.VAR_TYPE_EMBEDDING_DIM, hidden_layer_sizes + [1], 1, 0)
+        self.negative_fxn = MonoDense(3 + Calibration.VAR_TYPE_EMBEDDING_DIM, hidden_layer_sizes + [1], 1, 0)
 
         self.var_type_embeddings_ve = Parameter(torch.rand(len(Variation), Calibration.VAR_TYPE_EMBEDDING_DIM))
 
