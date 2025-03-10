@@ -142,11 +142,11 @@ def train_permutect_model(model: PermutectModel, dataset: ReadsDataset, training
             source_prediction_loss_metrics.report_marginals(f"Source prediction loss for {epoch_type.name} epoch {epoch}.")
 
             if (epochs_per_evaluation is not None and epoch % epochs_per_evaluation == 0) or (epoch == last_epoch):
-                balancer.make_plots(summary_writer, "balancer weights", epoch_type, epoch, type_of_plot="weights")
-                balancer.make_plots(summary_writer, "balancer counts", epoch_type, epoch, type_of_plot="counts")
+                balancer.make_plots(summary_writer, "log(label-balancing weights)", epoch_type, epoch, type_of_plot="weights")
+                balancer.make_plots(summary_writer, "unweighted data counts after downsampling", epoch_type, epoch, type_of_plot="counts")
                 loss_metrics.make_plots(summary_writer, "semisupervised loss", epoch_type, epoch)
-                loss_metrics.make_plots(summary_writer, "counts", epoch_type, epoch, type_of_plot="counts")
-                alt_count_loss_metrics.make_plots(summary_writer, "alt count loss", epoch_type, epoch)
+                loss_metrics.make_plots(summary_writer, "total weight of data vs alt and ref counts", epoch_type, epoch, type_of_plot="counts")
+                alt_count_loss_metrics.make_plots(summary_writer, "alt count prediction loss", epoch_type, epoch)
                 source_prediction_loss_metrics.make_plots(summary_writer, "source prediction loss", epoch_type, epoch)
 
                 print(f"performing evaluation on epoch {epoch}")

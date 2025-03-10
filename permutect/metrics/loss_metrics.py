@@ -84,8 +84,7 @@ class LossMetrics:
         totals_ra = select_and_sum(self.totals_slvra, select=selection, sum=sum_dims)
         counts_ra = select_and_sum(self.counts_slvra, select=selection, sum=sum_dims)
         average_ra = totals_ra / (counts_ra + 0.001)
-        transformed_ra = torch.pow(average_ra, 1/3)     # cube root is a good scaling
-        return plotting.color_plot_2d_on_axis(axis, np.array(ALT_COUNT_BIN_BOUNDS), np.array(REF_COUNT_BIN_BOUNDS), transformed_ra, None, None,
+        return plotting.color_plot_2d_on_axis(axis, np.array(ALT_COUNT_BIN_BOUNDS), np.array(REF_COUNT_BIN_BOUNDS), average_ra, None, None,
                                        vmin=0, vmax=1)
 
     # TODO: maybe move this to BatchIndexedTotals
@@ -122,8 +121,8 @@ class LossMetrics:
                         common_colormesh = self.plot_counts(label, var_type, axes[label, var_type], source)
             fig.colorbar(common_colormesh)
             plotting.tidy_subplots(fig, axes, x_label="alt count", y_label="ref count", row_labels=row_names, column_labels=variation_types)
-            name_suffix = epoch_type.name + "" if self.num_sources == 1 else (", all sources" if source is None else f", source {source}")
-            summary_writer.add_figure(prefix + name_suffix, fig, global_step=epoch)
+            source_suffix = "" if self.num_sources == 1 else (", all sources" if source is None else f", source {source}")
+            summary_writer.add_figure(f"{prefix} ({epoch_type.name})" + source_suffix, fig, global_step=epoch)
 
 
 def make_true_and_false_masks_lg():
