@@ -57,14 +57,6 @@ class Balancer(Module):
 
         return ref_fractions_b, alt_fractions_b
 
-
-    def fit_downsampling_parameters(self, undownsampled_counts_slvra: Tensor):
-        pass
-        # I could do this fully vectorized without a for loop, but in this case I think it's actually more readable
-        #beta_binom_densities_slvrar
-        #downsampled_counts_slvra =
-
-
     def process_batch_and_compute_weights(self, batch: ReadsBatch):
         # this updates the counts that are used to compute weights, recomputes the weights, and returns the weights
         # increment counts by 1
@@ -134,5 +126,5 @@ class Balancer(Module):
                         raise Exception("BAD")
             fig.colorbar(common_colormesh)
             plotting.tidy_subplots(fig, axes, x_label="alt count", y_label="ref count", row_labels=row_names, column_labels=variation_types)
-            name_suffix = epoch_type.name + "" if self.num_sources == 1 else (", all sources" if source is None else f", source {source}")
-            summary_writer.add_figure(prefix + name_suffix, fig, global_step=epoch)
+            source_suffix = "" if self.num_sources == 1 else (", all sources" if source is None else f", source {source}")
+            summary_writer.add_figure(f"{prefix} ({epoch_type.name})" + source_suffix, fig, global_step=epoch)

@@ -139,11 +139,12 @@ class EvaluationMetrics:
                 plotting.tidy_subplots(roc_fig, roc_axes, x_label=nonart_label, y_label=art_label, row_labels=ref_count_names, column_labels=alt_count_names)
                 plotting.tidy_subplots(cal_fig, cal_axes, x_label="logit", y_label="accuracy", row_labels=ref_count_names, column_labels=alt_count_names)
 
-                name_suffix = epoch_type.name + "" if num_sources == 1 else (", all sources" if source is None else f", source {source}")
+                source_suffix = "" if num_sources == 1 else (", all sources" if source is None else f", source {source}")
 
-                summary_writer.add_figure("accuracy by alt count " + name_suffix, acc_fig, global_step=epoch)
-                summary_writer.add_figure(" accuracy by logit output by count" + name_suffix, cal_fig, global_step=epoch)
-                summary_writer.add_figure(("sensitivity vs precision" if sens_prec else "variant accuracy vs artifact accuracy") + name_suffix, roc_fig, global_step=epoch)
+                summary_writer.add_figure(f"accuracy by alt and ref count ({epoch_type.name})" + source_suffix, acc_fig, global_step=epoch)
+                summary_writer.add_figure(f"accuracy vs predicted logit ({epoch_type.name})" + source_suffix, cal_fig, global_step=epoch)
+                sp_name = "sensitivity vs precision" if sens_prec else "variant accuracy vs artifact accuracy"
+                summary_writer.add_figure(f"{sp_name} ({epoch_type.name})" + source_suffix, roc_fig, global_step=epoch)
 
             # One more plot.  In each figure the grid of subplots is by variant type and count.  Within each subplot we have
             # overlapping density plots of artifact logit predictions for all combinations of Label and source
