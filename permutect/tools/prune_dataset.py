@@ -4,11 +4,10 @@ import tarfile
 import tempfile
 from typing import List
 
-from permutect.architecture.model_training import train_permutect_model
-from permutect.architecture.permutect_model import PermutectModel, load_model
+from permutect.training.model_training import train_artifact_model
+from permutect.architecture.artifact_model import ArtifactModel, load_model
 from tqdm.autonotebook import tqdm
 
-import numpy as np
 import torch
 from torch.utils.tensorboard import SummaryWriter
 
@@ -19,7 +18,7 @@ from permutect.data.prefetch_generator import prefetch_generator
 from permutect.data.batch import BatchProperty
 from permutect.parameters import add_training_params_to_parser, TrainingParameters
 from permutect.data.reads_dataset import ReadsDataset
-from permutect.tools.refine_permutect_model import parse_training_params
+from permutect.tools.refine_artifact_model import parse_training_params
 from permutect.misc_utils import report_memory_usage, StreamingAverage
 from permutect.utils.enums import Label
 
@@ -27,7 +26,7 @@ NUM_FOLDS = 3
 
 
 # labeled only pruning loader must be constructed with options to emit batches of all-labeled data
-def calculate_pruning_thresholds(labeled_only_pruning_loader, model: PermutectModel, label_art_frac: float, training_params: TrainingParameters) -> List[int]:
+def calculate_pruning_thresholds(labeled_only_pruning_loader, model: ArtifactModel, label_art_frac: float, training_params: TrainingParameters) -> List[int]:
     for fold in range(NUM_FOLDS):
         average_artifact_confidence, average_nonartifact_confidence = StreamingAverage(), StreamingAverage()
         # TODO: eventually this should all be segregated by variant type and maybe also alt count
@@ -107,7 +106,7 @@ def calculate_pruning_thresholds(labeled_only_pruning_loader, model: PermutectMo
 
 
 # generates data from the original dataset that *pass* the pruning thresholds
-def generated_pruned_data_for_fold(art_threshold: float, nonart_threshold: float, pruning_base_data_loader, model: PermutectModel) -> List[int]:
+def generated_pruned_data_for_fold(art_threshold: float, nonart_threshold: float, pruning_base_data_loader, model: ArtifactModel) -> List[int]:
     print("pruning the dataset")
     reads_batch: ReadsBatch
     for reads_batch in tqdm(prefetch_generator(pruning_base_data_loader), mininterval=60, total=len(pruning_base_data_loader)):
@@ -130,7 +129,7 @@ def generated_pruned_data_for_fold(art_threshold: float, nonart_threshold: float
                 yield datum # this is a ReadSet
 
 
-def generate_pruned_data_for_all_folds(dataset: ReadsDataset, model: PermutectModel, training_params: TrainingParameters, tensorboard_dir):
+def generate_pruned_data_for_all_folds(dataset: ReadsDataset, model: ArtifactModel, training_params: TrainingParameters, tensorboard_dir):
     # for each fold in turn, train an artifact model on all other folds and prune the chosen fold
     use_gpu = torch.cuda.is_available()
 
@@ -140,7 +139,7 @@ def generate_pruned_data_for_all_folds(dataset: ReadsDataset, model: PermutectMo
 
         totals_l = dataset.totals_slvra.get_marginal((BatchProperty.LABEL,)) # totals by label
         label_art_frac = totals_l[Label.ARTIFACT].item() / (totals_l[Label.ARTIFACT].item() + totals_l[Label.VARIANT].item())
-        train_permutect_model(model, dataset, training_params, summary_writer=summary_writer, training_folds=[pruning_fold])
+        train_artifact_model(model, dataset, training_params, summary_writer=summary_writer, training_folds=[pruning_fold])
 
         # TODO: maybe this should be done by variant type and/or count
         # learn pruning thresholds on the held-out data
@@ -196,7 +195,7 @@ def parse_arguments():
     # input / output
     parser.add_argument('--' + constants.TRAIN_TAR_NAME, type=str, required=True,
                         help='tarfile of training/validation datasets produced by preprocess_dataset.py')
-    parser.add_argument('--' + constants.SAVED_MODEL_NAME, type=str, help='Base model from train_permutect_model.py')
+    parser.add_argument('--' + constants.SAVED_MODEL_NAME, type=str, help='Base model from train_artifact_model.py')
     parser.add_argument('--' + constants.OUTPUT_NAME, type=str, required=True, help='path to pruned dataset file')
     parser.add_argument('--' + constants.TENSORBOARD_DIR_NAME, type=str, default='tensorboard', required=False,
                         help='path to output tensorboard directory')

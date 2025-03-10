@@ -3,8 +3,8 @@ import argparse
 from torch.utils.tensorboard import SummaryWriter
 
 from permutect import constants
-from permutect.architecture.permutect_model import PermutectModel, load_model
-from permutect.architecture.model_training import train_permutect_model
+from permutect.architecture.artifact_model import ArtifactModel, load_model
+from permutect.training.model_training import train_artifact_model
 from permutect.misc_utils import gpu_if_available
 from permutect.parameters import parse_training_params, parse_model_params, add_model_params_to_parser, add_training_params_to_parser
 from permutect.data.reads_dataset import ReadsDataset
@@ -24,10 +24,10 @@ def main_without_parsing(args):
     dataset = ReadsDataset(data_tarfile=tarfile_data, num_folds=10)
 
     model = saved_model if (saved_model is not None) else \
-            PermutectModel(params=params, num_read_features=dataset.num_read_features, num_info_features=dataset.num_info_features,
-                           haplotypes_length=dataset.haplotypes_length, device=gpu_if_available())
+            ArtifactModel(params=params, num_read_features=dataset.num_read_features, num_info_features=dataset.num_info_features,
+                          haplotypes_length=dataset.haplotypes_length, device=gpu_if_available())
 
-    train_permutect_model(model, dataset, training_params, summary_writer=summary_writer, epochs_per_evaluation=10)
+    train_artifact_model(model, dataset, training_params, summary_writer=summary_writer, epochs_per_evaluation=10)
     summary_writer.close()
 
     # TODO: this is currently wrong because we are using the separate artifact model, not the full model

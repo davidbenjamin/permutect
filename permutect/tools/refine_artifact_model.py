@@ -5,8 +5,8 @@ from torch.utils.tensorboard import SummaryWriter
 
 from permutect import constants
 from permutect.architecture.spectra.artifact_spectra import ArtifactSpectra
-from permutect.architecture.model_training import train_permutect_model
-from permutect.architecture.permutect_model import load_model
+from permutect.training.model_training import train_artifact_model
+from permutect.architecture.artifact_model import load_model
 from permutect.architecture.posterior_model import plot_artifact_spectra
 from permutect.data.reads_dataset import ReadsDataset
 from permutect.data.reads_datum import ReadsDatum
@@ -63,7 +63,7 @@ def parse_arguments():
     # inputs and outputs
     parser.add_argument('--' + constants.TRAIN_TAR_NAME, type=str, required=True,
                         help='tarfile of training/validation datasets produced by preprocess_dataset.py')
-    parser.add_argument('--' + constants.SAVED_MODEL_NAME, type=str, help='Base model from train_permutect_model.py')
+    parser.add_argument('--' + constants.SAVED_MODEL_NAME, type=str, help='Base model from train_artifact_model.py')
     parser.add_argument('--' + constants.OUTPUT_NAME, type=str, required=True, help='path to output saved model file')
     parser.add_argument('--' + constants.TENSORBOARD_DIR_NAME, type=str, default='tensorboard', required=False,
                         help='path to output tensorboard directory')
@@ -85,7 +85,7 @@ def main_without_parsing(args):
     report_memory_usage("Creating ReadsDataset.")
     dataset = ReadsDataset(data_tarfile=getattr(args, constants.TRAIN_TAR_NAME), num_folds=10)
 
-    train_permutect_model(model, dataset, training_params, summary_writer, epochs_per_evaluation=10, calibration_sources=calibration_sources)
+    train_artifact_model(model, dataset, training_params, summary_writer, epochs_per_evaluation=10, calibration_sources=calibration_sources)
 
     for var_type in Variation:
         cal_fig, cal_axes = model.calibration.plot_calibration_module(var_type=var_type, device=model._device, dtype=model._dtype)

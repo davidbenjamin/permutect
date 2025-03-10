@@ -1,13 +1,13 @@
 from itertools import chain
 
 import torch
-from torch import nn, Tensor, IntTensor
+from torch import Tensor, IntTensor
 from torch.utils.tensorboard import SummaryWriter
 from tqdm.autonotebook import tqdm
 
 from permutect import constants
 from permutect.architecture.adversarial import Adversarial
-from permutect.architecture.balancer import Balancer
+from permutect.training.balancer import Balancer
 from permutect.architecture.calibration import Calibration
 from permutect.architecture.dna_sequence_convolution import DNASequenceConvolution
 from permutect.architecture.gated_mlp import GatedRefAltMLP
@@ -46,7 +46,7 @@ def make_gated_ref_alt_mlp_encoder(input_dimension: int, params: ModelParameters
     return GatedRefAltMLP(d_model=input_dimension, d_ffn=params.self_attention_hidden_dimension, num_blocks=params.num_self_attention_layers)
 
 
-class PermutectModel(torch.nn.Module):
+class ArtifactModel(torch.nn.Module):
     """
     DeepSets framework for reads and variant info.  We embed each read and concatenate the mean ref read
     embedding, mean alt read embedding, and variant info embedding, then apply an aggregation function to
@@ -68,7 +68,7 @@ class PermutectModel(torch.nn.Module):
     """
 
     def __init__(self, params: ModelParameters, num_read_features: int, num_info_features: int, haplotypes_length: int, device=gpu_if_available()):
-        super(PermutectModel, self).__init__()
+        super(ArtifactModel, self).__init__()
 
         self._device = device
         self._dtype = DEFAULT_GPU_FLOAT if device != torch.device("cpu") else DEFAULT_CPU_FLOAT
@@ -230,8 +230,8 @@ def load_model(path, device: torch.device = gpu_if_available()):
     num_info_features = saved[constants.NUM_INFO_FEATURES_NAME]
     ref_sequence_length = saved[constants.REF_SEQUENCE_LENGTH_NAME]
 
-    model = PermutectModel(hyperparams, num_read_features=num_read_features, num_info_features=num_info_features,
-                           haplotypes_length=ref_sequence_length, device=device)
+    model = ArtifactModel(hyperparams, num_read_features=num_read_features, num_info_features=num_info_features,
+                          haplotypes_length=ref_sequence_length, device=device)
     model.load_state_dict(saved[constants.STATE_DICT_NAME])
 
     # in case the state dict had the wrong dtype for the device we're on now eg base model was pretrained on GPU
@@ -256,7 +256,7 @@ def permute_columns_independently(mat: Tensor):
 
 
 # after training for visualizing clustering etc of base model embeddings
-def record_embeddings(model: PermutectModel, loader, summary_writer: SummaryWriter):
+def record_embeddings(model: ArtifactModel, loader, summary_writer: SummaryWriter):
     # base_model.freeze_all() whoops -- it doesn't have freeze_all
     embedding_metrics = EmbeddingMetrics()
     ref_alt_seq_metrics = EmbeddingMetrics()

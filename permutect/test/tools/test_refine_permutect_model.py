@@ -3,11 +3,11 @@ from argparse import Namespace
 
 from tensorboard.backend.event_processing.event_accumulator import EventAccumulator
 from permutect import constants
-from permutect.architecture.permutect_model import load_model
-from permutect.tools import refine_permutect_model
+from permutect.architecture.artifact_model import load_model
+from permutect.tools import refine_artifact_model
 
 
-def test_refine_permutect_model():
+def test_refine_artifact_model():
     # Inputs
     training_data_tarfile = '/Users/davidben/mutect3/permutect/integration-tests/singular-10-Mb/preprocessed-dataset.tar'
     # pretrained_model = '/Users/davidben/mutect3/permutect/integration-tests/singular-10-Mb/permutect-model.pt'
@@ -44,7 +44,7 @@ def test_refine_permutect_model():
     setattr(train_model_args, constants.OUTPUT_NAME, saved_model.name)
     setattr(train_model_args, constants.TENSORBOARD_DIR_NAME, training_tensorboard_dir.name)
 
-    refine_permutect_model.main_without_parsing(train_model_args)
+    refine_artifact_model.main_without_parsing(train_model_args)
 
     events = EventAccumulator(training_tensorboard_dir.name)
     events.Reload()

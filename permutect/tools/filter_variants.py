@@ -10,7 +10,7 @@ from tqdm.autonotebook import tqdm
 
 from permutect import constants
 from permutect.architecture.posterior_model import PosteriorModel
-from permutect.architecture.permutect_model import PermutectModel, load_model
+from permutect.architecture.artifact_model import ArtifactModel, load_model
 from permutect.data import plain_text_data
 from permutect.data.batch import BatchIndexedTensor
 from permutect.data.datum import Datum
@@ -70,7 +70,7 @@ def parse_arguments():
     parser.add_argument('--' + constants.INPUT_NAME, required=True, help='unfiltered input Mutect2 VCF')
     parser.add_argument('--' + constants.TEST_DATASET_NAME, required=True,
                         help='plain text dataset file corresponding to variants in input VCF')
-    parser.add_argument('--' + constants.SAVED_MODEL_NAME, required=True, help='trained Permutect model from refine_permutect_model.py')
+    parser.add_argument('--' + constants.SAVED_MODEL_NAME, required=True, help='trained Permutect model from refine_artifact_model.py')
     parser.add_argument('--' + constants.CONTIGS_TABLE_NAME, required=True, help='table of contig names vs integer indices')
     parser.add_argument('--' + constants.OUTPUT_NAME, required=True, help='path to output filtered VCF')
     parser.add_argument('--' + constants.TENSORBOARD_DIR_NAME, type=str, default='tensorboard', required=False, help='path to output tensorboard')
@@ -185,7 +185,7 @@ def make_filtered_vcf(saved_model_path, initial_log_variant_prior: float, initia
 
 
 @torch.inference_mode()
-def make_posterior_data_loader(dataset_file, input_vcf, contig_index_to_name_map, model: PermutectModel,
+def make_posterior_data_loader(dataset_file, input_vcf, contig_index_to_name_map, model: ArtifactModel,
                                batch_size: int, num_workers: int, chunk_size: int, segmentation=defaultdict(IntervalTree), normal_segmentation=defaultdict(IntervalTree)):
     print("Reading test dataset")
 

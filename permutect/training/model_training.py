@@ -10,9 +10,9 @@ from torch import nn
 from torch.utils.tensorboard import SummaryWriter
 from tqdm import trange, tqdm
 
-from permutect.architecture.balancer import Balancer
-from permutect.architecture.downsampler import Downsampler
-from permutect.architecture.permutect_model import PermutectModel, record_embeddings
+from permutect.training.balancer import Balancer
+from permutect.training.downsampler import Downsampler
+from permutect.architecture.artifact_model import ArtifactModel, record_embeddings
 from permutect.data.reads_batch import DownsampledReadsBatch, ReadsBatch
 from permutect.data.reads_dataset import ReadsDataset
 from permutect.data.datum import Datum
@@ -28,8 +28,8 @@ from permutect.utils.enums import Variation, Epoch, Label
 WORST_OFFENDERS_QUEUE_SIZE = 100
 
 
-def train_permutect_model(model: PermutectModel, dataset: ReadsDataset, training_params: TrainingParameters, summary_writer: SummaryWriter,
-                          validation_fold: int = None, training_folds: List[int] = None, epochs_per_evaluation: int = None, calibration_sources: List[int] = None):
+def train_artifact_model(model: ArtifactModel, dataset: ReadsDataset, training_params: TrainingParameters, summary_writer: SummaryWriter,
+                         validation_fold: int = None, training_folds: List[int] = None, epochs_per_evaluation: int = None, calibration_sources: List[int] = None):
     device, dtype = model._device, model._dtype
     bce = nn.BCEWithLogitsLoss(reduction='none')  # no reduction because we may want to first multiply by weights for unbalanced data
     balancer = Balancer(num_sources=dataset.num_sources(), device=device).to(device=device, dtype=dtype)
@@ -161,7 +161,7 @@ def train_permutect_model(model: PermutectModel, dataset: ReadsDataset, training
     record_embeddings(model, train_loader, summary_writer)
 
 @torch.inference_mode()
-def collect_evaluation_data(model: PermutectModel, dataset: ReadsDataset, balancer: Balancer, downsampler: Downsampler,
+def collect_evaluation_data(model: ArtifactModel, dataset: ReadsDataset, balancer: Balancer, downsampler: Downsampler,
                             train_loader, valid_loader, report_worst: bool):
     # the keys are tuples of (Label; rounded alt count)
     worst_offenders_by_label_and_alt_count = defaultdict(lambda: PriorityQueue(WORST_OFFENDERS_QUEUE_SIZE))
@@ -208,7 +208,7 @@ def collect_evaluation_data(model: PermutectModel, dataset: ReadsDataset, balanc
 
 
 @torch.inference_mode()
-def evaluate_model(model: PermutectModel, epoch: int, dataset: ReadsDataset, balancer: Balancer, downsampler: Downsampler, train_loader, valid_loader,
+def evaluate_model(model: ArtifactModel, epoch: int, dataset: ReadsDataset, balancer: Balancer, downsampler: Downsampler, train_loader, valid_loader,
                    summary_writer: SummaryWriter, collect_embeddings: bool = False, report_worst: bool = False):
 
     # self.freeze_all()
