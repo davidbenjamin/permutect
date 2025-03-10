@@ -1,7 +1,7 @@
 from argparse import Namespace
 import tempfile
 
-from permutect.tools import preprocess_dataset, refine_permutect_model, filter_variants
+from permutect.tools import preprocess_dataset, filter_variants
 from permutect import constants
 
 

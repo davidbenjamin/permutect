@@ -4,13 +4,13 @@ from argparse import Namespace
 from tensorboard.backend.event_processing.event_accumulator import EventAccumulator
 
 from permutect import constants
-from permutect.architecture.permutect_model import load_model
-from permutect.tools import train_permutect_model
+from permutect.architecture.artifact_model import load_model
+from permutect.tools import train_artifact_model
 
 OVERWRITE_SAVED_MODEL = False
 
 
-def test_train_permutect_model():
+def test_train_artifact_model():
     training_data_tarfile = "/Users/davidben/mutect3/permutect/integration-tests/singular-10-Mb/preprocessed-dataset.tar"
     saved_model = tempfile.NamedTemporaryFile() if not OVERWRITE_SAVED_MODEL else \
         '/Users/davidben/mutect3/permutect/integration-tests/dream1-chr20/model.pt'
@@ -50,7 +50,7 @@ def test_train_permutect_model():
     setattr(train_model_args, constants.OUTPUT_NAME, saved_model if OVERWRITE_SAVED_MODEL else saved_model.name)
     setattr(train_model_args, constants.TENSORBOARD_DIR_NAME, training_tensorboard_dir.name)
 
-    train_permutect_model.main_without_parsing(train_model_args)
+    train_artifact_model.main_without_parsing(train_model_args)
 
     events = EventAccumulator(training_tensorboard_dir.name)
     events.Reload()
