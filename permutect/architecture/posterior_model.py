@@ -8,10 +8,10 @@ from torch import Tensor, IntTensor
 from torch.utils.tensorboard import SummaryWriter
 from tqdm.autonotebook import trange, tqdm
 
-from permutect.architecture.artifact_spectra import ArtifactSpectra
+from permutect.architecture.spectra.artifact_spectra import ArtifactSpectra
 from permutect.architecture.overdispersed_binomial_mixture import OverdispersedBinomialMixture
 from permutect.architecture.normal_seq_error_spectrum import NormalSeqErrorSpectrum
-from permutect.architecture.somatic_spectrum import SomaticSpectrum
+from permutect.architecture.spectra.somatic_spectrum import SomaticSpectrum
 from permutect.data.datum import DEFAULT_GPU_FLOAT, DEFAULT_CPU_FLOAT
 from permutect.data.posterior_data import PosteriorBatch
 from permutect.data.prefetch_generator import prefetch_generator

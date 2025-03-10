@@ -4,7 +4,7 @@ import torch
 from torch.utils.tensorboard import SummaryWriter
 
 from permutect import constants
-from permutect.architecture.artifact_spectra import ArtifactSpectra
+from permutect.architecture.spectra.artifact_spectra import ArtifactSpectra
 from permutect.architecture.model_training import train_permutect_model
 from permutect.architecture.permutect_model import load_model
 from permutect.architecture.posterior_model import plot_artifact_spectra
