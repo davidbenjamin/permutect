@@ -38,7 +38,7 @@ workflow Permutect {
         String? realignment_extra_args
         Boolean make_bamout = false
         Boolean compress_vcfs = false
-        Boolean? run_orientation_bias_mixture_model_filter
+        Boolean run_orientation_bias_mixture_model_filter = false
         String? m2_extra_args
         String? m2_extra_filtering_args
         String? split_intervals_extra_args
@@ -48,7 +48,7 @@ workflow Permutect {
         Int chunk_size
         File? test_dataset_truth_vcf
         File? test_dataset_truth_vcf_idx
-        Boolean skip_filtering = false
+        Boolean skip_filtering = true
 
         String? permutect_filtering_extra_args
         String gatk_docker
