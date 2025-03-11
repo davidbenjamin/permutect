@@ -10,7 +10,7 @@ from permutect.data.count_binning import MAX_REF_COUNT, MAX_ALT_COUNT, NUM_REF_C
     NUM_LOGIT_BINS, logits_from_bin_indices, counts_from_alt_bin_indices, counts_from_ref_bin_indices
 from permutect.metrics import plotting
 from permutect.metrics.loss_metrics import AccuracyMetrics
-from permutect.misc_utils import backpropagate
+from permutect.misc_utils import backpropagate, unfreeze
 from permutect.utils.enums import Variation, Label
 
 
@@ -71,10 +71,11 @@ class Calibration(nn.Module):
         bce = nn.BCEWithLogitsLoss(reduction='none')
         # we want to weight each vra bin equally, but give more weight to logit bins that have more data
         # the weight for vrag is the proportion of vra that has the given g
-        weights_vrag = counts_vrag / torch.sum(counts_vrag, dim=-1, keepdim=True)
+        weights_vrag = counts_vrag / (torch.sum(counts_vrag, dim=-1, keepdim=True) + 0.0001)
 
         # TODO: magic constant!!!
-        for epoch in range(1000):
+        unfreeze(self.parameters())
+        for epoch in range(10000):
             calibrated_logits_n = self.calibrated_logits(logits_n, ref_counts_n, alt_counts_n, var_types_n)
             calibrated_logits_vrag = calibrated_logits_n.view(len(Variation), NUM_REF_COUNT_BINS, NUM_ALT_COUNT_BINS, NUM_LOGIT_BINS)
             losses_vrag = bce(calibrated_logits_vrag, artifact_prob_vrag)

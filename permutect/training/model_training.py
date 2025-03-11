@@ -206,7 +206,7 @@ def collect_evaluation_data(model: ArtifactModel, dataset: ReadsDataset, balance
     return evaluation_metrics, worst_offenders_by_label_and_alt_count
 
 
-@torch.inference_mode()
+# @torch.inference_mode()
 def evaluate_model(model: ArtifactModel, epoch: int, dataset: ReadsDataset, balancer: Balancer, downsampler: Downsampler, train_loader, valid_loader,
                    summary_writer: SummaryWriter, collect_embeddings: bool = False, report_worst: bool = False):
 
@@ -216,6 +216,7 @@ def evaluate_model(model: ArtifactModel, epoch: int, dataset: ReadsDataset, bala
 
     # TODO: maybe separate out the side effect of doing an M step on the calibration. . .
     # TODO: maybe make an option to do this with TRAIN Epoch instead of VALID?
+    print(evaluation_metrics.accuracy_metrics_by_epoch_type.keys())
     model.calibration.perform_m_step(evaluation_metrics.accuracy_metrics_by_epoch_type[Epoch.VALID])
 
     evaluation_metrics.put_on_cpu()
