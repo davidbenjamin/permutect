@@ -70,7 +70,28 @@ workflow Permutect {
     File tumor_reads = primary_bam
     File tumor_reads_index = primary_bai
     File? normals_reads = control_bam
-    File? normal_reads_index = control_bai 
+    File? normal_reads_index = control_bai
+
+    # Disk sizes used for dynamic sizing
+    Int ref_size = ceil(size(ref_fasta, "GB") + size(ref_dict, "GB") + size(ref_fai, "GB"))
+    Int tumor_reads_size = ceil(size(tumor_reads, "GB") + size(tumor_reads_index, "GB"))
+    Int gnomad_vcf_size = if defined(gnomad) then ceil(size(gnomad, "GB")) else 0
+    Int normal_reads_size = if defined(control_bam) then ceil(size(control_bam, "GB") + size(control_bai, "GB")) else 0
+
+    # This is added to every task as padding, should increase if systematically you need more disk for every call
+    Int disk_pad = 10 + emergency_extra_disk
+
+    Runtime standard_runtime = {"gatk_docker": gatk_docker, "gatk_override": gatk_override,
+            "max_retries": max_retries, "preemptible": preemptible, "cpu": small_task_cpu,
+            "machine_mem": small_task_mem * 1000, "command_mem": small_task_mem * 1000 - 500,
+            "disk": small_task_disk + disk_pad, "boot_disk_size": boot_disk_size}
+
+    Int tumor_reads_size = ceil(size(tumor_reads, "GB") + size(tumor_reads_index, "GB"))
+    Int normal_reads_size = if defined(control_bam) then ceil(size(control_bam, "GB") + size(control_bai, "GB")) else 0
+
+    Int m2_output_size = tumor_reads_size / scatter_count
+    #TODO: do we need to change this disk size now that NIO is always going to happen (for the google backend only)
+    Int m2_per_scatter_size = (tumor_reads_size + normal_reads_size) + ref_size + gnomad_vcf_size + m2_output_size + disk_pad
 
     call m2.Mutect2 {
         input:
