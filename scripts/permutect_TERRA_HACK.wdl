@@ -66,6 +66,12 @@ workflow Permutect {
         File? obscene_hack_leave_unset
     }
 
+    File? masked_intervals = masks
+    File tumor_reads = primary_bam
+    File tumor_reads_index = primary_bai
+    File? normals_reads = control_bam
+    File? normal_reads_index = control_bai 
+
     call m2.Mutect2 {
         input:
             make_permutect_training_dataset = false,
