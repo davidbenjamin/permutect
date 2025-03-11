@@ -6,32 +6,28 @@ from torch import nn, Tensor, IntTensor
 from torch.nn import Parameter
 
 from permutect.architecture.monotonic import MonoDense
-from permutect.data.count_binning import MAX_REF_COUNT, MAX_ALT_COUNT
+from permutect.data.count_binning import MAX_REF_COUNT, MAX_ALT_COUNT, NUM_REF_COUNT_BINS, NUM_ALT_COUNT_BINS, \
+    NUM_LOGIT_BINS, logits_from_bin_indices, counts_from_alt_bin_indices, counts_from_ref_bin_indices
 from permutect.metrics import plotting
-from permutect.utils.enums import Variation
+from permutect.metrics.loss_metrics import AccuracyMetrics
+from permutect.misc_utils import backpropagate
+from permutect.utils.enums import Variation, Label
 
 
 class Calibration(nn.Module):
     VAR_TYPE_EMBEDDING_DIM = 10
+
     def __init__(self, hidden_layer_sizes: List[int]):
         super(Calibration, self).__init__()
 
         # calibration takes [logit, ref count, alt count] as input and maps it to [calibrated logit]
-        # it is split into two functions, one for logit > 0 and one for logit < 0
-        # Both are monotonically increasing in the input logit because the uncalibrated logit means something!
-        # The logit > 0 function is increasing in both the ref and alt count -- more reads imply more confidence --
-        # and the logit < 0 is decreasing in the counts for the same reason -- more negative is more confident.
-
-        #Finally, to ensure that zero maps to zero (we don't want calibration to shift predicitons, just modify confidence)
-        # we implement the logit > 0 and logit < 0 functions as f(logit, counts) = g(logit, count) - g(logit=0, counts),
-        # where g has the desired monotonicity.
+        # it maps 0 to 0 and is monotonic in uncalibrated logit.  This is achieved by having
+        # calibration(x) = f(x) - f(0) where f is monotonic in logit.
 
         # the input features are logit, ref count, alt count, var_type embedding
         # the positive logit function is increasing in logits, increasing in counts
         # the negative logit function is increasing in logits, decreasing in counts
-        self.positive_fxn = MonoDense(3 + Calibration.VAR_TYPE_EMBEDDING_DIM, hidden_layer_sizes + [1], 3, 0)
-        self.negative_fxn = MonoDense(3 + Calibration.VAR_TYPE_EMBEDDING_DIM, hidden_layer_sizes + [1], 1, 2)
-
+        self.mono_fxn = MonoDense(3 + Calibration.VAR_TYPE_EMBEDDING_DIM, hidden_layer_sizes + [1], 1, 0)
         self.var_type_embeddings_ve = Parameter(torch.rand(len(Variation), Calibration.VAR_TYPE_EMBEDDING_DIM))
 
     def calibrated_logits(self, logits_b: Tensor, ref_counts_b: Tensor, alt_counts_b: Tensor, var_types_b: IntTensor):
@@ -40,11 +36,51 @@ class Calibration(nn.Module):
         alt_b1 = alt_counts_b.view(-1, 1) / MAX_ALT_COUNT
         var_type_embeddings_ve = self.var_type_embeddings_ve[var_types_b]
 
-        monotonic_inputs_be = torch.hstack((logits_b.view(-1, 1), ref_b1, alt_b1, var_type_embeddings_ve))
+        inputs_be = torch.hstack((logits_b.view(-1, 1), ref_b1, alt_b1, var_type_embeddings_ve))
         zero_inputs_be = torch.hstack((torch.zeros_like(logits_b).view(-1, 1), ref_b1, alt_b1, var_type_embeddings_ve))
-        positive_output_b1 = self.positive_fxn.forward(monotonic_inputs_be) - self.positive_fxn.forward(zero_inputs_be)
-        negative_output_b1 = self.negative_fxn.forward(monotonic_inputs_be) - self.negative_fxn.forward(zero_inputs_be)
-        return torch.where(logits_b > 0, positive_output_b1.view(-1), negative_output_b1.view(-1))
+        output_b1 = self.mono_fxn.forward(inputs_be) - self.mono_fxn.forward(zero_inputs_be)
+        return output_b1.view(-1)
+
+    def perform_m_step(self, counts_slvrag: AccuracyMetrics):
+        counts_lvrag = torch.sum(counts_slvrag, dim=0)
+        counts_vrag = counts_lvrag[Label.ARTIFACT] + counts_lvrag[Label.VARIANT]    # only labeled data is relevant here
+
+        # the empirical artifact probability that we want the calibration function to match
+        artifact_prob_vrag = counts_lvrag[Label.ARTIFACT] / (counts_vrag + 0.0001)
+        artifact_prob_n = artifact_prob_vrag.view(-1).detach()   # flattened.  I doubt detach is necessary but just in case. . .
+
+        # to compute the calibration function at every vrag bin we have to convert the vrag indices into flattened indices
+        # and make a big batch.  That is, the nth element of the batch is the nth flattened vrag bin.
+        # we have n = g + G * (a + A * (r + R * v)), where eg g is the logit bin index and G is the number of logit bins
+        # thus g = n % G, a = (n - g)//G mod A etc
+        num_vrag_bins = len(Variation) * NUM_REF_COUNT_BINS * NUM_ALT_COUNT_BINS * NUM_LOGIT_BINS
+        flattened_n = torch.arange(num_vrag_bins)
+        idx = flattened_n
+        logit_indices_n = torch.remainder(idx, NUM_LOGIT_BINS)
+        idx = torch.div(idx - logit_indices_n, NUM_LOGIT_BINS, rounding_mode='floor')
+        alt_count_indices_n = torch.remainder(idx, NUM_ALT_COUNT_BINS)
+        idx = torch.div(idx - alt_count_indices_n, NUM_ALT_COUNT_BINS, rounding_mode='floor')
+        ref_count_indices_n = torch.remainder(idx, NUM_REF_COUNT_BINS)
+        idx = torch.div(idx - ref_count_indices_n, NUM_REF_COUNT_BINS, rounding_mode='floor')
+        var_type_indices_n = torch.remainder(idx, len(Variation))
+        logits_n = logits_from_bin_indices(logit_indices_n)
+        alt_counts_n = counts_from_alt_bin_indices(alt_count_indices_n)
+        ref_counts_n = counts_from_ref_bin_indices(ref_count_indices_n)
+        var_types_n = var_type_indices_n
+
+        optimizer = torch.optim.AdamW(self.parameters())
+        bce = nn.BCEWithLogitsLoss(reduction='none')
+        # we want to weight each vra bin equally, but give more weight to logit bins that have more data
+        # the weight for vrag is the proportion of vra that has the given g
+        weights_vrag = counts_vrag / torch.sum(counts_vrag, dim=-1, keepdim=True)
+
+        # TODO: magic constant!!!
+        for epoch in range(1000):
+            calibrated_logits_n = self.calibrated_logits(logits_n, ref_counts_n, alt_counts_n, var_types_n)
+            calibrated_logits_vrag = calibrated_logits_n.view(len(Variation), NUM_REF_COUNT_BINS, NUM_ALT_COUNT_BINS, NUM_LOGIT_BINS)
+            losses_vrag = bce(calibrated_logits_n, artifact_prob_n)
+            loss = torch.sum(losses_vrag * weights_vrag)
+            backpropagate(optimizer, loss)
 
     def forward(self, logits_b, ref_counts_b: Tensor, alt_counts_b: Tensor, var_types_b: IntTensor):
         return self.calibrated_logits(logits_b, ref_counts_b, alt_counts_b, var_types_b)

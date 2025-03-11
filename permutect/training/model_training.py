@@ -1,5 +1,4 @@
 import math
-import random
 import time
 from collections import defaultdict
 from queue import PriorityQueue
@@ -212,7 +211,13 @@ def evaluate_model(model: ArtifactModel, epoch: int, dataset: ReadsDataset, bala
                    summary_writer: SummaryWriter, collect_embeddings: bool = False, report_worst: bool = False):
 
     # self.freeze_all()
+    evaluation_metrics: EvaluationMetrics
     evaluation_metrics, worst_offenders_by_label_and_alt_count = collect_evaluation_data(model, dataset, balancer, downsampler, train_loader, valid_loader, report_worst)
+
+    # TODO: maybe separate out the side effect of doing an M step on the calibration. . .
+    # TODO: maybe make an option to do this with TRAIN Epoch instead of VALID?
+    model.calibration.perform_m_step(evaluation_metrics.accuracy_metrics_by_epoch_type[Epoch.VALID])
+
     evaluation_metrics.put_on_cpu()
     evaluation_metrics.make_plots(summary_writer, epoch=epoch)
 
