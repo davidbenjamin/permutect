@@ -37,6 +37,8 @@ workflow Permutect {
         File? realignment_index_bundle
         File? dragstr_model
         String? realignment_extra_args
+        Boolean make_bamout = false
+        Boolean compress_vcfs = false
         Boolean? run_orientation_bias_mixture_model_filter
         String? m2_extra_args
         String? split_intervals_extra_args
@@ -46,6 +48,7 @@ workflow Permutect {
         Int chunk_size
         File? test_dataset_truth_vcf
         File? test_dataset_truth_vcf_idx
+        Boolean skip_filtering = false
 
         String? permutect_filtering_extra_args
         String gatk_docker
@@ -69,7 +72,7 @@ workflow Permutect {
     File? masked_intervals = masks
     File tumor_reads = primary_bam
     File tumor_reads_index = primary_bai
-    File? normals_reads = control_bam
+    File? normal_reads = control_bam
     File? normal_reads_index = control_bai
 
     # Disk sizes used for dynamic sizing
@@ -92,6 +95,205 @@ workflow Permutect {
     Int m2_output_size = tumor_reads_size / scatter_count
     #TODO: do we need to change this disk size now that NIO is always going to happen (for the google backend only)
     Int m2_per_scatter_size = (tumor_reads_size + normal_reads_size) + ref_size + gnomad_vcf_size + m2_output_size + disk_pad
+
+    call SplitIntervals {
+        input:
+            intervals = intervals,
+            masked_intervals = masked_intervals,
+            ref_fasta = ref_fasta,
+            ref_fai = ref_fai,
+            ref_dict = ref_dict,
+            scatter_count = scatter_count,
+            split_intervals_extra_args = split_intervals_extra_args,
+            runtime_params = standard_runtime
+    }
+
+    scatter (subintervals in SplitIntervals.interval_files ) {
+        call M2 {
+            input:
+                intervals = subintervals,
+                ref_fasta = ref_fasta,
+                ref_fai = ref_fai,
+                ref_dict = ref_dict,
+                tumor_reads = tumor_reads,
+                tumor_reads_index = tumor_reads_index,
+                normal_reads = normal_reads,
+                normal_reads_index = normal_reads_index,
+                pon = pon,
+                pon_idx = pon_idx,
+                gnomad = gnomad,
+                gnomad_idx = gnomad_idx,
+                preemptible = preemptible,
+                max_retries = max_retries,
+                m2_extra_args = m2_extra_args,
+                getpileupsummaries_extra_args = getpileupsummaries_extra_args,
+                variants_for_contamination = variants_for_contamination,
+                variants_for_contamination_idx = variants_for_contamination_idx,
+                dragstr_model = dragstr_model,
+                make_bamout = make_bamout,
+                run_ob_filter = run_orientation_bias_mixture_model_filter,
+                compress_vcfs = compress_vcfs,
+                gga_vcf = gga_vcf,
+                gga_vcf_idx = gga_vcf_idx,
+                make_permutect_training_dataset = make_permutect_training_dataset,
+                make_permutect_test_dataset = make_permutect_test_dataset,
+                permutect_training_dataset_truth_vcf = permutect_training_dataset_truth_vcf,
+                permutect_training_dataset_truth_vcf_idx = permutect_training_dataset_truth_vcf_idx,
+                permutect_test_dataset_truth_vcf = permutect_test_dataset_truth_vcf,
+                permutect_test_dataset_truth_vcf_idx = permutect_test_dataset_truth_vcf_idx,
+                gatk_override = gatk_override,
+                gatk_docker = gatk_docker,
+                disk_space = m2_per_scatter_size,
+                gcs_project_for_requester_pays = gcs_project_for_requester_pays
+        }
+    }
+
+    Int merged_vcf_size = ceil(size(M2.unfiltered_vcf, "GB"))
+    Int merged_bamout_size = ceil(size(M2.output_bamOut, "GB"))
+
+    if (run_orientation_bias_mixture_model_filter && (!skip_filtering)) {
+        call LearnReadOrientationModel {
+            input:
+                f1r2_tar_gz = M2.f1r2_counts,
+                runtime_params = standard_runtime,
+                mem = learn_read_orientation_mem
+        }
+    }
+
+    call MergeVCFs {
+        input:
+            input_vcfs = M2.unfiltered_vcf,
+            input_vcf_indices = M2.unfiltered_vcf_idx,
+            compress_vcfs = compress_vcfs,
+            runtime_params = standard_runtime
+    }
+
+    if (make_bamout) {
+        call MergeBamOuts {
+            input:
+                ref_fasta = ref_fasta,
+                ref_fai = ref_fai,
+                ref_dict = ref_dict,
+                bam_outs = M2.output_bamOut,
+                runtime_params = standard_runtime,
+                disk_space = ceil(merged_bamout_size * 4) + disk_pad,
+        }
+    }
+
+    call MergeStats { input: stats = M2.stats, runtime_params = standard_runtime }
+
+    if (defined(variants_for_contamination) && (!skip_filtering)) {
+        call MergePileupSummaries as MergeTumorPileups {
+            input:
+                input_tables = flatten(M2.tumor_pileups),
+                output_name = "tumor-pileups",
+                ref_dict = ref_dict,
+                runtime_params = standard_runtime
+        }
+
+        if (defined(normal_reads)){
+            call MergePileupSummaries as MergeNormalPileups {
+                input:
+                    input_tables = flatten(M2.normal_pileups),
+                    output_name = "normal-pileups",
+                    ref_dict = ref_dict,
+                    runtime_params = standard_runtime
+            }
+        }
+
+        call CalculateContamination {
+            input:
+                tumor_pileups = MergeTumorPileups.merged_table,
+                normal_pileups = MergeNormalPileups.merged_table,
+                runtime_params = standard_runtime
+        }
+    }
+
+    if (make_permutect_training_dataset) {
+        call Concatenate as ConcatenatePermutectTrainingData {
+            input:
+                input_files = M2.permutect_training_dataset,
+                gatk_docker = gatk_docker
+        }
+    }
+
+    if (make_permutect_test_dataset) {
+        call Concatenate as ConcatenatePermutectTestData {
+            input:
+                input_files = M2.permutect_test_dataset,
+                gatk_docker = gatk_docker
+        }
+    }
+
+    if (!skip_filtering) {
+        call Filter {
+            input:
+                ref_fasta = ref_fasta,
+                ref_fai = ref_fai,
+                ref_dict = ref_dict,
+                intervals = intervals,
+                unfiltered_vcf = MergeVCFs.merged_vcf,
+                unfiltered_vcf_idx = MergeVCFs.merged_vcf_idx,
+                compress_vcfs = compress_vcfs,
+                mutect_stats = MergeStats.merged_stats,
+                contamination_table = CalculateContamination.contamination_table,
+                maf_segments = CalculateContamination.maf_segments,
+                artifact_priors_tar_gz = LearnReadOrientationModel.artifact_prior_table,
+                m2_extra_filtering_args = m2_extra_filtering_args,
+                runtime_params = standard_runtime,
+                disk_space = ceil(size(MergeVCFs.merged_vcf, "GB") * 4) + disk_pad
+        }
+
+        if (defined(realignment_index_bundle)) {
+            call FilterAlignmentArtifacts {
+                input:
+                    ref_fasta = ref_fasta,
+                    ref_fai = ref_fai,
+                    ref_dict = ref_dict,
+                    reads = tumor_reads,
+                    reads_index = tumor_reads_index,
+                    realignment_index_bundle = select_first([realignment_index_bundle]),
+                    realignment_extra_args = realignment_extra_args,
+                    compress_vcfs = compress_vcfs,
+                    input_vcf = Filter.filtered_vcf,
+                    input_vcf_idx = Filter.filtered_vcf_idx,
+                    runtime_params = standard_runtime,
+                    mem = filter_alignment_artifacts_mem,
+                    gcs_project_for_requester_pays = gcs_project_for_requester_pays
+            }
+        }
+    }
+
+    output {
+        File output_vcf = select_first([FilterAlignmentArtifacts.filtered_vcf, Filter.filtered_vcf, MergeVCFs.merged_vcf])
+        File output_vcf_idx = select_first([FilterAlignmentArtifacts.filtered_vcf_idx, Filter.filtered_vcf_idx,MergeVCFs.merged_vcf_idx])
+        File? filtering_stats = Filter.filtering_stats
+        File mutect_stats = MergeStats.merged_stats
+        File? contamination_table = CalculateContamination.contamination_table
+
+        File? bamout = MergeBamOuts.merged_bam_out
+        File? bamout_index = MergeBamOuts.merged_bam_out_index
+        File? maf_segments = CalculateContamination.maf_segments
+        File? read_orientation_model_params = LearnReadOrientationModel.artifact_prior_table
+        File? permutect_training_dataset = ConcatenatePermutectTrainingData.concatenated
+        File? permutect_test_dataset = ConcatenatePermutectTestData.concatenated
+        File permutect_contigs_table = select_first(M2.permutect_contigs_table)
+        File permutect_read_groups_table = select_first(M2.permutect_read_groups_table)
+    }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
     call m2.Mutect2 {
         input:
@@ -327,6 +529,50 @@ task IndexVCF {
     output {
         File vcf = "output.vcf"
         File vcf_index = "output.vcf.idx"
+    }
+}
+
+task SplitIntervals {
+    input {
+      File? intervals
+      File? masked_intervals
+      File ref_fasta
+      File ref_fai
+      File ref_dict
+      Int scatter_count
+      String? split_intervals_extra_args
+
+      # runtime
+      Runtime runtime_params
+    }
+
+    command {
+        set -e
+        export GATK_LOCAL_JAR=~{default="/root/gatk.jar" runtime_params.gatk_override}
+
+        mkdir interval-files
+        gatk --java-options "-Xmx~{runtime_params.command_mem}m" SplitIntervals \
+            -R ~{ref_fasta} \
+            ~{"-L " + intervals} \
+            ~{"-XL " + masked_intervals} \
+            -scatter ~{scatter_count} \
+            -O interval-files \
+            ~{split_intervals_extra_args}
+        cp interval-files/*.interval_list .
+    }
+
+    runtime {
+        docker: runtime_params.gatk_docker
+        bootDiskSizeGb: runtime_params.boot_disk_size
+        memory: runtime_params.machine_mem + " MB"
+        disks: "local-disk " + runtime_params.disk + " HDD"
+        preemptible: runtime_params.preemptible
+        maxRetries: runtime_params.max_retries
+        cpu: runtime_params.cpu
+    }
+
+    output {
+        Array[File] interval_files = glob("*.interval_list")
     }
 }
 
