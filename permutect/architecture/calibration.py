@@ -46,8 +46,7 @@ class Calibration(nn.Module):
         counts_vrag = counts_lvrag[Label.ARTIFACT] + counts_lvrag[Label.VARIANT]    # only labeled data is relevant here
 
         # the empirical artifact probability that we want the calibration function to match
-        artifact_prob_vrag = counts_lvrag[Label.ARTIFACT] / (counts_vrag + 0.0001)
-        artifact_prob_n = artifact_prob_vrag.view(-1).detach()   # flattened.  I doubt detach is necessary but just in case. . .
+        artifact_prob_vrag = (counts_lvrag[Label.ARTIFACT] / (counts_vrag + 0.0001)).detach()   # I doubt detach is necessary but just in case. . .
 
         # to compute the calibration function at every vrag bin we have to convert the vrag indices into flattened indices
         # and make a big batch.  That is, the nth element of the batch is the nth flattened vrag bin.
@@ -78,7 +77,7 @@ class Calibration(nn.Module):
         for epoch in range(1000):
             calibrated_logits_n = self.calibrated_logits(logits_n, ref_counts_n, alt_counts_n, var_types_n)
             calibrated_logits_vrag = calibrated_logits_n.view(len(Variation), NUM_REF_COUNT_BINS, NUM_ALT_COUNT_BINS, NUM_LOGIT_BINS)
-            losses_vrag = bce(calibrated_logits_n, artifact_prob_n)
+            losses_vrag = bce(calibrated_logits_vrag, artifact_prob_vrag)
             loss = torch.sum(losses_vrag * weights_vrag)
             backpropagate(optimizer, loss)
 
