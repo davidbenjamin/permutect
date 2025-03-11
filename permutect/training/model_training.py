@@ -150,6 +150,11 @@ def train_artifact_model(model: ArtifactModel, dataset: ReadsDataset, training_p
 
                 print(f"performing evaluation on epoch {epoch}")
                 if epoch_type == Epoch.VALID:
+                    # TODO: maybe make an option to do this with TRAIN Epoch instead of VALID?
+                    validation_metrics, _ = collect_evaluation_data(model, dataset, balancer, downsampler, train_loader=None,
+                                                                    valid_loader=valid_loader, report_worst=False)
+                    model.calibration.perform_m_step(validation_metrics.accuracy_metrics_by_epoch_type[Epoch.VALID])
+
                     evaluate_model(model, epoch, dataset, balancer, downsampler, train_loader, valid_loader, summary_writer, collect_embeddings=False, report_worst=False)
 
         # done with training and validation for this epoch
@@ -166,7 +171,7 @@ def collect_evaluation_data(model: ArtifactModel, dataset: ReadsDataset, balance
     worst_offenders_by_label_and_alt_count = defaultdict(lambda: PriorityQueue(WORST_OFFENDERS_QUEUE_SIZE))
 
     evaluation_metrics = EvaluationMetrics(num_sources=dataset.num_sources(), device=model._device)
-    epoch_types = [Epoch.TRAIN, Epoch.VALID]
+    epoch_types = (None if train_loader is None else [Epoch.TRAIN]) + (None if valid_loader is None else [Epoch.VALID])
     for epoch_type in epoch_types:
         assert epoch_type == Epoch.TRAIN or epoch_type == Epoch.VALID  # not doing TEST here
         loader = train_loader if epoch_type == Epoch.TRAIN else valid_loader
@@ -206,18 +211,12 @@ def collect_evaluation_data(model: ArtifactModel, dataset: ReadsDataset, balance
     return evaluation_metrics, worst_offenders_by_label_and_alt_count
 
 
-# @torch.inference_mode()
+@torch.inference_mode()
 def evaluate_model(model: ArtifactModel, epoch: int, dataset: ReadsDataset, balancer: Balancer, downsampler: Downsampler, train_loader, valid_loader,
                    summary_writer: SummaryWriter, collect_embeddings: bool = False, report_worst: bool = False):
 
-    # self.freeze_all()
     evaluation_metrics: EvaluationMetrics
     evaluation_metrics, worst_offenders_by_label_and_alt_count = collect_evaluation_data(model, dataset, balancer, downsampler, train_loader, valid_loader, report_worst)
-
-    # TODO: maybe separate out the side effect of doing an M step on the calibration. . .
-    # TODO: maybe make an option to do this with TRAIN Epoch instead of VALID?
-    print(evaluation_metrics.accuracy_metrics_by_epoch_type.keys())
-    model.calibration.perform_m_step(evaluation_metrics.accuracy_metrics_by_epoch_type[Epoch.VALID])
 
     evaluation_metrics.put_on_cpu()
     evaluation_metrics.make_plots(summary_writer, epoch=epoch)
