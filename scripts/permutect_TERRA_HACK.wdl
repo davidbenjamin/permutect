@@ -19,17 +19,17 @@ workflow Permutect {
         File permutect_model
 
         File? intervals
-        File? masks
+        File? masks     # masked_intervals
         File ref_fasta
         File ref_fai
         File ref_dict
         Int scatter_count
         Int? num_spectrum_iterations
         Float? spectrum_learning_rate
-        File primary_bam
-        File primary_bai
-        File? control_bam
-        File? control_bai
+        File primary_bam    # tumor_reads
+        File primary_bai    # tumors_reads_index
+        File? control_bam   # normals_reads
+        File? control_bai   # normals_reads_index
         File? gnomad
         File? gnomad_idx
         File? variants_for_contamination
@@ -44,16 +44,25 @@ workflow Permutect {
         Int num_workers
         Int? gpu_count
         Int chunk_size
-        File? test_dataset_truth_vcf    # used for evaluation
+        File? test_dataset_truth_vcf
         File? test_dataset_truth_vcf_idx
 
         String? permutect_filtering_extra_args
         String gatk_docker
+        String? gcs_project_for_requester_pays
         String bcftools_docker
         File? gatk_override
         String permutect_docker
-        Int? preemptible
-        Int? max_retries
+        Int preemptible = 2
+        Int max_retries = 0
+        Int small_task_cpu = 2
+        Int small_task_mem = 4
+        Int small_task_disk = 100
+        Int boot_disk_size = 12
+        Int learn_read_orientation_mem = 8000
+        Int filter_alignment_artifacts_mem = 9000
+        String basic_bash_docker = "ubuntu:16.04"
+        Int emergency_extra_disk = 0
         File? obscene_hack_leave_unset
     }
 
