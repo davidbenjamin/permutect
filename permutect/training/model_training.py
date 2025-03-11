@@ -171,7 +171,7 @@ def collect_evaluation_data(model: ArtifactModel, dataset: ReadsDataset, balance
     worst_offenders_by_label_and_alt_count = defaultdict(lambda: PriorityQueue(WORST_OFFENDERS_QUEUE_SIZE))
 
     evaluation_metrics = EvaluationMetrics(num_sources=dataset.num_sources(), device=model._device)
-    epoch_types = (None if train_loader is None else [Epoch.TRAIN]) + (None if valid_loader is None else [Epoch.VALID])
+    epoch_types = ([] if train_loader is None else [Epoch.TRAIN]) + ([] if valid_loader is None else [Epoch.VALID])
     for epoch_type in epoch_types:
         assert epoch_type == Epoch.TRAIN or epoch_type == Epoch.VALID  # not doing TEST here
         loader = train_loader if epoch_type == Epoch.TRAIN else valid_loader
