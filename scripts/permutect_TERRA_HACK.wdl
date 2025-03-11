@@ -1,6 +1,5 @@
 version 1.0
 
-import "https://api.firecloud.org/ga4gh/v1/tools/davidben:mutect2/versions/18/plain-WDL/descriptor" as m2
 
 struct Runtime {
     String gatk_docker
@@ -248,62 +247,27 @@ workflow Permutect {
         }
     }
 
-    output {
-        File output_vcf = select_first([FilterAlignmentArtifacts.filtered_vcf, Filter.filtered_vcf, MergeVCFs.merged_vcf])
-        File output_vcf_idx = select_first([FilterAlignmentArtifacts.filtered_vcf_idx, Filter.filtered_vcf_idx,MergeVCFs.merged_vcf_idx])
-        File? filtering_stats = Filter.filtering_stats
-        File mutect_stats = MergeStats.merged_stats
-        File? contamination_table = CalculateContamination.contamination_table
+    # THIS WAS THE OUTPUT BLOCK OF Mutect2
+    File mutect2_output_vcf = select_first([FilterAlignmentArtifacts.filtered_vcf, Filter.filtered_vcf, MergeVCFs.merged_vcf])
+    File mutect2_output_vcf_idx = select_first([FilterAlignmentArtifacts.filtered_vcf_idx, Filter.filtered_vcf_idx,MergeVCFs.merged_vcf_idx])
+    File mutect2_permutect_test_dataset = ConcatenatePermutectTestData.concatenated
+    File? mutect2_bamout = MergeBamOuts.merged_bam_out
+    File? mutect2_bamout_index = MergeBamOuts.merged_bam_out_index
+    File? mutect2_filtering_stats = Filter.filtering_stats
+    File mutect2_mutect_stats = MergeStats.merged_stats
+    File? mutect2_contamination_table = CalculateContamination.contamination_table
 
-        File? bamout = MergeBamOuts.merged_bam_out
-        File? bamout_index = MergeBamOuts.merged_bam_out_index
-        File? maf_segments = CalculateContamination.maf_segments
-        File? read_orientation_model_params = LearnReadOrientationModel.artifact_prior_table
-        File? permutect_training_dataset = ConcatenatePermutectTrainingData.concatenated
-        File? permutect_test_dataset = ConcatenatePermutectTestData.concatenated
-        File permutect_contigs_table = select_first(M2.permutect_contigs_table)
-        File permutect_read_groups_table = select_first(M2.permutect_read_groups_table)
-    }
+    File? mutect2_maf_segments = CalculateContamination.maf_segments
+    File? mutect2_read_orientation_model_params = LearnReadOrientationModel.artifact_prior_table
+    File? mutect2_permutect_test_dataset = ConcatenatePermutectTestData.concatenated
+    File mutect2_permutect_contigs_table = select_first(M2.permutect_contigs_table)
+    File mutect2_permutect_read_groups_table = select_first(M2.permutect_read_groups_table)
 
-    
-    call m2.Mutect2 {
-        input:
-            make_permutect_training_dataset = false,
-            make_permutect_test_dataset = true,
-            permutect_test_dataset_truth_vcf = test_dataset_truth_vcf,
-            permutect_test_dataset_truth_vcf_idx = test_dataset_truth_vcf_idx,
-            intervals = intervals,
-            masked_intervals = masks,
-            ref_fasta = ref_fasta,
-            ref_fai = ref_fai,
-            ref_dict = ref_dict,
-            tumor_reads = primary_bam,
-            tumor_reads_index = primary_bai,
-            normal_reads = if control_bam == "" then obscene_hack_leave_unset else control_bam,
-            normal_reads_index = if control_bam == "" then obscene_hack_leave_unset else control_bai,
-
-            scatter_count = scatter_count,
-            gnomad = gnomad,
-            gnomad_idx = gnomad_idx,
-            variants_for_contamination = variants_for_contamination,
-            variants_for_contamination_idx = variants_for_contamination_idx,
-            realignment_index_bundle = realignment_index_bundle,
-            realignment_extra_args = realignment_extra_args,
-            dragstr_model = dragstr_model,
-            run_orientation_bias_mixture_model_filter = run_orientation_bias_mixture_model_filter,
-            m2_extra_args = m2_extra_args,
-            make_bamout = false,
-
-            gatk_docker = gatk_docker,
-            gatk_override = gatk_override,
-            preemptible = preemptible,
-            max_retries = max_retries
-    }
 
     call SplitMultiallelics {
         input:
-            input_vcf = Mutect2.output_vcf,
-            input_vcf_idx = Mutect2.output_vcf_idx,
+            input_vcf = mutect2_output_vcf,
+            input_vcf_idx = mutect2_output_vcf_idx,
             ref_fasta = ref_fasta,
             ref_fai = ref_fai,
             ref_dict = ref_dict,
@@ -321,10 +285,10 @@ workflow Permutect {
             mutect2_vcf = IndexAfterSplitting.vcf,
             mutect2_vcf_idx = IndexAfterSplitting.vcf_index,
             permutect_model = permutect_model,
-            test_dataset = select_first([Mutect2.permutect_test_dataset]),
-            contigs_table = Mutect2.permutect_contigs_table,
-            maf_segments = Mutect2.maf_segments,
-            mutect_stats = Mutect2.mutect_stats,
+            test_dataset = mutect2_permutect_test_dataset,
+            contigs_table = mutect2_permutect_contigs_table,
+            maf_segments = mutect2_maf_segments,
+            mutect_stats = mutect2_mutect_stats,
             batch_size = batch_size,
             num_workers = num_workers,
             gpu_count = gpu_count,
@@ -345,9 +309,9 @@ workflow Permutect {
         File output_vcf = IndexAfterFiltering.vcf
         File output_vcf_idx = IndexAfterFiltering.vcf_index
         File tensorboard_report = PermutectFiltering.tensorboard_report
-        File test_dataset = select_first([Mutect2.permutect_test_dataset])
-        File mutect2_vcf = Mutect2.output_vcf
-        File mutect2_vcf_idx = Mutect2.output_vcf_idx
+        File test_dataset = mutect2_permutect_test_dataset
+        File mutect2_vcf = mutect2_output_vcf
+        File mutect2_vcf_idx = mutect2_output_vcf_idx
     }
 }
 
