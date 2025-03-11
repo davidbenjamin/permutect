@@ -41,6 +41,7 @@ workflow Permutect {
         Boolean compress_vcfs = false
         Boolean? run_orientation_bias_mixture_model_filter
         String? m2_extra_args
+        String? m2_extra_filtering_args
         String? split_intervals_extra_args
         Int batch_size
         Int num_workers
@@ -119,28 +120,21 @@ workflow Permutect {
                 tumor_reads_index = tumor_reads_index,
                 normal_reads = normal_reads,
                 normal_reads_index = normal_reads_index,
-                pon = pon,
-                pon_idx = pon_idx,
                 gnomad = gnomad,
                 gnomad_idx = gnomad_idx,
                 preemptible = preemptible,
                 max_retries = max_retries,
                 m2_extra_args = m2_extra_args,
-                getpileupsummaries_extra_args = getpileupsummaries_extra_args,
                 variants_for_contamination = variants_for_contamination,
                 variants_for_contamination_idx = variants_for_contamination_idx,
                 dragstr_model = dragstr_model,
                 make_bamout = make_bamout,
                 run_ob_filter = run_orientation_bias_mixture_model_filter,
                 compress_vcfs = compress_vcfs,
-                gga_vcf = gga_vcf,
-                gga_vcf_idx = gga_vcf_idx,
-                make_permutect_training_dataset = make_permutect_training_dataset,
-                make_permutect_test_dataset = make_permutect_test_dataset,
-                permutect_training_dataset_truth_vcf = permutect_training_dataset_truth_vcf,
-                permutect_training_dataset_truth_vcf_idx = permutect_training_dataset_truth_vcf_idx,
-                permutect_test_dataset_truth_vcf = permutect_test_dataset_truth_vcf,
-                permutect_test_dataset_truth_vcf_idx = permutect_test_dataset_truth_vcf_idx,
+                make_permutect_training_dataset = false,
+                make_permutect_test_dataset = true,
+                permutect_test_dataset_truth_vcf = test_dataset_truth_vcf,
+                permutect_test_dataset_truth_vcf_idx = test_dataset_truth_vcf_idx,
                 gatk_override = gatk_override,
                 gatk_docker = gatk_docker,
                 disk_space = m2_per_scatter_size,
@@ -209,20 +203,10 @@ workflow Permutect {
         }
     }
 
-    if (make_permutect_training_dataset) {
-        call Concatenate as ConcatenatePermutectTrainingData {
-            input:
-                input_files = M2.permutect_training_dataset,
-                gatk_docker = gatk_docker
-        }
-    }
-
-    if (make_permutect_test_dataset) {
-        call Concatenate as ConcatenatePermutectTestData {
-            input:
-                input_files = M2.permutect_test_dataset,
-                gatk_docker = gatk_docker
-        }
+    call Concatenate as ConcatenatePermutectTestData {
+        input:
+            input_files = M2.permutect_test_dataset,
+            gatk_docker = gatk_docker
     }
 
     if (!skip_filtering) {
@@ -281,20 +265,7 @@ workflow Permutect {
         File permutect_read_groups_table = select_first(M2.permutect_read_groups_table)
     }
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+    
     call m2.Mutect2 {
         input:
             make_permutect_training_dataset = false,
