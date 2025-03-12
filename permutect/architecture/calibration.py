@@ -42,6 +42,7 @@ class Calibration(nn.Module):
         return output_b1.view(-1)
 
     def perform_m_step(self, counts_slvrag: AccuracyMetrics):
+        device = counts_slvrag.device
         counts_lvrag = torch.sum(counts_slvrag, dim=0)
         counts_vrag = counts_lvrag[Label.ARTIFACT] + counts_lvrag[Label.VARIANT]    # only labeled data is relevant here
 
@@ -53,7 +54,7 @@ class Calibration(nn.Module):
         # we have n = g + G * (a + A * (r + R * v)), where eg g is the logit bin index and G is the number of logit bins
         # thus g = n % G, a = (n - g)//G mod A etc
         num_vrag_bins = len(Variation) * NUM_REF_COUNT_BINS * NUM_ALT_COUNT_BINS * NUM_LOGIT_BINS
-        flattened_n = torch.arange(num_vrag_bins)
+        flattened_n = torch.arange(num_vrag_bins).to(device=device)
         idx = flattened_n
         logit_indices_n = torch.remainder(idx, NUM_LOGIT_BINS)
         idx = torch.div(idx - logit_indices_n, NUM_LOGIT_BINS, rounding_mode='floor')
