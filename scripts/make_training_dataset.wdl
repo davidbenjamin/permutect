@@ -54,6 +54,12 @@ workflow MakeTrainingDataset {
         Int emergency_extra_disk = 0
     }
 
+    File tumor_reads = reads
+    File tumor_reads_index = reads_index
+    File pon = blacklist_vcf
+    File pon_idx = blacklist_vcf_idx
+    Boolean make_permutect_training_dataset = true
+
     call m2.Mutect2 {
         input:
             intervals = intervals,
