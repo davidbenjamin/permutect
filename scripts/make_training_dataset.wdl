@@ -1,7 +1,7 @@
 version 1.0
 
 # run Mutect2 without filtering to get plain text training data, then run preprocess_dataset.
-    
+
 struct Runtime {
     String gatk_docker
     File? gatk_override
@@ -66,8 +66,8 @@ workflow MakeTrainingDataset {
 
     File tumor_reads = reads
     File tumor_reads_index = reads_index
-    File pon = blacklist_vcf
-    File pon_idx = blacklist_vcf_idx
+    File? pon = blacklist_vcf
+    File? pon_idx = blacklist_vcf_idx
     Boolean make_permutect_training_dataset = true
 
     # Disk sizes used for dynamic sizing
