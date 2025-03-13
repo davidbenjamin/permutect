@@ -17,6 +17,8 @@ workflow MakeTrainingDataset {
 
         File? gnomad
         File? gnomad_idx
+        File? blacklist_vcf
+        File? blacklist_vcf_idx
 
         # extra arguments
         String? m2_extra_args
@@ -63,6 +65,8 @@ workflow MakeTrainingDataset {
             tumor_reads_index = reads_index,
             gnomad = gnomad,
             gnomad_idx = gnomad_idx,
+            pon = blacklist_vcf,
+            pon_idx = blacklist_vcf_idx,
             m2_extra_args = m2_extra_args,
             dragstr_model = dragstr_model,
             make_bamout = make_bamout,
