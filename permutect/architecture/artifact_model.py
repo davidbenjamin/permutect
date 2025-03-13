@@ -1,5 +1,5 @@
 from itertools import chain
-
+from math import sqrt
 import torch
 from torch import Tensor, IntTensor
 from torch.utils.tensorboard import SummaryWriter
@@ -7,6 +7,7 @@ from tqdm.autonotebook import tqdm
 
 from permutect import constants
 from permutect.architecture.adversarial import Adversarial
+from permutect.architecture.monotonic import MonoDense
 from permutect.training.balancer import Balancer
 from permutect.architecture.calibration import Calibration
 from permutect.architecture.dna_sequence_convolution import DNASequenceConvolution
@@ -91,10 +92,13 @@ class ArtifactModel(torch.nn.Module):
         self.set_pooling = SetPooling(input_dim=embedding_dim, mlp_layers=set_pooling_hidden_layers,
                                       final_mlp_layers=params.aggregation_layers, batch_normalize=params.batch_normalize, dropout_p=params.dropout_p)
 
+        # R -> R mapping from norm of feature vector to uncalibrated logit.  Must be monotonic so that non-artifacts
+        self.feature_norm_to_logit = MonoDense(input_dimension=1, output_dimensions=[10, 10, 10, 1], num_increasing=1, num_decreasing=0)
+
         # TODO: artifact classifier hidden layers are hard-coded!!!
         # The [1] is for the output logit
-        self.artifact_classifier = MLP([self.set_pooling.output_dimension()] + [-1, -1, 1], batch_normalize=params.batch_normalize,
-                                       dropout_p=params.dropout_p)
+        self.feature_transformation = MLP([self.set_pooling.output_dimension()] + [-1, -1, 1], batch_normalize=params.batch_normalize,
+                                          dropout_p=params.dropout_p)
 
         self.calibration = Calibration(params.calibration_layers)
 
@@ -126,7 +130,7 @@ class ArtifactModel(torch.nn.Module):
         return self._haplotypes_length
 
     def post_pooling_parameters(self):
-        return chain(self.artifact_classifier.parameters(), self.calibration.parameters())
+        return chain(self.feature_norm_to_logit.parameters(), self.calibration.parameters())
 
     def calibration_parameters(self):
         return self.calibration.parameters()
@@ -180,7 +184,8 @@ class ArtifactModel(torch.nn.Module):
         return result_be, ref_seq_embeddings_be # ref seq embeddings are useful later
 
     def logits_from_features(self, features_be: Tensor, ref_counts_b: IntTensor, alt_counts_b: IntTensor, var_types_b: IntTensor):
-        uncalibrated_logits_b = self.artifact_classifier.forward(features_be).view(-1)
+        feature_norms_b1 = torch.norm(features_be, dim=-1, keepdim=True) / sqrt(features_be.shape[-1])     # scale by sqrt(num features)
+        uncalibrated_logits_b = self.feature_norm_to_logit.forward(feature_norms_b1).view(-1)
         calibrated_logits_b = self.calibration.calibrated_logits(uncalibrated_logits_b, ref_counts_b, alt_counts_b, var_types_b)
         return calibrated_logits_b, uncalibrated_logits_b
 
