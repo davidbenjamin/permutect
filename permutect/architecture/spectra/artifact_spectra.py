@@ -66,8 +66,8 @@ class ArtifactSpectra(nn.Module):
 
         log_lks_bk = uniform_binomial_log_lk(n=depths_bk, k=alt_counts_bk, x1=minima_bk, x2=maxima_bk)
 
-        log_weights_vk = torch.log_softmax(self.weights_pre_softmax_vk, dim=-1)  # softmax over component dimension
-        log_weights_bk = log_weights_vk[var_types_b]
+        log_weights_dvk = torch.log_softmax(self.weights_pre_softmax_dvk, dim=-1)  # softmax over component dimension
+        log_weights_bk = log_weights_dvk.view(-1, self.K)[flattened_dv]
         weighted_log_lks_bk = log_lks_bk + log_weights_bk
         result_b = torch.logsumexp(weighted_log_lks_bk, dim=-1)
         return result_b
