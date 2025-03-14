@@ -9,6 +9,16 @@ from permutect.utils.stats_utils import uniform_binomial_log_lk
 from permutect.utils.enums import Variation
 
 
+DEPTH_CUTOFFS = [10, 20]
+NUM_DEPTH_BINS = len(DEPTH_CUTOFFS) + 1
+
+
+# the bin is the number of cutoffs that are met or exceeded
+def depths_to_depth_bins(depths_b: IntTensor):
+    assert len(DEPTH_CUTOFFS) == 2
+    return (depths_b >= DEPTH_CUTOFFS[0]).long() + (depths_b >= DEPTH_CUTOFFS[1]).long()
+
+
 class ArtifactSpectra(nn.Module):
     """
     Mixture of uniform-binomial compound distributions for each variant type
@@ -18,35 +28,42 @@ class ArtifactSpectra(nn.Module):
         super(ArtifactSpectra, self).__init__()
         self.K = num_components
         self.V = len(Variation)
+        self.D = NUM_DEPTH_BINS
 
-        self.weights_pre_softmax_vk = torch.nn.Parameter(torch.ones(self.V, self.K))
+        self.weights_pre_softmax_dvk = torch.nn.Parameter(torch.ones(self.D, self.V, self.K))
 
         # the minima of the uniform-binomials, before before sent through a sigmoid
         # initialize to be essentially zero (after the sigmoid)
-        initial_minima_pre_sigmoid_vk = -10*torch.ones(self.V, self.K)
-        self.min_pre_sigmoid_vk = torch.nn.Parameter(initial_minima_pre_sigmoid_vk)
+        initial_minima_pre_sigmoid_dvk = -10*torch.ones(self.D, self.V, self.K)
+        self.min_pre_sigmoid_dvk = torch.nn.Parameter(initial_minima_pre_sigmoid_dvk)
 
         # to keep the maxima both greater than the minima and less than one, we say
         # maxima = sigmoid(minima_pre_sigmoid + lengths_in_logit_space)
         # initialize to
-        initial_maxima_pre_sigmoid_vk = -3 * torch.ones(self.V, self.K) + torch.rand(self.V, self.K)
-        self.lengths_in_logit_space_pre_exp_vk = torch.nn.Parameter(torch.log(initial_maxima_pre_sigmoid_vk - initial_minima_pre_sigmoid_vk))
+        initial_maxima_pre_sigmoid_dvk = -3 * torch.ones(self.D, self.V, self.K) + torch.rand(self.D, self.V, self.K)
+        self.lengths_in_logit_space_pre_exp_dvk = torch.nn.Parameter(torch.log(initial_maxima_pre_sigmoid_dvk - initial_minima_pre_sigmoid_dvk))
 
-    def get_minima_and_maxima_vk(self):
-        minima_vk = torch.sigmoid(self.min_pre_sigmoid_vk)
-        maxima_vk = torch.sigmoid(self.min_pre_sigmoid_vk + torch.exp(self.lengths_in_logit_space_pre_exp_vk))
-        return minima_vk, maxima_vk
+    def get_minima_and_maxima_dvk(self):
+        minima_dvk = torch.sigmoid(self.min_pre_sigmoid_dvk)
+        maxima_dvk = torch.sigmoid(self.min_pre_sigmoid_dvk + torch.exp(self.lengths_in_logit_space_pre_exp_dvk))
+        return minima_dvk, maxima_dvk
 
     '''
     here x is a 2D tensor, 1st dimension batch, 2nd dimension being features that determine which Beta mixture to use
     n and k are 1D tensors, the only dimension being batch.
     '''
-    def forward(self, variant_types_b: IntTensor, depths_b, alt_counts_b):
+    def forward(self, variant_types_b: IntTensor, depths_b: IntTensor, alt_counts_b):
         var_types_b = variant_types_b.long()
+        depth_bins_b = depths_to_depth_bins(depths_b)
+
+        minima_dvk, maxima_dvk = self.get_minima_and_maxima_dvk()
+        # to select the appropriate depth bins 'd' and variant types 'v' over the batch, we flatten d and v and select
+        # from the appropriate flattened indices
+        flattened_dv = depth_bins_b * self.V + var_types_b
+        minima_bk, maxima_bk = minima_dvk.view(-1, self.K)[flattened_dv], maxima_dvk.view(-1, self.K)[flattened_dv]
 
         depths_bk, alt_counts_bk = depths_b.view(-1, 1), alt_counts_b.view(-1, 1)
-        minima_vk, maxima_vk = self.get_minima_and_maxima_vk()
-        minima_bk, maxima_bk = minima_vk[var_types_b], maxima_vk[var_types_b]
+
         log_lks_bk = uniform_binomial_log_lk(n=depths_bk, k=alt_counts_bk, x1=minima_bk, x2=maxima_bk)
 
         log_weights_vk = torch.log_softmax(self.weights_pre_softmax_vk, dim=-1)  # softmax over component dimension
@@ -72,10 +89,11 @@ class ArtifactSpectra(nn.Module):
     get raw data for a spectrum plot of probability density vs allele fraction for a particular variant type
     '''
     def spectrum_density_vs_fraction(self, variant_type: Variation, depth: int):
+        depth_bin = depths_to_depth_bins(torch.tensor(depth)).item()
         fractions_f = torch.arange(0.01, 0.99, 0.001)  # 1D tensor
-        weights_k = torch.softmax(self.weights_pre_softmax_vk[variant_type], dim=-1).cpu()
-        minima_vk, maxima_vk = self.get_minima_and_maxima_vk()
-        minima_k, maxima_k = minima_vk[variant_type].cpu(), maxima_vk[variant_type].cpu()
+        weights_k = torch.softmax(self.weights_pre_softmax_dvk[depth_bin, variant_type], dim=-1).cpu()
+        minima_dvk, maxima_dvk = self.get_minima_and_maxima_dvk()
+        minima_k, maxima_k = minima_dvk[depth_bin, variant_type].cpu(), maxima_dvk[depth_bin, variant_type].cpu()
 
         densities_f = torch.zeros_like(fractions_f)
         for k in range(self.K):

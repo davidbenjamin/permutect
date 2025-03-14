@@ -256,7 +256,7 @@ class PosteriorModel(torch.nn.Module):
                     mean = self.normal_seq_error_spectra.max_mean * torch.sigmoid(self.normal_seq_error_spectra.means_pre_sigmoid_v[variant_type])
                     summary_writer.add_scalar("normal seq error mean fraction for " + variant_type.name, mean, epoch)
 
-                for depth in [10, 20, 30, 50, 100]:
+                for depth in [9, 19, 30, 50, 100]:
                     art_spectra_fig, art_spectra_axs = plot_artifact_spectra(self.artifact_spectra, depth)
                     summary_writer.add_figure("Artifact AF Spectra at depth = " + str(depth), art_spectra_fig, epoch)
 
