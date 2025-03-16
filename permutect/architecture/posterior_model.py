@@ -220,7 +220,7 @@ class PosteriorModel(torch.nn.Module):
                 depths_lb.append(batch.get_original_depths().detach())
                 types_lb.append(batch.get_variant_types().detach())
 
-                confidence_mask = torch.abs(batch.get_artifact_logits()) > 3.0
+                confidence_mask = torch.logical_or(batch.get_artifact_logits() < 0, batch.get_artifact_logits() > 3)
                 #loss = -torch.mean(confidence_mask * log_evidence)
                 loss = - torch.sum(confidence_mask * log_evidence) / (torch.sum(confidence_mask) + 0.000001)
 
