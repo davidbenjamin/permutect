@@ -71,7 +71,7 @@ class ArtifactSpectra(nn.Module):
 
         # scalar tensors
         alpha, beta = torch.exp(self.alpha_pre_exp_dv[depth_bin, variant_type]), torch.exp(self.beta_pre_exp_dv[depth_bin, variant_type])
-        alpha_1, beta_1 = alpha.view(1), beta.view(1)
+        alpha_1, beta_1 = alpha.view(1).to(device=fractions_f.device), beta.view(1).to(device=fractions_f.device)
         densities_f = torch.exp(Beta(alpha_1, beta_1).log_prob(fractions_f))
         return fractions_f, densities_f
 
