@@ -84,7 +84,7 @@ class PosteriorModel(torch.nn.Module):
 
         # TODO introduce parameters class so that num_components is not hard-coded
         self.somatic_spectrum = SomaticSpectrum(num_components=5)
-        self.artifact_spectra = ArtifactSpectra(num_components=2)
+        self.artifact_spectra = ArtifactSpectra()
         self.normal_seq_error_spectra = NormalSeqErrorSpectrum(max_mean=0.001)
         self.normal_artifact_spectra = initialize_normal_artifact_spectra()
 
