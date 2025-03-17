@@ -174,6 +174,10 @@ class PosteriorModel(torch.nn.Module):
         log_posteriors_bc[:, Call.ARTIFACT] += batch.get_artifact_logits()
         log_posteriors_bc[:, Call.NORMAL_ARTIFACT] += batch.get_artifact_logits()
 
+        # TODO: HACK / EXPERIMENT: make it impossible to call an artifact when the artifact logits are negative
+        log_posteriors_bc[:, Call.ARTIFACT] = torch.where(batch.get_artifact_logits() < 0, -9999, log_posteriors_bc[:, Call.ARTIFACT])
+        # TODO: END OF HACK / EXPERIMENT
+
         return log_priors_bc, spectra_log_lks_bc, normal_log_lks_bc, log_posteriors_bc
 
     def log_relative_posteriors_bc(self, batch: PosteriorBatch) -> Tensor:
