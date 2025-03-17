@@ -40,12 +40,12 @@ class ArtifactSpectra(nn.Module):
         # to keep the maxima both greater than the minima and less than one, we say
         # maxima = sigmoid(minima_pre_sigmoid + lengths_in_logit_space)
         # initialize to
-        initial_maxima_pre_sigmoid_dvk = -3 * torch.ones(self.D, self.V, self.K) + torch.rand(self.D, self.V, self.K)
+        initial_maxima_pre_sigmoid_dvk = 0 * torch.ones(self.D, self.V, self.K) + torch.rand(self.D, self.V, self.K)
         self.lengths_in_logit_space_pre_exp_dvk = torch.nn.Parameter(torch.log(initial_maxima_pre_sigmoid_dvk - initial_minima_pre_sigmoid_dvk))
 
     def get_minima_and_maxima_dvk(self):
-        minima_dvk = torch.sigmoid(self.min_pre_sigmoid_dvk)
-        maxima_dvk = torch.sigmoid(self.min_pre_sigmoid_dvk + torch.exp(self.lengths_in_logit_space_pre_exp_dvk))
+        minima_dvk = 0.2*torch.sigmoid(self.min_pre_sigmoid_dvk)
+        maxima_dvk = 0.2*torch.sigmoid(self.min_pre_sigmoid_dvk + torch.exp(self.lengths_in_logit_space_pre_exp_dvk))
         return minima_dvk, maxima_dvk
 
     '''
