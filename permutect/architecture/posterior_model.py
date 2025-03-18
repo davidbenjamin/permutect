@@ -84,7 +84,7 @@ class PosteriorModel(torch.nn.Module):
 
         # TODO introduce parameters class so that num_components is not hard-coded
         self.somatic_spectrum = SomaticSpectrum(num_components=5)
-        self.artifact_spectra = ArtifactSpectra(num_components=2)
+        self.artifact_spectra = ArtifactSpectra()
         self.normal_seq_error_spectra = NormalSeqErrorSpectrum(max_mean=0.001)
         self.normal_artifact_spectra = initialize_normal_artifact_spectra()
 
@@ -174,6 +174,10 @@ class PosteriorModel(torch.nn.Module):
         log_posteriors_bc[:, Call.ARTIFACT] += batch.get_artifact_logits()
         log_posteriors_bc[:, Call.NORMAL_ARTIFACT] += batch.get_artifact_logits()
 
+        # TODO: HACK / EXPERIMENT: make it impossible to call an artifact when the artifact logits are negative
+        log_posteriors_bc[:, Call.ARTIFACT] = torch.where(batch.get_artifact_logits() < 0, -9999, log_posteriors_bc[:, Call.ARTIFACT])
+        # TODO: END OF HACK / EXPERIMENT
+
         return log_priors_bc, spectra_log_lks_bc, normal_log_lks_bc, log_posteriors_bc
 
     def log_relative_posteriors_bc(self, batch: PosteriorBatch) -> Tensor:
@@ -220,9 +224,9 @@ class PosteriorModel(torch.nn.Module):
                 depths_lb.append(batch.get_original_depths().detach())
                 types_lb.append(batch.get_variant_types().detach())
 
-                confidence_mask = torch.abs(batch.get_artifact_logits()) > 3.0
-                #loss = -torch.mean(confidence_mask * log_evidence)
-                loss = - torch.sum(confidence_mask * log_evidence) / (torch.sum(confidence_mask) + 0.000001)
+                # confidence_mask = torch.logical_or(batch.get_artifact_logits() < 0, batch.get_artifact_logits() > 3)
+                loss = -torch.mean(log_evidence)
+                #loss = - torch.sum(confidence_mask * log_evidence) / (torch.sum(confidence_mask) + 0.000001)
 
                 # note that we don't multiply by batch size because we take the mean of log evidence above
                 # however, we must sum over variant types since each ignored site is simultaneously a missing non-SNV,
@@ -256,7 +260,7 @@ class PosteriorModel(torch.nn.Module):
                     mean = self.normal_seq_error_spectra.max_mean * torch.sigmoid(self.normal_seq_error_spectra.means_pre_sigmoid_v[variant_type])
                     summary_writer.add_scalar("normal seq error mean fraction for " + variant_type.name, mean, epoch)
 
-                for depth in [10, 20, 30, 50, 100]:
+                for depth in [9, 19, 30, 50, 100]:
                     art_spectra_fig, art_spectra_axs = plot_artifact_spectra(self.artifact_spectra, depth)
                     summary_writer.add_figure("Artifact AF Spectra at depth = " + str(depth), art_spectra_fig, epoch)
 

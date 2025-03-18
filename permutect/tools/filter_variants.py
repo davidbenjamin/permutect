@@ -3,6 +3,7 @@ from collections import defaultdict
 from typing import Set
 
 import cyvcf2
+import numpy as np
 import torch
 from intervaltree import IntervalTree
 from torch.utils.tensorboard import SummaryWriter
@@ -284,6 +285,21 @@ def apply_filtering_to_vcf(input_vcf, output_vcf, contig_index_to_name_map, erro
     print("Applying threshold")
     unfiltered_vcf = cyvcf2.VCF(input_vcf)
 
+    # This is specific to Mutect2, which outputs a line:
+    # ##tumor_sample=___________
+    tumor_sample_name = ""
+    all_samples = []
+    for header_line in unfiltered_vcf.raw_header.split('\n'):
+        if header_line.startswith('##tumor_sample'):
+            tumor_sample_name = print(header_line.split('=')[-1])
+        elif header_line.startswith('#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\t'):
+            all_samples = header_line.lstrip('#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\t').split()
+    tumor_sample_index = 0
+    for n, sample in enumerate(all_samples):
+        if sample == tumor_sample_name:
+            print(f"tumor sample found in VCF header: name {sample}, index {n}")
+            tumor_sample_index = n
+
     all_types = [call_type.name for call_type in Call]
     unfiltered_vcf.add_format_to_header( {'ID': "DP", 'Description': "depth", 'Type': 'Integer', 'Number': '1'})
     unfiltered_vcf.add_info_to_header({'ID': POST_PROB_INFO_KEY, 'Description': 'Mutect3 posterior probability of {' + ', '.join(all_types) + '}',
@@ -372,6 +388,11 @@ def apply_filtering_to_vcf(input_vcf, output_vcf, contig_index_to_name_map, erro
                     evaluation_metrics.record_mistake(posterior_result, bad_call)
             embedding_metrics.correct_metadata.append(correctness_label)
         else:
+            # It is possible due to various quirks of Mutect2 assembly and flags such as --genotype-germline-sites etc
+            # that a site with zero alt depth can end up in the output VCF.  However, Permutect exludes such sites from
+            # the test dataset.  Therefore, we manually check for such sites and make sure they get filtered!
+            total_alt_depth = np.sum(v.format('AD')[tumor_sample_index][1:])
+            filters.add(FILTER_NAMES[Call.SEQ_ERROR])
             missing_encodings.append(encoding)
         v.FILTER = ';'.join(filters) if filters else 'PASS'
         writer.write_record(v)
