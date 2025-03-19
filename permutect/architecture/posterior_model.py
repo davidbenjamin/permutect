@@ -10,7 +10,6 @@ from tqdm.autonotebook import trange, tqdm
 
 from permutect.architecture.spectra.artifact_spectra import ArtifactSpectra
 from permutect.architecture.spectra.overdispersed_binomial_mixture import OverdispersedBinomialMixture
-from permutect.architecture.spectra.normal_seq_error_spectrum import NormalSeqErrorSpectrum
 from permutect.architecture.spectra.somatic_spectrum import SomaticSpectrum
 from permutect.data.datum import DEFAULT_GPU_FLOAT, DEFAULT_CPU_FLOAT
 from permutect.data.posterior_data import PosteriorBatch
@@ -85,7 +84,6 @@ class PosteriorModel(torch.nn.Module):
         # TODO introduce parameters class so that num_components is not hard-coded
         self.somatic_spectrum = SomaticSpectrum(num_components=5)
         self.artifact_spectra = ArtifactSpectra()
-        self.normal_seq_error_spectra = NormalSeqErrorSpectrum(max_mean=0.001)
         self.normal_artifact_spectra = initialize_normal_artifact_spectra()
 
         # pre-softmax priors of different call types [log P(variant), log P(artifact), log P(seq error)] for each variant type
@@ -140,34 +138,23 @@ class PosteriorModel(torch.nn.Module):
         log_priors_bc = torch.nn.functional.log_softmax(self.make_unnormalized_priors_bc(var_types_b, batch.get_allele_frequencies()), dim=1)
 
         # defined as log [ int_0^1 Binom(alt count | depth, f) df ], including the combinatorial N choose N_alt factor
-        depths_b, alt_counts_b, mafs_b = batch.get_original_depths(), batch.get_alt_counts(), batch.get_mafs()
+        depths_b, alt_counts_b, mafs_b, afs_b = batch.get_original_depths(), batch.get_alt_counts(), batch.get_mafs(), batch.get_allele_frequencies()
         normal_depths_b, normal_alt_counts_b = batch.get_original_normal_depths(), batch.get_original_normal_alt_counts()
-        flat_prior_spectra_log_lks_b = -torch.log(depths_b + 1)
-        somatic_spectrum_log_lks_b = self.somatic_spectrum.forward(depths_b, alt_counts_b, mafs_b)
-        tumor_artifact_spectrum_log_lks_b = self.artifact_spectra.forward(batch.get_variant_types(), depths_b, alt_counts_b)
-        spectra_log_lks_bc = torch.zeros_like(log_priors_bc, device=self._device, dtype=self._dtype)
 
-        # essentially, this corrects the TLOD from M2, computed with a flat prior, to account for the precises somatic spectrum
-        spectra_log_lks_bc[:, Call.SOMATIC] = somatic_spectrum_log_lks_b - flat_prior_spectra_log_lks_b
-        spectra_log_lks_bc[:, Call.ARTIFACT] = tumor_artifact_spectrum_log_lks_b - flat_prior_spectra_log_lks_b
-        spectra_log_lks_bc[:, Call.NORMAL_ARTIFACT] = tumor_artifact_spectrum_log_lks_b - flat_prior_spectra_log_lks_b # yup, it's the same spectrum
-        spectra_log_lks_bc[:, Call.SEQ_ERROR] = -batch.get_tlods_from_m2()
-        # spectra_log_likelihoods[:, Call.GERMLINE] is computed below
+        spectra_log_lks_bc = torch.zeros_like(log_priors_bc, device=self._device, dtype=self._dtype)
+        tumor_artifact_spectrum_log_lks_b = self.artifact_spectra.forward(batch.get_variant_types(), depths_b, alt_counts_b)
+        spectra_log_lks_bc[:, Call.SOMATIC] = self.somatic_spectrum.forward(depths_b, alt_counts_b, mafs_b)
+        spectra_log_lks_bc[:, Call.ARTIFACT] = tumor_artifact_spectrum_log_lks_b
+        spectra_log_lks_bc[:, Call.NORMAL_ARTIFACT] = tumor_artifact_spectrum_log_lks_b  # yup, it's the same spectrum
+        spectra_log_lks_bc[:, Call.SEQ_ERROR] = batch.get_seq_error_log_lks()
+        spectra_log_lks_bc[:, Call.GERMLINE] = germline_log_likelihood(afs_b, mafs_b, alt_counts_b, depths_b, self.het_beta)
 
         normal_log_lks_bc = torch.zeros_like(log_priors_bc)
-        normal_seq_error_log_lks_b = self.normal_seq_error_spectra.forward(batch.get_original_normal_ref_counts(), normal_alt_counts_b, var_types_b)
-
-        normal_log_lks_bc[:, Call.SOMATIC] = normal_seq_error_log_lks_b
-        normal_log_lks_bc[:, Call.ARTIFACT] = normal_seq_error_log_lks_b
-        normal_log_lks_bc[:, Call.SEQ_ERROR] = normal_seq_error_log_lks_b
-
+        normal_log_lks_bc[:, Call.SOMATIC] = batch.get_normal_seq_error_log_lks()
+        normal_log_lks_bc[:, Call.ARTIFACT] = batch.get_normal_seq_error_log_lks()
+        normal_log_lks_bc[:, Call.SEQ_ERROR] = batch.get_normal_seq_error_log_lks()
         normal_log_lks_bc[:, Call.NORMAL_ARTIFACT] = torch.where(normal_alt_counts_b < 1, -9999,
             self.normal_artifact_spectra.forward(var_types_b, normal_depths_b, normal_alt_counts_b))
-        afs_b = batch.get_allele_frequencies()
-        spectra_log_lks_bc[:, Call.GERMLINE] = germline_log_likelihood(afs_b, batch.get_mafs(), alt_counts_b, depths_b, self.het_beta) - flat_prior_spectra_log_lks_b
-
-        # it is correct not to subtract the flat prior likelihood from the normal term because this is an absolute likelihood, not
-        # relative to seq error as the M2 TLOD is defined
         normal_log_lks_bc[:, Call.GERMLINE] = germline_log_likelihood(afs_b, batch.get_normal_mafs(), normal_alt_counts_b, normal_depths_b, self.het_beta)
 
         log_posteriors_bc = log_priors_bc + spectra_log_lks_bc + normal_log_lks_bc
@@ -200,8 +187,7 @@ class PosteriorModel(torch.nn.Module):
         :return:
         """
         spectra_and_prior_params = chain(self.somatic_spectrum.parameters(), self.artifact_spectra.parameters(),
-                                         [self._unnormalized_priors_vc], self.normal_seq_error_spectra.parameters(),
-                                         self.normal_artifact_spectra.parameters())
+                                         [self._unnormalized_priors_vc], self.normal_artifact_spectra.parameters())
         optimizer = torch.optim.Adam(spectra_and_prior_params, lr=learning_rate)
 
         for epoch in trange(1, num_iterations + 1, desc="AF spectra epoch"):
@@ -255,10 +241,6 @@ class PosteriorModel(torch.nn.Module):
 
             if summary_writer is not None:
                 summary_writer.add_scalar("spectrum negative log evidence", epoch_loss.get(), epoch)
-
-                for variant_type in Variation:
-                    mean = self.normal_seq_error_spectra.max_mean * torch.sigmoid(self.normal_seq_error_spectra.means_pre_sigmoid_v[variant_type])
-                    summary_writer.add_scalar("normal seq error mean fraction for " + variant_type.name, mean, epoch)
 
                 for depth in [9, 19, 30, 50, 100]:
                     art_spectra_fig, art_spectra_axs = plot_artifact_spectra(self.artifact_spectra, depth)
