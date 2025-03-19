@@ -136,9 +136,7 @@ class PosteriorModel(torch.nn.Module):
         # normal log likelihoods contain everything going on in the matched normal sample
         # note that the call to make_unnormalized_priors ensures that no_germline_mode works
         log_priors_bc = torch.nn.functional.log_softmax(self.make_unnormalized_priors_bc(var_types_b, batch.get_allele_frequencies()), dim=1)
-
-        # defined as log [ int_0^1 Binom(alt count | depth, f) df ], including the combinatorial N choose N_alt factor
-        depths_b, alt_counts_b, mafs_b, afs_b = batch.get_original_depths(), batch.get_alt_counts(), batch.get_mafs(), batch.get_allele_frequencies()
+        depths_b, alt_counts_b, mafs_b, afs_b = batch.get_original_depths(), batch.get_original_alt_counts(), batch.get_mafs(), batch.get_allele_frequencies()
         normal_depths_b, normal_alt_counts_b = batch.get_original_normal_depths(), batch.get_original_normal_alt_counts()
 
         spectra_log_lks_bc = torch.zeros_like(log_priors_bc, device=self._device, dtype=self._dtype)
