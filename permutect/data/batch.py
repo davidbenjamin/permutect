@@ -4,17 +4,15 @@ from enum import IntEnum
 from typing import List, Tuple
 
 import torch
-from matplotlib import pyplot as plt
 from torch import IntTensor, FloatTensor, Tensor
 import numpy as np
 
 from permutect.data.count_binning import ref_count_bin_name, NUM_REF_COUNT_BINS, alt_count_bin_name, NUM_ALT_COUNT_BINS, \
     logit_bin_name, NUM_LOGIT_BINS, ref_count_bin_indices, alt_count_bin_indices, logit_bin_indices, \
-    ref_count_bin_index, alt_count_bin_index, logits_from_bin_indices
+    ref_count_bin_index, alt_count_bin_index
 from permutect.data.datum import Datum
-from permutect.metrics import plotting
 from permutect.misc_utils import gpu_if_available
-from permutect.utils.array_utils import flattened_indices, select_and_sum
+from permutect.utils.array_utils import flattened_indices
 from permutect.utils.enums import Label, Variation
 
 
@@ -81,6 +79,14 @@ class Batch:
 
     def get_info_be(self) -> Tensor:
         return self.data[:, self.info_start:self.info_end] / Datum.FLOAT_TO_LONG_MULTIPLIER
+
+    # this is -log10ToLog(TLOD) - log(tumorDepth + 1);
+    def get_seq_error_log_lks(self) -> Tensor:
+        return self.data[:, Datum.SEQ_ERROR_LOG_LK_IDX] / Datum.FLOAT_TO_LONG_MULTIPLIER
+
+    # this is -log10ToLog(NALOD) - log(normalDepth + 1)
+    def get_normal_seq_error_log_lks(self) -> Tensor:
+        return self.data[:, Datum.NORMAL_SEQ_ERROR_LOG_LK_IDX] / Datum.FLOAT_TO_LONG_MULTIPLIER
 
     def get_haplotypes_bs(self) -> IntTensor:
         # each row is 1D array of integer array reference and alt haplotypes concatenated -- A, C, G, T, deletion = 0, 1, 2, 3, 4

@@ -16,18 +16,16 @@ from permutect.data.datum import Datum
 
 class PosteriorDatum(Datum):
 
-    TLOD_FROM_M2 = 0
-    ALLELE_FREQUENCY = 1
-    ARTIFACT_LOGIT = 2
-    MAF = 3
-    NORMAL_MAF = 4
+    ALLELE_FREQUENCY = 0
+    ARTIFACT_LOGIT = 1
+    MAF = 2
+    NORMAL_MAF = 3
 
     def __init__(self, datum_array, allele_frequency: float, artifact_logit: float, maf: float, normal_maf: float, embedding: Tensor):
         super().__init__(datum_array)
         self.embedding = embedding
 
-        self.float_array = torch.zeros(5, dtype=torch.float16)
-        self.float_array[PosteriorDatum.TLOD_FROM_M2] = -self.get_seq_error_log_lk() - math.log(self.get_original_depth() + 1)
+        self.float_array = torch.zeros(4, dtype=torch.float16)
         self.float_array[PosteriorDatum.ALLELE_FREQUENCY] = allele_frequency
         self.float_array[PosteriorDatum.ARTIFACT_LOGIT] = artifact_logit
         self.float_array[PosteriorDatum.MAF] = maf
@@ -58,9 +56,6 @@ class PosteriorBatch(Batch):
         new_batch.embeddings = self.embeddings.to(device=device, dtype=dtype, non_blocking=is_cuda)
         new_batch.float_tensor = self.float_tensor.to(device=device, dtype=dtype, non_blocking=is_cuda)
         return new_batch
-
-    def get_tlods_from_m2(self) -> Tensor:
-        return self.float_tensor[:, PosteriorDatum.TLOD_FROM_M2]
 
     def get_allele_frequencies(self) -> Tensor:
         return self.float_tensor[:, PosteriorDatum.ALLELE_FREQUENCY]

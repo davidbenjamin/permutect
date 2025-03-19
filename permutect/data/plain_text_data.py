@@ -81,7 +81,9 @@ def read_data(dataset_file, only_artifacts: bool = False, source: int=0):
             # round down normal tensors as well
 
             original_depth, original_alt_count, original_normal_depth, original_normal_alt_count = read_integers(file.readline())
+            # this is -log10ToLog(tlod) - log(tumorDepth + 1);
             seq_error_log_lk = read_float(file.readline())
+            # this is -log10ToLog(nalod) - log(normalDepth + 1)
             normal_seq_error_log_lk = read_float(file.readline())
 
             if alt_tensor_size > 0 and passes_label_filter:
