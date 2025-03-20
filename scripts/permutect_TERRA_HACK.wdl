@@ -200,6 +200,13 @@ workflow Permutect {
                 normal_pileups = MergeNormalPileups.merged_table,
                 runtime_params = standard_runtime
         }
+
+        # call CalculateContamination with the normal as the "tumor" in order to get normal MAF segments
+        call CalculateContamination as GetNormalMAFSegments {
+            input:
+                tumor_pileups = MergeNormalPileups.merged_table,
+                runtime_params = standard_runtime
+        }
     }
 
     call Concatenate as ConcatenatePermutectTestData {
@@ -258,6 +265,7 @@ workflow Permutect {
     File? mutect2_contamination_table = CalculateContamination.contamination_table
 
     File? mutect2_maf_segments = CalculateContamination.maf_segments
+    File? mutect2_normal_maf_segments = GetNormalMAFSegments.maf_segments
     File? mutect2_read_orientation_model_params = LearnReadOrientationModel.artifact_prior_table
     File? mutect2_permutect_test_dataset = ConcatenatePermutectTestData.concatenated
     File mutect2_permutect_contigs_table = select_first(M2.permutect_contigs_table)
@@ -288,6 +296,7 @@ workflow Permutect {
             test_dataset = mutect2_permutect_test_dataset,
             contigs_table = mutect2_permutect_contigs_table,
             maf_segments = mutect2_maf_segments,
+            normal_maf_segments = mutect2_normal_maf_segments,
             mutect_stats = mutect2_mutect_stats,
             batch_size = batch_size,
             num_workers = num_workers,
@@ -312,6 +321,8 @@ workflow Permutect {
         File test_dataset = mutect2_permutect_test_dataset
         File mutect2_vcf = mutect2_output_vcf
         File mutect2_vcf_idx = mutect2_output_vcf_idx
+        File? maf_segments = mutect2_maf_segments
+        File? normal_maf_segments = mutect2_normal_maf_segments
     }
 }
 
