@@ -202,10 +202,12 @@ workflow Permutect {
         }
 
         # call CalculateContamination with the normal as the "tumor" in order to get normal MAF segments
-        call CalculateContamination as GetNormalMAFSegments {
-            input:
-                tumor_pileups = MergeNormalPileups.merged_table,
-                runtime_params = standard_runtime
+        if (defined(normal_reads)){
+            call CalculateContamination as GetNormalMAFSegments {
+                input:
+                    tumor_pileups = select_first([MergeNormalPileups.merged_table]),
+                    runtime_params = standard_runtime
+            }
         }
     }
 
