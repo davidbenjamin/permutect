@@ -23,27 +23,27 @@ from permutect.utils.enums import Variation, Call
 
 # TODO: write unit test asserting that this comes out to zero when counts are zero
 # given germline, the probability of these particular reads being alt
-def germline_log_likelihood(afs, mafs, alt_counts, depths, het_beta=None):
-    hom_alpha, hom_beta = torch.tensor([98.0], device=depths.device), torch.tensor([2.0], device=depths.device)
-    het_alpha, het_beta_to_use = (None, None) if het_beta is None else (torch.tensor([het_beta], device=depths.device), torch.tensor([het_beta], device=depths.device))
-    het_probs = 2 * afs * (1 - afs)
-    hom_probs = afs * afs
-    het_proportion = het_probs / (het_probs + hom_probs)
-    hom_proportion = 1 - het_proportion
+def germline_log_likelihood(afs_b: Tensor, mafs_b: Tensor, alt_counts_b: IntTensor, depths_b: IntTensor, het_beta=None):
+    hom_alpha, hom_beta = torch.tensor([98.0], device=depths_b.device), torch.tensor([2.0], device=depths_b.device)
+    het_alpha, het_beta_to_use = (None, None) if het_beta is None else (torch.tensor([het_beta], device=depths_b.device), torch.tensor([het_beta], device=depths_b.device))
+    het_probs_b = 2 * afs_b * (1 - afs_b)
+    hom_probs_b = afs_b * afs_b
+    het_proportion_b = het_probs_b / (het_probs_b + hom_probs_b)
+    hom_proportion_b = 1 - het_proportion_b
 
-    log_mafs = torch.log(mafs)
-    log_1m_mafs = torch.log(1 - mafs)
-    log_half_het_prop = torch.log(het_proportion / 2)
+    log_mafs_b = torch.log(mafs_b)
+    log_1m_mafs_b = torch.log(1 - mafs_b)
+    log_half_het_prop_b = torch.log(het_proportion_b / 2)
 
-    ref_counts = depths - alt_counts
+    ref_counts_b = depths_b - alt_counts_b
 
-    combinatorial_term = torch.lgamma(depths + 1) - torch.lgamma(alt_counts + 1) - torch.lgamma(ref_counts + 1)
+    combinatorial_term_b = torch.lgamma(depths_b + 1) - torch.lgamma(alt_counts_b + 1) - torch.lgamma(ref_counts_b + 1)
     # the following should both be 1D tensors of length batch size
-    alt_minor_binomial = combinatorial_term + alt_counts * log_mafs + ref_counts * log_1m_mafs
-    alt_major_binomial = combinatorial_term + ref_counts * log_mafs + alt_counts * log_1m_mafs
-    alt_minor_ll = log_half_het_prop + (alt_minor_binomial if het_beta is None else beta_binomial_log_lk(depths, alt_counts, het_alpha, het_beta_to_use))
-    alt_major_ll = log_half_het_prop + (alt_major_binomial if het_beta is None else beta_binomial_log_lk(depths, alt_counts, het_alpha, het_beta_to_use))
-    hom_ll = torch.log(hom_proportion) + beta_binomial_log_lk(depths, alt_counts, hom_alpha, hom_beta)
+    alt_minor_log_lk_b = combinatorial_term_b + alt_counts_b * log_mafs_b + ref_counts_b * log_1m_mafs_b
+    alt_major_log_lk_b = combinatorial_term_b + ref_counts_b * log_mafs_b + alt_counts_b * log_1m_mafs_b
+    alt_minor_ll = log_half_het_prop_b + (alt_minor_log_lk_b if het_beta is None else beta_binomial_log_lk(depths_b, alt_counts_b, het_alpha, het_beta_to_use))
+    alt_major_ll = log_half_het_prop_b + (alt_major_log_lk_b if het_beta is None else beta_binomial_log_lk(depths_b, alt_counts_b, het_alpha, het_beta_to_use))
+    hom_ll = torch.log(hom_proportion_b) + beta_binomial_log_lk(depths_b, alt_counts_b, hom_alpha, hom_beta)
 
     return torch.logsumexp(torch.vstack((alt_minor_ll, alt_major_ll, hom_ll)), dim=0)
 
