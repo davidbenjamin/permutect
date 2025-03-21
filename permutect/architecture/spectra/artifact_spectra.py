@@ -23,7 +23,7 @@ def depths_to_depth_bins(depths_b: IntTensor):
 
 class ArtifactSpectra(nn.Module):
     """
-    Mixture of uniform-binomial compound distributions for each variant type
+    a beta-binomial distributions for each variant type
     """
 
     def __init__(self):
