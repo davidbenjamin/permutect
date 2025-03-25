@@ -2,6 +2,7 @@ from itertools import chain
 
 import torch
 from torch import Tensor, IntTensor
+from torch.nn import Parameter
 from torch.utils.tensorboard import SummaryWriter
 from tqdm.autonotebook import tqdm
 
@@ -90,6 +91,12 @@ class ArtifactModel(torch.nn.Module):
         set_pooling_hidden_layers = [-2, -2]
         self.set_pooling = SetPooling(input_dim=embedding_dim, mlp_layers=set_pooling_hidden_layers,
                                       final_mlp_layers=params.aggregation_layers, batch_normalize=params.batch_normalize, dropout_p=params.dropout_p)
+
+        # the 0th cluster is non-artifact
+        self.num_clusters = params.num_artifact_clusters + 1
+
+        # num_clusters different centroids, each a vector in feature space
+        self.centroids_kd = Parameter(torch.rand(self.num_clusters, self.set_pooling.output_dimension()))
 
         # TODO: artifact classifier hidden layers are hard-coded!!!
         # The [1] is for the output logit
