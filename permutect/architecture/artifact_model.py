@@ -186,13 +186,12 @@ class ArtifactModel(torch.nn.Module):
 
         return result_be, ref_seq_embeddings_be # ref seq embeddings are useful later
 
-    def logits_from_features(self, features_be: Tensor, ref_counts_b: IntTensor, alt_counts_b: IntTensor, var_types_b: IntTensor):
+    def calculate_logits(self, batch: ReadsBatch):
+        features_be, seq_embeddings_be = self.calculate_features(batch)
         uncalibrated_logits_b = self.artifact_classifier.forward(features_be).view(-1)
-        calibrated_logits_b = self.calibration.calibrated_logits(uncalibrated_logits_b, ref_counts_b, alt_counts_b, var_types_b)
-        return calibrated_logits_b, uncalibrated_logits_b
-
-    def logits_from_reads_batch(self, features_be: Tensor, batch: ReadsBatch):
-        return self.logits_from_features(features_be, batch.get_ref_counts(), batch.get_alt_counts(), batch.get_variant_types())
+        calibrated_logits_b = self.calibration.calibrated_logits(logits_b=uncalibrated_logits_b, ref_counts_b=batch.get_ref_counts(),
+            alt_counts_b=batch.get_alt_counts(), var_types_b=batch.get_variant_types())
+        return calibrated_logits_b, uncalibrated_logits_b, features_be, seq_embeddings_be
 
     def compute_source_prediction_losses(self, features_be: Tensor, batch: ReadsBatch) -> Tensor:
         if self.num_sources > 1:
@@ -210,8 +209,7 @@ class ArtifactModel(torch.nn.Module):
 
     def compute_batch_output(self, batch: ReadsBatch, balancer: Balancer):
         weights_b, source_weights_b = balancer.process_batch_and_compute_weights(batch)
-        features_be, _ = self.calculate_features(batch, weight_range=self._params.reweighting_range)
-        calibrated_logits_b, uncalibrated_logits_b = self.logits_from_reads_batch(features_be, batch)
+        calibrated_logits_b, uncalibrated_logits_b, features_be, _ = self.calculate_logits(batch)
         return BatchOutput(features=features_be, uncalibrated_logits=uncalibrated_logits_b, calibrated_logits=calibrated_logits_b,
                            weights=weights_b, source_weights=weights_b*source_weights_b)
 

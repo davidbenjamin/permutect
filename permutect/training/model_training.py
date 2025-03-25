@@ -233,8 +233,7 @@ def evaluate_model(model: ArtifactModel, epoch: int, dataset: ReadsDataset, bala
         # now go over just the validation data and generate feature vectors / metadata for tensorboard projectors (UMAP)
         batch: ReadsBatch
         for batch in tqdm(prefetch_generator(valid_loader), mininterval=60, total=len(valid_loader)):
-            features_be, _ = model.calculate_features(batch, weight_range=model._params.reweighting_range)
-            logits_b, _ = model.logits_from_reads_batch(features_be, batch)
+            logits_b, _, features_be, _ = model.calculate_logits(batch)
             pred_b = logits_b.detach().cpu()
             labels_b = batch.get_training_labels().cpu()
             correct_b = ((pred_b > 0) == (labels_b > 0.5)).tolist()
