@@ -96,12 +96,7 @@ class ArtifactModel(torch.nn.Module):
         self.num_clusters = params.num_artifact_clusters + 1
 
         # num_clusters different centroids, each a vector in feature space
-        self.centroids_kd = Parameter(torch.rand(self.num_clusters, self.set_pooling.output_dimension()))
-
-        # TODO: artifact classifier hidden layers are hard-coded!!!
-        # The [1] is for the output logit
-        self.artifact_classifier = MLP([self.set_pooling.output_dimension()] + [-1, -1, 1], batch_normalize=params.batch_normalize,
-                                       dropout_p=params.dropout_p)
+        self.centroids_ke = Parameter(torch.rand(self.num_clusters, self.set_pooling.output_dimension()))
 
         self.calibration = Calibration(params.calibration_layers)
 
@@ -133,7 +128,7 @@ class ArtifactModel(torch.nn.Module):
         return self._haplotypes_length
 
     def post_pooling_parameters(self):
-        return chain(self.artifact_classifier.parameters(), self.calibration.parameters())
+        return chain([self.centroids_ke], self.calibration.parameters())
 
     def calibration_parameters(self):
         return self.calibration.parameters()
@@ -188,7 +183,15 @@ class ArtifactModel(torch.nn.Module):
 
     def calculate_logits(self, batch: ReadsBatch):
         features_be, seq_embeddings_be = self.calculate_features(batch)
-        uncalibrated_logits_b = self.artifact_classifier.forward(features_be).view(-1)
+
+        centroids_bke = self.centroids_ke.view(1, self.num_clusters, self.pooling_dimension())
+        features_bke = features_be.view(batch.size(), 1, self.pooling_dimension())
+        diff_bke = centroids_bke - features_bke
+        dist_bk = torch.norm(diff_bke, dim=-1)
+        uncalibrated_logits_bk = -dist_bk
+
+        # total all the artifact clusters in log space and subtract the non-artifact cluster
+        uncalibrated_logits_b = torch.logsumexp(uncalibrated_logits_bk[:, 1:], dim=-1) - uncalibrated_logits_bk[:, 0]
         calibrated_logits_b = self.calibration.calibrated_logits(logits_b=uncalibrated_logits_b, ref_counts_b=batch.get_ref_counts(),
             alt_counts_b=batch.get_alt_counts(), var_types_b=batch.get_variant_types())
         return calibrated_logits_b, uncalibrated_logits_b, features_be, seq_embeddings_be
