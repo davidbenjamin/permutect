@@ -95,8 +95,9 @@ class ArtifactModel(torch.nn.Module):
         # the 0th cluster is non-artifact
         self.num_clusters = params.num_artifact_clusters + 1
 
-        # num_clusters different centroids, each a vector in feature space
+        # num_clusters different centroids, each a vector in feature space.  Initialize even weights.
         self.centroids_ke = Parameter(torch.rand(self.num_clusters, self.set_pooling.output_dimension()))
+        self.cluster_weights_pre_softmax_k = Parameter(torch.ones(params.num_artifact_clusters))
 
         self.calibration = Calibration(params.calibration_layers)
 
@@ -190,8 +191,11 @@ class ArtifactModel(torch.nn.Module):
         dist_bk = torch.norm(diff_bke, dim=-1)
         uncalibrated_logits_bk = -dist_bk
 
+        # these are the log of weights that sum to 1
+        log_artifact_cluster_weights_k = torch.log_softmax(self.cluster_weights_pre_softmax_k)
+
         # total all the artifact clusters in log space and subtract the non-artifact cluster
-        uncalibrated_logits_b = torch.logsumexp(uncalibrated_logits_bk[:, 1:], dim=-1) - uncalibrated_logits_bk[:, 0]
+        uncalibrated_logits_b = torch.logsumexp(log_artifact_cluster_weights_k + uncalibrated_logits_bk[:, 1:], dim=-1) - uncalibrated_logits_bk[:, 0]
         calibrated_logits_b = self.calibration.calibrated_logits(logits_b=uncalibrated_logits_b, ref_counts_b=batch.get_ref_counts(),
             alt_counts_b=batch.get_alt_counts(), var_types_b=batch.get_variant_types())
         return calibrated_logits_b, uncalibrated_logits_b, features_be, seq_embeddings_be
