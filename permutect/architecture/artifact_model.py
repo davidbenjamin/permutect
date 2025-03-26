@@ -98,6 +98,7 @@ class ArtifactModel(torch.nn.Module):
         # num_clusters different centroids, each a vector in feature space.  Initialize even weights.
         self.centroids_ke = Parameter(torch.rand(self.num_clusters, self.set_pooling.output_dimension()))
         self.cluster_weights_pre_softmax_k = Parameter(torch.ones(params.num_artifact_clusters))
+        self.centroid_distance_normalization = Parameter(1/torch.sqrt(torch.tensor(self.pooling_dimension())), requires_grad=False)
 
         self.calibration = Calibration(params.calibration_layers)
 
@@ -188,11 +189,11 @@ class ArtifactModel(torch.nn.Module):
         centroids_bke = self.centroids_ke.view(1, self.num_clusters, self.pooling_dimension())
         features_bke = features_be.view(batch.size(), 1, self.pooling_dimension())
         diff_bke = centroids_bke - features_bke
-        dist_bk = torch.norm(diff_bke, dim=-1)
+        dist_bk = torch.norm(diff_bke, dim=-1) * self.centroid_distance_normalization
         uncalibrated_logits_bk = -dist_bk
 
         # these are the log of weights that sum to 1
-        log_artifact_cluster_weights_k = torch.log_softmax(self.cluster_weights_pre_softmax_k)
+        log_artifact_cluster_weights_k = torch.log_softmax(self.cluster_weights_pre_softmax_k, dim=-1)
 
         # total all the artifact clusters in log space and subtract the non-artifact cluster
         uncalibrated_logits_b = torch.logsumexp(log_artifact_cluster_weights_k + uncalibrated_logits_bk[:, 1:], dim=-1) - uncalibrated_logits_bk[:, 0]
