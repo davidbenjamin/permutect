@@ -93,8 +93,8 @@ class ArtifactModel(torch.nn.Module):
         self.set_pooling = SetPooling(input_dim=embedding_dim, mlp_layers=set_pooling_hidden_layers,
                                       final_mlp_layers=params.aggregation_layers, batch_normalize=params.batch_normalize, dropout_p=params.dropout_p)
 
-        self.feature_clustering = FeatureClustering(feature_dimension=self.set_pooling.output_dimension(), num_artifact_clusters=params.num_artifact_clusters)
-        self.calibration = Calibration(params.calibration_layers)
+        self.feature_clustering = FeatureClustering(feature_dimension=self.set_pooling.output_dimension(),
+            num_artifact_clusters=params.num_artifact_clusters, calibration_hidden_layer_sizes=params.calibration_layers)
 
         self.alt_count_predictor = Adversarial(MLP([self.pooling_dimension()] + [30, -1, -1, -1, 1]), adversarial_strength=0.01)
         self.alt_count_loss_func = torch.nn.MSELoss(reduction='none')
@@ -124,10 +124,10 @@ class ArtifactModel(torch.nn.Module):
         return self._haplotypes_length
 
     def post_pooling_parameters(self):
-        return chain([self.centroids_ke], self.calibration.parameters())
+        return self.feature_clustering.parameters()
 
     def calibration_parameters(self):
-        return self.calibration.parameters()
+        return self.feature_clustering.distance_calibration.parameters()
 
     def set_epoch_type(self, epoch_type: Epoch):
         if epoch_type == Epoch.TRAIN:
@@ -180,11 +180,9 @@ class ArtifactModel(torch.nn.Module):
     def calculate_logits(self, batch: ReadsBatch):
         features_be, seq_embeddings_be = self.calculate_features(batch)
 
-        uncalibrated_logits_b = self.feature_clustering.calculate_logits(features_be)
-
-
-        calibrated_logits_b = self.calibration.calibrated_logits(logits_b=uncalibrated_logits_b, ref_counts_b=batch.get_ref_counts(),
+        calibrated_logits_b, uncalibrated_logits_b = self.feature_clustering.calculate_logits(features_be, ref_counts_b=batch.get_ref_counts(),
             alt_counts_b=batch.get_alt_counts(), var_types_b=batch.get_variant_types())
+
         return calibrated_logits_b, uncalibrated_logits_b, features_be, seq_embeddings_be
 
     def compute_source_prediction_losses(self, features_be: Tensor, batch: ReadsBatch) -> Tensor:
