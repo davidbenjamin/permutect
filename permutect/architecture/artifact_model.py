@@ -8,6 +8,7 @@ from tqdm.autonotebook import tqdm
 
 from permutect import constants
 from permutect.architecture.adversarial import Adversarial
+from permutect.architecture.feature_clustering import FeatureClustering
 from permutect.training.balancer import Balancer
 from permutect.architecture.calibration import Calibration
 from permutect.architecture.dna_sequence_convolution import DNASequenceConvolution
@@ -92,14 +93,7 @@ class ArtifactModel(torch.nn.Module):
         self.set_pooling = SetPooling(input_dim=embedding_dim, mlp_layers=set_pooling_hidden_layers,
                                       final_mlp_layers=params.aggregation_layers, batch_normalize=params.batch_normalize, dropout_p=params.dropout_p)
 
-        # the 0th cluster is non-artifact
-        self.num_clusters = params.num_artifact_clusters + 1
-
-        # num_clusters different centroids, each a vector in feature space.  Initialize even weights.
-        self.centroids_ke = Parameter(torch.rand(self.num_clusters, self.set_pooling.output_dimension()))
-        self.cluster_weights_pre_softmax_k = Parameter(torch.ones(params.num_artifact_clusters))
-        self.centroid_distance_normalization = Parameter(1/torch.sqrt(torch.tensor(self.pooling_dimension())), requires_grad=False)
-
+        self.feature_clustering = FeatureClustering(feature_dimension=self.set_pooling.output_dimension(), num_artifact_clusters=params.num_artifact_clusters)
         self.calibration = Calibration(params.calibration_layers)
 
         self.alt_count_predictor = Adversarial(MLP([self.pooling_dimension()] + [30, -1, -1, -1, 1]), adversarial_strength=0.01)
@@ -186,17 +180,9 @@ class ArtifactModel(torch.nn.Module):
     def calculate_logits(self, batch: ReadsBatch):
         features_be, seq_embeddings_be = self.calculate_features(batch)
 
-        centroids_bke = self.centroids_ke.view(1, self.num_clusters, self.pooling_dimension())
-        features_bke = features_be.view(batch.size(), 1, self.pooling_dimension())
-        diff_bke = centroids_bke - features_bke
-        dist_bk = torch.norm(diff_bke, dim=-1) * self.centroid_distance_normalization
-        uncalibrated_logits_bk = -dist_bk
+        uncalibrated_logits_b = self.feature_clustering.calculate_logits(features_be)
 
-        # these are the log of weights that sum to 1
-        log_artifact_cluster_weights_k = torch.log_softmax(self.cluster_weights_pre_softmax_k, dim=-1)
 
-        # total all the artifact clusters in log space and subtract the non-artifact cluster
-        uncalibrated_logits_b = torch.logsumexp(log_artifact_cluster_weights_k + uncalibrated_logits_bk[:, 1:], dim=-1) - uncalibrated_logits_bk[:, 0]
         calibrated_logits_b = self.calibration.calibrated_logits(logits_b=uncalibrated_logits_b, ref_counts_b=batch.get_ref_counts(),
             alt_counts_b=batch.get_alt_counts(), var_types_b=batch.get_variant_types())
         return calibrated_logits_b, uncalibrated_logits_b, features_be, seq_embeddings_be
