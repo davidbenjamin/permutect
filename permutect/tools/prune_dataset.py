@@ -59,7 +59,7 @@ def calculate_pruning_thresholds(labeled_only_pruning_loader, model: ArtifactMod
         art_conf_threshold = average_artifact_confidence.get()
         nonart_conf_threshold = average_nonartifact_confidence.get()
         for batch in tqdm(prefetch_generator(labeled_only_pruning_loader), mininterval=60, total=len(labeled_only_pruning_loader)):
-            predicted_artifact_logits, _, features_be, _ = model.calculate_logits(batch)
+            predicted_artifact_logits, _, _, _ = model.calculate_logits(batch)
             predicted_artifact_probs = torch.sigmoid(predicted_artifact_logits.detach())
 
             conf_art_mask = predicted_artifact_probs >= art_conf_threshold

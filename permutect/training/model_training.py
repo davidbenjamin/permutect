@@ -32,6 +32,7 @@ def train_artifact_model(model: ArtifactModel, dataset: ReadsDataset, training_p
                          validation_fold: int = None, training_folds: List[int] = None, epochs_per_evaluation: int = None, calibration_sources: List[int] = None):
     device, dtype = model._device, model._dtype
     bce = nn.BCEWithLogitsLoss(reduction='none')  # no reduction because we may want to first multiply by weights for unbalanced data
+    ce = nn.CrossEntropyLoss(reduction='none')  # likewise
     balancer = Balancer(num_sources=dataset.num_sources(), device=device).to(device=device, dtype=dtype)
     downsampler: Downsampler = Downsampler(num_sources=dataset.num_sources()).to(device=device, dtype=dtype)
 
@@ -116,7 +117,9 @@ def train_artifact_model(model: ArtifactModel, dataset: ReadsDataset, training_p
                     # This must be changed if we have more than one downsampled batch
                     # TODO: should we detach() torch.sigmoid(other_output...)?
                     other_output = outputs[1 if n == 0 else 0]
-                    unsupervised_losses_b = (1 - is_labeled_b) * bce(output.uncalibrated_logits, torch.sigmoid(other_output.uncalibrated_logits))
+
+                    # unsupervised loss: cross-entropy between cluster-resolved predictions
+                    unsupervised_losses_b = (1 - is_labeled_b) * ce(output.calibrated_logits_bk, torch.softmax(other_output.calibrated_logits_bk, dim=-1))
                     loss += torch.sum(output.weights * (supervised_losses_b + unsupervised_losses_b + alt_count_losses_b) + output.source_weights * source_losses_b)
 
                     loss_metrics.record(batch, supervised_losses_b, is_labeled_b * output.weights)
@@ -233,7 +236,7 @@ def evaluate_model(model: ArtifactModel, epoch: int, dataset: ReadsDataset, bala
         # now go over just the validation data and generate feature vectors / metadata for tensorboard projectors (UMAP)
         batch: ReadsBatch
         for batch in tqdm(prefetch_generator(valid_loader), mininterval=60, total=len(valid_loader)):
-            logits_b, _, features_be, _ = model.calculate_logits(batch)
+            logits_b, _, _, features_be = model.calculate_logits(batch)
             pred_b = logits_b.detach().cpu()
             labels_b = batch.get_training_labels().cpu()
             correct_b = ((pred_b > 0) == (labels_b > 0.5)).tolist()

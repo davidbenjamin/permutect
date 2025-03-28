@@ -31,10 +31,11 @@ class BatchOutput:
     simple container class for the output of the model over a single batch
     :return:
     """
-    def __init__(self, features: Tensor, uncalibrated_logits: Tensor, calibrated_logits: Tensor, weights: Tensor, source_weights: Tensor):
+    def __init__(self, features: Tensor, uncalibrated_logits: Tensor, calibrated_logits: Tensor, calibrated_logits_bk: Tensor, weights: Tensor, source_weights: Tensor):
         self.features = features
         self.uncalibrated_logits = uncalibrated_logits
         self.calibrated_logits = calibrated_logits
+        self.calibrated_logits_bk = calibrated_logits_bk
         self.weights = weights
         self.source_weights = source_weights
 
@@ -178,12 +179,12 @@ class ArtifactModel(torch.nn.Module):
         return result_be, ref_seq_embeddings_be # ref seq embeddings are useful later
 
     def calculate_logits(self, batch: ReadsBatch):
-        features_be, seq_embeddings_be = self.calculate_features(batch)
+        features_be, _ = self.calculate_features(batch)
 
-        calibrated_logits_b, uncalibrated_logits_b = self.feature_clustering.calculate_logits(features_be, ref_counts_b=batch.get_ref_counts(),
+        calibrated_logits_b, uncalibrated_logits_b, calibrated_logits_bk = self.feature_clustering.calculate_logits(features_be, ref_counts_b=batch.get_ref_counts(),
             alt_counts_b=batch.get_alt_counts(), var_types_b=batch.get_variant_types())
 
-        return calibrated_logits_b, uncalibrated_logits_b, features_be, seq_embeddings_be
+        return calibrated_logits_b, uncalibrated_logits_b, calibrated_logits_bk, features_be
 
     def compute_source_prediction_losses(self, features_be: Tensor, batch: ReadsBatch) -> Tensor:
         if self.num_sources > 1:
@@ -201,8 +202,9 @@ class ArtifactModel(torch.nn.Module):
 
     def compute_batch_output(self, batch: ReadsBatch, balancer: Balancer):
         weights_b, source_weights_b = balancer.process_batch_and_compute_weights(batch)
-        calibrated_logits_b, uncalibrated_logits_b, features_be, _ = self.calculate_logits(batch)
+        calibrated_logits_b, uncalibrated_logits_b, calibrated_logits_bk, features_be = self.calculate_logits(batch)
         return BatchOutput(features=features_be, uncalibrated_logits=uncalibrated_logits_b, calibrated_logits=calibrated_logits_b,
+                           calibrated_logits_bk=calibrated_logits_bk,
                            weights=weights_b, source_weights=weights_b*source_weights_b)
 
     def make_dict_for_saving(self, artifact_log_priors=None, artifact_spectra=None):

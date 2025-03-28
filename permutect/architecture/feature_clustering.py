@@ -55,13 +55,15 @@ class FeatureClustering(nn.Module):
 
         # these are the log of weights that sum to 1
         log_artifact_cluster_weights_k = torch.log_softmax(self.cluster_weights_pre_softmax_k, dim=-1)
+        log_artifact_cluster_weights_bk = log_artifact_cluster_weights_k.view(1, -1)    # dummy batch dimension for broadcasting
 
         # total all the artifact clusters in log space and subtract the non-artifact cluster
-        uncalibrated_logits_b = torch.logsumexp(log_artifact_cluster_weights_k + uncal_logits_bk[:, 1:],
+        uncalibrated_logits_b = torch.logsumexp(log_artifact_cluster_weights_bk + uncal_logits_bk[:, 1:],
                                                 dim=-1) - uncal_logits_bk[:, 0]
-        calibrated_logits_b = torch.logsumexp(log_artifact_cluster_weights_k + cal_logits_bk[:, 1:],
-                                                dim=-1) - cal_logits_bk[:, 0]
-        return calibrated_logits_b, uncalibrated_logits_b
+        weighted_cal_logits_bk = cal_logits_bk
+        weighted_cal_logits_bk[:, 1:] += log_artifact_cluster_weights_bk
+        calibrated_logits_b = torch.logsumexp(weighted_cal_logits_bk[:, 1:], dim=-1) - cal_logits_bk[:, 0]
+        return calibrated_logits_b, uncalibrated_logits_b, weighted_cal_logits_bk
 
     # avoid implicit forward calls because PyCharm doesn't recognize them
     def forward(self, features: Tensor):
