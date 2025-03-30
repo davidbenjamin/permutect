@@ -31,10 +31,10 @@ class BatchOutput:
     simple container class for the output of the model over a single batch
     :return:
     """
-    def __init__(self, features: Tensor, uncalibrated_logits: Tensor, calibrated_logits: Tensor, calibrated_logits_bk: Tensor, weights: Tensor, source_weights: Tensor):
-        self.features = features
-        self.uncalibrated_logits = uncalibrated_logits
-        self.calibrated_logits = calibrated_logits
+    def __init__(self, features_be: Tensor, uncalibrated_logits_b: Tensor, calibrated_logits_b: Tensor, calibrated_logits_bk: Tensor, weights: Tensor, source_weights: Tensor):
+        self.features_be = features_be
+        self.uncalibrated_logits_b = uncalibrated_logits_b
+        self.calibrated_logits_b = calibrated_logits_b
         self.calibrated_logits_bk = calibrated_logits_bk
         self.weights = weights
         self.source_weights = source_weights
@@ -203,7 +203,7 @@ class ArtifactModel(torch.nn.Module):
     def compute_batch_output(self, batch: ReadsBatch, balancer: Balancer):
         weights_b, source_weights_b = balancer.process_batch_and_compute_weights(batch)
         calibrated_logits_b, uncalibrated_logits_b, calibrated_logits_bk, features_be = self.calculate_logits(batch)
-        return BatchOutput(features=features_be, uncalibrated_logits=uncalibrated_logits_b, calibrated_logits=calibrated_logits_b,
+        return BatchOutput(features_be=features_be, uncalibrated_logits_b=uncalibrated_logits_b, calibrated_logits_b=calibrated_logits_b,
                            calibrated_logits_bk=calibrated_logits_bk,
                            weights=weights_b, source_weights=weights_b*source_weights_b)
 

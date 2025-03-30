@@ -39,12 +39,17 @@ class FeatureClustering(nn.Module):
         self.distance_calibration = MonoDense(3 + FeatureClustering.VAR_TYPE_EMBEDDING_DIM, calibration_hidden_layer_sizes + [1], 1, 0)
         self.var_type_embeddings_ve = Parameter(torch.rand(len(Variation), FeatureClustering.VAR_TYPE_EMBEDDING_DIM))
 
-    def calculate_logits(self, features_be: Tensor, ref_counts_b: IntTensor, alt_counts_b: IntTensor, var_types_b: IntTensor):
+    def centroid_distances(self, features_be: Tensor) -> Tensor:
         batch_size = len(features_be)
         centroids_bke = self.centroids_ke.view(1, self.num_clusters, self.feature_dim)
         features_bke = features_be.view(batch_size, 1, self.feature_dim)
         diff_bke = centroids_bke - features_bke
         dist_bk = torch.norm(diff_bke, dim=-1) * self.centroid_distance_normalization
+        return dist_bk
+
+    def calculate_logits(self, features_be: Tensor, ref_counts_b: IntTensor, alt_counts_b: IntTensor, var_types_b: IntTensor):
+        batch_size = len(features_be)
+        dist_bk = self.centroid_distances(features_be)
 
         # flatten b,k indices to a single pseudo-batch index, then unflatten
         cal_dist_bk = self.calibrated_distances(dist_bk.view(-1), repeat_interleave(ref_counts_b, self.num_clusters),
