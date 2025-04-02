@@ -214,8 +214,7 @@ def make_posterior_data_loader(dataset_file, input_vcf, contig_index_to_name_map
         print("creating posterior data for this chunk...")
         batch: ReadsBatch
         for batch in tqdm(prefetch_generator(loader), mininterval=60, total=len(loader)):
-            features_be, _ = model.calculate_features(batch, weight_range=model._params.reweighting_range)
-            artifact_logits_b, _ = model.logits_from_reads_batch(features_be, batch)
+            artifact_logits_b, _, _, features_be = model.calculate_logits(batch)
 
             for datum_array, logit, embedding in zip(batch.get_data_be(),
                     artifact_logits_b.detach().tolist(), features_be.cpu()):

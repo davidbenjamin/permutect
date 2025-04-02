@@ -50,8 +50,8 @@ class Calibration(nn.Module):
         return self.calibrated_logits(logits_b, ref_counts_b, alt_counts_b, var_types_b)
 
     def plot_calibration_module(self, var_type: Variation, device, dtype):
-        alt_counts = [1, 3, 5, 10, 15, 20]
-        ref_counts = [1, 3, 5, 10, 15, 20]
+        alt_counts = [1, 3, 5, 10, 15]
+        ref_counts = [1, 3, 5, 10]
         logits = torch.arange(start=-10, end=10, step=0.1, device=device, dtype=dtype)
         cal_fig,cal_axes = plt.subplots(len(alt_counts), len(ref_counts), sharex='all', sharey='all',
                                         squeeze=False, figsize=(10, 6), dpi=100)

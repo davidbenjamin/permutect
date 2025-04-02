@@ -22,6 +22,7 @@ NUM_SELF_ATTENTION_LAYERS_NAME = 'num_self_attention_layers'
 
 INFO_LAYERS_NAME = 'info_layers'
 AGGREGATION_LAYERS_NAME = 'aggregation_layers'
+NUM_ARTIFACT_CLUSTERS_NAME = 'num_artifact_clusters'
 CALIBRATION_LAYERS_NAME = 'calibration_layers'
 REF_SEQ_LAYER_STRINGS_NAME = 'ref_seq_layer_strings'
 DROPOUT_P_NAME = 'dropout_p'

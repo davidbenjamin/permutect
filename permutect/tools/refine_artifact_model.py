@@ -88,8 +88,8 @@ def main_without_parsing(args):
     train_artifact_model(model, dataset, training_params, summary_writer, epochs_per_evaluation=10, calibration_sources=calibration_sources)
 
     for var_type in Variation:
-        cal_fig, cal_axes = model.calibration.plot_calibration_module(var_type=var_type, device=model._device, dtype=model._dtype)
-        summary_writer.add_figure("calibration by count for " + var_type.name, cal_fig)
+        cal_fig, cal_axes = model.feature_clustering.plot_distance_calibration(var_type=var_type, device=model._device, dtype=model._dtype)
+        summary_writer.add_figure("distance calibration by count for " + var_type.name, cal_fig)
 
     report_memory_usage("Finished training.")
 

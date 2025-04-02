@@ -2,11 +2,13 @@ from itertools import chain
 
 import torch
 from torch import Tensor, IntTensor
+from torch.nn import Parameter
 from torch.utils.tensorboard import SummaryWriter
 from tqdm.autonotebook import tqdm
 
 from permutect import constants
 from permutect.architecture.adversarial import Adversarial
+from permutect.architecture.feature_clustering import FeatureClustering
 from permutect.training.balancer import Balancer
 from permutect.architecture.calibration import Calibration
 from permutect.architecture.dna_sequence_convolution import DNASequenceConvolution
@@ -29,10 +31,11 @@ class BatchOutput:
     simple container class for the output of the model over a single batch
     :return:
     """
-    def __init__(self, features: Tensor, uncalibrated_logits: Tensor, calibrated_logits: Tensor, weights: Tensor, source_weights: Tensor):
-        self.features = features
-        self.uncalibrated_logits = uncalibrated_logits
-        self.calibrated_logits = calibrated_logits
+    def __init__(self, features_be: Tensor, uncalibrated_logits_b: Tensor, calibrated_logits_b: Tensor, calibrated_logits_bk: Tensor, weights: Tensor, source_weights: Tensor):
+        self.features_be = features_be
+        self.uncalibrated_logits_b = uncalibrated_logits_b
+        self.calibrated_logits_b = calibrated_logits_b
+        self.calibrated_logits_bk = calibrated_logits_bk
         self.weights = weights
         self.source_weights = source_weights
 
@@ -91,12 +94,8 @@ class ArtifactModel(torch.nn.Module):
         self.set_pooling = SetPooling(input_dim=embedding_dim, mlp_layers=set_pooling_hidden_layers,
                                       final_mlp_layers=params.aggregation_layers, batch_normalize=params.batch_normalize, dropout_p=params.dropout_p)
 
-        # TODO: artifact classifier hidden layers are hard-coded!!!
-        # The [1] is for the output logit
-        self.artifact_classifier = MLP([self.set_pooling.output_dimension()] + [-1, -1, 1], batch_normalize=params.batch_normalize,
-                                       dropout_p=params.dropout_p)
-
-        self.calibration = Calibration(params.calibration_layers)
+        self.feature_clustering = FeatureClustering(feature_dimension=self.set_pooling.output_dimension(),
+            num_artifact_clusters=params.num_artifact_clusters, calibration_hidden_layer_sizes=params.calibration_layers)
 
         self.alt_count_predictor = Adversarial(MLP([self.pooling_dimension()] + [30, -1, -1, -1, 1]), adversarial_strength=0.01)
         self.alt_count_loss_func = torch.nn.MSELoss(reduction='none')
@@ -126,10 +125,10 @@ class ArtifactModel(torch.nn.Module):
         return self._haplotypes_length
 
     def post_pooling_parameters(self):
-        return chain(self.artifact_classifier.parameters(), self.calibration.parameters())
+        return self.feature_clustering.parameters()
 
     def calibration_parameters(self):
-        return self.calibration.parameters()
+        return self.feature_clustering.distance_calibration.parameters()
 
     def set_epoch_type(self, epoch_type: Epoch):
         if epoch_type == Epoch.TRAIN:
@@ -179,13 +178,13 @@ class ArtifactModel(torch.nn.Module):
 
         return result_be, ref_seq_embeddings_be # ref seq embeddings are useful later
 
-    def logits_from_features(self, features_be: Tensor, ref_counts_b: IntTensor, alt_counts_b: IntTensor, var_types_b: IntTensor):
-        uncalibrated_logits_b = self.artifact_classifier.forward(features_be).view(-1)
-        calibrated_logits_b = self.calibration.calibrated_logits(uncalibrated_logits_b, ref_counts_b, alt_counts_b, var_types_b)
-        return calibrated_logits_b, uncalibrated_logits_b
+    def calculate_logits(self, batch: ReadsBatch):
+        features_be, _ = self.calculate_features(batch)
 
-    def logits_from_reads_batch(self, features_be: Tensor, batch: ReadsBatch):
-        return self.logits_from_features(features_be, batch.get_ref_counts(), batch.get_alt_counts(), batch.get_variant_types())
+        calibrated_logits_b, uncalibrated_logits_b, calibrated_logits_bk = self.feature_clustering.calculate_logits(features_be, ref_counts_b=batch.get_ref_counts(),
+            alt_counts_b=batch.get_alt_counts(), var_types_b=batch.get_variant_types())
+
+        return calibrated_logits_b, uncalibrated_logits_b, calibrated_logits_bk, features_be
 
     def compute_source_prediction_losses(self, features_be: Tensor, batch: ReadsBatch) -> Tensor:
         if self.num_sources > 1:
@@ -203,9 +202,9 @@ class ArtifactModel(torch.nn.Module):
 
     def compute_batch_output(self, batch: ReadsBatch, balancer: Balancer):
         weights_b, source_weights_b = balancer.process_batch_and_compute_weights(batch)
-        features_be, _ = self.calculate_features(batch, weight_range=self._params.reweighting_range)
-        calibrated_logits_b, uncalibrated_logits_b = self.logits_from_reads_batch(features_be, batch)
-        return BatchOutput(features=features_be, uncalibrated_logits=uncalibrated_logits_b, calibrated_logits=calibrated_logits_b,
+        calibrated_logits_b, uncalibrated_logits_b, calibrated_logits_bk, features_be = self.calculate_logits(batch)
+        return BatchOutput(features_be=features_be, uncalibrated_logits_b=uncalibrated_logits_b, calibrated_logits_b=calibrated_logits_b,
+                           calibrated_logits_bk=calibrated_logits_bk,
                            weights=weights_b, source_weights=weights_b*source_weights_b)
 
     def make_dict_for_saving(self, artifact_log_priors=None, artifact_spectra=None):

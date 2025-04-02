@@ -32,6 +32,7 @@ def train_artifact_model(model: ArtifactModel, dataset: ReadsDataset, training_p
                          validation_fold: int = None, training_folds: List[int] = None, epochs_per_evaluation: int = None, calibration_sources: List[int] = None):
     device, dtype = model._device, model._dtype
     bce = nn.BCEWithLogitsLoss(reduction='none')  # no reduction because we may want to first multiply by weights for unbalanced data
+    ce = nn.CrossEntropyLoss(reduction='none')  # likewise
     balancer = Balancer(num_sources=dataset.num_sources(), device=device).to(device=device, dtype=dtype)
     downsampler: Downsampler = Downsampler(num_sources=dataset.num_sources()).to(device=device, dtype=dtype)
 
@@ -99,7 +100,12 @@ def train_artifact_model(model: ArtifactModel, dataset: ReadsDataset, training_p
                 downsampled_batch2 = DownsampledReadsBatch(parent_batch, ref_fracs_b=ref_fracs_b, alt_fracs_b=alt_fracs_b)
                 batches = [downsampled_batch1, downsampled_batch2]
                 outputs = [model.compute_batch_output(batch, balancer) for batch in batches]
-                #parent_output = model.compute_batch_output(parent_batch, balancer)
+                parent_output = model.compute_batch_output(parent_batch, balancer)
+
+                # distances to the second-nearest cluster (i.e. nearest wrong cluster, most likely) for normalizing
+                # the unsupervised consistency loss function
+                parent_batch_distances_bk = model.feature_clustering.centroid_distances(parent_output.features_be)
+                second_nearest_dist_b = torch.kthvalue(parent_batch_distances_bk, k=2, dim=-1).values
 
                 # first handle the labeled loss and the adversarial tasks, which treat the parent and downsampled batches independently
                 loss = 0
@@ -107,20 +113,25 @@ def train_artifact_model(model: ArtifactModel, dataset: ReadsDataset, training_p
                     labels_b = batch.get_training_labels()
                     is_labeled_b = batch.get_is_labeled_mask()
 
-                    source_losses_b = model.compute_source_prediction_losses(output.features, batch)
-                    alt_count_losses_b = model.compute_alt_count_losses(output.features, batch)
-                    supervised_losses_b = is_labeled_b * bce(output.calibrated_logits, labels_b)
+                    source_losses_b = model.compute_source_prediction_losses(output.features_be, batch)
+                    alt_count_losses_b = model.compute_alt_count_losses(output.features_be, batch)
+                    supervised_losses_b = is_labeled_b * bce(output.calibrated_logits_b, labels_b)
 
                     # unsupervised loss uses uncalibrated logits because different counts should NOT be the same after calibration,
                     # but should be identical before.  Note that unsupervised losses is used with and without labels
                     # This must be changed if we have more than one downsampled batch
                     # TODO: should we detach() torch.sigmoid(other_output...)?
                     other_output = outputs[1 if n == 0 else 0]
-                    unsupervised_losses_b = (1 - is_labeled_b) * bce(output.uncalibrated_logits, torch.sigmoid(other_output.uncalibrated_logits))
+
+                    consistency_dist_b = torch.norm(output.features_be - parent_output.features_be, dim=-1)
+                    consistency_loss_b = torch.square(consistency_dist_b / second_nearest_dist_b)
+
+                    # unsupervised loss: cross-entropy between cluster-resolved predictions
+                    unsupervised_losses_b = consistency_loss_b
                     loss += torch.sum(output.weights * (supervised_losses_b + unsupervised_losses_b + alt_count_losses_b) + output.source_weights * source_losses_b)
 
                     loss_metrics.record(batch, supervised_losses_b, is_labeled_b * output.weights)
-                    loss_metrics.record(batch, unsupervised_losses_b, (1 - is_labeled_b) * output.weights)
+                    loss_metrics.record(batch, unsupervised_losses_b, output.weights)
                     source_prediction_loss_metrics.record(batch, source_losses_b, output.source_weights)
                     alt_count_loss_metrics.record(batch, alt_count_losses_b, output.weights)
 
@@ -180,10 +191,10 @@ def collect_evaluation_data(model: ArtifactModel, dataset: ReadsDataset, balance
                 batch = DownsampledReadsBatch(parent_batch, ref_fracs_b=ref_fracs_b, alt_fracs_b=alt_fracs_b)
                 output = model.compute_batch_output(batch, balancer)
 
-                evaluation_metrics.record_batch(epoch_type, batch, logits=output.calibrated_logits, weights=output.weights)
+                evaluation_metrics.record_batch(epoch_type, batch, logits=output.calibrated_logits_b, weights=output.weights)
 
                 if report_worst:
-                    for datum_array, predicted_logit in zip(batch.get_data_be(), output.calibrated_logits.detach().cpu().tolist()):
+                    for datum_array, predicted_logit in zip(batch.get_data_be(), output.calibrated_logits_b.detach().cpu().tolist()):
                         datum = Datum(datum_array)
                         wrong_call = (datum.get_label() == Label.ARTIFACT and predicted_logit < 0) or \
                                      (datum.get_label() == Label.VARIANT and predicted_logit > 0)
@@ -233,8 +244,7 @@ def evaluate_model(model: ArtifactModel, epoch: int, dataset: ReadsDataset, bala
         # now go over just the validation data and generate feature vectors / metadata for tensorboard projectors (UMAP)
         batch: ReadsBatch
         for batch in tqdm(prefetch_generator(valid_loader), mininterval=60, total=len(valid_loader)):
-            features_be, _ = model.calculate_features(batch, weight_range=model._params.reweighting_range)
-            logits_b, _ = model.logits_from_reads_batch(features_be, batch)
+            logits_b, _, _, features_be = model.calculate_logits(batch)
             pred_b = logits_b.detach().cpu()
             labels_b = batch.get_training_labels().cpu()
             correct_b = ((pred_b > 0) == (labels_b > 0.5)).tolist()
@@ -251,6 +261,6 @@ def evaluate_model(model: ArtifactModel, epoch: int, dataset: ReadsDataset, bala
                 metrics.correct_metadata.extend(correct_strings)
                 metrics.type_metadata.extend([Variation(idx).name for idx in batch.get_variant_types().cpu().tolist()])
                 metrics.truncated_count_metadata.extend([alt_count_bin_name(alt_count_bin_index(alt_count)) for alt_count in batch.get_alt_counts().cpu().tolist()])
-                metrics.features.append(features_e)
+                metrics.features_be.append(features_e)
         embedding_metrics.output_to_summary_writer(summary_writer, epoch=epoch)
     # done collecting data
