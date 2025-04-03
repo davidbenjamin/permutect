@@ -105,6 +105,7 @@ workflow Permutect {
             test_dataset = select_first([Mutect2.permutect_test_dataset]),
             contigs_table = Mutect2.permutect_contigs_table,
             maf_segments = Mutect2.maf_segments,
+            normal_maf_segments = Mutect2.normal_maf_segments,
             mutect_stats = Mutect2.mutect_stats,
             batch_size = batch_size,
             num_workers = num_workers,
