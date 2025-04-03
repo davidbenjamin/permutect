@@ -49,8 +49,8 @@ workflow Permutect {
         input:
             make_permutect_training_dataset = false,
             make_permutect_test_dataset = true,
-            permutect_training_dataset_truth_vcf = test_dataset_truth_vcf,
-            permutect_training_dataset_truth_vcf_idx = test_dataset_truth_vcf_idx,
+            permutect_test_dataset_truth_vcf = test_dataset_truth_vcf,
+            permutect_test_dataset_truth_vcf_idx = test_dataset_truth_vcf_idx,
             intervals = intervals,
             masked_intervals = masks,
             ref_fasta = ref_fasta,
