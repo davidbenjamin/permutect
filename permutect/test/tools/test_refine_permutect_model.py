@@ -29,7 +29,7 @@ def test_refine_artifact_model():
 
     # Training data inputs
     setattr(train_model_args, constants.TRAIN_TAR_NAME, training_data_tarfile)
-    setattr(train_model_args, constants.SAVED_MODEL_NAME, pretrained_model)
+    setattr(train_model_args, constants.PRETRAINED_ARTIFACT_MODEL_NAME, pretrained_model)
 
     # training hyperparameters
     setattr(train_model_args, constants.BATCH_SIZE_NAME, 64)

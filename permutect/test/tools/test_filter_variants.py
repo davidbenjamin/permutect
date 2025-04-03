@@ -9,7 +9,7 @@ def test_filtering_on_dream1_chr20():
     # Inputs
     #saved_model = '/Users/davidben/mutect3/permutect/integration-tests/singular-10-Mb/permutect-model.pt'
     #saved_model = '/Users/davidben/mutect3/permutect/integration-tests/dream1-chr20/dream1-uda-model.pt'
-    saved_model = '/Users/davidben/mutect3/permutect/integration-tests/dream1-chr20/model.pt'
+    artifact_model = '/Users/davidben/mutect3/permutect/integration-tests/dream1-chr20/model.pt'
 
     mutect2_vcf = '/Users/davidben/mutect3/permutect/integration-tests/dream1-chr20/mutect2_chr20.vcf'
     maf_segments = '/Users/davidben/mutect3/permutect/integration-tests/dream1-chr20/segments.table'
@@ -23,7 +23,7 @@ def test_filtering_on_dream1_chr20():
     filtering_args = Namespace()
     setattr(filtering_args, constants.INPUT_NAME, mutect2_vcf)
     setattr(filtering_args, constants.TEST_DATASET_NAME, filtering_dataset)
-    setattr(filtering_args, constants.SAVED_MODEL_NAME, saved_model)
+    setattr(filtering_args, constants.ARTIFACT_MODEL_NAME, artifact_model)
     setattr(filtering_args, constants.OUTPUT_NAME, permutect_vcf.name)
     setattr(filtering_args, constants.TENSORBOARD_DIR_NAME, tensorboard_dir.name)
     setattr(filtering_args, constants.BATCH_SIZE_NAME, 64)

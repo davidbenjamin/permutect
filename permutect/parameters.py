@@ -47,7 +47,7 @@ def parse_model_params(args) -> ModelParameters:
 
 
 def add_model_params_to_parser(parser):
-    parser.add_argument('--' + constants.SAVED_MODEL_NAME, required=False, type=str, help='optional pretrained model to initialize training')
+    parser.add_argument('--' + constants.PRETRAINED_ARTIFACT_MODEL_NAME, required=False, type=str, help='optional pretrained model to initialize training')
     parser.add_argument('--' + constants.READ_LAYERS_NAME, nargs='+', type=int, required=True,
                         help='dimensions of hidden layers in the read embedding subnetwork, including the dimension of the embedding itself.  '
                              'Negative values indicate residual skip connections')

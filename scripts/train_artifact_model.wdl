@@ -96,7 +96,7 @@ task Train {
 
         train_artifact_model \
             --train_tar ~{train_tar} \
-            ~{"--saved_model " + pretrained_model} \
+            ~{"--pretrained_artifact_model " + pretrained_model} \
             --read_layers ~{sep=' ' read_layers} \
             --self_attention_hidden_dimension ~{self_attention_hidden_dimension} \
             --num_self_attention_layers ~{num_self_attention_layers} \

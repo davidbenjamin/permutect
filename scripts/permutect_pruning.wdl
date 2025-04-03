@@ -4,7 +4,7 @@ version 1.0
 workflow PrunePermutect {
     input {
         File train_tar
-        File saved_model
+        File artifact_model
         Int num_epochs
         Int num_calibration_epochs
         Int batch_size
@@ -21,7 +21,7 @@ workflow PrunePermutect {
     call PrunePermutect {
         input:
             train_tar = train_tar,
-            saved_model = saved_model,
+            artifact_model = artifact_model,
             permutect_docker = permutect_docker,
             preemptible = preemptible,
             max_retries = max_retries,
@@ -44,7 +44,7 @@ workflow PrunePermutect {
 task PrunePermutect {
     input {
         File train_tar
-        File saved_model
+        File artifact_model
 
         Int num_epochs
         Int num_calibration_epochs
@@ -71,7 +71,7 @@ task PrunePermutect {
 
         prune_dataset \
             --train_tar ~{train_tar} \
-            --saved_model ~{saved_model} \
+            --artifact_model ~{artifact_model} \
             --batch_size ~{batch_size} \
             --inference_batch_size ~{inference_batch_size} \
             --chunk_size ~{chunk_size} \

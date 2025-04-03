@@ -6,7 +6,7 @@ version 1.0
 
 # note that the artifact model can be trained before the Mutect2 workflow runs FilterMutectCalls
 
-import "https://api.firecloud.org/ga4gh/v1/tools/davidben:mutect2/versions/18/plain-WDL/descriptor" as m2
+import "https://api.firecloud.org/ga4gh/v1/tools/davidben:mutect2/versions/20/plain-WDL/descriptor" as m2
 import "https://api.firecloud.org/ga4gh/v1/tools/davidben:permutect-uda-dataset/versions/3/plain-WDL/descriptor" as uda
 import "https://api.firecloud.org/ga4gh/v1/tools/davidben:refine-permutect/versions/3/plain-WDL/descriptor" as refining
 import "https://api.firecloud.org/ga4gh/v1/tools/davidben:permutect-call-variants/versions/22/plain-WDL/descriptor" as calling
@@ -49,7 +49,7 @@ workflow CallVariantsWithUDA {
         Int? training_mem
 
         # UDA training arguments
-        File base_model
+        File pretrained_model
         File source_train_tar
         String source_edit_type = "keep_everything"
         String target_edit_type = "unlabel_everything"
@@ -156,7 +156,7 @@ workflow CallVariantsWithUDA {
     call refining.RefinePermutectModel {
         input:
             train_tar = PermutectUDADataset.uda_train_tar,
-            saved_model = base_model,
+            pretrained_model = pretrained_model,
             num_epochs = num_epochs,
             num_calibration_epochs = num_calibration_epochs,
             calibration_source = 1,

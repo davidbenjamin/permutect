@@ -15,15 +15,15 @@ def main_without_parsing(args):
     training_params = parse_training_params(args)
 
     tarfile_data = getattr(args, constants.TRAIN_TAR_NAME)
-    saved_model_path = getattr(args, constants.SAVED_MODEL_NAME)    # optional pretrained model to use as initialization
+    pretrained_model_path = getattr(args, constants.PRETRAINED_ARTIFACT_MODEL_NAME)    # optional pretrained model to use as initialization
 
-    saved_model, _, _ = (None, None, None) if saved_model_path is None else load_model(saved_model_path)
+    pretrained_model, _, _ = (None, None, None) if pretrained_model_path is None else load_model(pretrained_model_path)
 
     tensorboard_dir = getattr(args, constants.TENSORBOARD_DIR_NAME)
     summary_writer = SummaryWriter(tensorboard_dir)
     dataset = ReadsDataset(data_tarfile=tarfile_data, num_folds=10)
 
-    model = saved_model if (saved_model is not None) else \
+    model = pretrained_model if (pretrained_model is not None) else \
             ArtifactModel(params=params, num_read_features=dataset.num_read_features, num_info_features=dataset.num_info_features,
                           haplotypes_length=dataset.haplotypes_length, device=gpu_if_available())
 
@@ -35,13 +35,13 @@ def main_without_parsing(args):
 
 
 def parse_arguments():
-    parser = argparse.ArgumentParser(description='train the Permutect read set representation model')
+    parser = argparse.ArgumentParser(description='train the Permutect artifact model')
     add_model_params_to_parser(parser)
     add_training_params_to_parser(parser)
 
     parser.add_argument('--' + constants.TRAIN_TAR_NAME, type=str, required=True,
-                        help='tarfile of training/validation datasets produced by preprocess_dataset.py')
-    parser.add_argument('--' + constants.OUTPUT_NAME, type=str, required=True, help='output saved model file')
+                        help='training dataset .tar.gz file produced by preprocess_dataset.py')
+    parser.add_argument('--' + constants.OUTPUT_NAME, type=str, required=True, help='output artifact model file')
     parser.add_argument('--' + constants.TENSORBOARD_DIR_NAME, type=str, default='tensorboard', required=False,
                         help='output tensorboard directory')
 

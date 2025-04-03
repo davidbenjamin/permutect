@@ -191,7 +191,7 @@ def parse_arguments():
     # input / output
     parser.add_argument('--' + constants.TRAIN_TAR_NAME, type=str, required=True,
                         help='tarfile of training/validation datasets produced by preprocess_dataset.py')
-    parser.add_argument('--' + constants.SAVED_MODEL_NAME, type=str, help='Base model from train_artifact_model.py')
+    parser.add_argument('--' + constants.ARTIFACT_MODEL_NAME, type=str, help='Permutect artifact model from train_artifact_model.py')
     parser.add_argument('--' + constants.OUTPUT_NAME, type=str, required=True, help='path to pruned dataset file')
     parser.add_argument('--' + constants.TENSORBOARD_DIR_NAME, type=str, default='tensorboard', required=False,
                         help='path to output tensorboard directory')
@@ -207,7 +207,7 @@ def main_without_parsing(args):
     chunk_size = getattr(args, constants.CHUNK_SIZE_NAME)
     original_tarfile = getattr(args, constants.TRAIN_TAR_NAME)
 
-    model,  _, _ = load_model(getattr(args, constants.SAVED_MODEL_NAME))
+    model,  _, _ = load_model(getattr(args, constants.ARTIFACT_MODEL_NAME))
 
     base_dataset = ReadsDataset(data_tarfile=original_tarfile, num_folds=NUM_FOLDS)
 

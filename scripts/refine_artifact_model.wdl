@@ -4,7 +4,7 @@ version 1.0
 workflow RefineArtifactModel {
     input {
         File train_tar
-        File saved_model
+        File pretrained_model
         Int num_epochs
         Int num_calibration_epochs
         Int? calibration_source
@@ -25,7 +25,7 @@ workflow RefineArtifactModel {
     call Refine {
         input:
             train_tar = train_tar,
-            saved_model = saved_model,
+            pretrained_model = pretrained_model,
             permutect_docker = permutect_docker,
             preemptible = preemptible,
             max_retries = max_retries,
@@ -53,7 +53,7 @@ workflow RefineArtifactModel {
 task Refine {
     input {
         File train_tar
-        File saved_model
+        File pretrained_model
 
         Int num_epochs
         Int num_calibration_epochs
@@ -85,7 +85,7 @@ task Refine {
 
         refine_artifact_model \
             --train_tar ~{train_tar} \
-            --saved_model ~{saved_model} \
+            --pretrained_artifact_model ~{pretrained_model} \
             --batch_size ~{batch_size} \
             --inference_batch_size ~{inference_batch_size} \
             ~{"--num_workers " + num_workers} \
