@@ -2,7 +2,7 @@ version 1.0
 
 # run Mutect2 without filtering to get plain text training data, then run preprocess_dataset.
 
-import "https://api.firecloud.org/ga4gh/v1/tools/davidben:mutect2/versions/18/plain-WDL/descriptor" as m2
+import "https://api.firecloud.org/ga4gh/v1/tools/davidben:mutect2/versions/20/plain-WDL/descriptor" as m2
 
 workflow MakeTrainingDataset {
     input {
