@@ -4,7 +4,7 @@ import "https://api.firecloud.org/ga4gh/v1/tools/davidben:mutect2/versions/20/pl
 
 workflow Permutect {
     input {
-        File permutect_model
+        File artifact_model
 
         File? intervals
         File? masks
@@ -103,7 +103,7 @@ workflow Permutect {
         input:
             mutect2_vcf = IndexAfterSplitting.vcf,
             mutect2_vcf_idx = IndexAfterSplitting.vcf_index,
-            permutect_model = permutect_model,
+            artifact_model = artifact_model,
             test_dataset = select_first([Mutect2.permutect_test_dataset]),
             contigs_table = Mutect2.permutect_contigs_table,
             maf_segments = Mutect2.maf_segments,
@@ -137,7 +137,7 @@ workflow Permutect {
 
  task PermutectFiltering {
     input {
-        File permutect_model
+        File artifact_model
         File test_dataset
         File contigs_table
         File mutect2_vcf
@@ -170,7 +170,7 @@ workflow Permutect {
         genomic_span=`grep "callable" ~{mutect_stats} | while read name value; do echo $value; done`
 
         filter_variants --input ~{mutect2_vcf} --test_dataset ~{test_dataset} \
-            --saved_model ~{permutect_model} \
+            --saved_model ~{artifact_model} \
             --contigs_table ~{contigs_table} \
             --output permutect-filtered.vcf \
             --tensorboard_dir tensorboard \
