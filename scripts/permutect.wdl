@@ -25,7 +25,8 @@ workflow Permutect {
         File? realignment_index_bundle
         File? dragstr_model
         String? realignment_extra_args
-        Boolean? run_orientation_bias_mixture_model_filter
+        Boolean skip_m2_filtering = true
+        Boolean run_orientation_bias_mixture_model_filter = false
         String? m2_extra_args
         String? split_intervals_extra_args
         Int batch_size
@@ -65,6 +66,7 @@ workflow Permutect {
             gnomad = gnomad,
             gnomad_idx = gnomad_idx,
             variants_for_contamination = variants_for_contamination,
+            skip_filtering = skip_m2_filtering,
             variants_for_contamination_idx = variants_for_contamination_idx,
             realignment_index_bundle = realignment_index_bundle,
             realignment_extra_args = realignment_extra_args,
