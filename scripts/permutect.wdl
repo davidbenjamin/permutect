@@ -38,6 +38,7 @@ workflow Permutect {
 
         String? permutect_filtering_extra_args
         String gatk_docker
+        String? gcs_project_for_requester_pays
         String bcftools_docker
         File? gatk_override
         String permutect_docker
@@ -76,6 +77,7 @@ workflow Permutect {
             make_bamout = false,
 
             gatk_docker = gatk_docker,
+            gcs_project_for_requester_pays = gcs_project_for_requester_pays,
             gatk_override = gatk_override,
             preemptible = preemptible,
             max_retries = max_retries
