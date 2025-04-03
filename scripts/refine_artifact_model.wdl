@@ -1,7 +1,7 @@
 version 1.0
 
 
-workflow RefinePermutectModel {
+workflow RefineArtifactModel {
     input {
         File train_tar
         File saved_model
@@ -22,7 +22,7 @@ workflow RefinePermutectModel {
         Int? mem
     }
 
-    call RefinePermutect {
+    call Refine {
         input:
             train_tar = train_tar,
             saved_model = saved_model,
@@ -44,13 +44,13 @@ workflow RefinePermutectModel {
 
 
     output {
-        File permutect_model = RefinePermutect.permutect_model
-        File training_tensorboard_tar = RefinePermutect.tensorboard_tar
+        File permutect_model = Refine.permutect_model
+        File training_tensorboard_tar = Refine.tensorboard_tar
     }
 }
 
 
-task RefinePermutect {
+task Refine {
     input {
         File train_tar
         File saved_model
@@ -83,7 +83,7 @@ task RefinePermutect {
     command <<<
         set -e
 
-        refine_permutect_model \
+        refine_artifact_model \
             --train_tar ~{train_tar} \
             --saved_model ~{saved_model} \
             --batch_size ~{batch_size} \
@@ -92,7 +92,7 @@ task RefinePermutect {
             --num_epochs ~{num_epochs} \
             --num_calibration_epochs ~{num_calibration_epochs} \
             ~{"--calibration_sources " + calibration_source} \
-            --output permutect_model.pt \
+            --output artifact_model.pt \
             --tensorboard_dir tensorboard \
             ~{"--genomic_span " + genomic_span} \
             ~{learn_artifact_cmd} \
@@ -116,7 +116,7 @@ task RefinePermutect {
     }
 
     output {
-        File permutect_model = "permutect_model.pt"
+        File permutect_model = "artifact_model.pt"
         File tensorboard_tar = "tensorboard.tar"
     }
 }
