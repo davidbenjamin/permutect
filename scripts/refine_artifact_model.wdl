@@ -44,7 +44,7 @@ workflow RefineArtifactModel {
 
 
     output {
-        File permutect_model = Refine.permutect_model
+        File artifact_model = Refine.artifact_model
         File training_tensorboard_tar = Refine.tensorboard_tar
     }
 }
@@ -116,7 +116,7 @@ task Refine {
     }
 
     output {
-        File permutect_model = "artifact_model.pt"
+        File artifact_model = "artifact_model.pt"
         File tensorboard_tar = "tensorboard.tar"
     }
 }
