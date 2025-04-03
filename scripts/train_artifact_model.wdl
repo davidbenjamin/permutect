@@ -51,7 +51,7 @@ workflow TrainArtifactModel {
     }
 
     output {
-        File permutect_model = Train.permutect_model
+        File artifact_model = Train.artifact_model
         File training_tensorboard_tar = Train.tensorboard_tar
     }
 }
@@ -132,7 +132,7 @@ task Train {
     }
 
     output {
-        File permutect_model = "artifact_model.pt"
+        File artifact_model = "artifact_model.pt"
         File tensorboard_tar = "tensorboard.tar"
     }
 }
