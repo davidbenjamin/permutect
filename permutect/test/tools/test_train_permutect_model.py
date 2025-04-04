@@ -35,7 +35,7 @@ def test_train_artifact_model():
 
     # Training data inputs
     setattr(train_model_args, constants.TRAIN_TAR_NAME, training_data_tarfile)
-    setattr(train_model_args, constants.SAVED_MODEL_NAME, None)
+    setattr(train_model_args, constants.PRETRAINED_ARTIFACT_MODEL_NAME, None)
 
     # training hyperparameters
     setattr(train_model_args, constants.REWEIGHTING_RANGE_NAME, 0.3)

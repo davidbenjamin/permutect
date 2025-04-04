@@ -19,17 +19,13 @@ def test_refine_artifact_model():
 
     # STEP 2: train a model
     train_model_args = Namespace()
-    setattr(train_model_args, constants.AGGREGATION_LAYERS_NAME, [20, 20, 20])
-    setattr(train_model_args, constants.CALIBRATION_LAYERS_NAME, [6,6])
     setattr(train_model_args, constants.CALIBRATION_SOURCES_NAME, None)
-    setattr(train_model_args, constants.DROPOUT_P_NAME, 0.0)
-    setattr(train_model_args, constants.BATCH_NORMALIZE_NAME, False)
     setattr(train_model_args, constants.LEARN_ARTIFACT_SPECTRA_NAME, True)  # could go either way
     setattr(train_model_args, constants.GENOMIC_SPAN_NAME, 100000)
 
     # Training data inputs
     setattr(train_model_args, constants.TRAIN_TAR_NAME, training_data_tarfile)
-    setattr(train_model_args, constants.SAVED_MODEL_NAME, pretrained_model)
+    setattr(train_model_args, constants.PRETRAINED_ARTIFACT_MODEL_NAME, pretrained_model)
 
     # training hyperparameters
     setattr(train_model_args, constants.BATCH_SIZE_NAME, 64)

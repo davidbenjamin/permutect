@@ -1,10 +1,10 @@
 version 1.0
 
-import "https://api.firecloud.org/ga4gh/v1/tools/davidben:mutect2/versions/17/plain-WDL/descriptor" as m2
+import "https://api.firecloud.org/ga4gh/v1/tools/davidben:mutect2/versions/20/plain-WDL/descriptor" as m2
 
 workflow Permutect {
     input {
-        File permutect_model
+        File artifact_model
 
         File? intervals
         File? masks
@@ -25,7 +25,8 @@ workflow Permutect {
         File? realignment_index_bundle
         File? dragstr_model
         String? realignment_extra_args
-        Boolean? run_orientation_bias_mixture_model_filter
+        Boolean skip_m2_filtering = true
+        Boolean run_orientation_bias_mixture_model_filter = false
         String? m2_extra_args
         String? split_intervals_extra_args
         Int batch_size
@@ -37,6 +38,7 @@ workflow Permutect {
 
         String? permutect_filtering_extra_args
         String gatk_docker
+        String? gcs_project_for_requester_pays
         String bcftools_docker
         File? gatk_override
         String permutect_docker
@@ -49,8 +51,8 @@ workflow Permutect {
         input:
             make_permutect_training_dataset = false,
             make_permutect_test_dataset = true,
-            permutect_training_dataset_truth_vcf = test_dataset_truth_vcf,
-            permutect_training_dataset_truth_vcf_idx = test_dataset_truth_vcf_idx,
+            permutect_test_dataset_truth_vcf = test_dataset_truth_vcf,
+            permutect_test_dataset_truth_vcf_idx = test_dataset_truth_vcf_idx,
             intervals = intervals,
             masked_intervals = masks,
             ref_fasta = ref_fasta,
@@ -65,6 +67,7 @@ workflow Permutect {
             gnomad = gnomad,
             gnomad_idx = gnomad_idx,
             variants_for_contamination = variants_for_contamination,
+            skip_filtering = skip_m2_filtering,
             variants_for_contamination_idx = variants_for_contamination_idx,
             realignment_index_bundle = realignment_index_bundle,
             realignment_extra_args = realignment_extra_args,
@@ -74,6 +77,7 @@ workflow Permutect {
             make_bamout = false,
 
             gatk_docker = gatk_docker,
+            gcs_project_for_requester_pays = gcs_project_for_requester_pays,
             gatk_override = gatk_override,
             preemptible = preemptible,
             max_retries = max_retries
@@ -99,10 +103,11 @@ workflow Permutect {
         input:
             mutect2_vcf = IndexAfterSplitting.vcf,
             mutect2_vcf_idx = IndexAfterSplitting.vcf_index,
-            permutect_model = permutect_model,
+            artifact_model = artifact_model,
             test_dataset = select_first([Mutect2.permutect_test_dataset]),
             contigs_table = Mutect2.permutect_contigs_table,
             maf_segments = Mutect2.maf_segments,
+            normal_maf_segments = Mutect2.normal_maf_segments,
             mutect_stats = Mutect2.mutect_stats,
             batch_size = batch_size,
             num_workers = num_workers,
@@ -132,7 +137,7 @@ workflow Permutect {
 
  task PermutectFiltering {
     input {
-        File permutect_model
+        File artifact_model
         File test_dataset
         File contigs_table
         File mutect2_vcf
@@ -165,7 +170,7 @@ workflow Permutect {
         genomic_span=`grep "callable" ~{mutect_stats} | while read name value; do echo $value; done`
 
         filter_variants --input ~{mutect2_vcf} --test_dataset ~{test_dataset} \
-            --saved_model ~{permutect_model} \
+            --artifact_model ~{artifact_model} \
             --contigs_table ~{contigs_table} \
             --output permutect-filtered.vcf \
             --tensorboard_dir tensorboard \

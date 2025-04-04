@@ -102,7 +102,7 @@ class FeatureClustering(nn.Module):
                 calibrated = self.calibrated_distances(distances, ref_counts_b, alt_counts_b, var_types_b)
                 plotting.simple_plot_on_axis(cal_axes[row_idx, col_idx], [(distances.detach().cpu(), calibrated.detach().cpu(), "")], None, None)
 
-        plotting.tidy_subplots(cal_fig, cal_axes, x_label="alt count", y_label="ref count",
-                               row_labels=[str(n) for n in ref_counts], column_labels=[str(n) for n in alt_counts])
+        plotting.tidy_subplots(cal_fig, cal_axes, x_label="ref count", y_label="alt count",
+                               row_labels=[str(n) for n in alt_counts], column_labels=[str(n) for n in ref_counts])
 
         return cal_fig, cal_axes

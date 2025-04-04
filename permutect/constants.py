@@ -60,4 +60,5 @@ GERMLINE_MODE_NAME = 'germline_mode'
 NO_GERMLINE_MODE_NAME = 'no_germline_mode'
 HET_BETA_NAME = 'het_beta'
 
-SAVED_MODEL_NAME = 'saved_model'
+PRETRAINED_ARTIFACT_MODEL_NAME = 'pretrained_artifact_model'
+ARTIFACT_MODEL_NAME = 'artifact_model'

@@ -1,7 +1,7 @@
 version 1.0
 
 
-workflow TrainPermutectModel {
+workflow TrainArtifactModel {
     input {
         File train_tar
         File? pretrained_model
@@ -26,7 +26,7 @@ workflow TrainPermutectModel {
         Int? max_retries
     }
 
-    call TrainPermutect {
+    call Train {
         input:
             train_tar = train_tar,
             pretrained_model = pretrained_model,
@@ -51,13 +51,13 @@ workflow TrainPermutectModel {
     }
 
     output {
-        File permutect_model = TrainPermutect.permutect_model
-        File training_tensorboard_tar = TrainPermutect.tensorboard_tar
+        File artifact_model = Train.artifact_model
+        File training_tensorboard_tar = Train.tensorboard_tar
     }
 }
 
 
-task TrainPermutect {
+task Train {
     input {
         File train_tar
         File? pretrained_model
@@ -94,9 +94,9 @@ task TrainPermutect {
     command <<<
         set -e
 
-        train_permutect_model \
+        train_artifact_model \
             --train_tar ~{train_tar} \
-            ~{"--saved_model " + pretrained_model} \
+            ~{"--pretrained_artifact_model " + pretrained_model} \
             --read_layers ~{sep=' ' read_layers} \
             --self_attention_hidden_dimension ~{self_attention_hidden_dimension} \
             --num_self_attention_layers ~{num_self_attention_layers} \
@@ -110,7 +110,7 @@ task TrainPermutect {
             --inference_batch_size ~{inference_batch_size} \
             ~{"--num_workers " + num_workers} \
             --num_epochs ~{num_epochs} \
-            --output permutect_model.pt \
+            --output artifact_model.pt \
             --tensorboard_dir tensorboard \
             ~{extra_args}
 
@@ -132,7 +132,7 @@ task TrainPermutect {
     }
 
     output {
-        File permutect_model = "permutect_model.pt"
+        File artifact_model = "artifact_model.pt"
         File tensorboard_tar = "tensorboard.tar"
     }
 }
