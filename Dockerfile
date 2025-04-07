@@ -19,4 +19,36 @@ RUN pip install build
 RUN python3 -m build --sdist
 RUN pip install dist/*.tar.gz
 
+# extra utilities for WDL tasks -- command line tools, not python packages
+# for easy upgrade later. ARG variables only persist during build time
+ARG bcftoolsVer="1.12"
+
+# install dependencies, cleanup apt garbage
+RUN apt-get update && apt-get install --no-install-recommends -y \
+ wget \
+ ca-certificates \
+ perl \
+ bzip2 \
+ autoconf \
+ automake \
+ make \
+ gcc \
+ zlib1g-dev \
+ libbz2-dev \
+ liblzma-dev \
+ libcurl4-gnutls-dev \
+ libssl-dev \
+ libperl-dev \
+ libgsl0-dev && \
+ rm -rf /var/lib/apt/lists/* && apt-get autoclean
+
+# get bcftools and make /data
+RUN wget https://github.com/samtools/bcftools/releases/download/${bcftoolsVer}/bcftools-${bcftoolsVer}.tar.bz2 && \
+ tar -vxjf bcftools-${bcftoolsVer}.tar.bz2 && \
+ rm bcftools-${bcftoolsVer}.tar.bz2 && \
+ cd bcftools-${bcftoolsVer} && \
+ make && \
+ make install && \
+ mkdir /data
+
 CMD ["/bin/sh"]
