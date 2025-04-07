@@ -65,14 +65,14 @@ workflow Permutect {
             ref_dict = ref_dict,
             tumor_reads = primary_bam,
             tumor_reads_index = primary_bai,
-            normal_reads = if control_bam == "" then EMPTY_STRING_HACK else control_bam,
-            normal_reads_index = if control_bam == "" then EMPTY_STRING_HACK else control_bai,
+            normal_reads = if select_first([control_bam, ""]) == "" then EMPTY_STRING_HACK else control_bam,
+            normal_reads_index = if select_first([control_bam, ""]) == "" then EMPTY_STRING_HACK else control_bai,
 
             scatter_count = scatter_count,
             gnomad = if gnomad == "" then EMPTY_STRING_HACK else gnomad,
             gnomad_idx = if gnomad == "" then EMPTY_STRING_HACK else gnomad_idx,
-            variants_for_contamination = if variants_for_contamination == "" then EMPTY_STRING_HACK else variants_for_contamination,
-            variants_for_contamination_idx = if variants_for_contamination == "" then EMPTY_STRING_HACK else variants_for_contamination_idx,
+            variants_for_contamination = if select_first([variants_for_contamination, ""]) == "" then EMPTY_STRING_HACK else variants_for_contamination,
+            variants_for_contamination_idx = if select_first([variants_for_contamination, ""]) == "" then EMPTY_STRING_HACK else variants_for_contamination_idx,
             skip_filtering = skip_m2_filtering,
             realignment_index_bundle = realignment_index_bundle,
             realignment_extra_args = realignment_extra_args,
@@ -82,7 +82,7 @@ workflow Permutect {
             make_bamout = false,
 
             gatk_docker = gatk_docker,
-            gcs_project_for_requester_pays = if gcs_project_for_requester_pays == "" then EMPTY_STRING_HACK else gcs_project_for_requester_pays,
+            gcs_project_for_requester_pays = if select_first([gcs_project_for_requester_pays, ""]) == "" then EMPTY_STRING_HACK else gcs_project_for_requester_pays,
             gatk_override = gatk_override,
             preemptible = preemptible,
             max_retries = max_retries
