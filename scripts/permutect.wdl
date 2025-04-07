@@ -44,7 +44,13 @@ workflow Permutect {
         String permutect_docker
         Int? preemptible
         Int? max_retries
-        File? obscene_hack_leave_unset
+
+        # WDL version 1.0 does not have an empty Optional literal
+        # such a literal is very useful because Terra has a bug where whenever a data table is updated, empty values
+        # silently and invisibly get converted to empty strings "".  Thus it is useful to recognize empty strings and
+        # declare empty Optionals.  The only way to do this in WDL 1.0 is to get an empty Optional as a variable from the
+        # workflow inputs.  These inputs should NEVER be filled in!!!!!
+        File? EMPTY_STRING_HACK
     }
 
     call m2.Mutect2 {
@@ -60,24 +66,24 @@ workflow Permutect {
             ref_dict = ref_dict,
             tumor_reads = primary_bam,
             tumor_reads_index = primary_bai,
-            normal_reads = if control_bam == "" then obscene_hack_leave_unset else control_bam,
-            normal_reads_index = if control_bam == "" then obscene_hack_leave_unset else control_bai,
+            normal_reads = if control_bam == "" then EMPTY_STRING_HACK else control_bam,
+            normal_reads_index = if control_bam == "" then EMPTY_STRING_HACK else control_bai,
 
             scatter_count = scatter_count,
-            gnomad = gnomad,
-            gnomad_idx = gnomad_idx,
-            variants_for_contamination = variants_for_contamination,
+            gnomad = if gnomad == "" then EMPTY_STRING_HACK else gnomad,
+            gnomad_idx = if gnomad == "" then EMPTY_STRING_HACK else gnomad_idx,
+            variants_for_contamination = if variants_for_contamination == "" then EMPTY_STRING_HACK else variants_for_contamination,
+            variants_for_contamination_idx = if variants_for_contamination == "" then EMPTY_STRING_HACK else variants_for_contamination_idx,
             skip_filtering = skip_m2_filtering,
-            variants_for_contamination_idx = variants_for_contamination_idx,
             realignment_index_bundle = realignment_index_bundle,
             realignment_extra_args = realignment_extra_args,
-            dragstr_model = dragstr_model,
+            dragstr_model = if dragstr_model == "" then EMPTY_STRING_HACK else dragstr_model,
             run_orientation_bias_mixture_model_filter = run_orientation_bias_mixture_model_filter,
             m2_extra_args = m2_extra_args,
             make_bamout = false,
 
             gatk_docker = gatk_docker,
-            gcs_project_for_requester_pays = gcs_project_for_requester_pays,
+            gcs_project_for_requester_pays = if gcs_project_for_requester_pays == "" then EMPTY_STRING_HACK else gcs_project_for_requester_pays,
             gatk_override = gatk_override,
             preemptible = preemptible,
             max_retries = max_retries
