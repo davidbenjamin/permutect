@@ -45,7 +45,6 @@ RUN wget https://github.com/samtools/bcftools/releases/download/${bcftoolsVer}/b
  rm bcftools-${bcftoolsVer}.tar.bz2 && \
  cd bcftools-${bcftoolsVer} && \
  make && \
- make install && \
- mkdir /data
+ make install
 
 CMD ["/bin/sh"]
