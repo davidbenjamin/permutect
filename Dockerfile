@@ -36,7 +36,6 @@ RUN apt-get update && apt-get install --no-install-recommends -y \
  liblzma-dev \
  libcurl4-gnutls-dev \
  libssl-dev \
- libperl-dev \
  libgsl0-dev && \
  rm -rf /var/lib/apt/lists/* && apt-get autoclean
 
