@@ -21,7 +21,7 @@ RUN pip install dist/*.tar.gz
 
 # extra utilities for WDL tasks -- command line tools, not python packages
 # for easy upgrade later. ARG variables only persist during build time
-ARG bcftoolsVer="1.12"
+ARG bcftoolsVer="1.21"
 
 # install dependencies, cleanup apt garbage
 RUN apt-get update && apt-get install --no-install-recommends -y \
