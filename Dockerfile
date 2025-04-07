@@ -26,8 +26,6 @@ ARG bcftoolsVer="1.12"
 # install dependencies, cleanup apt garbage
 RUN apt-get update && apt-get install --no-install-recommends -y \
  wget \
- ca-certificates \
- perl \
  bzip2 \
  autoconf \
  automake \
