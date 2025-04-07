@@ -217,7 +217,7 @@ def make_posterior_data_loader(dataset_file, input_vcf, contig_index_to_name_map
             artifact_logits_b, _, _, features_be = model.calculate_logits(batch)
 
             for datum_array, logit, embedding in zip(batch.get_data_be(),
-                    artifact_logits_b.detach().tolist(), features_be.cpu()):
+                    torch.clip(artifact_logits_b.detach(), min=-1000, max=1000).tolist(), features_be.cpu()):
                 datum = Datum(datum_array)
                 contig_name = contig_index_to_name_map[datum.get_contig()]
                 position = datum.get_position()
