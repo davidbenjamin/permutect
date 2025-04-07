@@ -84,7 +84,6 @@ def train_artifact_model(model: ArtifactModel, dataset: ReadsDataset, training_p
                 # unfreeze(model.final_calibration_shift_parameters())  # unfreeze final calibration shift but everything else stays frozen
 
             loss_metrics = LossMetrics(num_sources=num_sources, device=device)   # based on calibrated logits
-            alt_count_loss_metrics = LossMetrics(num_sources=num_sources, device=device)
             source_prediction_loss_metrics = LossMetrics(num_sources=num_sources, device=device)  # based on calibrated logits
 
             loader = (calibration_train_loader if epoch_type == Epoch.TRAIN else calibration_valid_loader) if is_calibration_epoch else \
@@ -114,7 +113,6 @@ def train_artifact_model(model: ArtifactModel, dataset: ReadsDataset, training_p
                     is_labeled_b = batch.get_is_labeled_mask()
 
                     source_losses_b = model.compute_source_prediction_losses(output.features_be, batch)
-                    alt_count_losses_b = model.compute_alt_count_losses(output.features_be, batch)
                     supervised_losses_b = is_labeled_b * bce(output.calibrated_logits_b, labels_b)
 
                     # unsupervised loss uses uncalibrated logits because different counts should NOT be the same after calibration,
@@ -128,12 +126,11 @@ def train_artifact_model(model: ArtifactModel, dataset: ReadsDataset, training_p
 
                     # unsupervised loss: cross-entropy between cluster-resolved predictions
                     unsupervised_losses_b = consistency_loss_b
-                    loss += torch.sum(output.weights * (supervised_losses_b + unsupervised_losses_b + alt_count_losses_b) + output.source_weights * source_losses_b)
+                    loss += torch.sum(output.weights * (supervised_losses_b + unsupervised_losses_b) + output.source_weights * source_losses_b)
 
                     loss_metrics.record(batch, supervised_losses_b, is_labeled_b * output.weights)
                     loss_metrics.record(batch, unsupervised_losses_b, output.weights)
                     source_prediction_loss_metrics.record(batch, source_losses_b, output.source_weights)
-                    alt_count_loss_metrics.record(batch, alt_count_losses_b, output.weights)
 
                 if epoch_type == Epoch.TRAIN:
                     backpropagate(train_optimizer, loss)
@@ -144,10 +141,8 @@ def train_artifact_model(model: ArtifactModel, dataset: ReadsDataset, training_p
                 train_scheduler.step(mean_over_labels)
 
             loss_metrics.put_on_cpu()
-            alt_count_loss_metrics.put_on_cpu()
             source_prediction_loss_metrics.put_on_cpu()
             loss_metrics.write_to_summary_writer(epoch_type, epoch, summary_writer, prefix="semisupervised-loss")
-            alt_count_loss_metrics.write_to_summary_writer(epoch_type, epoch, summary_writer, prefix="alt-count-loss")
             source_prediction_loss_metrics.write_to_summary_writer(epoch_type, epoch, summary_writer, prefix="source-loss")
             loss_metrics.report_marginals(f"Semisupervised loss for {epoch_type.name} epoch {epoch}.")
             source_prediction_loss_metrics.report_marginals(f"Source prediction loss for {epoch_type.name} epoch {epoch}.")
@@ -157,7 +152,6 @@ def train_artifact_model(model: ArtifactModel, dataset: ReadsDataset, training_p
                 balancer.make_plots(summary_writer, "unweighted data counts after downsampling", epoch_type, epoch, type_of_plot="counts")
                 loss_metrics.make_plots(summary_writer, "semisupervised loss", epoch_type, epoch)
                 loss_metrics.make_plots(summary_writer, "total weight of data vs alt and ref counts", epoch_type, epoch, type_of_plot="counts")
-                alt_count_loss_metrics.make_plots(summary_writer, "alt count prediction loss", epoch_type, epoch)
                 source_prediction_loss_metrics.make_plots(summary_writer, "source prediction loss", epoch_type, epoch)
 
                 print(f"performing evaluation on epoch {epoch}")

@@ -97,9 +97,6 @@ class ArtifactModel(torch.nn.Module):
         self.feature_clustering = FeatureClustering(feature_dimension=self.set_pooling.output_dimension(),
             num_artifact_clusters=params.num_artifact_clusters, calibration_hidden_layer_sizes=params.calibration_layers)
 
-        self.alt_count_predictor = Adversarial(MLP([self.pooling_dimension()] + [30, -1, -1, -1, 1]), adversarial_strength=0.01)
-        self.alt_count_loss_func = torch.nn.MSELoss(reduction='none')
-
         # used for unlabeled domain adaptation -- needs to be reset depending on the number of sources, as well as
         # the particular sources used in training.  Note that we initialize as a trivial model with 1 source
         self.source_predictor = Adversarial(MLP([self.pooling_dimension()] + [1], batch_normalize=params.batch_normalize,
@@ -194,11 +191,6 @@ class ArtifactModel(torch.nn.Module):
             return torch.sum(torch.square(source_probs_bs - source_targets_bs), dim=-1)
         else:
             return torch.zeros(batch.size(), device=self._device, dtype=self._dtype)
-
-    def compute_alt_count_losses(self, features_be: Tensor, batch: ReadsBatch):
-        alt_count_pred_b = torch.sigmoid(self.alt_count_predictor.adversarial_forward(features_be).view(-1))
-        alt_count_target_b = batch.get_alt_counts().to(dtype=alt_count_pred_b.dtype) / MAX_ALT_COUNT
-        return self.alt_count_loss_func(alt_count_pred_b, alt_count_target_b)
 
     def compute_batch_output(self, batch: ReadsBatch, balancer: Balancer):
         weights_b, source_weights_b = balancer.process_batch_and_compute_weights(batch)
