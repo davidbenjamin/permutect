@@ -118,15 +118,9 @@ workflow Permutect {
             permutect_docker = permutect_docker,
     }
 
-    call IndexVCF as IndexAfterFiltering {
-        input:
-            unindexed_vcf = PermutectFiltering.output_vcf,
-            gatk_docker = gatk_docker
-    }
-
     output {
-        File output_vcf = IndexAfterFiltering.vcf
-        File output_vcf_idx = IndexAfterFiltering.vcf_index
+        File output_vcf = PermutectFiltering.output_vcf
+        File output_vcf_idx = PermutectFiltering.output_vcf_idx
         File tensorboard_report = PermutectFiltering.tensorboard_report
         File test_dataset = select_first([Mutect2.permutect_test_dataset])
         File mutect2_vcf = Mutect2.output_vcf
@@ -180,6 +174,8 @@ workflow Permutect {
             --genomic_span $genomic_span ~{permutect_filtering_extra_args}
 
         tar cvf tensorboard.tar tensorboard/
+
+        bcftools index permutect-filtered.vcf
     >>>
 
     runtime {
@@ -198,6 +194,7 @@ workflow Permutect {
 
     output {
         File output_vcf = "permutect-filtered.vcf"
+        File output_vcf_idx = "permutect-filtered.vcf.idx"
         File tensorboard_report = "tensorboard.tar"
     }
 }
@@ -248,49 +245,5 @@ task SplitMultiallelics {
     output {
         File output_vcf = "output.vcf"
         File output_vcf_idx = "output.vcf.idx"
-    }
-}
-
-task IndexVCF {
-    input {
-        File unindexed_vcf
-        String gatk_docker
-        Int? preemptible
-        Int? max_retries
-        Int? disk_space
-        Int? cpu
-        Int? mem
-    }
-
-    # Mem is in units of GB but our command and memory runtime values are in MB
-    Int machine_mem = if defined(mem) then mem * 1000 else 4000
-    Int command_mem = machine_mem - 500
-
-    command <<<
-
-        cp ~{unindexed_vcf} indexed.vcf
-
-        gatk --java-options "-Xmx~{command_mem}m" IndexFeatureFile -I indexed.vcf
-
-        gatk --java-options "-Xmx~{command_mem}m" SelectVariants -V indexed.vcf -O output.vcf --lenient \
-            -DGA DP -DGA AF -DGA F1R2 -DGA F2R1 -DGA FAD -DGA SB \
-            -DA AS_FilterStatus -DA AS_SB_TABLE -DA ECNT -DA GERMQ -DA MBQ -DA MFRL -DA MMQ -DA MPOS
-
-        set -e
-    >>>
-
-    runtime {
-        docker: gatk_docker
-        bootDiskSizeGb: 12
-        memory: machine_mem + " MB"
-        disks: "local-disk " + select_first([disk_space, 100]) + " SSD"
-        preemptible: select_first([preemptible, 0])
-        maxRetries: select_first([max_retries, 0])
-        cpu: select_first([cpu, 1])
-    }
-
-    output {
-        File vcf = "output.vcf"
-        File vcf_index = "output.vcf.idx"
     }
 }
