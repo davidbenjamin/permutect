@@ -175,7 +175,10 @@ workflow Permutect {
 
         tar cvf tensorboard.tar tensorboard/
 
-        bcftools index permutect-filtered.vcf
+        # compress
+        bcftools view permutect-filtered.vcf -Oz -o permutect-filtered.vcf.gz
+
+        bcftools index -t permutect-filtered.vcf.gz
     >>>
 
     runtime {
@@ -193,8 +196,8 @@ workflow Permutect {
     }
 
     output {
-        File output_vcf = "permutect-filtered.vcf"
-        File output_vcf_idx = "permutect-filtered.vcf.idx"
+        File output_vcf = "permutect-filtered.vcf.gz"
+        File output_vcf_idx = "permutect-filtered.vcf.gz.tbi"
         File tensorboard_report = "tensorboard.tar"
     }
 }
