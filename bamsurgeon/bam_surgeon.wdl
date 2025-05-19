@@ -78,7 +78,7 @@ task RandomSitesAndAddVariants {
             bed_file=~{target_regions_bed}
         else
             echo "input intervals must be converted to bed format"
-            java -jar /picard.jar IntervalListToBed I=~{target_regions_bed} O=bed_regions.bed
+            java -jar /usr/local/bin/picard.jar IntervalListToBed I=~{target_regions_bed} O=bed_regions.bed
             bed_file=bed_regions.bed
         fi
 
