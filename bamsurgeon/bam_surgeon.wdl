@@ -70,6 +70,7 @@ task RandomSitesAndAddVariants {
         echo $PWD
 
         # calls to BWA within bam surgeon require not not ref fasta, dict, but other auxiliary files
+        echo "Indexing reference"
         bwa index ~{ref_fasta}
 
         # if the inout intervals are not a bed file we need to convert
@@ -85,12 +86,14 @@ task RandomSitesAndAddVariants {
         # super annoying: bam surgeon expects bam index to end in .bam.bai, not just .bai
         mv ~{base_bam_index} ~{base_bam}.bai
 
+        echo "making random sites"
         python3.6 /bamsurgeon/scripts/randomsites.py --genome ~{ref_fasta} --bed $bed_file \
             --seed ~{snv_seed} --numpicks ~{num_snvs} --avoidN snv > addsnv_input.bed
 
         python3.6 /bamsurgeon/scripts/randomsites.py --genome ~{ref_fasta} --bed $bed_file \
             --seed ~{indel_seed} --numpicks ~{num_indels} --avoidN indel > addindel_input.bed
 
+        echo "adding synthetic SNVs"
         python3.6 /bamsurgeon/bin/addsnv.py --varfile addsnv_input.bed --bamfile ~{base_bam} \
             --reference ~{ref_fasta} --outbam snv.bam \
             --snvfrac 0.2 \
@@ -105,10 +108,13 @@ task RandomSitesAndAddVariants {
             --seed 1 \
         && mv snvs.addsnv.snvs.vcf snvs.vcf
 
+        echo "sorting SNV-added bam"
         samtools sort -@ ~{cpu} --output-fmt BAM snv.bam > snv_sorted.bam
 
+        echo "indexing SNV-added bam"
         samtools index snv_sorted.bam
 
+        echo "adding synthetic indels"
         python3 /bamsurgeon/bin/addindel.py --varfile addindel_input.bed --bamfile snv_sorted.bam --reference ~{ref_fasta} \
             --outbam snv_indel.bam \
             --snvfrac 0.2 \
@@ -122,10 +128,13 @@ task RandomSitesAndAddVariants {
             --seed 1 \
         && mv indels.addindel.indels.vcf indels.vcf
 
+        echo "sorting BAM"
         samtools sort -@ ~{cpu} --output-fmt BAM snv_indel.bam > snv_indel_sorted.bam
 
+        echo "indexing BAM"
         samtools index snv_indel_sorted.bam
 
+        echo "sorting VCF"
         java -jar /picard.jar SortVcf I=snvs.vcf I=indels.vcf O=variants.vcf
   >>>
 
