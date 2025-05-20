@@ -77,7 +77,7 @@ RUN git clone https://github.com/adamewing/exonerate.git --branch v2.4.0 \
 # Retrieve and install Picard from GitHub
 RUN wget https://github.com/broadinstitute/picard/releases/download/2.18.9/picard.jar \
     && chmod +x picard.jar \
-    && mv picard.jar /usr/local/bin/ \
+    && cp picard.jar /picard.jar && mv picard.jar /usr/local/bin/ \
     && export BAMSURGEON_PICARD_JAR=/usr/local/bin/picard.jar
 # Install Pysam
 RUN pip install pysam==0.15.2
