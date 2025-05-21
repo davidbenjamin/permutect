@@ -15,7 +15,6 @@ workflow BamSurgeon {
         Float somatic_allele_fraction
         Int seed
 
-        # this docker built from the Dockerfile in the bam surgeon github
         String bam_surgeon_docker = "us.gcr.io/broad-dsde-methods/davidben/bam_surgeon"
     }
 
@@ -117,7 +116,7 @@ task RandomSitesAndAddVariants {
         samtools index snv_sorted.bam
 
         echo "adding synthetic indels"
-        python3 /bamsurgeon/bin/addindel.py --varfile addindel_input.bed --bamfile snv_sorted.bam --reference ~{ref_fasta} \
+        python3.6 /bamsurgeon/bin/addindel.py --varfile addindel_input.bed --bamfile snv_sorted.bam --reference ~{ref_fasta} \
             --outbam snv_indel.bam \
             --snvfrac 0.2 \
             --mutfrac ~{somatic_allele_fraction} \
