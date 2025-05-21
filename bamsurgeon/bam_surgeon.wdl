@@ -15,7 +15,7 @@ workflow BamSurgeon {
         Float somatic_allele_fraction
         Int seed
 
-        Bool use_print_reads = true
+        Boolean use_print_reads = true
 
         String bam_surgeon_docker = "us.gcr.io/broad-dsde-methods/davidben/bam_surgeon"
         String gatk_docker = "us.gcr.io/broad-gatk/gatk"
