@@ -15,7 +15,25 @@ workflow BamSurgeon {
         Float somatic_allele_fraction
         Int seed
 
+        Bool use_print_reads = true
+
         String bam_surgeon_docker = "us.gcr.io/broad-dsde-methods/davidben/bam_surgeon"
+        String gatk_docker = "us.gcr.io/broad-gatk/gatk"
+        String? gcs_project_for_requester_pays
+    }
+
+    if (use_print_reads) {
+        call PrintReads {
+            input:
+                gatk_docker = gatk_docker,
+                gcs_project_for_requester_pays = gcs_project_for_requester_pays,
+                original_bam = base_bam,
+                original_bam_idx = base_bam_index,
+                ref_fasta = ref_fasta,
+                ref_fai = ref_fai,
+                ref_dict = ref_dict,
+                intervals = target_regions_bed
+        }
     }
 
     call RandomSitesAndAddVariants {
@@ -23,8 +41,8 @@ workflow BamSurgeon {
             ref_fasta = ref_fasta,
             ref_fai = ref_fai,
             ref_dict = ref_dict,
-            base_bam = base_bam,
-            base_bam_index = base_bam_index,
+            base_bam = select_first([PrintReads.output_bam, base_bam]),
+            base_bam_index = select_first([PrintReads.output_bam_idx, base_bam_index]),
             target_regions_bed = target_regions_bed,
             num_snvs = num_snvs,
             num_indels = num_indels,
@@ -154,4 +172,56 @@ task RandomSitesAndAddVariants {
       File synthetic_tumor_bam_index = "snv_indel_sorted.bam.bai"
       File truth_vcf = "variants.vcf"
   }
+}
+
+task PrintReads {
+    input {
+        String gatk_docker
+        String? gcs_project_for_requester_pays
+        File original_bam       # this can be a BAM or CRAM
+        File original_bam_idx
+        File ref_fasta          # GATK PrintReads requires a reference for CRAMs
+        File ref_fai
+        File ref_dict
+        File intervals
+
+        Int cpu = 2
+        Int mem_gb = 4
+        Int disk_gb = 100
+        Int boot_disk_gb = 10
+        Int max_retries = 0
+        Int preemptible = 1
+    }
+
+    parameter_meta{
+        intervals: {localization_optional: true}
+        ref_fasta: {localization_optional: true}
+        ref_fai: {localization_optional: true}
+        ref_dict: {localization_optional: true}
+        original_bam: {localization_optional: true}
+        original_bam_idx: {localization_optional: true}
+    }
+
+    command <<<
+        # this command also produces the accompanying index hla.bai
+        # the PairedReadFilter is necessary for SamtoFastq to succeed
+        gatk PrintReads -R ~{ref_fasta} -I ~{original_bam} -L ~{intervals} -O output.bam \
+            ~{"--gcs-project-for-requester-pays " + gcs_project_for_requester_pays}
+
+    >>>
+
+    runtime {
+        docker: gatk_docker
+        bootDiskSizeGb: boot_disk_gb
+        memory: mem_gb + " GB"
+        disks: "local-disk " + disk_gb + " SSD"
+        preemptible: preemptible
+        maxRetries: max_retries
+        cpu: cpu
+    }
+
+    output {
+        File output_bam = "output.bam"
+        File output_bam_idx = "output.bai"
+    }
 }
