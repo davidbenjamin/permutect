@@ -106,7 +106,9 @@ task RandomSitesAndAddVariants {
             --force --insane \
             --aligner mem \
             --seed 1 \
-        && mv snvs.addsnv.snvs.vcf snvs.vcf
+
+        # I believe the output is called snv.addsnv.addsnv_input.vcf, but the wildcard lets us be more general
+        mv snv.*.vcf snvs.vcf
 
         echo "sorting SNV-added bam"
         samtools sort -@ ~{cpu} --output-fmt BAM snv.bam > snv_sorted.bam
@@ -125,8 +127,10 @@ task RandomSitesAndAddVariants {
             --tagreads --ignorepileup \
             --force --insane \
             --aligner mem \
-            --seed 1 \
-        && mv indels.addindel.indels.vcf indels.vcf
+            --seed 1
+
+        # Likewise (see above)
+        mv indels.*.vcf indels.vcf
 
         echo "sorting BAM"
         samtools sort -@ ~{cpu} --output-fmt BAM snv_indel.bam > snv_indel_sorted.bam
