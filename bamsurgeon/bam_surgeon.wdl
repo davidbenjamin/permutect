@@ -145,14 +145,16 @@ task RandomSitesAndAddVariants {
             --aligner mem \
             --seed 1
 
-        # Likewise (see above)
-        mv indels.*.vcf indels.vcf
+        # Likewise (see above) I believe the exact VCF output is snv_indel.addindel.addindel_input.vcf
+        # note that the BAM is named snv_indel (since it has the cumulative effect of SNV and indel addition), whereas
+        # the VCF only contains the indels added at this last step.
+        mv snv_indel.*.vcf indels.vcf
 
         echo "sorting BAM"
-        samtools sort -@ ~{cpu} --output-fmt BAM snv_indel.bam > snv_indel_sorted.bam
+        samtools sort -@ ~{cpu} --output-fmt BAM snv_indel.bam > result.bam
 
         echo "indexing BAM"
-        samtools index snv_indel_sorted.bam
+        samtools index result.bam
 
         echo "sorting VCF"
         java -jar /picard.jar SortVcf I=snvs.vcf I=indels.vcf O=variants.vcf
@@ -167,8 +169,8 @@ task RandomSitesAndAddVariants {
   }
 
   output {
-      File synthetic_tumor_bam = "snv_indel_sorted.bam"
-      File synthetic_tumor_bam_index = "snv_indel_sorted.bam.bai"
+      File synthetic_tumor_bam = "result.bam"
+      File synthetic_tumor_bam_index = "result.bam.bai"
       File truth_vcf = "variants.vcf"
   }
 }
