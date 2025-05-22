@@ -138,7 +138,6 @@ task RandomSitesAndAddVariants {
             --outbam snv_indel.bam \
             --snvfrac 0.2 \
             --mutfrac ~{somatic_allele_fraction} \
-            --haplosize 50 \
             --picardjar /picard.jar \
             --minmutreads 2 \
             --tagreads --ignorepileup \
