@@ -84,11 +84,15 @@ task RandomSitesAndAddVariants {
     Int mem_mb = mem * 1000
 
     command <<<
+        echo "current directory is:"
         echo $PWD
 
         # calls to BWA within bam surgeon require not not ref fasta, dict, but other auxiliary files
         echo "Indexing reference"
         bwa index ~{ref_fasta}
+
+        echo "contents of current directory:"
+        ls
 
         # if the inout intervals are not a bed file we need to convert
         if [[ ~{target_regions_bed} == *.bed ]]; then
@@ -100,8 +104,15 @@ task RandomSitesAndAddVariants {
             bed_file=bed_regions.bed
         fi
 
-        # super annoying: bam surgeon expects bam index to end in .bam.bai, not just .bai
-        mv ~{base_bam_index} ~{base_bam}.bai
+        # super annoying: bam surgeon expects bam index to end in .bam.bai or .cram.crai, not just .bai or .crai
+        if [[ ~{base_bam_index} == *.bai ]]; then
+            mv ~{base_bam_index} ~{base_bam}.bai
+        elif [[ ~{base_bam_index} == *.crai ]]; then
+            mv ~{base_bam_index} ~{base_bam}.crai
+        else
+            echo "TERRIBLE ERROR.  Sequencing data is neither .bam nor .cram"
+        fi
+
 
         echo "making random sites"
         python3.6 /bamsurgeon/scripts/randomsites.py --genome ~{ref_fasta} --bed $bed_file \
@@ -109,6 +120,9 @@ task RandomSitesAndAddVariants {
 
         python3.6 /bamsurgeon/scripts/randomsites.py --genome ~{ref_fasta} --bed $bed_file \
             --seed ~{indel_seed} --numpicks ~{num_indels} --avoidN indel > addindel_input.bed
+
+        echo "contents of current directory:"
+        ls
 
         echo "adding synthetic SNVs"
         python3.6 /bamsurgeon/bin/addsnv.py --varfile addsnv_input.bed --bamfile ~{base_bam} \
@@ -124,14 +138,23 @@ task RandomSitesAndAddVariants {
             --aligner mem \
             --seed 1 \
 
+        echo "contents of current directory:"
+        ls
+
         # I believe the output is called snv.addsnv.addsnv_input.vcf, but the wildcard lets us be more general
         mv snv.*.vcf snvs.vcf
 
         echo "sorting SNV-added bam"
         samtools sort -@ ~{cpu} --output-fmt BAM snv.bam > snv_sorted.bam
 
+        echo "contents of current directory:"
+        ls
+
         echo "indexing SNV-added bam"
         samtools index snv_sorted.bam
+
+        echo "contents of current directory:"
+        ls
 
         echo "adding synthetic indels"
         python3.6 /bamsurgeon/bin/addindel.py --varfile addindel_input.bed --bamfile snv_sorted.bam --reference ~{ref_fasta} \
@@ -145,19 +168,31 @@ task RandomSitesAndAddVariants {
             --aligner mem \
             --seed 1
 
+        echo "contents of current directory:"
+        ls
+
         # Likewise (see above) I believe the exact VCF output is snv_indel.addindel.addindel_input.vcf
         # note that the BAM is named snv_indel (since it has the cumulative effect of SNV and indel addition), whereas
         # the VCF only contains the indels added at this last step.
         mv snv_indel.*.vcf indels.vcf
 
-        echo "sorting BAM"
+        echo "sorting BAM with SNVs and indels added"
         samtools sort -@ ~{cpu} --output-fmt BAM snv_indel.bam > result.bam
+
+        echo "contents of current directory:"
+        ls
 
         echo "indexing BAM"
         samtools index result.bam
 
+        echo "contents of current directory:"
+        ls
+
         echo "sorting VCF"
         java -jar /picard.jar SortVcf I=snvs.vcf I=indels.vcf O=variants.vcf
+
+        echo "contents of current directory:"
+        ls
   >>>
 
   runtime {
