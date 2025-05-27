@@ -1,4 +1,5 @@
 STATE_DICT_NAME = 'model_state_dict'
+OPTIMIZER_STATE_DICT_NAME = 'optimizer_state_dict'
 ARTIFACT_LOG_PRIORS_NAME = 'artifact_log_priors'
 ARTIFACT_SPECTRA_STATE_DICT_NAME = 'artifact_spectra_state_dict'
 HYPERPARAMS_NAME = 'hyperparams'

@@ -1,5 +1,6 @@
 import math
 import random
+import tempfile
 import time
 from collections import defaultdict
 from queue import PriorityQueue
@@ -10,6 +11,7 @@ from torch import nn
 from torch.utils.tensorboard import SummaryWriter
 from tqdm import trange, tqdm
 
+from permutect import constants
 from permutect.training.balancer import Balancer
 from permutect.training.downsampler import Downsampler
 from permutect.architecture.artifact_model import ArtifactModel, record_embeddings
@@ -35,6 +37,10 @@ def train_artifact_model(model: ArtifactModel, dataset: ReadsDataset, training_p
     ce = nn.CrossEntropyLoss(reduction='none')  # likewise
     balancer = Balancer(num_sources=dataset.num_sources(), device=device).to(device=device, dtype=dtype)
     downsampler: Downsampler = Downsampler(num_sources=dataset.num_sources()).to(device=device, dtype=dtype)
+
+    # save the model after every epoch in order to restore it if training goes off the rails
+    checkpoint_file = tempfile.NamedTemporaryFile(suffix=".pt")
+    best_checkpoint = None
 
     print("fitting downsampler parameters to the dataset")
     downsampler.optimize_downsampling_balance(dataset.totals_slvra.to(device=device))
@@ -164,6 +170,21 @@ def train_artifact_model(model: ArtifactModel, dataset: ReadsDataset, training_p
                 if epoch_type == Epoch.VALID:
                     evaluate_model(model, epoch, dataset, balancer, downsampler, train_loader, valid_loader, summary_writer, collect_embeddings=False, report_worst=False)
 
+            if not is_calibration_epoch and epoch_type == Epoch.VALID:
+                mean_over_labels = torch.mean(loss_metrics.get_marginal(BatchProperty.LABEL)).item()
+
+                # If this is the lowest loss so far, overwrite the checkpoint state.
+                # If training has gone terribly awry due to an exploding gradient or some other freak occurrence, restore
+                # the state dict to a checkpoint
+                if best_checkpoint is None or mean_over_labels < best_checkpoint['loss']:
+                    save_data = {constants.STATE_DICT_NAME: model.state_dict(),
+                                 constants.OPTIMIZER_STATE_DICT_NAME: train_optimizer.state_dict()}
+                    torch.save(save_data, checkpoint_file.name)
+                    best_checkpoint = {'epoch': epoch, 'loss': mean_over_labels}
+                elif mean_over_labels > 2 * best_checkpoint['loss']:
+                    saved = torch.load(checkpoint_file.name, map_location=device)
+                    model.load_state_dict(saved[constants.STATE_DICT_NAME])
+                    train_optimizer.load_state_dict(saved[constants.OPTIMIZER_STATE_DICT_NAME])
         # done with training and validation for this epoch
         report_memory_usage(f"End of epoch {epoch}.")
         print(f"Time elapsed(s): {time.time() - start_of_epoch:.1f}")
