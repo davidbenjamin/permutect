@@ -73,7 +73,7 @@ workflow ComparePermutect {
         File fp_fixed_by_permutect = Compare.fp_fixed_by_permutect
         File fp_fixed_by_permutect_idx = Compare.fp_fixed_by_permutect_idx
 
-        Fiel summary = Compare.summary
+        File summary = Compare.summary
     }
 }
 
