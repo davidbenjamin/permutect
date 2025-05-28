@@ -245,6 +245,6 @@ task Compare {
         File fp_fixed_by_permutect = "fp_fixed_by_permutect.vcf"
         File fp_fixed_by_permutect_idx = "fp_fixed_by_permutect.vcf.idx"
 
-        Fiel summary = "summary.txt"
+        File summary = "summary.txt"
     }
 }
