@@ -21,7 +21,7 @@ workflow ComparePermutect {
     call Concordance as PermutectConcordance {
         input:
             intervals = intervals,
-            masks = if masks == "" then obscene_hack_leave_unset else masks,
+            masks = if (defined(masks) && masks == "") then obscene_hack_leave_unset else masks,
             truth_vcf = truth_vcf,
             truth_vcf_idx = truth_vcf_idx,
             eval_vcf = permutect_vcf,
@@ -33,7 +33,7 @@ workflow ComparePermutect {
     call Concordance as OtherConcordance {
         input:
             intervals = intervals,
-            masks = if masks == "" then obscene_hack_leave_unset else masks,
+            masks = if (defined(masks) && masks == "") then obscene_hack_leave_unset else masks,
             truth_vcf = truth_vcf,
             truth_vcf_idx = truth_vcf_idx,
             eval_vcf = other_vcf,
