@@ -142,7 +142,11 @@ def train_artifact_model(model: ArtifactModel, dataset: ReadsDataset, training_p
                     alt_count_loss_metrics.record(batch, alt_count_losses_b, output.weights)
 
                 if epoch_type == Epoch.TRAIN:
-                    backpropagate(train_optimizer, loss)
+                    average_loss = loss.item() / batch.size()
+                    if average_loss > 1.0:
+                        print(f"Very large batch loss {average_loss:.2f}, skipping back-propagation.")
+                    else:
+                        backpropagate(train_optimizer, loss)
                 # done with this batch
             # done with one epoch type -- training or validation -- for this epoch
             if epoch_type == Epoch.TRAIN:
@@ -170,18 +174,20 @@ def train_artifact_model(model: ArtifactModel, dataset: ReadsDataset, training_p
                 if epoch_type == Epoch.VALID:
                     evaluate_model(model, epoch, dataset, balancer, downsampler, train_loader, valid_loader, summary_writer, collect_embeddings=False, report_worst=False)
 
-            if not is_calibration_epoch and epoch_type == Epoch.VALID:
+            if not is_calibration_epoch and epoch_type == Epoch.TRAIN:
                 mean_over_labels = torch.mean(loss_metrics.get_marginal(BatchProperty.LABEL)).item()
 
                 # If this is the lowest loss so far, overwrite the checkpoint state.
                 # If training has gone terribly awry due to an exploding gradient or some other freak occurrence, restore
                 # the state dict to a checkpoint
                 if best_checkpoint is None or mean_over_labels < best_checkpoint['loss']:
+                    print(f"New best mean loss: {mean_over_labels:.1f}, saving new checkpoint.")
                     save_data = {constants.STATE_DICT_NAME: model.state_dict(),
                                  constants.OPTIMIZER_STATE_DICT_NAME: train_optimizer.state_dict()}
                     torch.save(save_data, checkpoint_file.name)
                     best_checkpoint = {'epoch': epoch, 'loss': mean_over_labels}
                 elif mean_over_labels > 2 * best_checkpoint['loss']:
+                    print(f"Anomalously large mean loss: {mean_over_labels:.1f}, loading checkpoint.")
                     saved = torch.load(checkpoint_file.name, map_location=device)
                     model.load_state_dict(saved[constants.STATE_DICT_NAME])
                     train_optimizer.load_state_dict(saved[constants.OPTIMIZER_STATE_DICT_NAME])
