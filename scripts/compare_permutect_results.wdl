@@ -94,7 +94,7 @@ task Concordance {
 	}
 
     command <<<
-        export GATK_LOCAL_JAR=${default="/root/gatk.jar" gatk_override}
+        export GATK_LOCAL_JAR=~{default="/root/gatk.jar" gatk_override}
 
         gatk --java-options "-Xmx2g" Concordance \
             ~{"-L " + intervals} \
@@ -179,7 +179,7 @@ task Compare {
 	}
 
     command <<<
-        export GATK_LOCAL_JAR=${default="/root/gatk.jar" gatk_override}
+        export GATK_LOCAL_JAR=~{default="/root/gatk.jar" gatk_override}
 
         gatk --java-options "-Xmx2g" SelectVariants \
             -V ~{permutect_ffn} -disc ~{other_ffn} -O ffn_created_by_permutect.vcf
