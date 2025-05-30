@@ -1,8 +1,11 @@
+from typing import Iterator
+
 import psutil
 import tarfile
 import os
 import torch
-from torch import Tensor
+from torch import Tensor, nn
+from torch.nn import Parameter
 
 
 def report_memory_usage(message: str = ""):
@@ -100,9 +103,10 @@ class StreamingAverage:
         self._sum += torch.sum(values * weights).item()
 
 
-def backpropagate(optimizer: torch.optim.Optimizer, loss: Tensor):
+def backpropagate(optimizer: torch.optim.Optimizer, loss: Tensor, params_to_clip: Iterator[Parameter] = []):
     optimizer.zero_grad(set_to_none=True)
     loss.backward()
+    nn.utils.clip_grad_norm_(params_to_clip, max_norm=1.0)
     optimizer.step()
 
 

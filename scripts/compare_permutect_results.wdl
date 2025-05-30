@@ -21,7 +21,7 @@ workflow ComparePermutect {
     call Concordance as PermutectConcordance {
         input:
             intervals = intervals,
-            masks = if masks == "" then obscene_hack_leave_unset else masks,
+            masks = if (defined(masks) && masks == "") then obscene_hack_leave_unset else masks,
             truth_vcf = truth_vcf,
             truth_vcf_idx = truth_vcf_idx,
             eval_vcf = permutect_vcf,
@@ -33,7 +33,7 @@ workflow ComparePermutect {
     call Concordance as OtherConcordance {
         input:
             intervals = intervals,
-            masks = if masks == "" then obscene_hack_leave_unset else masks,
+            masks = if (defined(masks) && masks == "") then obscene_hack_leave_unset else masks,
             truth_vcf = truth_vcf,
             truth_vcf_idx = truth_vcf_idx,
             eval_vcf = other_vcf,
@@ -73,7 +73,7 @@ workflow ComparePermutect {
         File fp_fixed_by_permutect = Compare.fp_fixed_by_permutect
         File fp_fixed_by_permutect_idx = Compare.fp_fixed_by_permutect_idx
 
-        Fiel summary = Compare.summary
+        File summary = Compare.summary
     }
 }
 
@@ -94,7 +94,7 @@ task Concordance {
 	}
 
     command <<<
-        export GATK_LOCAL_JAR=${default="/root/gatk.jar" gatk_override}
+        export GATK_LOCAL_JAR=~{default="/root/gatk.jar" gatk_override}
 
         gatk --java-options "-Xmx2g" Concordance \
             ~{"-L " + intervals} \
@@ -179,7 +179,7 @@ task Compare {
 	}
 
     command <<<
-        export GATK_LOCAL_JAR=${default="/root/gatk.jar" gatk_override}
+        export GATK_LOCAL_JAR=~{default="/root/gatk.jar" gatk_override}
 
         gatk --java-options "-Xmx2g" SelectVariants \
             -V ~{permutect_ffn} -disc ~{other_ffn} -O ffn_created_by_permutect.vcf
@@ -245,6 +245,6 @@ task Compare {
         File fp_fixed_by_permutect = "fp_fixed_by_permutect.vcf"
         File fp_fixed_by_permutect_idx = "fp_fixed_by_permutect.vcf.idx"
 
-        Fiel summary = "summary.txt"
+        File summary = "summary.txt"
     }
 }
