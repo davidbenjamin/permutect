@@ -143,10 +143,10 @@ def train_artifact_model(model: ArtifactModel, dataset: ReadsDataset, training_p
 
                 if epoch_type == Epoch.TRAIN:
                     average_loss = loss.item() / batch.size()
-                    if epoch > 1 and average_loss > 1.0:
-                        print(f"Very large batch loss {average_loss:.2f}, skipping back-propagation.")
-                    else:
-                        backpropagate(train_optimizer, loss)
+                    if epoch > 1 and average_loss > 100.0:
+                        print(f"Very large batch loss {average_loss:.2f}.")
+
+                    backpropagate(train_optimizer, loss, params_to_clip=model.parameters())
                 # done with this batch
             # done with one epoch type -- training or validation -- for this epoch
             if epoch_type == Epoch.TRAIN:
