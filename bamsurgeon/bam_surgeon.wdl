@@ -127,6 +127,7 @@ task RandomSitesAndAddVariants {
         echo "adding synthetic SNVs"
         python3.6 /bamsurgeon/bin/addsnv.py --varfile addsnv_input.bed --bamfile ~{base_bam} \
             --reference ~{ref_fasta} --outbam snv.bam \
+            --procs 8 \
             --snvfrac 0.2 \
             --mutfrac ~{somatic_allele_fraction} \
             --haplosize 50 \
@@ -158,6 +159,7 @@ task RandomSitesAndAddVariants {
         echo "adding synthetic indels"
         python3.6 /bamsurgeon/bin/addindel.py --varfile addindel_input.bed --bamfile snv_sorted.bam --reference ~{ref_fasta} \
             --outbam snv_indel.bam \
+            --procs 8 \
             --snvfrac 0.2 \
             --mutfrac ~{somatic_allele_fraction} \
             --picardjar /picard.jar \
