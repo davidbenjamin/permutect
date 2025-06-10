@@ -134,7 +134,7 @@ task RandomSitesAndAddVariants {
             --minmutreads 2 \
             --coverdiff 0.1 \
             --ignoresnps --tagreads --ignorepileup \
-            --force --insane \
+            --insane \
             --aligner mem \
             --seed 1 \
 
@@ -164,7 +164,7 @@ task RandomSitesAndAddVariants {
             --picardjar /picard.jar \
             --minmutreads 2 \
             --tagreads --ignorepileup \
-            --force --insane \
+            --insane \
             --aligner mem \
             --seed 1
 
