@@ -133,7 +133,7 @@ task RandomSitesAndAddVariants {
             --picardjar /picard.jar \
             --minmutreads 2 \
             --coverdiff 0.1 \
-            --ignoresnps --tagreads --ignorepileup \
+            --ignoresnps --tagreads \
             --aligner mem \
             --seed 1 \
 
@@ -162,7 +162,7 @@ task RandomSitesAndAddVariants {
             --mutfrac ~{somatic_allele_fraction} \
             --picardjar /picard.jar \
             --minmutreads 2 \
-            --tagreads --ignorepileup \
+            --tagreads \
             --aligner mem \
             --seed 1
 
