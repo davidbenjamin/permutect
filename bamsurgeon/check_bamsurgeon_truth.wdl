@@ -1,3 +1,5 @@
+version 1.0
+
 workflow CheckBamsurgeon {
     input {
         # basic inputs
@@ -33,6 +35,7 @@ workflow CheckBamsurgeon {
             m2_extra_args = m2_extra_args,
             make_bamout = make_bamout,
             dragstr_model = dragstr_model,
+            gatk_docker = gatk_docker,
             gatk_override = gatk_override,
             gcs_project_for_requester_pays = gcs_project_for_requester_pays
     }
