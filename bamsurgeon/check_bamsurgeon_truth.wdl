@@ -39,10 +39,9 @@ workflow CheckBamsurgeon {
 
 
     output {
-        File output_vcf = select_first([FilterAlignmentArtifacts.filtered_vcf, Filter.filtered_vcf, MergeVCFs.merged_vcf])
-        File output_vcf_idx = select_first([FilterAlignmentArtifacts.filtered_vcf_idx, Filter.filtered_vcf_idx,MergeVCFs.merged_vcf_idx])
-        File? bamout = MergeBamOuts.merged_bam_out
-        File? bamout_index = MergeBamOuts.merged_bam_out_index
+        File output_vcf = M2.output_vcf
+        File output_vcf_idx = M2.output_vcf_idx
+        File bamout = M2.bamout
     }
 }
 
@@ -123,8 +122,8 @@ task M2 {
     }
 
     output {
-        File unfiltered_vcf = "~{output_vcf}"
-        File unfiltered_vcf_idx = "~{output_vcf_idx}"
-        File output_bamOut = "bamout.bam"
+        File output_vcf = "force_call.vcf"
+        File output_vcf_idx = "force_call.vcf.idx"
+        File bamout = "bamout.bam"
     }
 }
