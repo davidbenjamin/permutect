@@ -36,11 +36,17 @@ workflow BamSurgeon {
         }
     }
 
-    call RandomSitesAndAddVariants {
+    call IndexReference {
         input:
             ref_fasta = ref_fasta,
             ref_fai = ref_fai,
             ref_dict = ref_dict,
+            bam_surgeon_docker = bam_surgeon_docker
+    }
+
+    call RandomSitesAndAddVariants {
+        input:
+            ref_tar = IndexReference.ref_tar,
             base_bam = select_first([PrintReads.output_bam, base_bam]),
             base_bam_index = select_first([PrintReads.output_bam_idx, base_bam_index]),
             target_regions_bed = target_regions_bed,
@@ -58,11 +64,61 @@ workflow BamSurgeon {
     }
 }
 
-task RandomSitesAndAddVariants {
+task IndexReference {
     input {
         File ref_fasta
         File ref_fai
         File ref_dict
+
+        String bam_surgeon_docker
+        Int preemptible_tries = 0
+        Int cpu = 4
+        Int disk_space = 500
+        Int mem = 8
+    }
+
+
+    command <<<
+        # calls to BWA within bam surgeon require not not ref fasta, dict, but other auxiliary files
+        echo "Indexing reference"
+        bwa index ~{ref_fasta}
+
+        ref_dir=`dirname ~{ref_fasta}`
+        echo "contents of reference directory ${ref_dir}:"
+        ls ${ref_dir}
+
+        mkdir reference
+        mv ${ref_dir}/* reference
+
+        echo "contents of reference/ directory after move"
+        ls reference
+
+        tar cvf reference.tar reference/
+
+        # debug: expand it
+        rm -r reference/
+
+        tar -xvf reference.tar
+        ls .
+        ls reference/
+  >>>
+
+  runtime {
+     docker: bam_surgeon_docker
+     disks: "local-disk " + disk_space + " SSD"
+     memory: mem + " GB"
+     preemptible: preemptible_tries
+     cpu: cpu
+  }
+
+  output {
+      File ref_tar = "reference.tar"
+  }
+}
+
+task RandomSitesAndAddVariants {
+    input {
+        File ref_tar
         File base_bam
         File base_bam_index
         File target_regions_bed
@@ -84,15 +140,8 @@ task RandomSitesAndAddVariants {
     Int mem_mb = mem * 1000
 
     command <<<
-        echo "current directory is:"
-        echo $PWD
-
-        # calls to BWA within bam surgeon require not not ref fasta, dict, but other auxiliary files
-        echo "Indexing reference"
-        bwa index ~{ref_fasta}
-
-        echo "contents of current directory:"
-        ls
+        tar -xvf ~{ref_tar}
+        ref_fasta=`ls reference/*.fasta`
 
         # if the inout intervals are not a bed file we need to convert
         if [[ ~{target_regions_bed} == *.bed ]]; then
@@ -115,10 +164,10 @@ task RandomSitesAndAddVariants {
 
 
         echo "making random sites"
-        python3.6 /bamsurgeon/scripts/randomsites.py --genome ~{ref_fasta} --bed $bed_file \
+        python3.6 /bamsurgeon/scripts/randomsites.py --genome ${ref_fasta} --bed $bed_file \
             --seed ~{snv_seed} --numpicks ~{num_snvs} --avoidN snv > addsnv_input.bed
 
-        python3.6 /bamsurgeon/scripts/randomsites.py --genome ~{ref_fasta} --bed $bed_file \
+        python3.6 /bamsurgeon/scripts/randomsites.py --genome ${ref_fasta} --bed $bed_file \
             --seed ~{indel_seed} --numpicks ~{num_indels} --avoidN indel > addindel_input.bed
 
         echo "contents of current directory:"
@@ -126,9 +175,10 @@ task RandomSitesAndAddVariants {
 
         echo "adding synthetic SNVs"
         python3.6 /bamsurgeon/bin/addsnv.py --varfile addsnv_input.bed --bamfile ~{base_bam} \
-            --reference ~{ref_fasta} --outbam snv.bam \
+            --reference ${ref_fasta} --outbam snv.bam \
             --procs 8 \
             --insane \
+            --ignorepileup \
             --snvfrac 0.2 \
             --mutfrac ~{somatic_allele_fraction} \
             --haplosize 50 \
@@ -158,10 +208,11 @@ task RandomSitesAndAddVariants {
         ls
 
         echo "adding synthetic indels"
-        python3.6 /bamsurgeon/bin/addindel.py --varfile addindel_input.bed --bamfile snv_sorted.bam --reference ~{ref_fasta} \
+        python3.6 /bamsurgeon/bin/addindel.py --varfile addindel_input.bed --bamfile snv_sorted.bam --reference ${ref_fasta} \
             --outbam snv_indel.bam \
             --procs 8 \
             --insane \
+            --ignorepileup \
             --snvfrac 0.2 \
             --mutfrac ~{somatic_allele_fraction} \
             --picardjar /picard.jar \
