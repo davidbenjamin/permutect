@@ -44,7 +44,7 @@ workflow BamSurgeon {
             bam_surgeon_docker = bam_surgeon_docker
     }
 
-    call RandomSitesAndAddVariants {
+    call Bamsurgeon {
         input:
             ref_tar = IndexReference.ref_tar,
             base_bam = select_first([PrintReads.output_bam, base_bam]),
@@ -57,10 +57,20 @@ workflow BamSurgeon {
             bam_surgeon_docker = bam_surgeon_docker
     }
 
+    call LeftAlignAndTrim {
+    input:
+        gatk_docker = gatk_docker,
+        truth_vcf = Bamsurgeon.truth_vcf,
+        ref_fasta = ref_fasta,
+        ref_fai = ref_fai,
+        ref_dict = ref_dict
+    }
+
     output {
-        File synthetic_tumor_bam = RandomSitesAndAddVariants.synthetic_tumor_bam
-        File synthetic_tumor_bam_index = RandomSitesAndAddVariants.synthetic_tumor_bam_index
-        File truth_vcf = RandomSitesAndAddVariants.truth_vcf
+        File synthetic_tumor_bam = Bamsurgeon.synthetic_tumor_bam
+        File synthetic_tumor_bam_index = Bamsurgeon.synthetic_tumor_bam_index
+        File truth_vcf = LeftAlignAndTrim.aligned_truth_vcf
+        File truth_vcf_idx = LeftAlignAndTrim.aligned_truth_vcf_idx
     }
 }
 
@@ -116,7 +126,7 @@ task IndexReference {
   }
 }
 
-task RandomSitesAndAddVariants {
+task Bamsurgeon {
     input {
         File ref_tar
         File base_bam
@@ -262,6 +272,52 @@ task RandomSitesAndAddVariants {
       File truth_vcf = "variants.vcf"
   }
 }
+
+task LeftAlignAndTrim {
+    input {
+        String gatk_docker
+        File truth_vcf = "variants.vcf"
+        File ref_fasta
+        File ref_fai
+        File ref_dict
+
+        Int cpu = 2
+        Int mem_gb = 4
+        Int disk_gb = 100
+        Int boot_disk_gb = 10
+        Int max_retries = 0
+        Int preemptible = 1
+    }
+
+    parameter_meta{
+        ref_fasta: {localization_optional: true}
+        ref_fai: {localization_optional: true}
+        ref_dict: {localization_optional: true}
+    }
+
+    command <<<
+        cp ~{truth_vcf} ./orig.vcf
+        gatk IndexFeatureFile -I orig.vcf
+
+        gatk LeftAlignAndTrimVariants -R ~{ref_fasta} -V orig.vcf -O truth.vcf
+    >>>
+
+    runtime {
+        docker: gatk_docker
+        bootDiskSizeGb: boot_disk_gb
+        memory: mem_gb + " GB"
+        disks: "local-disk " + disk_gb + " SSD"
+        preemptible: preemptible
+        maxRetries: max_retries
+        cpu: cpu
+    }
+
+    output {
+        File aligned_truth_vcf = "truth.vcf"
+        File aligned_truth_vcf_idx = "truth.vcf.idx"
+    }
+}
+
 
 task PrintReads {
     input {
