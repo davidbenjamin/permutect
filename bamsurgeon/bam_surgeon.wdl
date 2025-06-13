@@ -186,7 +186,6 @@ task Bamsurgeon {
         echo "adding synthetic SNVs"
         python3.6 /bamsurgeon/bin/addsnv.py --varfile addsnv_input.bed --bamfile ~{base_bam} \
             --reference ${ref_fasta} --outbam snv.bam \
-            --procs 8 \
             --insane \
             --ignorepileup \
             --snvfrac 0.2 \
@@ -220,7 +219,6 @@ task Bamsurgeon {
         echo "adding synthetic indels"
         python3.6 /bamsurgeon/bin/addindel.py --varfile addindel_input.bed --bamfile snv_sorted.bam --reference ${ref_fasta} \
             --outbam snv_indel.bam \
-            --procs 8 \
             --insane \
             --ignorepileup \
             --snvfrac 0.2 \
