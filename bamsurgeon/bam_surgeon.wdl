@@ -8,7 +8,9 @@ workflow BamSurgeon {
 
         File base_bam
         File base_bam_index
-        File target_regions_bed
+        File intervals
+
+        Int scatter_count
 
         Int num_snvs
         Int num_indels
@@ -22,7 +24,38 @@ workflow BamSurgeon {
         String? gcs_project_for_requester_pays
     }
 
-    if (use_print_reads) {
+    call IndexReference {
+        input:
+            ref_fasta = ref_fasta,
+            ref_fai = ref_fai,
+            ref_dict = ref_dict,
+            bam_surgeon_docker = bam_surgeon_docker
+    }
+
+    call SplitIntervals {
+        input:
+            intervals = intervals,
+            ref_fasta = ref_fasta,
+            ref_fai = ref_fai,
+            ref_dict = ref_dict,
+            scatter_count = scatter_count,
+            gatk_docker = gatk_docker
+    }
+
+    # generate all SNV anf all indels -- the Bamsuregon task in each scatter must use the overlap between these and the
+    # particular scatter interval
+    call RandomSites {
+        input:
+            ref_tar = IndexReference.ref_tar,
+            intervals = intervals,
+            num_snvs = num_snvs,
+            num_indels = num_indels,
+            seed = seed,
+            bam_surgeon_docker = bam_surgeon_docker
+    }
+
+    scatter (subintervals in SplitIntervals.interval_files ) {
+        # make a chunk of the overall bam containing the intervals in this scatter
         call PrintReads {
             input:
                 gatk_docker = gatk_docker,
@@ -32,30 +65,23 @@ workflow BamSurgeon {
                 ref_fasta = ref_fasta,
                 ref_fai = ref_fai,
                 ref_dict = ref_dict,
-                intervals = target_regions_bed
+                intervals = subintervals
+        }
+
+        call Bamsurgeon {
+        input:
+            ref_tar = IndexReference.ref_tar,
+            base_bam = PrintReads.output_bam,
+            base_bam_index = PrintReads.output_bam_idx,
+            intervals = subintervals,
+            snv_bed = RandomSites.snv_bed,
+            indel_bed = RandomSites.indel_bed,
+            somatic_allele_fraction = somatic_allele_fraction,
+            bam_surgeon_docker = bam_surgeon_docker
         }
     }
 
-    call IndexReference {
-        input:
-            ref_fasta = ref_fasta,
-            ref_fai = ref_fai,
-            ref_dict = ref_dict,
-            bam_surgeon_docker = bam_surgeon_docker
-    }
 
-    call Bamsurgeon {
-        input:
-            ref_tar = IndexReference.ref_tar,
-            base_bam = select_first([PrintReads.output_bam, base_bam]),
-            base_bam_index = select_first([PrintReads.output_bam_idx, base_bam_index]),
-            target_regions_bed = target_regions_bed,
-            num_snvs = num_snvs,
-            num_indels = num_indels,
-            somatic_allele_fraction = somatic_allele_fraction,
-            seed = seed,
-            bam_surgeon_docker = bam_surgeon_docker
-    }
 
     call LeftAlignAndTrim {
     input:
@@ -126,23 +152,70 @@ task IndexReference {
   }
 }
 
-task Bamsurgeon {
+task SplitIntervals {
+    input {
+        File? intervals
+        File? masked_intervals
+        File ref_fasta
+        File ref_fai
+        File ref_dict
+        Int scatter_count
+
+        # if intervals aren't split, and if there is more than a read length between intervals, then scatters don't have
+        # overlapping reads and we can gather bams without sorting / worrying about edge effects
+        String split_intervals_extra_args = "--subdivision-mode BALANCING_WITHOUT_INTERVAL_SUBDIVISION --min-contig-size 100000"
+
+        String gatk_docker
+        Int boot_disk_size = 10
+        Int mem = 4
+        Int disk = 10
+        Int preemptible = 0
+        Int cpu = 1
+        Int max_retries = 0
+    }
+
+    command {
+        set -e
+
+        mkdir interval-files
+        gatk SplitIntervals \
+            -R ~{ref_fasta} \
+            ~{"-L " + intervals} \
+            ~{"-XL " + masked_intervals} \
+            -scatter ~{scatter_count} \
+            -O interval-files \
+            ~{split_intervals_extra_args}
+        cp interval-files/*.interval_list .
+    }
+
+    runtime {
+        docker: gatk_docker
+        bootDiskSizeGb: boot_disk_size
+        memory: mem + " GB"
+        disks: "local-disk " + disk + " SSD"
+        preemptible: preemptible
+        maxRetries: max_retries
+        cpu: cpu
+    }
+
+    output {
+        Array[File] interval_files = glob("*.interval_list")
+    }
+}
+
+task RandomSites {
     input {
         File ref_tar
-        File base_bam
-        File base_bam_index
-        File target_regions_bed
+        File intervals
         Int num_snvs
         Int num_indels
-        Float somatic_allele_fraction
         Int seed
-
 
         String bam_surgeon_docker
         Int preemptible_tries = 0
-        Int cpu = 4
-        Int disk_space = 500
-        Int mem = 8
+        Int cpu = 1
+        Int disk_space = 100
+        Int mem = 4
     }
 
     Int snv_seed = seed
@@ -154,37 +227,77 @@ task Bamsurgeon {
         ref_fasta=`ls reference/*.fasta`
 
         # if the inout intervals are not a bed file we need to convert
-        if [[ ~{target_regions_bed} == *.bed ]]; then
+        if [[ ~{intervals} == *.bed ]]; then
             echo "input intervals file is already in bed format"
-            bed_file=~{target_regions_bed}
+            bed_file=~{intervals}
         else
             echo "input intervals must be converted to bed format"
-            java -jar /usr/local/bin/picard.jar IntervalListToBed I=~{target_regions_bed} O=bed_regions.bed
+            java -jar /usr/local/bin/picard.jar IntervalListToBed I=~{intervals} O=bed_regions.bed
             bed_file=bed_regions.bed
         fi
 
-        # super annoying: bam surgeon expects bam index to end in .bam.bai or .cram.crai, not just .bai or .crai
-        if [[ ~{base_bam_index} == *.bai ]]; then
-            mv ~{base_bam_index} ~{base_bam}.bai
-        elif [[ ~{base_bam_index} == *.crai ]]; then
-            mv ~{base_bam_index} ~{base_bam}.crai
-        else
-            echo "TERRIBLE ERROR.  Sequencing data is neither .bam nor .cram"
-        fi
-
-
         echo "making random sites"
         python3.6 /bamsurgeon/scripts/randomsites.py --genome ${ref_fasta} --bed $bed_file \
-            --seed ~{snv_seed} --numpicks ~{num_snvs} --avoidN snv > addsnv_input.bed
+            --seed ~{snv_seed} --numpicks ~{num_snvs} --avoidN snv > addsnv.bed
 
         python3.6 /bamsurgeon/scripts/randomsites.py --genome ${ref_fasta} --bed $bed_file \
-            --seed ~{indel_seed} --numpicks ~{num_indels} --avoidN indel > addindel_input.bed
+            --seed ~{indel_seed} --numpicks ~{num_indels} --avoidN indel > addindel.bed
+  >>>
+
+  runtime {
+     docker: bam_surgeon_docker
+     disks: "local-disk " + disk_space + " SSD"
+     memory: mem_mb + " MB"
+     preemptible: preemptible_tries
+     cpu: cpu
+  }
+
+  output {
+      File snv_bed = "addsnv.bed"
+      File indel_bed = "addindel.bed"
+  }
+}
+
+task Bamsurgeon {
+    input {
+        File ref_tar
+        File base_bam
+        File base_bam_index
+        File intervals
+        File snv_bed
+        File indel_bed
+
+        Float somatic_allele_fraction
+
+        String bam_surgeon_docker
+        Int preemptible_tries = 0
+        Int cpu = 4
+        Int disk_space = 500
+        Int mem = 8
+    }
+
+    Int mem_mb = mem * 1000
+
+    command <<<
+        tar -xvf ~{ref_tar}
+        ref_fasta=`ls reference/*.fasta`
+
+        # if the inout intervals are not a bed file we need to convert
+        if [[ ~{intervals} == *.bed ]]; then
+            echo "input intervals file is already in bed format"
+            bed_file=~{intervals}
+        else
+            echo "input intervals must be converted to bed format"
+            java -jar /usr/local/bin/picard.jar IntervalListToBed I=~{intervals} O=bed_regions.bed
+            bed_file=bed_regions.bed
+        fi
+
 
         echo "contents of current directory:"
         ls
 
         echo "adding synthetic SNVs"
-        python3.6 /bamsurgeon/bin/addsnv.py --varfile addsnv_input.bed --bamfile ~{base_bam} \
+        python3.6 /bamsurgeon/bin/addsnv.py --varfile ~{snv_bed} --bamfile ~{base_bam} \
             --reference ${ref_fasta} --outbam snv.bam \
             --insane \
             --ignorepileup \
@@ -217,7 +330,7 @@ task Bamsurgeon {
         ls
 
         echo "adding synthetic indels"
-        python3.6 /bamsurgeon/bin/addindel.py --varfile addindel_input.bed --bamfile snv_sorted.bam --reference ${ref_fasta} \
+        python3.6 /bamsurgeon/bin/addindel.py --varfile ~{indel_bed} --bamfile snv_sorted.bam --reference ${ref_fasta} \
             --outbam snv_indel.bam \
             --insane \
             --ignorepileup \
@@ -366,5 +479,55 @@ task PrintReads {
     output {
         File output_bam = "output.bam"
         File output_bam_idx = "output.bai"
+    }
+}
+
+task MergeBams {
+    input {
+        File ref_fasta
+        File ref_fai
+        File ref_dict
+        Array[File]+ bams
+        String gatk_docker
+        File? gatk_override
+        Int disk_space = 1000
+        Int boot_disk_size = 10
+        Int preemptible = 0
+        Int cpu = 1
+        Int max_retries = 0
+        Int mem = 16
+    }
+
+    Int machine_mem = mem * 1000
+    Int command_mem = machine_mem - 500
+
+    command <<<
+        # This command block assumes that there is at least one file in bam_outs.
+        #  Do not call this task if len(bam_outs) == 0
+        set -e
+        export GATK_LOCAL_JAR=~{default="/root/gatk.jar" gatk_override}
+        gatk --java-options "-Xmx~{command_mem}m" GatherBamFiles \
+            -I ~{sep=" -I " bams} -O merged-unsorted.bam -R ~{ref_fasta}
+
+        # We must sort because adjacent scatters may have overlapping reads
+
+        gatk --java-options "-Xmx~{command_mem}m" SortSam -I merged-unsorted.bam \
+            -O merged.bam --SORT_ORDER coordinate -VALIDATION_STRINGENCY LENIENT
+        gatk --java-options "-Xmx~{command_mem}m" BuildBamIndex -I merged.bam -VALIDATION_STRINGENCY LENIENT
+    >>>
+
+    runtime {
+        docker: gatk_docker
+        bootDiskSizeGb: boot_disk_size
+        memory: machine_mem + " MB"
+        disks: "local-disk " + disk_space + " SSD"
+        preemptible: preemptible
+        maxRetries: max_retries
+        cpu: cpu
+    }
+
+    output {
+        File merged_bam = "merged.bam"
+        File merged_bai = "merged.bai"
     }
 }
