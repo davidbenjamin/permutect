@@ -479,10 +479,20 @@ task RestrictBamAndBedsToSubIntervals {
             subintervals_bed_file=subintervals.bed
         fi
 
+
+
+        # HACK: bedtools does not accept 6-column BED, while the add-indel.bed file from BAMSurgeon has 6 columns,
+        # the auxiliary columns being VAF, DEL/INS, and inserted bases (if insertion)  we merge the last three columns
+        # and separate by underscores for processing with bedtools
+        while read a b c d e f; do print "${a}\t${b}\t${c}\t${d}_${e}_${f}\n"; done < ~{original_indel_bed} > hack-indel.bed
+
         # bedtools is in the GATK docker
         # -wa means write the entire original entry from the -a argument
         bedtools intersect -wa -a ~{original_snv_bed} -b ${subintervals_bed_file} > restricted_snv.bed
-        bedtools intersect -wa -a ~{original_indel_bed} -b ${subintervals_bed_file} > restricted_indel.bed
+        bedtools intersect -wa -a ~{original_indel_bed} -b hack-indel.bed > hack-restricted_indel.bed
+
+        # now convert the underscores back to tabs and remove trailing tabs for DEL records to undo the hack
+        sed 's/_/\t/g' hack-restricted_indel.bed | sed 's/[[:space:]]*$//' > restricted_indel.bed
 
 
         # this command also produces the accompanying index hla.bai
