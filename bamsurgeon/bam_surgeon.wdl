@@ -42,7 +42,7 @@ workflow BamSurgeon {
             gatk_docker = gatk_docker
     }
 
-    # generate all SNV anf all indels -- the Bamsuregon task in each scatter must use the overlap between these and the
+    # generate all SNV and all indels -- the Bamsurgeon task in each scatter must use the overlap between these and the
     # particular scatter interval
     call RandomSites {
         input:
@@ -56,47 +56,67 @@ workflow BamSurgeon {
 
     scatter (subintervals in SplitIntervals.interval_files ) {
         # make a chunk of the overall bam containing the intervals in this scatter
-        call PrintReads {
+        # and the subsets of the SNV and indel BED files int his scatter
+        call RestrictBamAndBedsToSubIntervals {
             input:
                 gatk_docker = gatk_docker,
                 gcs_project_for_requester_pays = gcs_project_for_requester_pays,
                 original_bam = base_bam,
                 original_bam_idx = base_bam_index,
+                original_snv_bed = RandomSites.snv_bed,
+                original_indel_bed = RandomSites.indel_bed,
                 ref_fasta = ref_fasta,
                 ref_fai = ref_fai,
                 ref_dict = ref_dict,
-                intervals = subintervals
+                subintervals = subintervals
         }
 
         call Bamsurgeon {
-        input:
-            ref_tar = IndexReference.ref_tar,
-            base_bam = PrintReads.output_bam,
-            base_bam_index = PrintReads.output_bam_idx,
-            intervals = subintervals,
-            snv_bed = RandomSites.snv_bed,
-            indel_bed = RandomSites.indel_bed,
-            somatic_allele_fraction = somatic_allele_fraction,
-            bam_surgeon_docker = bam_surgeon_docker
+            input:
+                ref_tar = IndexReference.ref_tar,
+                base_bam = RestrictBamAndBedsToSubIntervals.output_bam,
+                base_bam_index = RestrictBamAndBedsToSubIntervals.output_bam_idx,
+                intervals = subintervals,
+                snv_bed = RestrictBamAndBedsToSubIntervals.output_snv_bed,
+                indel_bed = RestrictBamAndBedsToSubIntervals.output_indel_bed,
+                somatic_allele_fraction = somatic_allele_fraction,
+                bam_surgeon_docker = bam_surgeon_docker
         }
     }
 
+    # combine the scattered truth VCFs
+    call MergeVCFs {
+        input:
+            input_vcfs = Bamsurgeon.truth_vcf,
+            input_vcf_indices = Bamsurgeon.truth_vcf_idx,
+            gatk_docker = gatk_docker
+    }
 
+    call MergeBams {
+        input:
+            ref_fasta = ref_fasta,
+            ref_fai = ref_fai,
+            ref_dict = ref_dict,
+            bams = Bamsurgeon.synthetic_tumor_bam,
+            bam_indices = Bamsurgeon.synthetic_tumor_bam_index,
+            gatk_docker = gatk_docker
+    }
 
     call LeftAlignAndTrim {
-    input:
-        gatk_docker = gatk_docker,
-        truth_vcf = Bamsurgeon.truth_vcf,
-        ref_fasta = ref_fasta,
-        ref_fai = ref_fai,
-        ref_dict = ref_dict
+        input:
+            gatk_docker = gatk_docker,
+            input_vcf = MergeVCFs.merged_vcf,
+            input_vcf_idx = MergeVCFs.merged_vcf_idx,
+            ref_fasta = ref_fasta,
+            ref_fai = ref_fai,
+            ref_dict = ref_dict
     }
 
     output {
-        File synthetic_tumor_bam = Bamsurgeon.synthetic_tumor_bam
-        File synthetic_tumor_bam_index = Bamsurgeon.synthetic_tumor_bam_index
-        File truth_vcf = LeftAlignAndTrim.aligned_truth_vcf
-        File truth_vcf_idx = LeftAlignAndTrim.aligned_truth_vcf_idx
+        File synthetic_tumor_bam = MergeBams.merged_bam
+        File synthetic_tumor_bam_index = MergeBams.merged_bai
+        File truth_vcf = LeftAlignAndTrim.aligned_vcf
+        File truth_vcf_idx = LeftAlignAndTrim.aligned_vcf_idx
     }
 }
 
@@ -282,17 +302,6 @@ task Bamsurgeon {
         tar -xvf ~{ref_tar}
         ref_fasta=`ls reference/*.fasta`
 
-        # if the inout intervals are not a bed file we need to convert
-        if [[ ~{intervals} == *.bed ]]; then
-            echo "input intervals file is already in bed format"
-            bed_file=~{intervals}
-        else
-            echo "input intervals must be converted to bed format"
-            java -jar /usr/local/bin/picard.jar IntervalListToBed I=~{intervals} O=bed_regions.bed
-            bed_file=bed_regions.bed
-        fi
-
-
         echo "contents of current directory:"
         ls
 
@@ -363,7 +372,7 @@ task Bamsurgeon {
         ls
 
         echo "sorting VCF"
-        java -jar /picard.jar SortVcf I=snvs.vcf I=indels.vcf O=variants.vcf
+        java -jar /picard.jar SortVcf I=snvs.vcf I=indels.vcf O=truth.vcf
 
         echo "contents of current directory:"
         ls
@@ -380,14 +389,16 @@ task Bamsurgeon {
   output {
       File synthetic_tumor_bam = "result.bam"
       File synthetic_tumor_bam_index = "result.bam.bai"
-      File truth_vcf = "variants.vcf"
+      File truth_vcf = "truth.vcf"
+      File truth_vcf_idx = "truth.vcf.idx"
   }
 }
 
 task LeftAlignAndTrim {
     input {
         String gatk_docker
-        File truth_vcf = "variants.vcf"
+        File input_vcf
+        File input_vcf_idx
         File ref_fasta
         File ref_fai
         File ref_dict
@@ -407,10 +418,7 @@ task LeftAlignAndTrim {
     }
 
     command <<<
-        cp ~{truth_vcf} ./orig.vcf
-        gatk IndexFeatureFile -I orig.vcf
-
-        gatk LeftAlignAndTrimVariants -R ~{ref_fasta} -V orig.vcf -O truth.vcf
+        gatk LeftAlignAndTrimVariants -R ~{ref_fasta} -V ~{input_vcf} -O truth.vcf
     >>>
 
     runtime {
@@ -424,22 +432,24 @@ task LeftAlignAndTrim {
     }
 
     output {
-        File aligned_truth_vcf = "truth.vcf"
-        File aligned_truth_vcf_idx = "truth.vcf.idx"
+        File aligned_vcf = "truth.vcf"
+        File aligned_vcf_idx = "truth.vcf.idx"
     }
 }
 
 
-task PrintReads {
+task RestrictBamAndBedsToSubIntervals {
     input {
         String gatk_docker
         String? gcs_project_for_requester_pays
         File original_bam       # this can be a BAM or CRAM
         File original_bam_idx
+        File original_snv_bed
+        File original_indel_bed
         File ref_fasta          # GATK PrintReads requires a reference for CRAMs
         File ref_fai
         File ref_dict
-        File intervals
+        File subintervals
 
         Int cpu = 2
         Int mem_gb = 4
@@ -450,7 +460,6 @@ task PrintReads {
     }
 
     parameter_meta{
-        intervals: {localization_optional: true}
         ref_fasta: {localization_optional: true}
         ref_fai: {localization_optional: true}
         ref_dict: {localization_optional: true}
@@ -459,10 +468,36 @@ task PrintReads {
     }
 
     command <<<
+
+        # if the inout intervals are not a bed file we need to convert
+        if [[ ~{subintervals} == *.bed ]]; then
+            echo "input subintervals file is already in bed format"
+            subintervals_bed_file=~{subintervals}
+        else
+            echo "input intervals must be converted to bed format"
+            gatk IntervalListToBed -I ~{subintervals} -O subintervals.bed
+            subintervals_bed_file=subintervals.bed
+        fi
+
+        # bedtools is in the GATK docker
+        # -wa means write the entire original entry from the -a argument
+        bedtools intersect -wa -a ~{original_snv_bed} -b ${subintervals_bed_file} > restricted_snv.bed
+        bedtools intersect -wa -a ~{original_indel_bed} -b ${subintervals_bed_file} > restricted_indel.bed
+
+
         # this command also produces the accompanying index hla.bai
         # the PairedReadFilter is necessary for SamtoFastq to succeed
-        gatk PrintReads -R ~{ref_fasta} -I ~{original_bam} -L ~{intervals} -O output.bam \
+        gatk PrintReads -R ~{ref_fasta} -I ~{original_bam} -L ~{subintervals} -O output.bam \
             ~{"--gcs-project-for-requester-pays " + gcs_project_for_requester_pays}
+
+        echo "Here is the subintervals file:"
+        cat ${subintervals_bed_file}
+
+        echo "Here is the restricted SNV bed file:"
+        cat restricted_snv.bed
+
+        echo "Here is the restricted indel bed file:"
+        cat restricted_indel.bed
 
     >>>
 
@@ -479,6 +514,8 @@ task PrintReads {
     output {
         File output_bam = "output.bam"
         File output_bam_idx = "output.bai"
+        File output_snv_bed = "restricted_snv.bed"
+        File output_indel_bed = "restricted_indel.bed"
     }
 }
 
@@ -488,6 +525,7 @@ task MergeBams {
         File ref_fai
         File ref_dict
         Array[File]+ bams
+        Array[File]+ bam_indices
         String gatk_docker
         File? gatk_override
         Int disk_space = 1000
@@ -507,13 +545,13 @@ task MergeBams {
         set -e
         export GATK_LOCAL_JAR=~{default="/root/gatk.jar" gatk_override}
         gatk --java-options "-Xmx~{command_mem}m" GatherBamFiles \
-            -I ~{sep=" -I " bams} -O merged-unsorted.bam -R ~{ref_fasta}
+            -I ~{sep=" -I " bams} -O merged.bam -R ~{ref_fasta}
 
         # We must sort because adjacent scatters may have overlapping reads
 
-        gatk --java-options "-Xmx~{command_mem}m" SortSam -I merged-unsorted.bam \
-            -O merged.bam --SORT_ORDER coordinate -VALIDATION_STRINGENCY LENIENT
-        gatk --java-options "-Xmx~{command_mem}m" BuildBamIndex -I merged.bam -VALIDATION_STRINGENCY LENIENT
+        #gatk --java-options "-Xmx~{command_mem}m" SortSam -I merged-unsorted.bam \
+        #    -O merged.bam --SORT_ORDER coordinate -VALIDATION_STRINGENCY LENIENT
+        #gatk --java-options "-Xmx~{command_mem}m" BuildBamIndex -I merged.bam -VALIDATION_STRINGENCY LENIENT
     >>>
 
     runtime {
@@ -529,5 +567,43 @@ task MergeBams {
     output {
         File merged_bam = "merged.bam"
         File merged_bai = "merged.bai"
+    }
+}
+
+task MergeVCFs {
+    input {
+        Array[File] input_vcfs
+        Array[File] input_vcf_indices
+        String gatk_docker
+        Int disk_space = 100
+        Int boot_disk_size = 10
+        Int preemptible = 0
+        Int cpu = 1
+        Int max_retries = 0
+        Int mem = 16
+    }
+
+    Int machine_mem = mem * 1000
+    Int command_mem = machine_mem - 500
+
+    # using MergeVcfs instead of GatherVcfs so we can create indices
+    command {
+        set -e
+        gatk --java-options "-Xmx~{command_mem}m" MergeVcfs -I ~{sep=' -I ' input_vcfs} -O merged.vcf
+    }
+
+    runtime {
+        docker: gatk_docker
+        bootDiskSizeGb: boot_disk_size
+        memory: machine_mem + " MB"
+        disks: "local-disk " + disk_space + " SSD"
+        preemptible: preemptible
+        maxRetries: max_retries
+        cpu: cpu
+    }
+
+    output {
+        File merged_vcf = "merged.vcf"
+        File merged_vcf_idx = "merged.vcf.idx"
     }
 }
