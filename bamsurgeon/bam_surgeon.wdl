@@ -484,7 +484,7 @@ task RestrictBamAndBedsToSubIntervals {
         # HACK: bedtools does not accept 6-column BED, while the add-indel.bed file from BAMSurgeon has 6 columns,
         # the auxiliary columns being VAF, DEL/INS, and inserted bases (if insertion)  we merge the last three columns
         # and separate by underscores for processing with bedtools
-        while read a b c d e f; do print "${a}\t${b}\t${c}\t${d}_${e}_${f}\n"; done < ~{original_indel_bed} > hack-indel.bed
+        while read a b c d e f; do printf "${a}\t${b}\t${c}\t${d}_${e}_${f}\n"; done < ~{original_indel_bed} > hack-indel.bed
 
         # bedtools is in the GATK docker
         # -wa means write the entire original entry from the -a argument
