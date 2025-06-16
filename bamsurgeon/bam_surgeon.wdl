@@ -489,7 +489,7 @@ task RestrictBamAndBedsToSubIntervals {
         # bedtools is in the GATK docker
         # -wa means write the entire original entry from the -a argument
         bedtools intersect -wa -a ~{original_snv_bed} -b ${subintervals_bed_file} > restricted_snv.bed
-        bedtools intersect -wa -a ~{original_indel_bed} -b hack-indel.bed > hack-restricted_indel.bed
+        bedtools intersect -wa -a hack-indel.bed -b ${subintervals_bed_file} > hack-restricted_indel.bed
 
         # now convert the underscores back to tabs and remove trailing tabs for DEL records to undo the hack
         sed 's/_/\t/g' hack-restricted_indel.bed | sed 's/[[:space:]]*$//' > restricted_indel.bed
