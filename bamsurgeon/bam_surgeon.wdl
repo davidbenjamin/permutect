@@ -305,6 +305,9 @@ task Bamsurgeon {
         echo "contents of current directory:"
         ls
 
+        # BAMSurgeon expects .bam.bai for the index -- it will error if it's just plain .bai!
+        mv ~{base_bam_index} ~{base_bam}.bai
+
         echo "adding synthetic SNVs"
         python3.6 /bamsurgeon/bin/addsnv.py --varfile ~{snv_bed} --bamfile ~{base_bam} \
             --reference ${ref_fasta} --outbam snv.bam \
