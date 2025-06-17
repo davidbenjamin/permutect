@@ -564,7 +564,8 @@ task MergeBams {
 
         #gatk --java-options "-Xmx~{command_mem}m" SortSam -I merged-unsorted.bam \
         #    -O merged.bam --SORT_ORDER coordinate -VALIDATION_STRINGENCY LENIENT
-        #gatk --java-options "-Xmx~{command_mem}m" BuildBamIndex -I merged.bam -VALIDATION_STRINGENCY LENIENT
+
+        gatk --java-options "-Xmx~{command_mem}m" BuildBamIndex -I merged.bam -VALIDATION_STRINGENCY LENIENT
     >>>
 
     runtime {
