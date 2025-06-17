@@ -129,13 +129,19 @@ workflow BamSurgeon {
             gatk_docker = gatk_docker
     }
 
+    File cleaned_vcf = "clean-truth.vcf"
+        File cleaned_vcf_idx = "clean-truth.vcf.idx"
+        File phantoms_vcf = "phantoms.vcf"
+        File phantoms_vcf_idx = "phantoms.vcf.idx"
+        File bamout = "bamout.bam"
+
     output {
         File synthetic_tumor_bam = MergeBams.merged_bam
         File synthetic_tumor_bam_index = MergeBams.merged_bai
-        File truth_vcf = LeftAlignAndTrim.aligned_vcf
-        File truth_vcf_idx = LeftAlignAndTrim.aligned_vcf_idx
-        File phantom_check_vcf = RemovePhantoms.output_vcf
-        File phantom_check_vcf_idx = RemovePhantoms.output_vcf_idx
+        File truth_vcf = RemovePhantoms.cleaned_vcf
+        File truth_vcf_idx = RemovePhantoms.cleaned_vcf_idx
+        File phantoms_vcf = RemovePhantoms.phantoms_vcf
+        File phantoms_vcf_idx = RemovePhantoms.phantoms_vcf_idx
         File phantom_check_bamout = RemovePhantoms.bamout
     }
 }
@@ -702,6 +708,13 @@ task RemovePhantoms {
             ~{m2_extra_args} \
             ~{"--gcs-project-for-requester-pays " + gcs_project_for_requester_pays}
 
+        # find all supposed truth variants that have one read or less of support for the alt allele.  Note that Mutect2 above filters reads
+        # with MQ < 20, so only somewhat plausible reads count.
+        # these variants are BAD
+        gatk SelectVariants -V force_call.vcf -select 'vc.getGenotype(0).getAD().1 < 2' -O phantoms.vcf --lenient
+
+        gatk SelectVariants -V ~{bamsurgeon_truth_vcf} -disc phantoms.vcf -O clean-truth.vcf
+
     >>>
 
     runtime {
@@ -715,8 +728,10 @@ task RemovePhantoms {
     }
 
     output {
-        File output_vcf = "force_call.vcf"
-        File output_vcf_idx = "force_call.vcf.idx"
+        File cleaned_vcf = "clean-truth.vcf"
+        File cleaned_vcf_idx = "clean-truth.vcf.idx"
+        File phantoms_vcf = "phantoms.vcf"
+        File phantoms_vcf_idx = "phantoms.vcf.idx"
         File bamout = "bamout.bam"
     }
 }
