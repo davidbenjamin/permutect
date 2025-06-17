@@ -562,8 +562,10 @@ task MergeBams {
 
         # We must sort because adjacent scatters may have overlapping reads
 
-        #gatk --java-options "-Xmx~{command_mem}m" SortSam -I merged-unsorted.bam \
-        #    -O merged.bam --SORT_ORDER coordinate -VALIDATION_STRINGENCY LENIENT
+        gatk --java-options "-Xmx~{command_mem}m" SortSam -I merged.bam \
+            -O merged-sorted.bam --SORT_ORDER coordinate -VALIDATION_STRINGENCY LENIENT
+
+        mv merged-sorted.bam merged.bam
 
         gatk --java-options "-Xmx~{command_mem}m" BuildBamIndex -I merged.bam -VALIDATION_STRINGENCY LENIENT
     >>>
