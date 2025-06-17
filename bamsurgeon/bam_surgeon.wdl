@@ -128,7 +128,7 @@ workflow BamSurgeon {
             gcs_project_for_requester_pays = gcs_project_for_requester_pays,
             gatk_docker = gatk_docker
     }
-    
+
     output {
         File synthetic_tumor_bam = MergeBams.merged_bam
         File synthetic_tumor_bam_index = MergeBams.merged_bai
@@ -705,7 +705,14 @@ task RemovePhantoms {
         # find all supposed truth variants that have one read or less of support for the alt allele.  Note that Mutect2 above filters reads
         # with MQ < 20, so only somewhat plausible reads count.
         # these variants are BAD
-        gatk SelectVariants -V force_call.vcf -select 'vc.getGenotype(0).getAD().1 < 2' -O phantoms.vcf --lenient
+        gatk SelectVariants -V force_call.vcf -select 'vc.getGenotype(0).getAD().1 < 2' -O no_support.vcf --lenient
+        gatk SelectVariants -V ~{bamsurgeon_truth_vcf} -conc no_support.vcf -O phantoms1.vcf
+
+        # there may also be variants completely absent from the force-calling VCF -- Mutect2 can't force call where there
+        # are no reads at all, or no reads above the MQ threshold.
+        gatk SelectVariants -V ~{bamsurgeon_truth_vcf} -disc force_call.vcf -O phantoms2.vcf
+
+        gatk MergeVcfs -I phantoms1.vcf -I phantoms2.vcf -O merged.vcf
 
         gatk SelectVariants -V ~{bamsurgeon_truth_vcf} -disc phantoms.vcf -O clean-truth.vcf
 
