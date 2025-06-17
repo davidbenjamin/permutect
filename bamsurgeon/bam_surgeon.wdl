@@ -128,13 +128,7 @@ workflow BamSurgeon {
             gcs_project_for_requester_pays = gcs_project_for_requester_pays,
             gatk_docker = gatk_docker
     }
-
-    File cleaned_vcf = "clean-truth.vcf"
-        File cleaned_vcf_idx = "clean-truth.vcf.idx"
-        File phantoms_vcf = "phantoms.vcf"
-        File phantoms_vcf_idx = "phantoms.vcf.idx"
-        File bamout = "bamout.bam"
-
+    
     output {
         File synthetic_tumor_bam = MergeBams.merged_bam
         File synthetic_tumor_bam_index = MergeBams.merged_bai
