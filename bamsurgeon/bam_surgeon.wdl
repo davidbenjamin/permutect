@@ -712,7 +712,7 @@ task RemovePhantoms {
         # are no reads at all, or no reads above the MQ threshold.
         gatk SelectVariants -V ~{bamsurgeon_truth_vcf} -disc force_call.vcf -O phantoms2.vcf
 
-        gatk MergeVcfs -I phantoms1.vcf -I phantoms2.vcf -O merged.vcf
+        gatk MergeVcfs -I phantoms1.vcf -I phantoms2.vcf -O phantoms.vcf
 
         gatk SelectVariants -V ~{bamsurgeon_truth_vcf} -disc phantoms.vcf -O clean-truth.vcf
 
