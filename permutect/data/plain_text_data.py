@@ -36,6 +36,7 @@ import numpy as np
 from sklearn.preprocessing import QuantileTransformer
 
 from permutect.data.count_binning import cap_ref_count, cap_alt_count
+from permutect.data.data_normalizer import DataNormalizer
 from permutect.data.reads_datum import ReadsDatum
 from permutect.data.datum import DEFAULT_NUMPY_FLOAT
 
@@ -114,8 +115,8 @@ def generate_normalized_data(dataset_files, max_bytes_per_chunk: int, sources: L
     """
     for n, dataset_file in enumerate(dataset_files):
         buffer, bytes_in_buffer = [], 0
-        read_quantile_transform = QuantileTransformer(n_quantiles=100, output_distribution='normal')
-        info_quantile_transform = QuantileTransformer(n_quantiles=100, output_distribution='normal')
+        read_normalizer = DataNormalizer()
+        info_normalizer = DataNormalizer()
 
         num_buffers_filled = 0
         source = 0 if sources is None else (sources[0] if len(sources) == 1 else sources[n])
@@ -126,21 +127,19 @@ def generate_normalized_data(dataset_files, max_bytes_per_chunk: int, sources: L
                 report_memory_usage()
                 print(f"{bytes_in_buffer} bytes in chunk")
 
-                normalize_buffer(buffer, read_quantile_transform, info_quantile_transform)
+                normalize_buffer(buffer, read_normalizer, info_normalizer)
                 yield buffer
                 num_buffers_filled += 1
                 buffer, bytes_in_buffer = [], 0
         # There will be some data left over, in general.  Since it's small, use the last buffer's
         # quantile transforms for better statistical power if it's from the same text file
         if buffer:
-            normalize_buffer(buffer, read_quantile_transform, info_quantile_transform, refit_transforms=(num_buffers_filled==0))
+            normalize_buffer(buffer, read_normalizer, info_normalizer, refit_transforms=(num_buffers_filled==0))
             yield buffer
 
 
 # this normalizes the buffer and also prepends new features to the info tensor
-def normalize_buffer(buffer, read_quantile_transform, info_quantile_transform, refit_transforms=True):
-    EPSILON = 0.00001   # tiny quantity for jitter
-
+def normalize_buffer(buffer, read_normalizer: DataNormalizer, info_normalizer: DataNormalizer, refit_transforms=True):
     # 2D array.  Rows are ref/alt reads, columns are read features
     all_ref = np.vstack([datum.get_ref_reads_re() for datum in buffer])
     all_reads = np.vstack([datum.reads_re for datum in buffer])
@@ -148,26 +147,20 @@ def normalize_buffer(buffer, read_quantile_transform, info_quantile_transform, r
     # 2D array.  Rows are read sets, columns are info features
     all_info = np.vstack([datum.get_info_1d() for datum in buffer])
 
-    all_ref_jittered = all_ref + EPSILON * np.random.randn(*all_ref.shape)
-    all_reads_jittered = all_reads + EPSILON * np.random.randn(*all_reads.shape)
-    all_info_jittered = all_info + EPSILON * np.random.randn(*all_info.shape)
-
     num_read_features = all_ref.shape[1]
-    binary_read_columns = binary_column_indices(all_ref)    # make sure not to use jittered arrays here!
+    binary_read_columns = binary_column_indices(all_ref)
 
     # 1 if is binary, 0 if not binary
     binary_read_column_mask = np.zeros(num_read_features)
     binary_read_column_mask[binary_read_columns] = 1
 
-    binary_info_columns = binary_column_indices(all_info)   # make sure not to use jittered arrays here!
-
-    if refit_transforms:    # fit quantiles column by column (aka feature by feature)
-        read_quantile_transform.fit(all_ref_jittered)
-        info_quantile_transform.fit(all_info_jittered)
+    if refit_transforms:
+        read_normalizer.fit(all_ref)
+        info_normalizer.fit(all_info)
 
     # it's more efficient to apply the quantile transform to all reads at once, then split it back into read sets
-    all_reads_transformed = transform_except_for_binary_columns(all_reads_jittered, read_quantile_transform, binary_read_columns)
-    all_info_transformed = transform_except_for_binary_columns(all_info_jittered, info_quantile_transform, binary_info_columns)
+    all_reads_transformed = read_normalizer.transform(all_reads)
+    all_info_transformed = info_normalizer.transform(all_info)
 
     read_counts = np.array([len(datum.reads_re) for datum in buffer])
     read_index_ranges = np.cumsum(read_counts)
@@ -214,23 +207,3 @@ def binary_column_indices(tensor_2d: np.ndarray):
     return [n for n in range(tensor_2d.shape[1]) if is_binary(tensor_2d[:, n])]
 
 
-def non_binary_column_indices(tensor_2d: np.ndarray):
-    assert len(tensor_2d.shape) == 2
-    return [n for n in range(tensor_2d.shape[1]) if not is_binary(tensor_2d[:, n])]
-
-
-# copy the unnormalized values of binary features (columns)
-# we modify the normalized values in-place
-def restore_binary_columns(normalized, original, binary_columns):
-    result = normalized
-    if len(normalized.shape) == 2:
-        result[:, binary_columns] = original[:, binary_columns]
-    elif len(normalized.shape) == 1:
-        result[binary_columns] = original[binary_columns]
-    else:
-        raise Exception("This is only for 1D or 2D tensors")
-    return result
-
-
-def transform_except_for_binary_columns(tensor_2d, quantile_transform: QuantileTransformer, binary_column_indices):
-    return restore_binary_columns(quantile_transform.transform(tensor_2d), tensor_2d, binary_column_indices)

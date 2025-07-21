@@ -9,12 +9,12 @@ def test_filtering_on_dream1_chr20():
     # Inputs
     #saved_model = '/Users/davidben/mutect3/permutect/integration-tests/singular-10-Mb/permutect-model.pt'
     #saved_model = '/Users/davidben/mutect3/permutect/integration-tests/dream1-chr20/dream1-uda-model.pt'
-    artifact_model = '/Users/davidben/mutect3/permutect/integration-tests/dream1-chr20/model.pt'
+    artifact_model = '/Users/davidben/mutect3/permutect/integration-tests/permutect-v0.1.0-artifact-model.pt'
 
-    mutect2_vcf = '/Users/davidben/mutect3/permutect/integration-tests/dream1-chr20/mutect2_chr20.vcf'
+    mutect2_vcf = '/Users/davidben/mutect3/permutect/integration-tests/dream1-chr20/mutect2_10mb_chr20.vcf'
     maf_segments = '/Users/davidben/mutect3/permutect/integration-tests/dream1-chr20/segments.table'
     contigs_table = '/Users/davidben/mutect3/permutect/integration-tests/dream1-chr20/contigs.table'
-    filtering_dataset = '/Users/davidben/mutect3/permutect/integration-tests/dream1-chr20/test_chr20.dataset'
+    filtering_dataset = '/Users/davidben/mutect3/permutect/integration-tests/dream1-chr20/test_10mb_chr20.dataset'
 
     # Outputs
     permutect_vcf = tempfile.NamedTemporaryFile()
@@ -29,7 +29,7 @@ def test_filtering_on_dream1_chr20():
     setattr(filtering_args, constants.BATCH_SIZE_NAME, 64)
     setattr(filtering_args, constants.NUM_WORKERS_NAME, 0)
     setattr(filtering_args, constants.CHUNK_SIZE_NAME, 100000)
-    setattr(filtering_args, constants.NUM_SPECTRUM_ITERATIONS_NAME, 2)
+    setattr(filtering_args, constants.NUM_SPECTRUM_ITERATIONS_NAME, 1)
     setattr(filtering_args, constants.HET_BETA_NAME, 10)
     setattr(filtering_args, constants.SPECTRUM_LEARNING_RATE_NAME, 0.001)
     setattr(filtering_args, constants.INITIAL_LOG_VARIANT_PRIOR_NAME, -10.0)
