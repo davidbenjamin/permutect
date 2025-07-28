@@ -24,7 +24,7 @@ class DataNormalizer:
             # 4) otherwise, median and IQR
             if torch.mean(torch.logical_or(column == 0, column == 1).float()) > 0.999999:     # binary column
                 self.shift_and_scale_by_column[col_idx] = (0, 1)    # identity transform
-            elif torch.mean(torch.logical_and(column > -1, column < 61).float()) > 0.99 and torch.median(column.float()) > 40:
+            elif torch.mean(torch.logical_and(column > -1, column < 61).float()) > 0.99 and torch.median(float_column) > 40:
                 num_mq_columns += 1
                 max_mq = torch.quantile(float_column, q=0.99).item()
                 self.shift_and_scale_by_column[col_idx] = (0, max_mq)
@@ -32,7 +32,7 @@ class DataNormalizer:
                 self.shift_and_scale_by_column[col_idx] = (0, 1)    # identity transform
             else:
                 iqr = (torch.quantile(float_column, q=0.75) - torch.quantile(float_column, q=0.25)).item()
-                self.shift_and_scale_by_column[col_idx] = (torch.median(column).item(), iqr)
+                self.shift_and_scale_by_column[col_idx] = (torch.median(float_column).item(), iqr)
 
         # TODO: turn this check on if reads, but not for INFO of course
         # assert num_mq_columns == 1, f"Did not find exactly one MQ column, found {num_mq_columns}."
