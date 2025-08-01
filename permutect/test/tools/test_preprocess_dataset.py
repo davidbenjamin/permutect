@@ -9,7 +9,8 @@ from permutect.misc_utils import extract_to_temp_dir
 
 
 def test_on_10_megabases_singular():
-    training_datasets = ["/Users/davidben/mutect3/permutect/integration-tests/singular-10-Mb/training-dataset.txt"]
+    #training_datasets = ["/Users/davidben/mutect3/permutect/integration-tests/singular-10-Mb/training-dataset.txt"]
+    training_datasets = ["/Users/davidben/mutect3/permutect/integration-tests/TMP.dataset"]
     training_data_tarfile = tempfile.NamedTemporaryFile()
 
     preprocess_args = Namespace()
