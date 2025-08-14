@@ -115,8 +115,8 @@ def generate_normalized_data(dataset_files, max_bytes_per_chunk: int, sources: L
     """
     for n, dataset_file in enumerate(dataset_files):
         buffer, bytes_in_buffer = [], 0
-        read_normalizer = DataNormalizer()
-        info_normalizer = DataNormalizer()
+        read_normalizer = DataNormalizer(is_read=True)
+        info_normalizer = DataNormalizer(is_read=False)
 
         num_buffers_filled = 0
         source = 0 if sources is None else (sources[0] if len(sources) == 1 else sources[n])

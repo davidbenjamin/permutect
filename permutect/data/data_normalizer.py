@@ -12,12 +12,12 @@ class DataNormalizer:
     Basically, this knows what to do with every column.  It stores a dict from int (column index) to float, float tuple.
     The normalization is subtract the first element and divide by the second.
     '''
-    def __init__(self):
+    def __init__(self, is_read: bool):
         self.cap_shift_scale_by_column = {}
+        self.is_read = is_read
 
     def fit(self, array2d):
         tensor2d = torch.from_numpy(array2d)
-        num_mq_columns = 0
         for col_idx in range(tensor2d.shape[1]):
             column = tensor2d[:, col_idx]
             float_column = column.float()
@@ -28,16 +28,12 @@ class DataNormalizer:
             #    in this case identify the max MQ as some high percentile and divide by this max MQ
             # 3) majority is zero -- do nothing
             # 4) otherwise, median and IQR
-            if col_idx == MAPPING_QUALITY_COLUMN_INDEX:    # THIS IS MAPPING QUALITY!!! hard-code to cap at 60 and scale by 60
+            if self.is_read and col_idx == MAPPING_QUALITY_COLUMN_INDEX:    # THIS IS MAPPING QUALITY!!! hard-code to cap at 60 and scale by 60
                 self.cap_shift_scale_by_column[col_idx] = (MAX_MAP_QUALITY, 0, MAX_MAP_QUALITY)
-            elif col_idx == BASE_QUALITY_COLUMN_INDEX:    # THIS IS BASE QUALITY!!! hard-code to cap at 30 and scale by 30
+            elif self.is_read and col_idx == BASE_QUALITY_COLUMN_INDEX:    # THIS IS BASE QUALITY!!! hard-code to cap at 30 and scale by 30
                 self.cap_shift_scale_by_column[col_idx] = (MAX_BASE_QUALITY, 0, MAX_BASE_QUALITY)
             elif torch.mean(torch.logical_or(column == 0, column == 1).float()) > 0.999999:     # binary column
                 self.cap_shift_scale_by_column[col_idx] = (DEFAULT_CAP, 0, 1)    # identity transform
-            elif torch.mean(torch.logical_and(column > -1, column < 61).float()) > 0.99 and torch.median(float_column) > 40:
-                num_mq_columns += 1
-                max_mq = torch.quantile(float_column, q=0.99).item()
-                self.cap_shift_scale_by_column[col_idx] = (DEFAULT_CAP, 0, max_mq)
             elif torch.mean((column == 0).float()) > 0.6:     # mainly-zero
                 self.cap_shift_scale_by_column[col_idx] = (DEFAULT_CAP, 0, 1)    # identity transform
             else:
