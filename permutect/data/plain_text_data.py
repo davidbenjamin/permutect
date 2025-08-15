@@ -172,6 +172,17 @@ def normalize_buffer(buffer, read_quantile_transform, info_quantile_transform, r
     read_counts = np.array([len(datum.reads_re) for datum in buffer])
     read_index_ranges = np.cumsum(read_counts)
 
+    map_qual_column = all_reads[:, 0]
+    map_qual_categorical = np.zeros((len(all_reads), 4))
+    map_qual_categorical[:, 0] = 1 * (map_qual_column == 60)
+    map_qual_categorical[:, 1] = 1 * (map_qual_column < 60) * (map_qual_column >= 40)
+    map_qual_categorical[:, 2] = 1 * (map_qual_column < 40) * (map_qual_column >= 20)
+    map_qual_categorical[:, 3] = 1 * (map_qual_column < 20)
+
+    # replace 0th column by four one-hot (hence binary) categorical columns
+    all_reads_transformed = np.hstack((map_qual_categorical, all_reads_transformed[:, 1:]))
+    binary_read_column_mask = np.hstack((np.ones((4,)), binary_read_column_mask[1:]))
+
     for n, datum in enumerate(buffer):
         datum.reads_re = all_reads_transformed[0 if n == 0 else read_index_ranges[n - 1]:read_index_ranges[n]]
 
