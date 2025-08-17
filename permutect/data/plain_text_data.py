@@ -179,9 +179,17 @@ def normalize_buffer(buffer, read_quantile_transform, info_quantile_transform, r
     map_qual_categorical[:, 2] = 1 * (map_qual_column < 40) * (map_qual_column >= 20)
     map_qual_categorical[:, 3] = 1 * (map_qual_column < 20)
 
-    # replace 0th column by four one-hot (hence binary) categorical columns
-    all_reads_transformed = np.hstack((map_qual_categorical, all_reads_transformed[:, 1:]))
-    binary_read_column_mask = np.hstack((np.ones((4,)), binary_read_column_mask[1:]))
+    base_qual_column = all_reads[:, 1]
+    base_qual_categorical = np.zeros((len(all_reads), 4))
+    base_qual_categorical[:, 0] = 1 * (base_qual_column >= 30)
+    base_qual_categorical[:, 1] = 1 * (base_qual_column < 30) * (base_qual_column >= 20)
+    base_qual_categorical[:, 2] = 1 * (base_qual_column < 20) * (base_qual_column >= 10)
+    base_qual_categorical[:, 3] = 1 * (base_qual_column < 10)
+
+    # replace 0th column (map qual) by four one-hot (hence binary) categorical columns
+    # replace 1st column (base qual) by four one-hot (hence binary) categorical columns
+    all_reads_transformed = np.hstack((map_qual_categorical, base_qual_categorical, all_reads_transformed[:, 2:]))
+    binary_read_column_mask = np.hstack((np.ones((8,)), binary_read_column_mask[2:]))
 
     for n, datum in enumerate(buffer):
         datum.reads_re = all_reads_transformed[0 if n == 0 else read_index_ranges[n - 1]:read_index_ranges[n]]
