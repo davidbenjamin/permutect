@@ -188,8 +188,13 @@ def normalize_buffer(buffer, read_quantile_transform, info_quantile_transform, r
 
     # replace 0th column (map qual) by four one-hot (hence binary) categorical columns
     # replace 1st column (base qual) by four one-hot (hence binary) categorical columns
-    all_reads_transformed = np.hstack((map_qual_categorical, base_qual_categorical, all_reads_transformed[:, 2:]))
-    binary_read_column_mask = np.hstack((np.ones((8,)), binary_read_column_mask[2:]))
+    # original columns 3 and 4 are binary (strand and orientation)
+    # original columns 4, 5, 6, 7, 8 (i.e. the python range 4:9) are fragment size and distances from
+    # end of read
+    # original columns 9: are usually 0 or 1, occasionally higher single-digit, and can be left alone
+    all_reads_transformed = np.hstack((map_qual_categorical, base_qual_categorical, all_reads[:, 2:4], all_reads_transformed[:, 4:9], all_reads[:, 9:]))
+    binary_read_column_mask = np.ones_like(all_reads_transformed[0])
+    binary_read_column_mask[10:15] = 0
 
     for n, datum in enumerate(buffer):
         datum.reads_re = all_reads_transformed[0 if n == 0 else read_index_ranges[n - 1]:read_index_ranges[n]]
