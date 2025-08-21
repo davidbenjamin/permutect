@@ -183,7 +183,8 @@ def normalize_buffer(buffer, read_quantile_transform, info_quantile_transform, r
     binary_read_column_mask = np.ones_like(all_reads_transformed[0])
     binary_read_column_mask[10:15] = 0
 
-    all_info_transformed = np.hstack((all_info[:, :4], np.sqrt(all_info[:, 4:])))
+    #all_info_transformed = np.hstack((all_info[:, :4], np.sqrt(all_info[:, 4:])))
+    all_info_transformed = all_info
 
     for n, datum in enumerate(buffer):
         datum.reads_re = all_reads_transformed[0 if n == 0 else read_index_ranges[n - 1]:read_index_ranges[n]]
