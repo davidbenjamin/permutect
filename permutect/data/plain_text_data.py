@@ -148,18 +148,16 @@ def normalize_buffer(buffer, read_quantile_transform, info_quantile_transform, r
     # 2D array.  Rows are read sets, columns are info features
     all_info = np.vstack([datum.get_info_1d() for datum in buffer])
 
-    all_info_jittered = all_info + EPSILON * np.random.randn(*all_info.shape)
-
     binary_read_columns = binary_column_indices(all_ref)    # make sure not to use jittered arrays here!
     binary_info_columns = binary_column_indices(all_info)   # make sure not to use jittered arrays here!
 
     if refit_transforms:    # fit quantiles column by column (aka feature by feature)
         read_quantile_transform.fit(all_ref)
-        info_quantile_transform.fit(all_info_jittered)
+        info_quantile_transform.fit(all_info)
 
     # it's more efficient to apply the quantile transform to all reads at once, then split it back into read sets
     all_reads_transformed = transform_except_for_binary_columns(all_reads, read_quantile_transform, binary_read_columns)
-    all_info_transformed = transform_except_for_binary_columns(all_info_jittered, info_quantile_transform, binary_info_columns)
+    all_info_transformed = transform_except_for_binary_columns(all_info, info_quantile_transform, binary_info_columns)
 
     read_counts = np.array([len(datum.reads_re) for datum in buffer])
     read_index_ranges = np.cumsum(read_counts)
