@@ -148,29 +148,43 @@ def normalize_buffer(buffer, read_quantile_transform, info_quantile_transform, r
     # 2D array.  Rows are read sets, columns are info features
     all_info = np.vstack([datum.get_info_1d() for datum in buffer])
 
-    all_ref_jittered = all_ref + EPSILON * np.random.randn(*all_ref.shape)
-    all_reads_jittered = all_reads + EPSILON * np.random.randn(*all_reads.shape)
-    all_info_jittered = all_info + EPSILON * np.random.randn(*all_info.shape)
-
-    num_read_features = all_ref.shape[1]
     binary_read_columns = binary_column_indices(all_ref)    # make sure not to use jittered arrays here!
-
-    # 1 if is binary, 0 if not binary
-    binary_read_column_mask = np.zeros(num_read_features)
-    binary_read_column_mask[binary_read_columns] = 1
-
     binary_info_columns = binary_column_indices(all_info)   # make sure not to use jittered arrays here!
 
     if refit_transforms:    # fit quantiles column by column (aka feature by feature)
-        read_quantile_transform.fit(all_ref_jittered)
-        info_quantile_transform.fit(all_info_jittered)
+        read_quantile_transform.fit(all_ref)
+        info_quantile_transform.fit(all_info)
 
     # it's more efficient to apply the quantile transform to all reads at once, then split it back into read sets
-    all_reads_transformed = transform_except_for_binary_columns(all_reads_jittered, read_quantile_transform, binary_read_columns)
-    all_info_transformed = transform_except_for_binary_columns(all_info_jittered, info_quantile_transform, binary_info_columns)
+    all_reads_transformed = transform_except_for_binary_columns(all_reads, read_quantile_transform, binary_read_columns)
+    all_info_transformed = transform_except_for_binary_columns(all_info, info_quantile_transform, binary_info_columns)
 
     read_counts = np.array([len(datum.reads_re) for datum in buffer])
     read_index_ranges = np.cumsum(read_counts)
+
+    map_qual_column = all_reads[:, 0]
+    map_qual_categorical = np.zeros((len(all_reads), 4))
+    map_qual_categorical[:, 0] = 1 * (map_qual_column == 60)
+    map_qual_categorical[:, 1] = 1 * (map_qual_column < 60) * (map_qual_column >= 40)
+    map_qual_categorical[:, 2] = 1 * (map_qual_column < 40) * (map_qual_column >= 20)
+    map_qual_categorical[:, 3] = 1 * (map_qual_column < 20)
+
+    base_qual_column = all_reads[:, 1]
+    base_qual_categorical = np.zeros((len(all_reads), 4))
+    base_qual_categorical[:, 0] = 1 * (base_qual_column >= 30)
+    base_qual_categorical[:, 1] = 1 * (base_qual_column < 30) * (base_qual_column >= 20)
+    base_qual_categorical[:, 2] = 1 * (base_qual_column < 20) * (base_qual_column >= 10)
+    base_qual_categorical[:, 3] = 1 * (base_qual_column < 10)
+
+    # replace 0th column (map qual) by four one-hot (hence binary) categorical columns
+    # replace 1st column (base qual) by four one-hot (hence binary) categorical columns
+    # original columns 3 and 4 are binary (strand and orientation)
+    # original columns 4, 5, 6, 7, 8 (i.e. the python range 4:9) are fragment size and distances from
+    # end of read
+    # original columns 9: are usually 0 or 1, occasionally higher single-digit, and can be left alone
+    all_reads_transformed = np.hstack((map_qual_categorical, base_qual_categorical, all_reads[:, 2:4], all_reads_transformed[:, 4:9], all_reads[:, 9:]))
+    binary_read_column_mask = np.ones_like(all_reads_transformed[0])
+    binary_read_column_mask[10:15] = 0
 
     for n, datum in enumerate(buffer):
         datum.reads_re = all_reads_transformed[0 if n == 0 else read_index_ranges[n - 1]:read_index_ranges[n]]
