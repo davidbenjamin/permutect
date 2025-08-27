@@ -1,0 +1,204 @@
+\documentclass[times, twoside, watermark]{StyleBioRxiv}
+\usepackage{blindtext}
+\usepackage{epigraph} 
+\setlength{\parindent}{15pt}
+
+% Please give the surname of the lead author for the running footer
+\leadauthor{Benjamin} 
+
+\begin{document}
+
+\title{Permutect: An Elegant Method for Somatic and Germline Variant Calling}
+\shorttitle{Permutect}
+
+% Use letters for affiliations, numbers to show equal authorship (if applicable) and to indicate the corresponding author
+\author[1,\Letter]{David Benjamin}
+\author[3]{Ethan Benjamin}
+\author[1]{Lee Lichtenstein}
+\author[2]{Juan Gallegos}
+\author[2]{Sachet Shukla}
+\author[2]{Julian Gascoyne}
+\author[1]{Mehrtash Babadi}
+\author[1]{Samuel Friedman}
+
+\affil[1]{The Broad Institute}
+\affil[2]{MD Anderson}
+\affil[3]{Etsy}
+
+\maketitle
+
+%TC:break Abstract
+%the command above serves to have a word count for the abstract
+\begin{abstract}
+We present Permutect (Permutation-Invariant Mutect), the successor to the Mutect2 somatic variant caller.  Unlike previous versions of Mutect, Permutect is a general-purpose tool for somatic, germline, mitochondria, and non-human samples.  By combining a deep learning model for technical artifacts with a probabilistic model of biological variation, Permutect is able to call variants in all these settings despite being presenting only with plentiful germline sequencing data in training.  By encoding permutation symmetry among the set of reads at a locus into its architecture, Permutect requires very few parameters.  A good model can be trained with only a single genome of training data.
+\end {abstract}
+%TC:break main
+%the command above serves to have a word count for the abstract
+
+\begin{keywords}
+variant calling | somatic | Mutect | deep learning
+\end{keywords}
+
+\begin{corrauthor}
+%\texttt{r.henriques{@}ucl.ac.uk}
+davidben\at broadinstitute.org
+\end{corrauthor}
+
+\section*{Introduction}
+The primary inspiration for Permutect is the idea, borrowed from quantum field theory, that to solve a problem one should first identify its symmetries.  Here the relevant symmetry is the simple fact that sequencing reads form an unordered set and by definition exhibit permutation symmetry -- the genotype of a variant doesn't depend on which supporting read is considered the first, or seventh etc.  At every step, Permutect relies on neural networks that naturally obey this invariance rather than customary architectures that require reads to be stacked in some order.  Rather than being of purely pedantic interest, respecting the correct symmetries permits a model with vastly reduced parameters with no loss of expressive power.
+
+The second essential insight is basically the notion of modularity from software engineering.  Rather than treating variant calling as a monolithic black box, Permutect decouples it into two nearly-independent parts.  Separating technical error from biological variation is an open-ended problem that depends on laboratory processes and is well-suited to modeling with a neural network.  In contrast, distinguishing different types of biological variation is a structured problem that can be modeled explicitly with fewer parameters and varies from sample to sample.  Permutect combines a neural network model of technical error with a probabilistic genotyping model.  This, too, is extremely practical because decoupling of models implies decoupling of training data: the Permutect neural network does not require somatic variants for training.  We call these two parts of Permutect the artifact model and the posterior model, respectively.
+
+As a result of these properties, Permutect: is not overfit to any particular sequencing technology, works for both somatic and germline calling, works on non-human data, can be trained on a very modest amount of data, needs only germline data for training, regardless of the type of calling it needs to do.
+
+A straightforward neural network for somatic variant calling inputs a set of reads at some locus in the genome and outputs a binary classification as somatic or not.  This model would need many examples of somatic variation to train on, which is already a problem.  Labeled somatic truth data are extremely rare, and what little data exist are not always reliable.  Furthermore, these truth data might not apply to all sequencing technologies.
+
+There is a more pernicious problem: by far the strongest signal distinguishing technical error from somatic variation from germline variation is the allele fraction of reads supporting the mutant allele.  A fraction near 1/2 or 1 strongly suggests a germline variant, a low fraction is most likely an error, and something in between may be somatic.  But what about very pure, monoclonal tumor samples with allele fractions near 1/2?  Or cfDNA samples with very low somatic allele fractions?  One could include many tumors with a wide variety of cell fractions in the training data, but in addition to complicating things this approach still imposes some arbitrary assumption on what allele fractions are likely.
+
+In effect, Permutect decomposes variant calling into several questions\footnote{Permutect doesn't actually impose these as distinct criteria, rather different parts of the model contribute likelihoods from which posterior probabilities are computed jointly.}: 
+\begin{enumerate}
+    \item Are the mutant allele reads likely to be errors given the base qualities and number of reads?
+    \item Do the reads support a germline mutation?
+    \item Are the mutant allele reads a technical artifact?
+\end{enumerate}
+Of these, the first two questions are exercises in probability and do not require a machine learning model with many parameters.  The third question demands identifying patterns of error that are \textit{not} modeled well by base qualities and an assumption of independent reads.  It is difficult and well-suited to deep learning.  However, it has nothing at all to do with identifying somatic variants!  Instead of the two classes somatic and non-somatic, we train this deep learning model with data that either artifact or non-artifact.  In practice we simply use germline variants as our non-artifact training data.
+
+An attentive reader should object twice to this choice.  First, germline variants are not the same as somatic variants -- certain variants are much more likely in some cancers, for example.  This would be a compelling objection for an un-decomposed variant calling approach, but in Permutect the prior probabilities of different somatic variants are the responsibility of the probabilistic parts of the model, not of the deep learning artifact model.  As a concrete example, suppose we have an A->T mutation within the context CGGCAGGCC.  How likely an A->T mutation is to occur here is the purview of a few-parameter probabilistic model that Permutect fits anew for each sample.  The artifact model is only concerned with the question: did a set of reads exhibiting the pattern CGGCTGGCC come from DNA with that same pattern, or did they arise from technical error and a DNA fragment with the CGGCAGGCC allele?
+
+The second objection is that germline variants come in allele fractions that do not in general represent those found in tumors.  To get around this problem, Permutect's deep learning model of technical artifacts ignores of allele fractions by design\footnote{More precisely, it ignores allele fractions except for calibrating its confidence.}.  Like the prior probability of different mutations, the characteristic allele fractions of somatic variants is a sample-specific property that doesn't require very many parameters.  That being said, we are wary of hubris and, in addition to the fraction-agnostic model architecture we also downsample reads supporting germline variants in order to generate balanced training data where artifacts and non-artifacts occur with a similar range of read counts.  That is, after downsampling artifact and non-artifact data are equally likely to have any given number of supporting reads.
+
+\section*{Evaluations to be done}
+\subsection*{Synthetic data}
+In addition to the DREAM challenges, we can generate as many BAMSurgeon tumor-normal pairs as we like.  We can also make somewhat more realistic synthetic pairs by using replicates.  The DREAM challenges split the reads of a single sample in half to create the base for a ``tumor" and ``normal", then spikes in variants to the tumor.  In contrast, we can start from two independent replicates as the tumor and normal.  We have already generated synthetic samples at various allele frequencies starting from Illumina HiSeqX and Novaseq GIAB samples, for a current total of 24 synthetic tumor-normal pairs.
+
+I have noticed that some synthetic variants seem to be spiked into regions where most or all reads have very low mapping quality.  This leads to apparent false negatives in the evaluation.  I believe this could be eliminated by more carefully excluding regions of poor mappability from the evaluation.
+
+\subsection*{SEQC2 sample}
+In my opinion this is the sole trustworthy consensus truth set.  It's an HCC1395 breast cancer cell line with a matched normal that was sequenced at 7 different centers, with several replicates from each center.  Calls from 6 different algorithms were validated with a combination of 2000x targeted sequencing, 2500x WES, 34x IonTorrent, and 40x PacBio.
+
+\subsection*{Linseq}
+At the very least, we can use Linseq's ``good branch variants" (variants that show up in multiple samples consistent with the phylogeny) to measure sensitivity.  The harder question is how we can fix the spurious false positives (that is, variants that seem very likely to be real based on IGV but are absent from the Linseq truth VCF) that have plagued this analysis.
+
+Since Linseq repeats every pseudo-tumor with in vitro mixtures of various titrations (allele fractions of approximately 0.1, 0.25, and 0.5), we could look at the allele counts of supposed false positives.  If the allele counts increase with the titration this is very strong evidence that they are real, and we could graylist such variants.  This is probably the easiest option and does not require re-doing Linseq.
+
+Another option would start by digging into Linseq and see why these spurious false positives are missing in the Linseq truth VCFs.  The two possibilities are 1) that they show up in Linseq samples but not in accordance with the phylogeny and 2) they don't show up at all.  Recall that the Linseq samples (that is, the original independent cell lines cultured from a single cell at the end of the growth inside a microfluidics device) were called via germline sequencing, with HaplotypeCaller.  Both of these problems would occur any time HaplotypeCaller has a false negative.  Perhaps we could fix them by re-running HaplotypeCaller with more lenient thresholds.  I don't like this option because it's a lot of work.
+
+\subsection*{Generating some more ground truth}
+How expensive would it be to sequence some cancer cell lines twice, once with regular depth etc and once either with very high coverage or with very high-quality UMI sequencing?
+
+Likewise, how expensive is it to sequence a cancer cell line and then validate a few thousands Permutect calls with FISH or Sanger sequencing?
+
+\section*{Methods}
+\subsection*{Labeling training data} 
+Somewhat confusingly, one creates a Permutect dataset by running Mutect2\footnote{This is one good reason not to name it Mutect3.} in a special Permutect dataset mode.  If a germline truth VCF is available, any variant contained in that VCF is considered to be a non-artifact example\footnote{Recall that the Permutect neural network is responsible for classifying artifacts and non-artifacts, not somatic and/or germline variants.} while any Mutect2 call missing from that VCF is considered an artifact.  Otherwise, any variant that is common in the population and is supported by a sufficient fraction of reads is considered a non-artifact\footnote{Because germline variants are plentiful these thresholds can be fairly strict without sacrificing too much training data.} and anything called by Mutect2 that is supported by a small fraction of reads and is rare in the population.  Everything else is considered unlabeled data and is used in semi-supervised learning.
+
+There are a few important subtleties to this.  First, ``called by Mutect2" means ``called by Mutect2 with sufficient log-odds".  The log-odds emitted by Mutect2 is the log likelihood ratio of a variant versus a sequencing error and is calculated using base qualities with the assumption of independent reads.  A sequencing error in Permutect is not the same thing as a technical artifact!  The latter is, by definition an error that is \textit{not} described by base qualities and the assumption of independent reads.  That is, a technical artifact depends on some hidden covariate that affects all reads.  For example, if there is a single non-reference read with a base quality of 30, the log-odds from Mutect2 will be roughly 3.  This is a sequencing error because it comes from nothing more nefarious than the possibility of error as described by the base quality.  In contrast, 10 incorrect reads with base qualities of 30, amounting to a log-odds of 30 or so are overwhelmingly unlikely to be due to independent errors each within a probability of 1 in 1000.  It is much likelier that there is a common explanation, such as poor mappability, explaining all the reads.  We consider such a case to be a technical artifact.  We do not need a neural network to learn how to translate from a phred-scaled base quality to an error probability, nor would we want our training data to drown in such trivial examples.
+
+The next subtlety is the balance of training data.  For most sequencing technologies, true technical artifacts (as opposed to sequencing error as described above) are much rarer than germline variants.  Thus we discard most non-artifact examples, which come from downsampling germline variants, in order to get similar quantities of artifacts and non-artifacts\footnote{In practice we retain by default 10 times as many non-artifacts but weight the loss function accordingly so that in effect the data are balanced.}  Out of the aforementioned fear that our model is not as count-agnostic as we hope we perform this balancing separately for each non-reference read count and variant type.  For example, for each single-base insertion supported by 8 non-referennce reads, the training dataset is balanced between artifacts and non-artifacts.
+
+The final subtlety is the allele fraction criterion when no truth VCF is available to label training data.  Marking calls with low (high) non-reference read counts as artifacts (non-artifacts) seems to betray the principles of Permutect by hard-coding the very count dependence we seek to eliminate.  Fortunately, this is not the case.  Because the architecture is designed to forget read counts and by virtue of our downsampling and dataset balancing, this process may introduce some errors into the training data, but as long as technical artifacts \textit{generally} occur with low allele fractions the learned model will still learn to recognize the correct patterns, though perhaps with less confidence than it should have.
+
+\subsection*{Preparing training data} 
+Next, data must be converted into tensors for computation.  We designed this with computational simplicity in mind; it is not optimized and we expect fancier approaches to be fruitful in the future.  A single input\footnote{For the purposes of describing the model conceptually we ignore batching.  In practice, a batch of candidate variants is the actual unit of processing.} to the artifact model consists of i) a set of reference reads, and ii) a set of non-reference (henceforth referred to as ``alt") reads, with each read encoded as a vector (one-dimensional tensor); iii) 21 bases of the reference and alt haplotypes, centered at the variant start position; and iv) a vector of information describing the variant.  We will now describe each of these in detail,
+
+Reads are encoded as a vector of features: the read mapping quality, the base quality at the variant start, the binary read strand, the binary read pair orientation, the distance of the variant from the left and right ends of the read and of the fragment, the fragment length, and the number of substitution and indel mismatches of the read with respect to its assembled haplotype (not the reference haplotype!) at various distance thresholds from the variant.  The reference and alt haplotypes, which are assembled in Mutect2, are each represented as five-channel one-hot encodings, with one channel each for A, C, G, T and a fifth deletion channel.  An insertion in the alt haplotype relative to the reference is represented as a deletion in the reference allele.  For example, for reference sequence ACGTGCA an insertion T -> TT  is represented as a reference array ACGTDGC and an alt array ACGTTGC prior to one-hot encoding.  (TODO: cite NeuSomatic, which uses this scheme)  The extra information (``info") vector consists of one element each for the number of STR repeats of repeat length 1, 2, 3, 4, 5, and 6 adjacent to the left and right of the variant, and a few Mutect2 annotations describing the complexity of the local assembly.  Many of these are undoubtedly handcrafted, arbitrary, and redundant; nonetheless they are a decent set of inputs.
+
+Finally, the non-binary elements of the read and info vectors are quantile normalized.  That is, an element in the eg 65th percentile of its corresponding feature is normalized to 0.65.  Binary elements such as strand and read orientation are not normalized.  After normalization, a single datum contains sets $\left\{ \mathbf{a}_i \right\}$ and $\left\{ \mathbf{r}_j \right\}$ of alt and ref reads, a two-dimensional (one dimension for the sequence, one for the channel) tensor $\mathbf{h}$ representing the ref and alt haplotypes, and a vector $\mathbf{e}$ for the extra info.
+
+\subsection*{Artifact Model: bottom layers} 
+Before the artifact model does anything exotic (to the extent that neural architecture acting on sets are exotic), it transforms each vector independently.  In this paper $\mathrm{MLP}$ denotes a multi-layer perceptron, a stack of linear transformations separated by a non-linear activation function and, optionally, batch normalization.  We parameterize MLPs by their hidden and output dimensions, eg, $\mathrm{MLP}(10,20,10)$ has hidden layers of sizes 10 and 20 and 10-dimensional output.  We also allow for residual connections, encoding by negative numbers.  For example, $\mathrm{MLP}(10,-2,5)$ maps the input to 10 dimensions, then adds this hidden value to the output of a two-layer (this is where the -2 comes from) sub-MLP with hidden layer and output dimensionality 10, then maps this sum to output dimension 5.  The hidden dimensions of a residual sub-MLP must equal the output dimension of the previous non-residual layer.
+
+At the bottom of the artifact model, each read vector is transformed independently by an MLP, the info is transformed by a different MLP, and the haplotype data is transformed by a one-dimensional, 10-channel (5 each for ref and alt stacked together) convolutional network.  The output of each is a vector:
+\begin{align}
+    \mathbf{r}_i^{(1)} &= \mathrm{MLP}_\mathrm{ref} (\mathbf{r}_i) \\
+    \mathbf{a}_i^{(1)} &= \mathrm{MLP}_\mathrm{alt} (\mathbf{a}_i) \\
+    \mathbf{e}^{(1)} &= \mathrm{MLP}_\mathrm{info} (\mathbf{e}) \\
+    \mathbf{s}^{(1)} &= \mathrm{CNN}_\mathrm{hap} (\mathbf{s}).
+\end{align}
+The haplotype and info vectors are then concatenated with each ref and alt read, independently, to obtain new sets of reads:
+\begin{align}
+    \mathbf{r}_i^{(2)} &= \mathrm{Concat}\left( \mathbf{r}_i^{(1)}, \mathbf{e}^{(1)}, \mathbf{s}^{(1)} \right) \\
+    \mathbf{a}_i^{(2)} &= \mathrm{Concat}\left( \mathbf{a}_i^{(1)}, \mathbf{e}^{(1)}, \mathbf{s}^{(1)} \right).
+\end{align}
+
+\subsection*{Artifact Model: set layers} 
+Next, the embedded reads are passed through a symmetric version of a gated MLP\cite{gated-mlp} with cross-attention between the alt and ref reads.  We modify the gated MLP to be permutation-invariant and count-agnostic by restricting attention between reads to act on averages.  That is, each read is influenced only by the averages of functions of alt and ref reads.  Letting $\mathrm{LN}$ denote layer norm, $\mathrm{Lin}$ denote a single-layer linear transformation, and $\psi$ be some nonlinear activation function, one gated MLP block acts on input sets $\left\{ \mathbf{x}_i  \right\}$ and $\left\{ \mathbf{y}_i  \right\}$ follows:  
+\begin{align}
+    \mathbf{u}_{x,i} &= \psi(\mathrm{Lin}_1(\mathrm{LN}(\mathbf{r}_i))) \\
+    \mathbf{v}_{x,i} &= \mathrm{LN}(\psi(\mathrm{Lin}_2(\mathrm{LN}(\mathbf{r}_i)))) \\
+    \mathbf{u}_{y,i} &= \psi(\mathrm{Lin}_3^{(n)}(\mathrm{LN}(\mathbf{a}_i^{(n)}))) \\
+    \mathbf{v}_{y,i} &= \mathrm{LN}(\psi(\mathrm{Lin}_4(\mathrm{LN}(\mathbf{a}_i)))).
+\end{align}
+The mean fields of two of these transformations are used to make gate vectors, which multiply the other two transformed vectors and are added to the inputs residually to obtain the output:
+\begin{align}
+    \mathbf{g}_{x,i} &= \alpha_x \mathbf{v}_{x,i} + 
+    \beta_{xx} \mathbf{\bar{v}}_{x} +
+    \beta_{xy} \mathbf{\bar{v}}_{y} \\
+    \mathbf{g}_{y,i} &= \alpha_y \mathbf{v}_{y,i} + 
+    \beta_{yy} \mathbf{\bar{v}}_{y} +
+    \beta_{yx} \mathbf{\bar{v}}_{x} \\
+    \mathbf{x}_i^\prime &= \mathbf{x}_i + \mathbf{g}_{x,i} \odot \mathbf{u}_{x,i} \\
+    \mathbf{y}_i^\prime &= \mathbf{y}_i + \mathbf{g}_{y,i} \odot \mathbf{u}_{y,i}.
+\end{align}
+where $\mathbf{\bar{v}}_{x}$ etc denotes the average over all $\mathbf{\bar{v}}_{x,i}$ and $\odot$ is elementwise multiplication.  This entire process defines a gated MLP block:
+\begin{equation}
+    \left( \left\{ \mathbf{x}_i^\prime  \right\}, \left\{ \mathbf{y}_i^\prime  \right\} \right) \equiv \mathrm{gMLP} \left( \left\{ \mathbf{x}_i  \right\}, \left\{ \mathbf{y}_i \right\} \right).
+\end{equation}
+The artifact model composes several of these gated MLP blocks to obtain final transformed sets of ref and alt reads:
+\begin{equation}
+    \left( \left\{ \mathbf{r}_i^\prime  \right\}, \left\{ \mathbf{a}_i^\prime  \right\} \right) = \mathrm{gMLP} \circ \dots \circ \mathrm{gMLP} \left( \left\{ \mathbf{r}_i^{(2)}  \right\}, \left\{ \mathbf{a}_i^{(2)} \right\} \right).
+\end{equation}
+At this point we have transformed sets of ref and alt reads in a permutation-invariant manner, but we still need to aggregate them into a single summary feature vector.  Simply taking an average would work, but we can be more expressive with a learned permutation-invariant set pooling function.  We discard the transformed ref reads $\left\{ \mathbf{r}_i^\prime  \right\}$ because at this point the transformed alt reads already contain a great deal of information from the original ref reads.  Thus we only need to define a pooling function on a single set of vectors.  For input set $\left\{ \mathbf{x}_i  \right\}$ we have:
+\begin{align}
+    \mathbf{u}_i &= \mathrm{MLP}_1(\mathbf{x}_i) \\
+    \mathbf{v}_i &= \mathrm{MLP}_2(\mathbf{x}_i) \\
+    \left\{ \mathbf{w}_i \right\} &= \mathrm{Softmax} \left( \left\{ \mathbf{v}_i \right\} \right) \\
+    \mathrm{SetPool}\left( \left\{ \mathbf{x}_i \right\} \right) &\equiv \mathrm{MLP}_3 \left( \sum_i \mathbf{w}_i \odot \mathbf{v}_i \right),
+\end{align}
+where the softmax acts over the $i$ index.  We can think of $\mathbf{w}_i$ as featurewise weights applied to the transformed values $\mathbf{v}_i$.  For concreteness, it is easy to see that this set pooling operator can take the arithmetic mean of inputs by learning an identity mapping $\mathbf{u}_i = \mathbf{x}_i$ and a constant mapping $\mathbf{v}_i = 0$.  It can learn to compute a featurewise maximum by scaling the elements of $\mathbf{v}_i$ by a large constant.  Thus this set pooling is a flexible and permutation-invariant method for learning nonlinear voting schemes.
+
+Next the artifact model applies a linear layer with one-dimensional output to obtain a logit representing the likelihood that the candidate variant is an artifact or not.
+
+\subsection*{Calibration Model} 
+Up to this point the use of mean fields ensures that Permutect is agnostic to the total count of ref and alt reads, which is intentional as discussed above.  For somatic variant calling and other situations where the prior on variants of interest may be very small it is essential to train not just an accurate classifier but a well-calibrated one.  Although it is antithetical to our purposes to use read counts to distinguish between artifacts and real mutations, it is perfectly acceptable to use read counts to calibrate the output.  To emit a final calibrated logit Permutect transforms the alt and ref read counts into vectors via a Gaussian comb featurization:
+\begin{equation}
+    \mathrm{GC}(n) \equiv \mathrm{Softmax}\left( -(n-1)^2, -(n-2)^2 \dots -(n-20)^2 \right) 
+\end{equation}
+It concatenates the read count featurizations with the uncalibrated logit and passes them through a final MLP with output dimension 1 corresponding to the calibrated logit:
+\begin{equation}
+    \mathrm{logit} \rightarrow \mathrm{MLP}\left( \mathrm{Concat} \left( \mathrm{logit}, \mathrm{GC}(n_\mathrm{ref}), \mathrm{GC}(n_\mathrm{alt}) \right) \right).
+\end{equation}
+To prevent the calibration from overriding the original logit, we constrain this MLP to be monotonic in the logit.  This can be achieved by constraining any coefficient multiplying the logit in the first linear layer, as well as all coefficients in subsequent layers, to be positive.
+
+\section*{Training the artifact model}
+For labeled data the artifact model is trained with the usual cross-entropy loss function.  Unlabeled data are given an entropy-minimization loss function that promotes clustering:
+\begin{equation}
+    \mathrm{entropy}(\mathrm{logit}) = -p \log(p) - (1-p) \log(1-p),
+\end{equation}
+where $p = \sigma(\mathrm{logit})$ is the mapping from logits to probabilities via the sigmoid function.
+
+The cross entropy loss is minimized when the output probabilities of the model match the actual artifact probabilities given the covariates.  Since we train on balanced data containing equal amounts of artifacts and non-artifacts, our training data has balanced prior probabilities, and therefore the learned probabilities that a variant is an artifact given the input data is proportional to the likelihood of the input data given that the variant is an artifact.  This observation, that a model trained on balanced data learns not just probabilities but likelihoods, enables the posterior model to use the output of the artifact model, as we shall see below.
+
+
+
+
+
+\begin{acknowledgements}
+We acknowledge Giles Hall for suggesting the use of memory-mapped datasets.
+\end{acknowledgements}
+
+\section*{Bibliography}
+\bibliography{permutect-bibliography}
+
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% Supplementary Information %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\captionsetup*{format=largeformat}
+\section{Something about something} \label{note:Note1} 
+
+%TC:endignore
+%the command above ignores this section for word count
+
+\end{document}
