@@ -31,7 +31,8 @@ WORST_OFFENDERS_QUEUE_SIZE = 100
 
 
 def train_artifact_model(model: ArtifactModel, dataset: ReadsDataset, training_params: TrainingParameters, summary_writer: SummaryWriter,
-                         validation_fold: int = None, training_folds: List[int] = None, epochs_per_evaluation: int = None, calibration_sources: List[int] = None):
+                         validation_fold: int = None, training_folds: List[int] = None, epochs_per_evaluation: int = None, calibration_sources: List[int] = None,
+                         domain_adaptation: bool = False):
     device, dtype = model._device, model._dtype
     bce = nn.BCEWithLogitsLoss(reduction='none')  # no reduction because we may want to first multiply by weights for unbalanced data
     ce = nn.CrossEntropyLoss(reduction='none')  # likewise
@@ -82,12 +83,14 @@ def train_artifact_model(model: ArtifactModel, dataset: ReadsDataset, training_p
         for epoch_type in [Epoch.TRAIN, Epoch.VALID]:
             model.set_epoch_type(epoch_type)
             # in calibration epoch, freeze the model except for calibration
+            if domain_adaptation and epoch_type == Epoch.TRAIN:
+                freeze(model.parameters())
+                unfreeze(model.domain_adaptation_parameters())
             if is_calibration_epoch and epoch_type == Epoch.TRAIN:
                 freeze(model.parameters())
                 #unfreeze(model.set_pooling.parameters())
                 #unfreeze(model.artifact_classifier.parameters())
                 unfreeze(model.calibration_parameters())  # unfreeze calibration but everything else stays frozen
-                # unfreeze(model.final_calibration_shift_parameters())  # unfreeze final calibration shift but everything else stays frozen
 
             loss_metrics = LossMetrics(num_sources=num_sources, device=device)   # based on calibrated logits
             alt_count_loss_metrics = LossMetrics(num_sources=num_sources, device=device)

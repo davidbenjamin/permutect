@@ -93,8 +93,16 @@ class ArtifactModel(torch.nn.Module):
         set_pooling_hidden_layers = [-2, -2]
         self.set_pooling = SetPooling(input_dim=embedding_dim, mlp_layers=set_pooling_hidden_layers,
                                       final_mlp_layers=params.aggregation_layers, batch_normalize=params.batch_normalize, dropout_p=params.dropout_p)
+        # parameters that go between the set pooling representation and feature clustering to correct domain shift
+        # Parameters express a Euclidean aka rigid aka norm-preserving transformation, a rotation followed by a translation
+        # Letting W be a generic square matrix then W-W^T is antisymmetric and thus exp(W-W^T) is orthogonal.  Matrix exponentiation
+        # is expensive but it only needs to be done once per batch and it's not a high-dimensional matrix.
+        # Initializing W = 0 causes the rotation to be the identity.
+        # IMPORTANT: these parameters must be frozen during training except in domain adaptation mode.
+        self.da_rotation_seed = Parameter(torch.zeros(self.pooling_dimension(), self.pooling_dimension()))
+        self.da_translation = Parameter(torch.zeros(self.pooling_dimension()))
 
-        self.feature_clustering = FeatureClustering(feature_dimension=self.set_pooling.output_dimension(),
+        self.feature_clustering = FeatureClustering(feature_dimension=self.pooling_dimension(),
             num_artifact_clusters=params.num_artifact_clusters, calibration_hidden_layer_sizes=params.calibration_layers)
 
         self.alt_count_predictor = Adversarial(MLP([self.pooling_dimension()] + [30, -1, -1, -1, 1]), adversarial_strength=0.01)
@@ -124,6 +132,9 @@ class ArtifactModel(torch.nn.Module):
     def haplotypes_length(self) -> int:
         return self._haplotypes_length
 
+    def domain_adaptation_parameters(self):
+        return [self.da_rotation_seed, self.da_translation]
+
     def post_pooling_parameters(self):
         return self.feature_clustering.parameters()
 
@@ -137,6 +148,7 @@ class ArtifactModel(torch.nn.Module):
         else:
             self.train(False)
             freeze(self.parameters())
+        freeze(self.domain_adaptation_parameters())
 
     # I really don't like the forward method of torch.nn.Module with its implicit calling that PyCharm doesn't recognize
     def forward(self, batch: ReadsBatch):
@@ -181,10 +193,14 @@ class ArtifactModel(torch.nn.Module):
     def calculate_logits(self, batch: ReadsBatch):
         features_be, _ = self.calculate_features(batch)
 
-        calibrated_logits_b, uncalibrated_logits_b, calibrated_logits_bk = self.feature_clustering.calculate_logits(features_be, ref_counts_b=batch.get_ref_counts(),
+        # The Euclidean transformation of features for domain adaptation
+        rotation_ee = torch.matrix_exp(self.da_rotation_seed - self.da_rotation_seed.t())
+        transformed_features_be = torch.matmul(features_be, rotation_ee) + self.da_translation
+
+        calibrated_logits_b, uncalibrated_logits_b, calibrated_logits_bk = self.feature_clustering.calculate_logits(transformed_features_be, ref_counts_b=batch.get_ref_counts(),
             alt_counts_b=batch.get_alt_counts(), var_types_b=batch.get_variant_types())
 
-        return calibrated_logits_b, uncalibrated_logits_b, calibrated_logits_bk, features_be
+        return calibrated_logits_b, uncalibrated_logits_b, calibrated_logits_bk, transformed_features_be
 
     def compute_source_prediction_losses(self, features_be: Tensor, batch: ReadsBatch) -> Tensor:
         if self.num_sources > 1:

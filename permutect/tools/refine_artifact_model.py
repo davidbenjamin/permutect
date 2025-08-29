@@ -51,6 +51,8 @@ def parse_arguments():
 
     parser.add_argument('--' + constants.CALIBRATION_SOURCES_NAME, nargs='+', default=None, type=int, required=False,
                         help='which sources to use in calibration.  Default: use all sources.')
+    parser.add_argument('--' + constants.DOMAIN_ADAPTATION_NAME, action='store_true',
+                        help='flag to enable domain adaptation mode')
     parser.add_argument('--' + constants.LEARN_ARTIFACT_SPECTRA_NAME, action='store_true',
                         help='flag to include artifact priors and allele fraction spectra in saved output.  '
                              'This is worth doing if labeled training data is available but might work poorly '
@@ -74,6 +76,7 @@ def parse_arguments():
 def main_without_parsing(args):
     training_params = parse_training_params(args)
     learn_artifact_spectra = getattr(args, constants.LEARN_ARTIFACT_SPECTRA_NAME)
+    domain_adaptation = getattr(args, constants.DOMAIN_ADAPTATION_NAME)
     calibration_sources = getattr(args, constants.CALIBRATION_SOURCES_NAME)
     genomic_span = getattr(args, constants.GENOMIC_SPAN_NAME)
 
@@ -85,7 +88,8 @@ def main_without_parsing(args):
     report_memory_usage("Creating ReadsDataset.")
     dataset = ReadsDataset(data_tarfile=getattr(args, constants.TRAIN_TAR_NAME), num_folds=10)
 
-    train_artifact_model(model, dataset, training_params, summary_writer, epochs_per_evaluation=10, calibration_sources=calibration_sources)
+    train_artifact_model(model, dataset, training_params, summary_writer, epochs_per_evaluation=10,
+                         calibration_sources=calibration_sources, domain_adaptation=domain_adaptation)
 
     for var_type in Variation:
         cal_fig, cal_axes = model.feature_clustering.plot_distance_calibration(var_type=var_type, device=model._device, dtype=model._dtype)

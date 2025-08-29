@@ -31,6 +31,7 @@ LEARNING_RATE_NAME = 'learning_rate'
 WEIGHT_DECAY_NAME = 'weight_decay'
 BATCH_NORMALIZE_NAME = 'batch_normalize'
 LEARN_ARTIFACT_SPECTRA_NAME = 'learn_artifact_spectra'
+DOMAIN_ADAPTATION_NAME = 'domain_adaptation'
 
 TRAINING_DATASETS_NAME = 'training_datasets'
 TRAIN_TAR_NAME = 'train_tar'
