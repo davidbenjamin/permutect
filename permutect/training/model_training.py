@@ -144,7 +144,9 @@ def train_artifact_model(model: ArtifactModel, dataset: ReadsDataset, training_p
                     # via the sigmoid
                     unsupervised_losses_b = consistency_loss_b if not domain_adaptation else \
                         bce(output.calibrated_logits_b, torch.sigmoid(output.calibrated_logits_b))
-                    loss += torch.sum(output.weights * (supervised_losses_b + unsupervised_losses_b + alt_count_losses_b) + output.source_weights * source_losses_b)
+                    semisupervised_losses = (supervised_losses_b + unsupervised_losses_b) if not domain_adaptation else \
+                        bce(output.calibrated_logits_b, torch.sigmoid(output.calibrated_logits_b))
+                    loss += torch.sum(output.weights * (semisupervised_losses + alt_count_losses_b) + output.source_weights * source_losses_b)
 
                     loss_metrics.record(batch, supervised_losses_b, is_labeled_b * output.weights)
                     loss_metrics.record(batch, unsupervised_losses_b, output.weights)
