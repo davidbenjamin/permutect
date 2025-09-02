@@ -87,6 +87,7 @@ def train_artifact_model(model: ArtifactModel, dataset: ReadsDataset, training_p
                 freeze(model.parameters())
                 unfreeze(model.domain_adaptation_parameters())
                 unfreeze(model.calibration_parameters())
+                unfreeze(model.feature_clustering.parameters())
             if is_calibration_epoch and epoch_type == Epoch.TRAIN:
                 freeze(model.parameters())
                 #unfreeze(model.set_pooling.parameters())
