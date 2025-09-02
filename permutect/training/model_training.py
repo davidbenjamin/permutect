@@ -135,18 +135,9 @@ def train_artifact_model(model: ArtifactModel, dataset: ReadsDataset, training_p
                     consistency_dist_b = torch.norm(output.features_be - parent_output.features_be, dim=-1)
                     consistency_loss_b = torch.square(consistency_dist_b / second_nearest_dist_b)
 
-                    # unsupervised loss: consistency with undownsampled featurization, with distance normalized
-                    # by the nearest incorrect cluster to prevent trivial collapse
-                    # in the case of domain adaptation, use entropy loss, the idea being that the Euclidean transformation
-                    # should seek to align the target clustering with the source clustering, thereby reducing entropy as
-                    # long as the domain shift is mild
-                    # we implement entropy as the binary cross entropy of logits with their corresponding probabilities
-                    # via the sigmoid
-                    unsupervised_losses_b = consistency_loss_b if not domain_adaptation else \
-                        bce(output.calibrated_logits_b, torch.sigmoid(output.calibrated_logits_b))
-                    semisupervised_losses = (supervised_losses_b + unsupervised_losses_b) if not domain_adaptation else \
-                        bce(output.calibrated_logits_b, torch.sigmoid(output.calibrated_logits_b))
-                    loss += torch.sum(output.weights * (semisupervised_losses + alt_count_losses_b) + output.source_weights * source_losses_b)
+                    # unsupervised loss: cross-entropy between cluster-resolved predictions
+                    unsupervised_losses_b = consistency_loss_b
+                    loss += torch.sum(output.weights * (supervised_losses_b + unsupervised_losses_b + alt_count_losses_b) + output.source_weights * source_losses_b)
 
                     loss_metrics.record(batch, supervised_losses_b, is_labeled_b * output.weights)
                     loss_metrics.record(batch, unsupervised_losses_b, output.weights)
