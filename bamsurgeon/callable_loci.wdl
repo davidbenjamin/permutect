@@ -9,6 +9,7 @@ workflow CallableLoci {
         File bam
         File bam_idx
         File? intervals
+        String extra_args = ""
 
         String gatk_docker = "us.gcr.io/broad-gatk/gatk"
         String? gcs_project_for_requester_pays
@@ -22,7 +23,8 @@ workflow CallableLoci {
             ref_fai = ref_fai,
             ref_dict = ref_dict,
             gatk_docker = gatk_docker,
-            intervals = intervals
+            intervals = intervals,
+            extra_args = extra_args
     }
 
     output {
@@ -42,6 +44,7 @@ task CallableLoci {
         File ref_fai
         File ref_dict
         File? intervals
+        String extra_args
 
         Int cpu = 2
         Int mem_gb = 4
@@ -60,7 +63,7 @@ task CallableLoci {
     }
 
     command <<<
-        gatk CallableLoci -R ~{ref_fasta} -I ~{bam} ~{" -L " + intervals} -O callable_status.bed --summary summary.txt
+        gatk CallableLoci -R ~{ref_fasta} -I ~{bam} ~{" -L " + intervals} -O callable_status.bed --summary summary.txt ~{extra_args}
         grep PASS callable_status.bed > good_regions.bed
         grep -v PASS callable_status.bed > bad_regions.bed
     >>>
