@@ -118,6 +118,19 @@ workflow Permutect {
             permutect_docker = permutect_docker,
     }
 
+    if (defined(test_dataset_truth_vcf)){
+        call Concordance {
+            input:
+                intervals = intervals,
+                masks = if masks == "" then EMPTY_STRING_HACK else masks,
+                truth_vcf = select_first([test_dataset_truth_vcf]),
+                truth_vcf_idx = select_first([test_dataset_truth_vcf_idx]),
+                eval_vcf = PermutectFiltering.output_vcf,
+                eval_vcf_idx = PermutectFiltering.output_vcf_idx,
+                gatk_docker = gatk_docker
+        }
+    }
+
     output {
         File output_vcf = PermutectFiltering.output_vcf
         File output_vcf_idx = PermutectFiltering.output_vcf_idx
@@ -125,6 +138,19 @@ workflow Permutect {
         File test_dataset = select_first([Mutect2.permutect_test_dataset])
         File mutect2_vcf = Mutect2.output_vcf
         File mutect2_vcf_idx = Mutect2.output_vcf_idx
+
+        File? fn = Concordance.fn
+        File? fn_idx = Concordance.fn_idx
+        File? fp = Concordance.fp
+        File? fp_idx = Concordance.fp_idx
+        File? tp = Concordance.tp
+        File? tp_idx = Concordance.tp_idx
+        File? ffn = Concordance.ffn
+        File? ffn_idx = Concordance.ffn_idx
+        File? ftn = Concordance.ftn
+        File? ftn_idx = Concordance.ftn_idx
+        File? concordance_summary = Concordance.summary
+        File? filter_analysis = Concordance.filter_analysis
     }
 }
 
@@ -248,5 +274,80 @@ task SplitMultiallelics {
     output {
         File output_vcf = "output.vcf"
         File output_vcf_idx = "output.vcf.idx"
+    }
+}
+
+task Concordance {
+    input {
+    	File? intervals
+    	File? masks
+    	File truth_vcf
+    	File truth_vcf_idx
+    	File eval_vcf
+    	File eval_vcf_idx
+
+    	# runtime
+    	String gatk_docker = "us.gcr.io/broad-gatk/gatk"
+    	Int preemptible = 0
+	}
+
+    command {
+        gatk --java-options "-Xmx2g" Concordance \
+            ~{"-L " + intervals} \
+            ~{"-XL " + masks} \
+            -truth ~{truth_vcf} -eval ~{eval_vcf} \
+            -tpfn "tpfn.vcf" \
+            -tpfp "tpfp.vcf" \
+            -ftnfn "ftnfn.vcf" \
+            -filter-analysis "filter-analysis.txt" \
+            -summary "summary.txt"
+
+        grep '#' tpfn.vcf > HEAD
+        grep STATUS=FN tpfn.vcf > BODY
+        cat HEAD BODY > false_negatives.vcf
+
+        grep '#' tpfp.vcf > HEAD
+        grep STATUS=FP tpfp.vcf > BODY
+        cat HEAD BODY > false_positives.vcf
+
+        grep '#' tpfp.vcf > HEAD
+        grep STATUS=TP tpfp.vcf > BODY
+        cat HEAD BODY > true_positives.vcf
+
+        grep '#' ftnfn.vcf > HEAD
+        grep STATUS=FFN ftnfn.vcf > BODY
+        cat HEAD BODY > filtered_false_negatives.vcf
+        grep STATUS=FTN ftnfn.vcf > BODY
+        cat HEAD BODY > filtered_true_negatives.vcf
+
+        for vcf in false_negatives.vcf false_positives.vcf true_positives.vcf filtered_false_negatives.vcf filtered_true_negatives.vcf; do
+            #HACK: IndexFeatureFile throws error if vcf is empty, which is possible here especially in the case of false negatives
+            gatk --java-options "-Xmx2g" SelectVariants -V $vcf -O tmp.vcf
+            mv tmp.vcf $vcf
+            mv tmp.vcf.idx $vcf.idx
+        done
+    }
+
+    runtime {
+        memory: "5 GB"
+        bootDiskSizeGb: 12
+        docker: "${gatk_docker}"
+        disks: "local-disk " + 100 + " HDD"
+        preemptible: select_first([preemptible, 2])
+    }
+
+    output {
+        File fn = "false_negatives.vcf"
+        File fn_idx = "false_negatives.vcf.idx"
+        File fp = "false_positives.vcf"
+        File fp_idx = "false_positives.vcf.idx"
+        File tp = "true_positives.vcf"
+        File tp_idx = "true_positives.vcf.idx"
+        File ffn = "filtered_false_negatives.vcf"
+        File ffn_idx = "filtered_false_negatives.vcf.idx"
+        File ftn = "filtered_true_negatives.vcf"
+        File ftn_idx = "filtered_true_negatives.vcf.idx"
+        File summary = "summary.txt"
+        File filter_analysis = "filter-analysis.txt"
     }
 }
