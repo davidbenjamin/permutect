@@ -64,8 +64,8 @@ task CallableLoci {
 
     command <<<
         gatk CallableLoci -R ~{ref_fasta} -I ~{bam} ~{" -L " + intervals} -O callable_status.bed --summary summary.txt ~{extra_args}
-        grep PASS callable_status.bed > good_regions.bed
-        grep -v PASS callable_status.bed > bad_regions.bed
+        grep CALLABLE callable_status.bed > good_regions.bed
+        grep -v CALLABLE callable_status.bed > bad_regions.bed
     >>>
 
     runtime {
