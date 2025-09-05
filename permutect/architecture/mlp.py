@@ -40,8 +40,9 @@ class MLP(nn.Module):
                 layers.append(DenseSkipBlock(input_dim, -output_dim, batch_normalize, dropout_p))
                 continue
 
-            if batch_normalize:
-                layers.append(nn.BatchNorm1d(num_features=input_dim))
+            layers.append(nn.LayerNorm(input_dim))
+            #if batch_normalize:
+            #    layers.append(nn.BatchNorm1d(num_features=input_dim))
 
             layers.append(nn.Linear(input_dim, output_dim))
 
