@@ -4,14 +4,13 @@ import psutil
 import random
 import tarfile
 import tempfile
-from typing import Iterable, List
+from typing import Iterable, List, Generator
 
 import torch
 from torch.utils.data import Dataset, DataLoader
 from torch.utils.data.sampler import Sampler
 
 from mmap_ninja.ragged import RaggedMmap
-from permutect.data.count_binning import cap_ref_count, cap_alt_count
 from permutect.data.reads_datum import ReadsDatum
 from permutect.data.reads_batch import ReadsBatch
 from permutect.data.batch import BatchProperty, BatchIndexedTensor
@@ -50,7 +49,7 @@ class ReadsDataset(Dataset):
             print(f"The tarfile size is {tarfile_size} bytes on disk for an estimated {estimated_data_size_in_ram} bytes in memory and the system has {available_memory} bytes of RAM available.")
             if fits_in_ram:
                 print("loading the dataset from the tarfile into RAM:")
-                self._data = list(make_base_data_generator_from_tarfile(data_tarfile))
+                self._data = list(generate_reads_data_from_tarfile(data_tarfile))
                 self._memory_map_mode = False
             else:
                 print("loading the dataset into a memory-mapped file:")
@@ -58,7 +57,7 @@ class ReadsDataset(Dataset):
 
                 RaggedMmap.from_generator(out_dir=self._memory_map_dir.name,
                                           sample_generator=make_flattened_tensor_generator(
-                                              make_base_data_generator_from_tarfile(data_tarfile)),
+                                              generate_reads_data_from_tarfile(data_tarfile)),
                                           batch_size=10000, verbose=False)
                 self._data = RaggedMmap(self._memory_map_dir.name)
                 self._memory_map_mode = True
@@ -133,13 +132,13 @@ class ReadsDataset(Dataset):
 
 
 # from a generator that yields BaseDatum(s), create a generator that yields the two numpy arrays needed to reconstruct the datum
-def make_flattened_tensor_generator(reads_data_generator):
+def make_flattened_tensor_generator(reads_data_generator: Generator[ReadsDatum, None, None]):
     for reads_datum in reads_data_generator:
         yield reads_datum.get_reads_re()
         yield reads_datum.get_array_1d()
 
 
-def make_base_data_generator_from_tarfile(data_tarfile):
+def generate_reads_data_from_tarfile(data_tarfile) -> Generator[ReadsDatum, None, None]:
     # extract the tarfile to a temporary directory that will be cleaned up when the program ends
     temp_dir = tempfile.TemporaryDirectory()
     tar = tarfile.open(data_tarfile)
