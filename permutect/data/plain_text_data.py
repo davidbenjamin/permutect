@@ -31,6 +31,7 @@ GTCCTGGACACGCTGTTGGCC
 -0.000
 """
 from typing import List
+import sys
 
 import numpy as np
 from sklearn.preprocessing import QuantileTransformer
@@ -119,6 +120,7 @@ def generate_normalized_data(dataset_files, max_bytes_per_chunk: int, sources: L
 
         num_buffers_filled = 0
         source = 0 if sources is None else (sources[0] if len(sources) == 1 else sources[n])
+        reads_datum: ReadsDatum
         for reads_datum in read_data(dataset_file, source=source):
             buffer.append(reads_datum)
             bytes_in_buffer += reads_datum.size_in_bytes()
