@@ -136,13 +136,10 @@ class ReadsDatum(Datum):
         # the nonbinary features are converted to float, but it's one-to-one so no multiplicative factor
         return 8 * NUMBER_OF_BYTES_IN_PACKED_READ + num_nonbinary_features
 
-
-    # TODO: used both before and after normalization (when making batches)
-    def get_ref_reads_re(self) -> np.ndarray:
+    def get_compressed_ref_reads_re(self) -> np.ndarray:
         return self.compressed_reads_re[:-self.get_alt_count()]
 
-    # TODO: used both before and after normalization (when making batches)
-    def get_alt_reads_re(self) -> np.ndarray:
+    def get_compressed_alt_reads_re(self) -> np.ndarray:
         return self.compressed_reads_re[-self.get_alt_count():]
 
     @classmethod
