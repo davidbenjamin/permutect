@@ -196,7 +196,7 @@ def normalize_buffer(buffer: List[RawUnnormalizedReadsDatum], read_quantile_tran
     packed_output_array = np.packbits(boolean_output_array, axis=1)
 
     assert packed_output_array.dtype == np.uint8
-    assert packed_output_array.shape[1] == NUMBER_OF_BYTES_IN_PACKED_READ
+    assert packed_output_array.shape[1] == NUMBER_OF_BYTES_IN_PACKED_READ, f"boolean array shape {boolean_output_array.shape}, packed shape {packed_output_array.shape}"
 
     distance_columns_output = convert_quantile_normalized_to_uint8(distance_columns_transformed_re)
     assert packed_output_array.dtype == distance_columns_output.dtype
