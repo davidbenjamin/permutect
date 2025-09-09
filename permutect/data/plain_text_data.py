@@ -209,7 +209,7 @@ def normalize_buffer(buffer: List[RawUnnormalizedReadsDatum], read_quantile_tran
     raw_datum: RawUnnormalizedReadsDatum
     for n, raw_datum in enumerate(buffer):
         output_reads_re = output_uint8_reads_array[0 if n == 0 else read_index_ranges[n - 1]:read_index_ranges[n]]
-        output_datum: ReadsDatum = ReadsDatum(datum_array=raw_datum.array, reads_re=output_reads_re)
+        output_datum: ReadsDatum = ReadsDatum(datum_array=raw_datum.array, compressed_reads_re=output_reads_re)
 
         # TODO: we used to put alt means and medians as extra info here.  If that's helpful to the model maybe restore
         # TODO: it not when storing a dataset but when creating batches?
