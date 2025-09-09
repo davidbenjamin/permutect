@@ -118,12 +118,15 @@ class ReadsDatum(Datum):
         super().__init__(datum_array)
         assert compressed_reads_re.dtype == READS_ARRAY_DTYPE
 
-        # this name emphasizes that they are in a compressed, unusable form.  Binary columns must be unpacked and float
-        # columns must be inverse-transformed back from uint8
+        # Reads are in a compressed, unusable form.  Binary columns must be unpacked and float
+        # columns must be transformed back from uint8
         self.compressed_reads_re = compressed_reads_re
 
     def size_in_bytes(self):
         return self.compressed_reads_re.nbytes + self.get_nbytes()
+
+    def get_compressed_reads_re(self) -> np.ndarray:
+        return self.compressed_reads_re
 
     # TODO: used only after normalization, but will have to be modified
     def get_reads_re(self) -> np.ndarray:
@@ -140,25 +143,25 @@ class ReadsDatum(Datum):
     # TODO: used only after normalization
     @classmethod
     def save_list(cls, base_data: List[ReadsDatum], file):
-        read_tensors = np.vstack([datum.get_reads_re() for datum in base_data])
-        other_stuff = np.vstack([datum.get_array_1d() for datum in base_data])
-        torch.save([read_tensors, other_stuff], file, pickle_protocol=4)
+        stacked_compressed_reads_re = np.vstack([datum.get_compressed_reads_re() for datum in base_data])
+        stacked_data_array_ve = np.vstack([datum.get_array_1d() for datum in base_data])
+        torch.save([stacked_compressed_reads_re, stacked_data_array_ve], file, pickle_protocol=4)
 
     # TODO: maybe the stacked arrays could be loaded directly as a dataset as opposed to the current approach of
     # TODO: unstacking them into Lists of ReadsDatum, then storing the data list in the datasetx
     @classmethod
     def load_list(cls, file) -> List[ReadsDatum]:
         # these are vstacked -- see save method above
-        compressed_reads_re, datum_arrays_ve = torch.load(file)
+        stacked_compressed_reads_re, stacked_data_array_ve = torch.load(file)
 
         result = []
         read_start_row = 0
-        for datum_array in datum_arrays_ve:
+        for datum_array in stacked_data_array_ve:
             datum = Datum(datum_array)
             read_count = datum.get_ref_count() + datum.get_alt_count()
             read_end_row = read_start_row + read_count
 
-            reads_datum = ReadsDatum(datum_array=datum_array, compressed_reads_re=compressed_reads_re[read_start_row:read_end_row])
+            reads_datum = ReadsDatum(datum_array=datum_array, compressed_reads_re=stacked_compressed_reads_re[read_start_row:read_end_row])
             read_start_row = read_end_row
             result.append(reads_datum)
 
