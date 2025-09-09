@@ -188,21 +188,19 @@ def normalize_buffer(buffer: List[RawUnnormalizedReadsDatum], read_quantile_tran
     binary_read_column_mask = np.ones_like(all_reads_transformed[0])
     binary_read_column_mask[10:15] = 0
 
-
     normalized_result = []
-    datum: RawUnnormalizedReadsDatum
-    for n, datum in enumerate(buffer):
-        # TODO: create new readsdatum!!!
-        datum.reads_re = all_reads_transformed[0 if n == 0 else read_index_ranges[n - 1]:read_index_ranges[n]]
+    raw_datum: RawUnnormalizedReadsDatum
+    for n, raw_datum in enumerate(buffer):
+        output_reads_re = all_reads_transformed[0 if n == 0 else read_index_ranges[n - 1]:read_index_ranges[n]]
+        output_datum: ReadsDatum = ReadsDatum(datum_array=raw_datum.array, reads_re=output_reads_re)
 
         # medians are an appropriate outlier-tolerant summary, except for binary columns where the mean makes more sense
-        alt_medians = np.median(datum.get_alt_reads_re(), axis=0)
-        alt_means = np.mean(datum.get_alt_reads_re(), axis=0)
-
+        alt_medians = np.median(raw_datum.get_alt_reads_re(), axis=0)
+        alt_means = np.mean(raw_datum.get_alt_reads_re(), axis=0)
         extra_info = binary_read_column_mask * alt_means + (1 - binary_read_column_mask) * alt_medians
-        datum.set_info_1d(np.hstack([extra_info, all_info_transformed[n]]))
+        output_datum.set_info_1d(np.hstack([extra_info, all_info_transformed[n]]))
+        normalized_result.append(output_datum)
 
-        #TODO: append the new one!!!
     return normalized_result
 
 

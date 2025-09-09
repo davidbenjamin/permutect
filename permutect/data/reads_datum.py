@@ -63,7 +63,7 @@ class RawUnnormalizedReadsDatum(Datum):
         result = cls(datum_array=datum.get_array_1d(), reads_re=read_tensor)
         return result
 
-    def copy_with_downsampled_reads(self, ref_downsample: int, alt_downsample: int) -> ReadsDatum:
+    def copy_with_downsampled_reads(self, ref_downsample: int, alt_downsample: int) -> RawUnnormalizedReadsDatum:
         old_ref_count, old_alt_count = len(self.reads_re) - self.get_alt_count(), self.get_alt_count()
         new_ref_count = min(old_ref_count, ref_downsample)
         new_alt_count = min(self.get_alt_count(), alt_downsample)
@@ -79,49 +79,16 @@ class RawUnnormalizedReadsDatum(Datum):
             random_ref_read_indices = torch.randperm(old_ref_count)[:new_ref_count]
             random_alt_read_indices = old_ref_count + torch.randperm(old_alt_count)[:new_alt_count]
             new_reads = np.vstack((self.reads_re[random_ref_read_indices], self.reads_re[random_alt_read_indices]))
-            return ReadsDatum(new_data_array, new_reads)
+            return RawUnnormalizedReadsDatum(new_data_array, new_reads)
 
-    # TODO: used before normalization, and after normalization for pruning and editing datasets
     def size_in_bytes(self):
         return self.reads_re.nbytes + self.get_nbytes()
 
-    # TODO: used only after normalization, but will have to be modified
-    def get_reads_re(self) -> np.ndarray:
-        return self.reads_re
-
-    # TODO: used both before and after normalization (when making batches)
     def get_ref_reads_re(self) -> np.ndarray:
         return self.reads_re[:-self.get_alt_count()]
 
-    # TODO: used both before and after normalization (when making batches)
     def get_alt_reads_re(self) -> np.ndarray:
         return self.reads_re[-self.get_alt_count():]
-
-    # TODO: used only after normalization
-    @classmethod
-    def save_list(cls, base_data: List[ReadsDatum], file):
-        read_tensors = np.vstack([datum.get_reads_re() for datum in base_data])
-        other_stuff = np.vstack([datum.get_array_1d() for datum in base_data])
-        torch.save([read_tensors, other_stuff], file, pickle_protocol=4)
-
-    # TODO: used only after normalization
-    @classmethod
-    def load_list(cls, file) -> List[ReadsDatum]:
-        # these are vstacked -- see save method above
-        read_tensors, datum_arrays = torch.load(file)
-
-        result = []
-        read_start_row = 0
-        for datum_array in datum_arrays:
-            datum = Datum(datum_array)
-            read_count = datum.get_ref_count() + datum.get_alt_count()
-            read_end_row = read_start_row + read_count
-
-            reads_datum = ReadsDatum(datum_array=datum_array, reads_re=read_tensors[read_start_row:read_end_row])
-            read_start_row = read_end_row
-            result.append(reads_datum)
-
-        return result
 
 
 class ReadsDatum(Datum):
