@@ -7,7 +7,7 @@ from permutect import constants
 from permutect.architecture.artifact_model import load_model
 from permutect.tools import train_artifact_model
 
-OVERWRITE_SAVED_MODEL = False
+OVERWRITE_SAVED_MODEL = True
 
 
 def test_train_artifact_model():
