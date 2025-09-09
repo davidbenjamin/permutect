@@ -80,7 +80,7 @@ class ReadsDataset(Dataset):
     def __getitem__(self, index):
         if self._memory_map_mode:
             bottom_index = index * TENSORS_PER_BASE_DATUM
-            return ReadsDatum(datum_array=self._data[bottom_index + 1], reads_re=self._data[bottom_index])
+            return ReadsDatum(datum_array=self._data[bottom_index + 1], compressed_reads_re=self._data[bottom_index])
         else:
             return self._data[index]
 

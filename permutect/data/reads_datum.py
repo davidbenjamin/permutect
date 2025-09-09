@@ -17,6 +17,7 @@ from permutect.utils.enums import Variation, Label
 # applied (this converts bool tensors into byte tensors, each byte holding eight bools)
 # if the number of boolean bits is not a multiple of 8, it gets padded with zeros.  This isn't a problem.
 NUMBER_OF_BYTES_IN_PACKED_READ = 10
+READS_ARRAY_DTYPE = np.uint8
 
 
 # quantile-normalized data is generally some small number of standard deviations from 0.  We can store as uint8 by
@@ -111,24 +112,30 @@ class RawUnnormalizedReadsDatum(Datum):
 
 
 class ReadsDatum(Datum):
-    def __init__(self, datum_array: np.ndarray, reads_re: np.ndarray):
+    # TODO: this comes up in 1) pruning, 2) memory-mapped dataset 3) loading, 4) normalizing plain-text data
+    # TODO: 1, 2, 3 still need to be "fixed"
+    def __init__(self, datum_array: np.ndarray, compressed_reads_re: np.ndarray):
         super().__init__(datum_array)
-        self.reads_re = reads_re.astype(DEFAULT_NUMPY_FLOAT)
+        assert compressed_reads_re.dtype == READS_ARRAY_DTYPE
+
+        # this name emphasizes that they are in a compressed, unusable form.  Binary columns must be unpacked and float
+        # columns must be inverse-transformed back from uint8
+        self.compressed_reads_re = compressed_reads_re
 
     def size_in_bytes(self):
-        return self.reads_re.nbytes + self.get_nbytes()
+        return self.compressed_reads_re.nbytes + self.get_nbytes()
 
     # TODO: used only after normalization, but will have to be modified
     def get_reads_re(self) -> np.ndarray:
-        return self.reads_re
+        return self.compressed_reads_re
 
     # TODO: used both before and after normalization (when making batches)
     def get_ref_reads_re(self) -> np.ndarray:
-        return self.reads_re[:-self.get_alt_count()]
+        return self.compressed_reads_re[:-self.get_alt_count()]
 
     # TODO: used both before and after normalization (when making batches)
     def get_alt_reads_re(self) -> np.ndarray:
-        return self.reads_re[-self.get_alt_count():]
+        return self.compressed_reads_re[-self.get_alt_count():]
 
     # TODO: used only after normalization
     @classmethod
@@ -137,20 +144,21 @@ class ReadsDatum(Datum):
         other_stuff = np.vstack([datum.get_array_1d() for datum in base_data])
         torch.save([read_tensors, other_stuff], file, pickle_protocol=4)
 
-    # TODO: used only after normalization
+    # TODO: maybe the stacked arrays could be loaded directly as a dataset as opposed to the current approach of
+    # TODO: unstacking them into Lists of ReadsDatum, then storing the data list in the datasetx
     @classmethod
     def load_list(cls, file) -> List[ReadsDatum]:
         # these are vstacked -- see save method above
-        read_tensors, datum_arrays = torch.load(file)
+        compressed_reads_re, datum_arrays_ve = torch.load(file)
 
         result = []
         read_start_row = 0
-        for datum_array in datum_arrays:
+        for datum_array in datum_arrays_ve:
             datum = Datum(datum_array)
             read_count = datum.get_ref_count() + datum.get_alt_count()
             read_end_row = read_start_row + read_count
 
-            reads_datum = ReadsDatum(datum_array=datum_array, reads_re=read_tensors[read_start_row:read_end_row])
+            reads_datum = ReadsDatum(datum_array=datum_array, compressed_reads_re=compressed_reads_re[read_start_row:read_end_row])
             read_start_row = read_end_row
             result.append(reads_datum)
 
