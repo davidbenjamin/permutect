@@ -4,7 +4,7 @@ from typing import List
 import numpy as np
 import torch
 
-from permutect.data.datum import Datum
+from permutect.data.datum import Datum, DEFAULT_NUMPY_FLOAT
 from permutect.utils.allele_utils import trim_alleles_on_right, get_str_info_array, make_1d_sequence_tensor
 from permutect.utils.enums import Variation, Label
 
@@ -94,14 +94,8 @@ class RawUnnormalizedReadsDatum(Datum):
 class ReadsDatum(Datum):
     def __init__(self, datum_array: np.ndarray, reads_re: np.ndarray):
         super().__init__(datum_array)
-        self.reads_re = reads_re
-        self.set_reads_dtype(np.float16)
+        self.reads_re = reads_re.astype(DEFAULT_NUMPY_FLOAT)
 
-    # TODO: used in both, but won't be needed for the compressed constructor
-    def set_reads_dtype(self, dtype):
-        self.reads_re = self.reads_re.astype(dtype)
-
-    # TODO: used before normalization, and after normalization for pruning and editing datasets
     def size_in_bytes(self):
         return self.reads_re.nbytes + self.get_nbytes()
 
