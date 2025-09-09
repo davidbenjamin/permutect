@@ -35,9 +35,10 @@ def do_work(training_datasets, training_output_file, chunk_size, sources: List[i
     # save all the lists of read sets to tempfiles. . .
     reads_datum_list: List[ReadsDatum]
     for reads_datum_list in generate_normalized_data(training_datasets, max_bytes_per_chunk=chunk_size, sources=sources):
-        num_read_features.check(reads_datum_list[0].get_reads_re().shape[1])
-        num_info_features.check(reads_datum_list[0].get_info_1d().shape[0])
-        haplotypes_length.check(reads_datum_list[0].get_haplotypes_1d().shape[0])
+        first_datum: ReadsDatum = reads_datum_list[0]
+        num_read_features.check(first_datum.num_read_features())
+        num_info_features.check(first_datum.get_info_1d().shape[0])
+        haplotypes_length.check(first_datum.get_haplotypes_1d().shape[0])
 
         with tempfile.NamedTemporaryFile(delete=False) as train_data_file:
             ReadsDatum.save_list(reads_datum_list, train_data_file)

@@ -113,7 +113,7 @@ class RawUnnormalizedReadsDatum(Datum):
 
 class ReadsDatum(Datum):
     # TODO: this comes up in 1) pruning, 2) memory-mapped dataset 3) loading, 4) normalizing plain-text data
-    # TODO: 1, 2, 3 still need to be "fixed"
+    # TODO: 1 still needs to be fixed
     def __init__(self, datum_array: np.ndarray, compressed_reads_re: np.ndarray):
         super().__init__(datum_array)
         assert compressed_reads_re.dtype == READS_ARRAY_DTYPE
@@ -128,9 +128,14 @@ class ReadsDatum(Datum):
     def get_compressed_reads_re(self) -> np.ndarray:
         return self.compressed_reads_re
 
-    # TODO: used only after normalization, but will have to be modified
-    def get_reads_re(self) -> np.ndarray:
-        return self.compressed_reads_re
+    # this is the number of read features in a PyTorch float tensor, after unpacking the compressed binaries
+    def num_read_features(self) -> int:
+        num_read_uint8s = self.compressed_reads_re.shape[1]
+        num_nonbinary_features = num_read_uint8s - NUMBER_OF_BYTES_IN_PACKED_READ
+        # 8 bits per byte.  In general the last few features will be extraneous padded zeros, but that's okay.
+        # the nonbinary features are converted to float, but it's one-to-one so no multiplicative factor
+        return 8 * NUMBER_OF_BYTES_IN_PACKED_READ + num_nonbinary_features
+
 
     # TODO: used both before and after normalization (when making batches)
     def get_ref_reads_re(self) -> np.ndarray:
@@ -140,7 +145,6 @@ class ReadsDatum(Datum):
     def get_alt_reads_re(self) -> np.ndarray:
         return self.compressed_reads_re[-self.get_alt_count():]
 
-    # TODO: used only after normalization
     @classmethod
     def save_list(cls, base_data: List[ReadsDatum], file):
         stacked_compressed_reads_re = np.vstack([datum.get_compressed_reads_re() for datum in base_data])
