@@ -12,6 +12,25 @@ from permutect.utils.enums import Variation, Label
 # base strings longer than this when encoding data
 
 
+# on disk and in datasets before creating batches, read tensors are stored with dtype np.uint8
+# the leading columns are from binary quantities (either inherently binary or one-hot-encoded categorical) with np.packbits
+# applied (this converts bool tensors into byte tensors, each byte holding eight bools)
+# if the number of boolean bits is not a multiple of 8, it gets padded with zeros.  This isn't a problem.
+NUMBER_OF_BYTES_IN_PACKED_READ = 10
+
+
+# quantile-normalized data is generally some small number of standard deviations from 0.  We can store as uint8 by
+# mapping x --> 32x + 128 and restricting to the range [0,255], which maps -4 and +4 standard deviations to the limits
+# of uint8
+def convert_quantile_normalized_to_uint8(data: np.ndarray):
+    return np.ndarray.astype(np.clip(data * 32 + 128, 0, 255), np.uint8)
+
+
+# the inverse of the above
+def convert_uint8_to_quantile_normalized(data: np.ndarray):
+    return np.ndarray.astype((data - 128) / 32, DEFAULT_NUMPY_FLOAT)
+
+
 def make_sequence_tensor(sequence_string: str) -> np.ndarray:
     """
     convert string of form ACCGTA into 4-channel one-hot tensor

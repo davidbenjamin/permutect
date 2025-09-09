@@ -37,7 +37,8 @@ import numpy as np
 from sklearn.preprocessing import QuantileTransformer
 
 from permutect.data.count_binning import cap_ref_count, cap_alt_count
-from permutect.data.reads_datum import ReadsDatum, RawUnnormalizedReadsDatum
+from permutect.data.reads_datum import ReadsDatum, RawUnnormalizedReadsDatum, NUMBER_OF_BYTES_IN_PACKED_READ, \
+    convert_quantile_normalized_to_uint8
 from permutect.data.datum import DEFAULT_NUMPY_FLOAT
 
 from permutect.misc_utils import report_memory_usage
@@ -142,24 +143,22 @@ def generate_normalized_data(dataset_files, max_bytes_per_chunk: int, sources: L
 def normalize_buffer(buffer: List[RawUnnormalizedReadsDatum], read_quantile_transform,
                      info_quantile_transform, refit_transforms=True) -> List[ReadsDatum]:
     # 2D array.  Rows are ref/alt reads, columns are read features
-    all_ref = np.vstack([datum.get_ref_reads_re() for datum in buffer])
-    all_reads = np.vstack([datum.reads_re for datum in buffer])
+    all_ref_re = np.vstack([datum.get_ref_reads_re() for datum in buffer])
+    all_reads_re = np.vstack([datum.reads_re for datum in buffer])
 
     # 2D array.  Rows are read sets, columns are info features
-    all_info = np.vstack([datum.get_info_1d() for datum in buffer])
+    all_info_ve = np.vstack([datum.get_info_1d() for datum in buffer])
+    binary_info_columns = binary_column_indices(all_info_ve)
 
-    binary_read_columns = binary_column_indices(all_ref)
-    binary_info_columns = binary_column_indices(all_info)
-
-    distance_columns = all_reads[:, 4:9]
-
+    distance_columns_re = all_reads_re[:, 4:9]
+    ref_distance_columns_re = all_ref_re[:, 4:9]
     if refit_transforms:    # fit quantiles column by column (aka feature by feature)
-        read_quantile_transform.fit(distance_columns)   # only these columns are quantile-transformed
-        info_quantile_transform.fit(all_info)
+        read_quantile_transform.fit(ref_distance_columns_re)   # only these columns are quantile-transformed
+        info_quantile_transform.fit(all_info_ve)
 
-    distance_columns_transformed = read_quantile_transform.transform(distance_columns)
+    distance_columns_transformed_re = read_quantile_transform.transform(distance_columns_re)
 
-    all_info_transformed = transform_except_for_binary_columns(all_info, info_quantile_transform, binary_info_columns)
+    all_info_transformed_ve = transform_except_for_binary_columns(all_info_ve, info_quantile_transform, binary_info_columns)
 
     # columns of raw read data are
     # 0 map qual -> 4 categorical columns
@@ -171,57 +170,52 @@ def normalize_buffer(buffer: List[RawUnnormalizedReadsDatum], read_quantile_tran
     read_counts = np.array([len(datum.reads_re) for datum in buffer])
     read_index_ranges = np.cumsum(read_counts)
 
-    map_qual_column = all_reads[:, 0]
-    map_qual_boolean = np.full((len(all_reads), 4), True, dtype=bool)
+    map_qual_column = all_reads_re[:, 0]
+    map_qual_boolean = np.full((len(all_reads_re), 4), True, dtype=bool)
     map_qual_boolean[:, 0] = (map_qual_column == 60)
     map_qual_boolean[:, 1] = (map_qual_column < 60) & (map_qual_column >= 40)
     map_qual_boolean[:, 2] = (map_qual_column < 40) & (map_qual_column >= 20)
     map_qual_boolean[:, 3] = (map_qual_column < 20)
 
-    base_qual_column = all_reads[:, 1]
-    base_qual_boolean = np.full((len(all_reads), 4), True, dtype=bool)
+    base_qual_column = all_reads_re[:, 1]
+    base_qual_boolean = np.full((len(all_reads_re), 4), True, dtype=bool)
     base_qual_boolean[:, 0] = (base_qual_column >= 30)
     base_qual_boolean[:, 1] = (base_qual_column < 30) & (base_qual_column >= 20)
     base_qual_boolean[:, 2] = (base_qual_column < 20) & (base_qual_column >= 10)
     base_qual_boolean[:, 3] = (base_qual_column < 10)
 
-    strand_and_orientation_boolean = all_reads[:, 2:4] < 0.5
-    error_counts_boolean_1 = all_reads[:, 9:] < 0.5
-    error_counts_boolean_2 = (all_reads[:, 9:] > 0.5) & (all_reads[:, 9:] < 1.5)
-    error_counts_boolean_3 = (all_reads[:, 9:] > 1.5)
+    strand_and_orientation_boolean = all_reads_re[:, 2:4] < 0.5
+    error_counts_boolean_1 = all_reads_re[:, 9:] < 0.5
+    error_counts_boolean_2 = (all_reads_re[:, 9:] > 0.5) & (all_reads_re[:, 9:] < 1.5)
+    error_counts_boolean_3 = (all_reads_re[:, 9:] > 1.5)
 
     boolean_output_array = np.hstack((map_qual_boolean, base_qual_boolean, strand_and_orientation_boolean,
                error_counts_boolean_1, error_counts_boolean_2, error_counts_boolean_3))
 
-    # TODO: do we need to pack here, or just when storing the individual data?
-    packed_output_array = np.packbits(boolean_output_array)
+    # axis = 1 is essential so that each row (read) of the packed data corresponds to a row of the unpacked data
+    packed_output_array = np.packbits(boolean_output_array, axis=1)
 
-    # TODO: we need packed and distance_columns_transformed
-    # TODO: we need to take their mean (prob forget about median after normalizing)
-    # TODO: explore whether this makes any difference.  Maybe just omit the mean.
+    assert packed_output_array.dtype == np.uint8
+    assert packed_output_array.shape[1] == NUMBER_OF_BYTES_IN_PACKED_READ
 
-    # replace 0th column (map qual) by four one-hot (hence binary) categorical columns
-    # replace 1st column (base qual) by four one-hot (hence binary) categorical columns
-    # original columns 3 and 4 are binary (strand and orientation)
-    # original columns 4, 5, 6, 7, 8 (i.e. the python range 4:9) are fragment size and distances from
-    # end of read
-    # original columns 9: are usually 0 or 1, occasionally higher single-digit, and can be left alone
+    distance_columns_output = convert_quantile_normalized_to_uint8(distance_columns_transformed_re)
+    assert packed_output_array.dtype == distance_columns_output.dtype
+    output_uint8_reads_array = np.hstack((packed_output_array, distance_columns_output))
 
+    # TODO: a thought -- reads dataset doesn't really need to store a list of reads datum.  It could JUST store the numpy arrays,
+    # TODO: and furthermore, they could be concatenated to reduce the memory cost of many different objects
 
     normalized_result = []
     raw_datum: RawUnnormalizedReadsDatum
     for n, raw_datum in enumerate(buffer):
-        # TODO: what about the packed bit array???
-        output_reads_re = distance_columns_transformed[0 if n == 0 else read_index_ranges[n - 1]:read_index_ranges[n]]
+        output_reads_re = output_uint8_reads_array[0 if n == 0 else read_index_ranges[n - 1]:read_index_ranges[n]]
         output_datum: ReadsDatum = ReadsDatum(datum_array=raw_datum.array, reads_re=output_reads_re)
 
-        # medians are an appropriate outlier-tolerant summary, except for binary columns where the mean makes more sense
-        alt_medians = np.median(output_datum.get_alt_reads_re(), axis=0)
+        # TODO: we used to put alt means and medians as extra info here.  If that's helpful to the model maybe restore
+        # TODO: it not when storing a dataset but when creating batches?
 
-        # TODO: include both bit array from binaries and float/int array from distances
-        alt_means = np.mean(output_datum.get_alt_reads_re(), axis=0)
-        extra_info = alt_means
-        output_datum.set_info_1d(np.hstack([extra_info, all_info_transformed[n]]))
+        # TODO: info/base datum array should be uint8, not int64
+        output_datum.set_info_1d(all_info_transformed_ve[n])
         normalized_result.append(output_datum)
 
     return normalized_result
