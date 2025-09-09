@@ -114,13 +114,14 @@ def generate_normalized_data(dataset_files, max_bytes_per_chunk: int, sources: L
     :return:
     """
     for n, dataset_file in enumerate(dataset_files):
+        buffer: List[RawUnnormalizedReadsDatum]
         buffer, bytes_in_buffer = [], 0
         read_quantile_transform = QuantileTransformer(n_quantiles=100, output_distribution='normal')
         info_quantile_transform = QuantileTransformer(n_quantiles=100, output_distribution='normal')
 
         num_buffers_filled = 0
         source = 0 if sources is None else (sources[0] if len(sources) == 1 else sources[n])
-        reads_datum: ReadsDatum
+        reads_datum: RawUnnormalizedReadsDatum
         for reads_datum in read_data(dataset_file, source=source):
             buffer.append(reads_datum)
             bytes_in_buffer += reads_datum.size_in_bytes()
@@ -128,19 +129,18 @@ def generate_normalized_data(dataset_files, max_bytes_per_chunk: int, sources: L
                 report_memory_usage()
                 print(f"{bytes_in_buffer} bytes in chunk")
 
-                normalize_buffer(buffer, read_quantile_transform, info_quantile_transform)
-                yield buffer
+                yield normalize_buffer(buffer, read_quantile_transform, info_quantile_transform)
                 num_buffers_filled += 1
                 buffer, bytes_in_buffer = [], 0
         # There will be some data left over, in general.  Since it's small, use the last buffer's
         # quantile transforms for better statistical power if it's from the same text file
         if buffer:
-            normalize_buffer(buffer, read_quantile_transform, info_quantile_transform, refit_transforms=(num_buffers_filled==0))
-            yield buffer
+            yield normalize_buffer(buffer, read_quantile_transform, info_quantile_transform, refit_transforms=(num_buffers_filled==0))
 
 
 # this normalizes the buffer and also prepends new features to the info tensor
-def normalize_buffer(buffer, read_quantile_transform, info_quantile_transform, refit_transforms=True):
+def normalize_buffer(buffer: List[RawUnnormalizedReadsDatum], read_quantile_transform,
+                     info_quantile_transform, refit_transforms=True) -> List[ReadsDatum]:
     EPSILON = 0.00001   # tiny quantity for jitter
 
     # 2D array.  Rows are ref/alt reads, columns are read features
@@ -188,7 +188,11 @@ def normalize_buffer(buffer, read_quantile_transform, info_quantile_transform, r
     binary_read_column_mask = np.ones_like(all_reads_transformed[0])
     binary_read_column_mask[10:15] = 0
 
+
+    normalized_result = []
+    datum: RawUnnormalizedReadsDatum
     for n, datum in enumerate(buffer):
+        # TODO: create new readsdatum!!!
         datum.reads_re = all_reads_transformed[0 if n == 0 else read_index_ranges[n - 1]:read_index_ranges[n]]
 
         # medians are an appropriate outlier-tolerant summary, except for binary columns where the mean makes more sense
@@ -197,6 +201,9 @@ def normalize_buffer(buffer, read_quantile_transform, info_quantile_transform, r
 
         extra_info = binary_read_column_mask * alt_means + (1 - binary_read_column_mask) * alt_medians
         datum.set_info_1d(np.hstack([extra_info, all_info_transformed[n]]))
+
+        #TODO: append the new one!!!
+    return normalized_result
 
 
 def line_to_tensor(line: str) -> np.ndarray:
