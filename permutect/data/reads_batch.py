@@ -38,8 +38,8 @@ class ReadsBatch(Batch):
         compressed_alt_arrays = [item.get_compressed_alt_reads_re() for item in data]
         compressed_reads_re = np.vstack(compressed_ref_arrays + compressed_alt_arrays)
 
-        packed_binary_columns_re = compressed_reads_re[:NUMBER_OF_BYTES_IN_PACKED_READ, :]
-        compressed_float_columns_re = compressed_reads_re[NUMBER_OF_BYTES_IN_PACKED_READ:, :]
+        packed_binary_columns_re = compressed_reads_re[:, NUMBER_OF_BYTES_IN_PACKED_READ]
+        compressed_float_columns_re = compressed_reads_re[:, NUMBER_OF_BYTES_IN_PACKED_READ:]
 
         binary_columns_re = np.ndarray.astype(np.unpackbits(packed_binary_columns_re, axis=1), DEFAULT_NUMPY_FLOAT)
         float_columns_re = convert_uint8_to_quantile_normalized(compressed_float_columns_re)
