@@ -223,8 +223,8 @@ def normalize_buffer(buffer: List[RawUnnormalizedReadsDatum], read_quantile_tran
 
 def line_to_tensor(line: str) -> np.ndarray:
     tokens = line.strip().split()
-    floats = [float(token) for token in tokens]
-    return np.clip(np.array(floats, dtype=DEFAULT_NUMPY_FLOAT), -MAX_VALUE, MAX_VALUE)
+    floats = [max(min(MAX_VALUE, float(token)), -MAX_VALUE) for token in tokens]
+    return np.array(floats, dtype=DEFAULT_NUMPY_FLOAT)
 
 
 def read_2d_tensor(file, num_lines: int) -> np.ndarray:
