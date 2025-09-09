@@ -30,14 +30,14 @@ GTCCTGGACACGCTGTTGGCC
 -11.327
 -0.000
 """
-from typing import List
+from typing import List, Generator
 import sys
 
 import numpy as np
 from sklearn.preprocessing import QuantileTransformer
 
 from permutect.data.count_binning import cap_ref_count, cap_alt_count
-from permutect.data.reads_datum import ReadsDatum
+from permutect.data.reads_datum import ReadsDatum, RawUnnormalizedReadsDatum
 from permutect.data.datum import DEFAULT_NUMPY_FLOAT
 
 from permutect.misc_utils import report_memory_usage
@@ -48,7 +48,7 @@ EPSILON = 0.00001
 QUANTILE_DATA_COUNT = 10000
 
 
-def read_data(dataset_file, only_artifacts: bool = False, source: int=0):
+def read_data(dataset_file, only_artifacts: bool = False, source: int=0) -> Generator[RawUnnormalizedReadsDatum, None, None]:
     """
     generator that yields data from a plain text dataset file.
     """
@@ -88,7 +88,7 @@ def read_data(dataset_file, only_artifacts: bool = False, source: int=0):
             normal_seq_error_log_lk = read_float(file.readline())
 
             if alt_tensor_size > 0 and passes_label_filter:
-                datum = ReadsDatum.from_gatk(label=label, variant_type=Variation.get_type(ref_allele, alt_allele), source=source,
+                datum = RawUnnormalizedReadsDatum.from_gatk(label=label, variant_type=Variation.get_type(ref_allele, alt_allele), source=source,
                                            original_depth=original_depth, original_alt_count=original_alt_count,
                                            original_normal_depth=original_normal_depth, original_normal_alt_count=original_normal_alt_count,
                                            contig=contig, position=position, ref_allele=ref_allele, alt_allele=alt_allele,
@@ -104,7 +104,7 @@ def read_data(dataset_file, only_artifacts: bool = False, source: int=0):
 # if sources is None, source is set to zero
 # if List is length-1, that's the source for all files
 # otherwise each file has its own source int
-def generate_normalized_data(dataset_files, max_bytes_per_chunk: int, sources: List[int]=None):
+def generate_normalized_data(dataset_files, max_bytes_per_chunk: int, sources: List[int]=None) -> Generator[List[ReadsDatum], None, None]:
     """
     given text dataset files, generate normalized lists of read sets that fit in memory
 
