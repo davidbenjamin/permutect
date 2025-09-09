@@ -70,9 +70,10 @@ class ReadsDataset(Dataset):
             fold = n % num_folds
             self.indices_by_fold[fold].append(n)
 
-        self.num_read_features = self[0].get_reads_re().shape[1]
-        self.num_info_features = len(self[0].get_info_1d())
-        self.haplotypes_length = len(self[0].get_haplotypes_1d())
+        first_datum: ReadsDatum = self[0]
+        self.num_read_features = first_datum.num_read_features()
+        self.num_info_features = len(first_datum.get_info_1d())
+        self.haplotypes_length = len(first_datum.get_haplotypes_1d())
 
     def __len__(self):
         return len(self._data) // TENSORS_PER_BASE_DATUM if self._memory_map_mode else len(self._data)
@@ -134,7 +135,7 @@ class ReadsDataset(Dataset):
 # from a generator that yields BaseDatum(s), create a generator that yields the two numpy arrays needed to reconstruct the datum
 def make_flattened_tensor_generator(reads_data_generator: Generator[ReadsDatum, None, None]):
     for reads_datum in reads_data_generator:
-        yield reads_datum.get_reads_re()
+        yield reads_datum.get_compressed_reads_re()
         yield reads_datum.get_array_1d()
 
 
