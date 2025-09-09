@@ -141,8 +141,6 @@ def generate_normalized_data(dataset_files, max_bytes_per_chunk: int, sources: L
 # this normalizes the buffer and also prepends new features to the info tensor
 def normalize_buffer(buffer: List[RawUnnormalizedReadsDatum], read_quantile_transform,
                      info_quantile_transform, refit_transforms=True) -> List[ReadsDatum]:
-    EPSILON = 0.00001   # tiny quantity for jitter
-
     # 2D array.  Rows are ref/alt reads, columns are read features
     all_ref = np.vstack([datum.get_ref_reads_re() for datum in buffer])
     all_reads = np.vstack([datum.reads_re for datum in buffer])
@@ -150,8 +148,8 @@ def normalize_buffer(buffer: List[RawUnnormalizedReadsDatum], read_quantile_tran
     # 2D array.  Rows are read sets, columns are info features
     all_info = np.vstack([datum.get_info_1d() for datum in buffer])
 
-    binary_read_columns = binary_column_indices(all_ref)    # make sure not to use jittered arrays here!
-    binary_info_columns = binary_column_indices(all_info)   # make sure not to use jittered arrays here!
+    binary_read_columns = binary_column_indices(all_ref) 
+    binary_info_columns = binary_column_indices(all_info)
 
     if refit_transforms:    # fit quantiles column by column (aka feature by feature)
         read_quantile_transform.fit(all_ref)
@@ -161,22 +159,39 @@ def normalize_buffer(buffer: List[RawUnnormalizedReadsDatum], read_quantile_tran
     all_reads_transformed = transform_except_for_binary_columns(all_reads, read_quantile_transform, binary_read_columns)
     all_info_transformed = transform_except_for_binary_columns(all_info, info_quantile_transform, binary_info_columns)
 
+    # columns of raw read data are
+    # 0 map qual -> 4 categorical columns
+    # 1 base qual -> 4 categorical columns
+    # 2,3 strand and orientation (binary) -> remain binary
+    # 4,5,6,7,8 distance stuff
+    # 9 and higher -- SNV/indel error and low BQ counts
+
     read_counts = np.array([len(datum.reads_re) for datum in buffer])
     read_index_ranges = np.cumsum(read_counts)
 
     map_qual_column = all_reads[:, 0]
-    map_qual_categorical = np.zeros((len(all_reads), 4))
-    map_qual_categorical[:, 0] = 1 * (map_qual_column == 60)
-    map_qual_categorical[:, 1] = 1 * (map_qual_column < 60) * (map_qual_column >= 40)
-    map_qual_categorical[:, 2] = 1 * (map_qual_column < 40) * (map_qual_column >= 20)
-    map_qual_categorical[:, 3] = 1 * (map_qual_column < 20)
+    map_qual_boolean = np.full((len(all_reads), 4), True, dtype=bool)
+    map_qual_boolean[:, 0] = (map_qual_column == 60)
+    map_qual_boolean[:, 1] = (map_qual_column < 60) & (map_qual_column >= 40)
+    map_qual_boolean[:, 2] = (map_qual_column < 40) & (map_qual_column >= 20)
+    map_qual_boolean[:, 3] = (map_qual_column < 20)
 
     base_qual_column = all_reads[:, 1]
-    base_qual_categorical = np.zeros((len(all_reads), 4))
-    base_qual_categorical[:, 0] = 1 * (base_qual_column >= 30)
-    base_qual_categorical[:, 1] = 1 * (base_qual_column < 30) * (base_qual_column >= 20)
-    base_qual_categorical[:, 2] = 1 * (base_qual_column < 20) * (base_qual_column >= 10)
-    base_qual_categorical[:, 3] = 1 * (base_qual_column < 10)
+    base_qual_boolean = np.full((len(all_reads), 4), True, dtype=bool)
+    base_qual_boolean[:, 0] = (base_qual_column >= 30)
+    base_qual_boolean[:, 1] = (base_qual_column < 30) & (base_qual_column >= 20)
+    base_qual_boolean[:, 2] = (base_qual_column < 20) & (base_qual_column >= 10)
+    base_qual_boolean[:, 3] = (base_qual_column < 10)
+
+    strand_and_orientation_boolean = all_reads[:, 2:4] < 0.5
+    error_counts_boolean_1 = all_reads[:, 9:] < 0.5
+    error_counts_boolean_2 = (all_reads[:, 9:] > 0.5) & (all_reads[:, 9:] < 1.5)
+    error_counts_boolean_3 = (all_reads[:, 9:] > 1.5)
+
+    boolean_output_array = np.hstack((map_qual_boolean, base_qual_boolean, strand_and_orientation_boolean,
+               error_counts_boolean_1, error_counts_boolean_2, error_counts_boolean_3))
+    packed = np.packbits(boolean_output_array)
+
 
     # replace 0th column (map qual) by four one-hot (hence binary) categorical columns
     # replace 1st column (base qual) by four one-hot (hence binary) categorical columns
