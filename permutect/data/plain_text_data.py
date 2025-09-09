@@ -148,15 +148,17 @@ def normalize_buffer(buffer: List[RawUnnormalizedReadsDatum], read_quantile_tran
     # 2D array.  Rows are read sets, columns are info features
     all_info = np.vstack([datum.get_info_1d() for datum in buffer])
 
-    binary_read_columns = binary_column_indices(all_ref) 
+    binary_read_columns = binary_column_indices(all_ref)
     binary_info_columns = binary_column_indices(all_info)
 
+    distance_columns = all_reads[:, 4:9]
+
     if refit_transforms:    # fit quantiles column by column (aka feature by feature)
-        read_quantile_transform.fit(all_ref)
+        read_quantile_transform.fit(distance_columns)   # only these columns are quantile-transformed
         info_quantile_transform.fit(all_info)
 
-    # it's more efficient to apply the quantile transform to all reads at once, then split it back into read sets
-    all_reads_transformed = transform_except_for_binary_columns(all_reads, read_quantile_transform, binary_read_columns)
+    distance_columns_transformed = read_quantile_transform.transform(distance_columns)
+
     all_info_transformed = transform_except_for_binary_columns(all_info, info_quantile_transform, binary_info_columns)
 
     # columns of raw read data are
@@ -192,6 +194,9 @@ def normalize_buffer(buffer: List[RawUnnormalizedReadsDatum], read_quantile_tran
                error_counts_boolean_1, error_counts_boolean_2, error_counts_boolean_3))
     packed = np.packbits(boolean_output_array)
 
+    # TODO: we need packed and distance_columns_transformed
+    # TODO: we need to take their mean (prob forget about median after normalizing)
+    # TODO: explore whether this makes any difference.  Maybe just omit the mean.
 
     # replace 0th column (map qual) by four one-hot (hence binary) categorical columns
     # replace 1st column (base qual) by four one-hot (hence binary) categorical columns
@@ -199,9 +204,7 @@ def normalize_buffer(buffer: List[RawUnnormalizedReadsDatum], read_quantile_tran
     # original columns 4, 5, 6, 7, 8 (i.e. the python range 4:9) are fragment size and distances from
     # end of read
     # original columns 9: are usually 0 or 1, occasionally higher single-digit, and can be left alone
-    all_reads_transformed = np.hstack((map_qual_categorical, base_qual_categorical, all_reads[:, 2:4], all_reads_transformed[:, 4:9], all_reads[:, 9:]))
-    binary_read_column_mask = np.ones_like(all_reads_transformed[0])
-    binary_read_column_mask[10:15] = 0
+
 
     normalized_result = []
     raw_datum: RawUnnormalizedReadsDatum
