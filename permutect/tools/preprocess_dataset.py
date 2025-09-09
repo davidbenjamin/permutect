@@ -33,13 +33,14 @@ def do_work(training_datasets, training_output_file, chunk_size, sources: List[i
     num_read_features, num_info_features, haplotypes_length = ConsistentValue(), ConsistentValue(), ConsistentValue()
 
     # save all the lists of read sets to tempfiles. . .
-    for base_data_list in generate_normalized_data(training_datasets, max_bytes_per_chunk=chunk_size, sources=sources):
-        num_read_features.check(base_data_list[0].get_reads_re().shape[1])
-        num_info_features.check(base_data_list[0].get_info_1d().shape[0])
-        haplotypes_length.check(base_data_list[0].get_haplotypes_1d().shape[0])
+    reads_datum_list: List[ReadsDatum]
+    for reads_datum_list in generate_normalized_data(training_datasets, max_bytes_per_chunk=chunk_size, sources=sources):
+        num_read_features.check(reads_datum_list[0].get_reads_re().shape[1])
+        num_info_features.check(reads_datum_list[0].get_info_1d().shape[0])
+        haplotypes_length.check(reads_datum_list[0].get_haplotypes_1d().shape[0])
 
         with tempfile.NamedTemporaryFile(delete=False) as train_data_file:
-            ReadsDatum.save_list(base_data_list, train_data_file)
+            ReadsDatum.save_list(reads_datum_list, train_data_file)
             data_files.append(train_data_file.name)
 
     # . . . and bundle them in a tarfile
