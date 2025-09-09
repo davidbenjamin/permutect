@@ -192,7 +192,9 @@ def normalize_buffer(buffer: List[RawUnnormalizedReadsDatum], read_quantile_tran
 
     boolean_output_array = np.hstack((map_qual_boolean, base_qual_boolean, strand_and_orientation_boolean,
                error_counts_boolean_1, error_counts_boolean_2, error_counts_boolean_3))
-    packed = np.packbits(boolean_output_array)
+
+    # TODO: do we need to pack here, or just when storing the individual data?
+    packed_output_array = np.packbits(boolean_output_array)
 
     # TODO: we need packed and distance_columns_transformed
     # TODO: we need to take their mean (prob forget about median after normalizing)
@@ -209,13 +211,16 @@ def normalize_buffer(buffer: List[RawUnnormalizedReadsDatum], read_quantile_tran
     normalized_result = []
     raw_datum: RawUnnormalizedReadsDatum
     for n, raw_datum in enumerate(buffer):
-        output_reads_re = all_reads_transformed[0 if n == 0 else read_index_ranges[n - 1]:read_index_ranges[n]]
+        # TODO: what about the packed bit array???
+        output_reads_re = distance_columns_transformed[0 if n == 0 else read_index_ranges[n - 1]:read_index_ranges[n]]
         output_datum: ReadsDatum = ReadsDatum(datum_array=raw_datum.array, reads_re=output_reads_re)
 
         # medians are an appropriate outlier-tolerant summary, except for binary columns where the mean makes more sense
         alt_medians = np.median(output_datum.get_alt_reads_re(), axis=0)
+
+        # TODO: include both bit array from binaries and float/int array from distances
         alt_means = np.mean(output_datum.get_alt_reads_re(), axis=0)
-        extra_info = binary_read_column_mask * alt_means + (1 - binary_read_column_mask) * alt_medians
+        extra_info = alt_means
         output_datum.set_info_1d(np.hstack([extra_info, all_info_transformed[n]]))
         normalized_result.append(output_datum)
 
