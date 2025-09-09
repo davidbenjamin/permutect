@@ -195,8 +195,8 @@ def normalize_buffer(buffer: List[RawUnnormalizedReadsDatum], read_quantile_tran
         output_datum: ReadsDatum = ReadsDatum(datum_array=raw_datum.array, reads_re=output_reads_re)
 
         # medians are an appropriate outlier-tolerant summary, except for binary columns where the mean makes more sense
-        alt_medians = np.median(raw_datum.get_alt_reads_re(), axis=0)
-        alt_means = np.mean(raw_datum.get_alt_reads_re(), axis=0)
+        alt_medians = np.median(output_datum.get_alt_reads_re(), axis=0)
+        alt_means = np.mean(output_datum.get_alt_reads_re(), axis=0)
         extra_info = binary_read_column_mask * alt_means + (1 - binary_read_column_mask) * alt_medians
         output_datum.set_info_1d(np.hstack([extra_info, all_info_transformed[n]]))
         normalized_result.append(output_datum)
