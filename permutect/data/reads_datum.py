@@ -33,7 +33,6 @@ class RawUnnormalizedReadsDatum(Datum):
     def __init__(self, datum_array: np.ndarray, reads_re: np.ndarray):
         super().__init__(datum_array)
         self.reads_re = reads_re
-        self.set_reads_dtype(np.float16)
 
     # gatk_info tensor comes from GATK and does not include one-hot encoding of variant type
     @classmethod
@@ -62,7 +61,6 @@ class RawUnnormalizedReadsDatum(Datum):
         datum.array[Datum.ALT_COUNT_IDX] = 0 if alt_tensor is None else len(alt_tensor)
 
         result = cls(datum_array=datum.get_array_1d(), reads_re=read_tensor)
-        result.set_reads_dtype(np.float16)
         return result
 
     def copy_with_downsampled_reads(self, ref_downsample: int, alt_downsample: int) -> ReadsDatum:
@@ -82,10 +80,6 @@ class RawUnnormalizedReadsDatum(Datum):
             random_alt_read_indices = old_ref_count + torch.randperm(old_alt_count)[:new_alt_count]
             new_reads = np.vstack((self.reads_re[random_ref_read_indices], self.reads_re[random_alt_read_indices]))
             return ReadsDatum(new_data_array, new_reads)
-
-    # TODO: used in both, but won't be needed for the compressed constructor
-    def set_reads_dtype(self, dtype):
-        self.reads_re = self.reads_re.astype(dtype)
 
     # TODO: used before normalization, and after normalization for pruning and editing datasets
     def size_in_bytes(self):
