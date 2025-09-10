@@ -47,7 +47,7 @@ def make_sequence_tensor(sequence_string: str) -> np.ndarray:
     return result
 
 
-# this is what we get from GATK plain tect data.  It must be normalized and processed before becoming the
+# this is what we get from GATK plain text data.  It must be normalized and processed before becoming the
 # data used by Permutect
 class RawUnnormalizedReadsDatum(Datum):
     def __init__(self, datum_array: np.ndarray, reads_re: np.ndarray):

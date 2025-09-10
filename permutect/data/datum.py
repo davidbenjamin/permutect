@@ -6,6 +6,26 @@ import torch
 from permutect.utils.allele_utils import bases_as_base5_int, bases5_as_base_string, get_ref_and_alt_sequences
 from permutect.utils.enums import Label, Variation
 
+# the range is -32,768 to 32,767
+# this is sufficient for the count, length, and enum variables, as well as the floats (multiplied by something like 100
+# and rounded to the nearest integer)
+# haplotypes are represented as A = 0, C = 1, G = 2, T = 3 so 16 bits are easily enough (and we could compress further)
+# the position needs 32 bits (to get up to 2 billion or so) so we give it two int16s
+# the ref and alt alleles also need 32 bits to handle up to 13 bases
+DATUM_ARRAY_DTYPE = np.int16
+BIGGEST_UINT16 = 65535
+BIGGEST_INT16 = 32767
+
+
+def uint32_to_two_int16s(num: int):
+    uint16_1, uint16_2 = num // BIGGEST_UINT16, num % BIGGEST_UINT16
+    return uint16_1 - (BIGGEST_INT16 + 1), uint16_2 - (BIGGEST_INT16 + 1)
+
+
+def uint32_from_two_int16s(int16_1: int, int16_2: int) -> int:
+    shifted1, shifted2 = int16_1 + (BIGGEST_INT16 + 1), int16_2 + (BIGGEST_INT16 + 1)
+    return BIGGEST_UINT16 * shifted1 + shifted2
+
 
 class Datum:
     """
@@ -13,7 +33,7 @@ class Datum:
     LongTensor, containing some quantities that are inherently integral and some that are cast as longs by multiplying
     with a large number and rounding.
     """
-    FLOAT_TO_LONG_MULTIPLIER = 100000
+    FLOAT_TO_LONG_MULTIPLIER = 100
 
     # indices of inherently integral quantities
     REF_COUNT_IDX = 0               # potentially downsampled -- the actual size of the ref reads tensor
@@ -30,16 +50,18 @@ class Datum:
     ORIGINAL_NORMAL_ALT_COUNT_IDX = 10     # the original matched normal sample alt count of the sequencing data before downsampling
 
     CONTIG_IDX = 11                 # the index of the contig/chromosome
+
+    # NOTE: the next three elements all require TWO int16s i.e. 32 bits to represent!!!!
     POSITION_IDX = 12               # the position of the variant start within the contig
-    REF_ALLELE_AS_BASE_5_IDX = 13   # the reference allele encoded as a single base 5 integer
-    ALT_ALLELE_AS_BASE_5_IDX = 14   # the reference allele encoded as a single base 5 integer
+    REF_ALLELE_AS_BASE_5_IDX = 14   # the reference allele encoded as a single base 5 integer
+    ALT_ALLELE_AS_BASE_5_IDX = 16   # the reference allele encoded as a single base 5 integer
 
     # FloatTensor indices
-    SEQ_ERROR_LOG_LK_IDX = 15
-    NORMAL_SEQ_ERROR_LOG_LK_IDX = 16
+    SEQ_ERROR_LOG_LK_IDX = 18
+    NORMAL_SEQ_ERROR_LOG_LK_IDX = 19
 
     NUM_SCALAR_ELEMENTS = NORMAL_SEQ_ERROR_LOG_LK_IDX + 1
-    HAPLOTYPES_START_IDX = 17
+    HAPLOTYPES_START_IDX = 20
 
     # after these come the variable-length sub-arrays (not within a single dataset, but in principle variable length for
     # different versions of Permutect or different sequencing) for the reference sequence context and the info tensor
@@ -48,7 +70,7 @@ class Datum:
         # note: this constructor does no checking eg of whether the arrays are consistent with their purported lengths
         # or of whether ref, alt alleles have been trimmed
         assert array.ndim == 1 and len(array) >= Datum.NUM_SCALAR_ELEMENTS
-        self.array: np.ndarray = np.int64(array)
+        self.array: np.ndarray = np.ndarray.astype(array, DATUM_ARRAY_DTYPE)
 
     @classmethod
     def make_datum_without_reads(cls, label: Label, variant_type: Variation, source: int,
@@ -63,7 +85,7 @@ class Datum:
         haplotypes = np.hstack((ref_hap, alt_hap))
 
         haplotypes_length, info_length = len(haplotypes), len(info_array)
-        result = cls(np.zeros(Datum.NUM_SCALAR_ELEMENTS + haplotypes_length + info_length, dtype=np.int64))
+        result = cls(np.zeros(Datum.NUM_SCALAR_ELEMENTS + haplotypes_length + info_length, dtype=DATUM_ARRAY_DTYPE))
         # ref count and alt count remain zero
         result.array[Datum.HAPLOTYPES_LENGTH_IDX] = haplotypes_length
         result.array[Datum.INFO_LENGTH_IDX] = info_length
@@ -78,9 +100,10 @@ class Datum:
         result.array[Datum.ORIGINAL_NORMAL_ALT_COUNT_IDX] = original_normal_alt_count
 
         result.array[Datum.CONTIG_IDX] = contig
-        result.array[Datum.POSITION_IDX] = position
-        result.array[Datum.REF_ALLELE_AS_BASE_5_IDX] = bases_as_base5_int(ref_allele)
-        result.array[Datum.ALT_ALLELE_AS_BASE_5_IDX] = bases_as_base5_int(alt_allele)
+
+        result.store_uint32_as_two_int16s(position, Datum.POSITION_IDX)
+        result.store_uint32_as_two_int16s(bases_as_base5_int(ref_allele), Datum.REF_ALLELE_AS_BASE_5_IDX)
+        result.store_uint32_as_two_int16s(bases_as_base5_int(alt_allele), Datum.ALT_ALLELE_AS_BASE_5_IDX)
 
         result.array[Datum.SEQ_ERROR_LOG_LK_IDX] = round(seq_error_log_lk * Datum.FLOAT_TO_LONG_MULTIPLIER)
         result.array[Datum.NORMAL_SEQ_ERROR_LOG_LK_IDX] = round(normal_seq_error_log_lk * Datum.FLOAT_TO_LONG_MULTIPLIER)
@@ -89,9 +112,17 @@ class Datum:
         haplotypes_end = haplotypes_start + haplotypes_length
         info_end = haplotypes_end + info_length
         result.array[haplotypes_start:haplotypes_end] = haplotypes  # haplotypes array is uint8
-        result.array[haplotypes_end:info_end] = np.int64(info_array * Datum.FLOAT_TO_LONG_MULTIPLIER)
+        result.array[haplotypes_end:info_end] = np.ndarray.astype(info_array * Datum.FLOAT_TO_LONG_MULTIPLIER, DATUM_ARRAY_DTYPE)
 
         return result
+
+    def store_uint32_as_two_int16s(self, uint32_number, start_index):
+        int16_1, int16_2 = uint32_to_two_int16s(uint32_number)
+        self.array[start_index] = int16_1
+        self.array[start_index + 1] = int16_2
+
+    def get_uint32_from_two_int16s(self, start_index):
+        return uint32_from_two_int16s(self.array[start_index], self.array[start_index + 1])
 
     def get_ref_count(self) -> int:
         return self.array[Datum.REF_COUNT_IDX]
@@ -139,13 +170,13 @@ class Datum:
         return self.array[Datum.CONTIG_IDX]
 
     def get_position(self) -> int:
-        return self.array[Datum.POSITION_IDX]
+        return self.get_uint32_from_two_int16s(Datum.POSITION_IDX)
 
     def get_ref_allele(self) -> str:
-        return bases5_as_base_string(self.array[Datum.REF_ALLELE_AS_BASE_5_IDX])
+        return bases5_as_base_string(self.get_uint32_from_two_int16s(Datum.REF_ALLELE_AS_BASE_5_IDX))
 
     def get_alt_allele(self) -> str:
-        return bases5_as_base_string(self.array[Datum.ALT_ALLELE_AS_BASE_5_IDX])
+        return bases5_as_base_string(self.get_uint32_from_two_int16s(Datum.ALT_ALLELE_AS_BASE_5_IDX))
 
     def get_seq_error_log_lk(self) -> float:
         return self.array[Datum.SEQ_ERROR_LOG_LK_IDX] / Datum.FLOAT_TO_LONG_MULTIPLIER
@@ -170,7 +201,7 @@ class Datum:
     # we do this in preprocessing when adding extra info to the info from GATK.
     # this method should not otherwise be used!!!
     def set_info_1d(self, new_info: np.ndarray):
-        new_info_as_long = np.int64(new_info * Datum.FLOAT_TO_LONG_MULTIPLIER)
+        new_info_as_long = np.ndarray.astype(new_info * Datum.FLOAT_TO_LONG_MULTIPLIER, DATUM_ARRAY_DTYPE)
         old_info_start = Datum.HAPLOTYPES_START_IDX + self.array[Datum.HAPLOTYPES_LENGTH_IDX]
         self.array = np.hstack((self.array[:old_info_start], new_info_as_long))
         self.array[Datum.INFO_LENGTH_IDX] = len(new_info)

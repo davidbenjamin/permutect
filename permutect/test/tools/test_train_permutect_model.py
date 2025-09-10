@@ -11,9 +11,9 @@ OVERWRITE_SAVED_MODEL = False
 
 
 def test_train_artifact_model():
-    training_data_tarfile = "/Users/davidben/mutect3/permutect/integration-tests/singular-10-Mb/preprocessed-dataset.tar"
+    training_data_tarfile = "/Users/davidben/mutect3/permutect/integration-tests/preprocessed-dataset.tar"
     saved_model = tempfile.NamedTemporaryFile() if not OVERWRITE_SAVED_MODEL else \
-        '/Users/davidben/mutect3/permutect/integration-tests/dream1-chr20/model.pt'
+        '/Users/davidben/mutect3/permutect/integration-tests/hiseqx-NA12878-model.pt'
     training_tensorboard_dir = tempfile.TemporaryDirectory()
 
     train_model_args = Namespace()
