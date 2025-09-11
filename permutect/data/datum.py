@@ -15,6 +15,18 @@ from permutect.utils.enums import Label, Variation
 DATUM_ARRAY_DTYPE = np.int16
 BIGGEST_UINT16 = 65535
 BIGGEST_INT16 = 32767
+FLOAT_TO_LONG_MULTIPLIER = 30
+
+MAX_FLOAT = BIGGEST_INT16 / FLOAT_TO_LONG_MULTIPLIER
+
+
+def float_to_clipped_int16(float_number: float) -> int:
+    unbounded_int = round(float_number * FLOAT_TO_LONG_MULTIPLIER)
+    return max(min(unbounded_int, BIGGEST_INT16), -BIGGEST_INT16)
+
+
+def int16_to_float(int16_number: int) -> float:
+    return int16_number / FLOAT_TO_LONG_MULTIPLIER
 
 
 def uint32_to_two_int16s(num: int):
@@ -33,7 +45,6 @@ class Datum:
     LongTensor, containing some quantities that are inherently integral and some that are cast as longs by multiplying
     with a large number and rounding.
     """
-    FLOAT_TO_LONG_MULTIPLIER = 100
 
     # indices of inherently integral quantities
     REF_COUNT_IDX = 0               # potentially downsampled -- the actual size of the ref reads tensor
@@ -105,14 +116,14 @@ class Datum:
         result.store_uint32_as_two_int16s(bases_as_base5_int(ref_allele), Datum.REF_ALLELE_AS_BASE_5_IDX)
         result.store_uint32_as_two_int16s(bases_as_base5_int(alt_allele), Datum.ALT_ALLELE_AS_BASE_5_IDX)
 
-        result.array[Datum.SEQ_ERROR_LOG_LK_IDX] = round(seq_error_log_lk * Datum.FLOAT_TO_LONG_MULTIPLIER)
-        result.array[Datum.NORMAL_SEQ_ERROR_LOG_LK_IDX] = round(normal_seq_error_log_lk * Datum.FLOAT_TO_LONG_MULTIPLIER)
+        result.store_float_as_int16(seq_error_log_lk, Datum.SEQ_ERROR_LOG_LK_IDX)
+        result.store_float_as_int16(normal_seq_error_log_lk, Datum.NORMAL_SEQ_ERROR_LOG_LK_IDX)
 
         haplotypes_start = Datum.HAPLOTYPES_START_IDX
         haplotypes_end = haplotypes_start + haplotypes_length
         info_end = haplotypes_end + info_length
         result.array[haplotypes_start:haplotypes_end] = haplotypes  # haplotypes array is uint8
-        result.array[haplotypes_end:info_end] = np.ndarray.astype(info_array * Datum.FLOAT_TO_LONG_MULTIPLIER, DATUM_ARRAY_DTYPE)
+        result.array[haplotypes_end:info_end] = np.ndarray.astype(info_array * FLOAT_TO_LONG_MULTIPLIER, DATUM_ARRAY_DTYPE)
 
         return result
 
@@ -123,6 +134,12 @@ class Datum:
 
     def get_uint32_from_two_int16s(self, start_index):
         return uint32_from_two_int16s(self.array[start_index], self.array[start_index + 1])
+
+    def store_float_as_int16(self, float_number, index):
+        self.array[index] = float_to_clipped_int16(float_number)
+
+    def get_float_from_int16(self, index):
+        return int16_to_float(self.array[index])
 
     def get_ref_count(self) -> int:
         return self.array[Datum.REF_COUNT_IDX]
@@ -179,10 +196,10 @@ class Datum:
         return bases5_as_base_string(self.get_uint32_from_two_int16s(Datum.ALT_ALLELE_AS_BASE_5_IDX))
 
     def get_seq_error_log_lk(self) -> float:
-        return self.array[Datum.SEQ_ERROR_LOG_LK_IDX] / Datum.FLOAT_TO_LONG_MULTIPLIER
+        return self.get_float_from_int16(Datum.SEQ_ERROR_LOG_LK_IDX)
 
     def get_normal_seq_error_log_lk(self) -> float:
-        return self.array[Datum.NORMAL_SEQ_ERROR_LOG_LK_IDX] / Datum.FLOAT_TO_LONG_MULTIPLIER
+        return self.get_float_from_int16(Datum.NORMAL_SEQ_ERROR_LOG_LK_IDX)
 
     def get_haplotypes_1d(self) -> np.ndarray:
         # 1D array of integer array reference and alt haplotypes concatenated -- A, C, G, T, deletion = 0, 1, 2, 3, 4
@@ -195,13 +212,13 @@ class Datum:
         start = Datum.HAPLOTYPES_START_IDX + self.array[Datum.HAPLOTYPES_LENGTH_IDX]
         info_length = self.array[Datum.INFO_LENGTH_IDX]
         assert info_length > 0, "trying to get info array when none exists"
-        return self.array[start:start + info_length] / Datum.FLOAT_TO_LONG_MULTIPLIER
+        return self.array[start:start + info_length] / FLOAT_TO_LONG_MULTIPLIER
 
     # note: this potentially resizes the array and requires the leading info tensor size element to be modified
     # we do this in preprocessing when adding extra info to the info from GATK.
     # this method should not otherwise be used!!!
     def set_info_1d(self, new_info: np.ndarray):
-        new_info_as_long = np.ndarray.astype(new_info * Datum.FLOAT_TO_LONG_MULTIPLIER, DATUM_ARRAY_DTYPE)
+        new_info_as_long = np.ndarray.astype(new_info * FLOAT_TO_LONG_MULTIPLIER, DATUM_ARRAY_DTYPE)
         old_info_start = Datum.HAPLOTYPES_START_IDX + self.array[Datum.HAPLOTYPES_LENGTH_IDX]
         self.array = np.hstack((self.array[:old_info_start], new_info_as_long))
         self.array[Datum.INFO_LENGTH_IDX] = len(new_info)
