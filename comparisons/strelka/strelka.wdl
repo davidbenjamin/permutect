@@ -164,7 +164,7 @@ task Manta {
     }
 
     command <<<
-        python configManta.py \
+        python /opt/manta-build/src/python/bin/configManta.py \
                 --normalBam ~{normal_bam} \
                 --tumorBam ~{tumor_bam} \
                 --referenceFasta ~{ref_fasta} \
@@ -225,7 +225,7 @@ task Strelka {
     }
 
     command <<<
-        python configManta.py \
+        python /opt/strelka-build/src/python/bin/configureStrelkaSomaticWorkflow.py \
                 --normalBam ~{normal_bam} \
                 --tumorBam ~{tumor_bam} \
                 --referenceFasta ~{ref_fasta} \
