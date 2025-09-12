@@ -181,7 +181,7 @@ task Manta {
 
         ls output
 
-        python output/runWorkflow.py -j ~{cpu}
+        output/runWorkflow.py -j ~{cpu}
 
         ls output
         ls output/results
@@ -244,7 +244,7 @@ task Strelka {
 
         ls output
 
-        python output/runWorkflow.py -m local -j ~{cpu}
+        output/runWorkflow.py -m local -j ~{cpu}
 
         ls output
     >>>
