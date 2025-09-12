@@ -55,11 +55,18 @@ workflow Strelka {
             strelka_docker = strelka_docker
     }
 
+    call Merge {
+        input:
+            gatk_docker = gatk_docker,
+            snvs_vcf = Strelka.snvs_vcf,
+            snvs_vcf_idx = Strelka.snvs_vcf_idx,
+            indels_vcf = Strelka.indels_vcf,
+            indels_vcf_idx = Strelka.indels_vcf_idx
+    }
+
     output {
-        File snvs_vcf = Strelka.snvs_vcf
-        File snvs_vcf_idx = Strelka.snvs_vcf_idx
-        File indels_vcf = Strelka.indels_vcf
-        File indels_vcf_idx = Strelka.indels_vcf_idx
+        File strelka_calls_vcf = Merge.merged_vcf
+        File strelka_calls_vcf_idx = Merge.merged_vcf_idx
     }
 }
 
@@ -111,10 +118,10 @@ task Manta {
 
         String strelka_docker
 
-        Int cpu = 2
-        Int mem_gb = 4
-        Int disk_gb = 100
-        Int boot_disk_gb = 4
+        Int cpu = 4
+        Int mem_gb = 16
+        Int disk_gb = 1000
+        Int boot_disk_gb = 10
         Int max_retries = 0
         Int preemptible = 0
     }
@@ -172,10 +179,10 @@ task Strelka {
 
         String strelka_docker
 
-        Int cpu = 2
-        Int mem_gb = 4
-        Int disk_gb = 100
-        Int boot_disk_gb = 4
+        Int cpu = 4
+        Int mem_gb = 16
+        Int disk_gb = 1000
+        Int boot_disk_gb = 10
         Int max_retries = 0
         Int preemptible = 0
     }
@@ -212,5 +219,41 @@ task Strelka {
         File snvs_vcf_idx = "output/somatic.snvs.vcf.gz.tbi"
         File indels_vcf = "output/somatic.indels.vcf.gz"
         File indels_vcf_idx = "output/somatic.indels.vcf.gz.tbi"
+    }
+}
+
+task Merge {
+    input {
+        String gatk_docker
+        File snvs_vcf
+        File snvs_vcf_idx
+        File indels_vcf
+        File indels_vcf_idx
+
+        Int cpu = 1
+        Int mem_gb = 4
+        Int disk_gb = 100
+        Int boot_disk_gb = 10
+        Int max_retries = 0
+        Int preemptible = 0
+    }
+
+    command <<<
+        gatk MergeVcfs -I ~{snvs_vcf} -I ~{indels_vcf} -O merged.vcf
+    >>>
+
+    runtime {
+        docker: gatk_docker
+        bootDiskSizeGb: boot_disk_gb
+        memory: mem_gb + " GB"
+        disks: "local-disk " + disk_gb + " SSD"
+        preemptible: preemptible
+        maxRetries: max_retries
+        cpu: cpu
+    }
+
+    output {
+        File merged_vcf = "merged.vcf"
+        File merged_vcf_idx = "merged.vcf.idx"
     }
 }
