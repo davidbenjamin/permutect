@@ -192,6 +192,9 @@ task Manta {
 
         echo "contents of output/variants:"
         ls output/variants
+
+        echo "contents of output/results/variants:"
+        ls output/results/variants
     >>>
 
     runtime {
@@ -205,8 +208,8 @@ task Manta {
     }
 
     output {
-        File manta_vcf = "output/results/variants/candidateSmallIndes.vcf.gz"
-        File manta_vcf_idx = "output/results/variants/candidateSmallIndes.vcf.gz.tbi"
+        File manta_vcf = "output/results/variants/candidateSmallIndels.vcf.gz"
+        File manta_vcf_idx = "output/results/variants/candidateSmallIndels.vcf.gz.tbi"
     }
 }
 
@@ -261,6 +264,9 @@ task Strelka {
 
         echo "contents of output/variants:"
         ls output/variants
+
+        echo "contents of output/results/variants:"
+        ls output/results/variants
     >>>
 
     runtime {
