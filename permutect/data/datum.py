@@ -25,8 +25,8 @@ def float_to_clipped_int16(float_number: float) -> int:
     return max(min(unbounded_int, BIGGEST_INT16), -BIGGEST_INT16)
 
 
-def int16_to_float(int16_number: int) -> float:
-    return int16_number / FLOAT_TO_LONG_MULTIPLIER
+def int16_to_float(int16_number_or_tensor):
+    return int16_number_or_tensor / FLOAT_TO_LONG_MULTIPLIER
 
 
 def uint32_to_two_int16s(num: int):
