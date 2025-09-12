@@ -179,13 +179,19 @@ task Manta {
                 --callRegions ~{intervals_bed} \
                 ~{manta_extra_args}
 
+        echo "contents of output directory after configuring workflow:"
         ls output
 
         output/runWorkflow.py -j ~{cpu}
 
+        echo "contents of output directory after running workflow:"
         ls output
+
+        echo "contents of output/results:"
         ls output/results
-        ls output/results/variants
+
+        echo "contents of output/variants:"
+        ls output/variants
     >>>
 
     runtime {
@@ -242,11 +248,19 @@ task Strelka {
                 --callRegions ~{intervals_bed} \
                 ~{strelka_extra_args}
 
+        echo "contents of output directory after configuring workflow:"
         ls output
 
         output/runWorkflow.py -m local -j ~{cpu}
 
+        echo "contents of output directory after running workflow:"
         ls output
+
+        echo "contents of output/results:"
+        ls output/results
+
+        echo "contents of output/variants:"
+        ls output/variants
     >>>
 
     runtime {
