@@ -46,6 +46,7 @@ workflow Strelka {
             normal_bam = normal_bam,
             normal_bai = normal_bai,
             intervals_bed = IntervalListToBed.output_bed,
+            intervals_bed_idx = IntervalListToBed.output_bed_idx,
             manta_extra_args = manta_extra_args,
             strelka_docker = strelka_docker
     }
@@ -60,6 +61,7 @@ workflow Strelka {
             normal_bam = normal_bam,
             normal_bai = normal_bai,
             intervals_bed = IntervalListToBed.output_bed,
+            intervals_bed_idx = IntervalListToBed.output_bed_idx,
             manta_vcf = Manta.manta_vcf,
             manta_vcf_idx = Manta.manta_vcf_idx,
             strelka_extra_args = strelka_extra_args,
@@ -122,6 +124,9 @@ task IntervalListToBed {
 
     command <<<
         gatk IntervalListToBed --INPUT ~{intervals} --OUTPUT intervals.bed
+
+        sort -k 1,1 -k 2,2n -k 3,3n intervals.bed | bgzip -c > sorted.bed.gz
+        tabix -pbed sorted.bed.gz
     >>>
 
     runtime {
@@ -135,7 +140,8 @@ task IntervalListToBed {
     }
 
     output {
-        File output_bed = "intervals.bed"
+        File output_bed = "sorted.bed.gz"
+        File output_bed_idx = "sorted.bed.gz.tbi"
     }
 }
 
@@ -151,6 +157,7 @@ task Manta {
         File normal_bam
         File normal_bai
         File intervals_bed
+        File intervals_bed_idx
         String manta_extra_args
 
         String strelka_docker
@@ -209,6 +216,7 @@ task Strelka {
         File normal_bam
         File normal_bai
         File intervals_bed
+        File intervals_bed_idx
         File manta_vcf
         File manta_vcf_idx
 
