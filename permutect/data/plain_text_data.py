@@ -187,10 +187,11 @@ def normalize_buffer(buffer: List[RawUnnormalizedReadsDatum], read_quantile_tran
     strand_and_orientation_boolean = all_reads_re[:, 2:4] < 0.5
     error_counts_boolean_1 = all_reads_re[:, 9:] < 0.5
     error_counts_boolean_2 = (all_reads_re[:, 9:] > 0.5) & (all_reads_re[:, 9:] < 1.5)
-    error_counts_boolean_3 = (all_reads_re[:, 9:] > 1.5)
+    error_counts_boolean_3 = (all_reads_re[:, 9:] > 1.5) & (all_reads_re[:, 9:] < 2.5)
+    error_counts_boolean_4 = (all_reads_re[:, 9:] > 2.5)
 
     boolean_output_array = np.hstack((map_qual_boolean, base_qual_boolean, strand_and_orientation_boolean,
-               error_counts_boolean_1, error_counts_boolean_2, error_counts_boolean_3))
+               error_counts_boolean_1, error_counts_boolean_2, error_counts_boolean_3, error_counts_boolean_4))
 
     # axis = 1 is essential so that each row (read) of the packed data corresponds to a row of the unpacked data
     packed_output_array = np.packbits(boolean_output_array, axis=1)
