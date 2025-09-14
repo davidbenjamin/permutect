@@ -182,7 +182,9 @@ task Manta {
         echo "contents of output directory after configuring workflow:"
         ls output
 
-        output/runWorkflow.py -j ~{cpu}
+        echo "About to run output/runWorkflow.py"
+
+        output/runWorkflow.py -m local -j ~{cpu}
 
         echo "contents of output directory after running workflow:"
         ls output
@@ -195,6 +197,15 @@ task Manta {
 
         echo "contents of output/results/variants:"
         ls output/results/variants
+
+        echo "contents of output/results/stats:"
+        ls output/results/stats
+
+        echo "contents of output/results/evidence:"
+        ls output/results/evidence
+
+        echo "We're going to cat output/runWorkflow.py:"
+        cat output/runWorkflow.py
     >>>
 
     runtime {
