@@ -34,6 +34,7 @@ from typing import List, Generator
 import sys
 
 import numpy as np
+import torch
 from sklearn.preprocessing import QuantileTransformer
 
 from permutect.data.count_binning import cap_ref_count, cap_alt_count
@@ -42,6 +43,7 @@ from permutect.data.reads_datum import ReadsDatum, RawUnnormalizedReadsDatum, NU
 from permutect.data.datum import DEFAULT_NUMPY_FLOAT
 
 from permutect.misc_utils import report_memory_usage
+from permutect.sets.ragged_sets import RaggedSets
 from permutect.utils.enums import Variation, Label
 
 MAX_VALUE = 10000
@@ -146,8 +148,22 @@ def normalize_buffer(buffer: List[RawUnnormalizedReadsDatum], read_quantile_tran
     all_ref_re = np.vstack([datum.get_ref_reads_re() for datum in buffer])
     all_reads_re = np.vstack([datum.reads_re for datum in buffer])
 
+    all_alt_reads_re = torch.from_numpy(np.vstack([datum.get_alt_reads_re() for datum in buffer]))
+    alt_read_means_ve = np.vstack([np.mean(datum.get_alt_reads_re(), axis=0) for datum in buffer])
+    alt_read_medians_ve = np.vstack([np.median(datum.get_alt_reads_re(), axis=0) for datum in buffer])
+
+    binary_read_column_mask = np.ones_like(all_reads_re[0])
+    binary_read_column_mask[10:15] = 0
+
+
+    #alt_counts_v = torch.IntTensor([datum.get_alt_count() for datum in buffer])
+    #alt_reads_vre = RaggedSets.from_flattened_tensor_and_sizes(all_alt_reads_re, alt_counts_v)
+    #alt_reads_vre.
+
+
     # 2D array.  Rows are read sets, columns are info features
     all_info_ve = np.vstack([datum.get_info_1d() for datum in buffer])
+    binary_read_columns = binary_column_indices(all_reads_re)
     binary_info_columns = binary_column_indices(all_info_ve)
 
     distance_columns_re = all_reads_re[:, 4:9]
@@ -211,7 +227,7 @@ def normalize_buffer(buffer: List[RawUnnormalizedReadsDatum], read_quantile_tran
     for n, raw_datum in enumerate(buffer):
         output_reads_re = output_uint8_reads_array[0 if n == 0 else read_index_ranges[n - 1]:read_index_ranges[n]]
         output_datum: ReadsDatum = ReadsDatum(datum_array=raw_datum.array, compressed_reads_re=output_reads_re)
-
+        
         # TODO: we used to put alt means and medians as extra info here.  If that's helpful to the model maybe restore
         # TODO: it not when storing a dataset but when creating batches?
 
