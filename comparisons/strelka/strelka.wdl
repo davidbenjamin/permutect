@@ -273,9 +273,6 @@ task Strelka {
         echo "contents of output/results:"
         ls output/results
 
-        echo "contents of output/variants:"
-        ls output/variants
-
         echo "contents of output/results/variants:"
         ls output/results/variants
     >>>
@@ -291,10 +288,10 @@ task Strelka {
     }
 
     output {
-        File snvs_vcf = "output/somatic.snvs.vcf.gz"
-        File snvs_vcf_idx = "output/somatic.snvs.vcf.gz.tbi"
-        File indels_vcf = "output/somatic.indels.vcf.gz"
-        File indels_vcf_idx = "output/somatic.indels.vcf.gz.tbi"
+        File snvs_vcf = "output/results/variants/somatic.snvs.vcf.gz"
+        File snvs_vcf_idx = "output/results/variants/somatic.snvs.vcf.gz.tbi"
+        File indels_vcf = "output/results/variants/somatic.indels.vcf.gz"
+        File indels_vcf_idx = "output/results/variants/somatic.indels.vcf.gz.tbi"
     }
 }
 
