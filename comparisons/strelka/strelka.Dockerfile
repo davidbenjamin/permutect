@@ -1,70 +1,90 @@
+# copied from https://github.com/cancerit/strelka2-manta
+
+FROM ubuntu:16.04 as builder
+
+USER root
+
+ENV VER_MANTA="1.6.0"
+ENV VER_STRELKA2="2.9.10"
+
+RUN apt-get -yq update
+# no benefit of combined in builder stage
+RUN apt-get install -yq --no-install-recommends locales
+RUN apt-get install -yq --no-install-recommends ca-certificates
+RUN apt-get install -yq --no-install-recommends gcc
+RUN apt-get install -yq --no-install-recommends g++
+RUN apt-get install -yq --no-install-recommends python
+RUN apt-get install -yq --no-install-recommends bzip2
+RUN apt-get install -yq --no-install-recommends make
+RUN apt-get install -yq --no-install-recommends zlib1g-dev
+RUN apt-get install -yq --no-install-recommends cmake
+RUN apt-get install -yq --no-install-recommends libboost-dev
+RUN apt-get install -yq --no-install-recommends curl
+
+RUN locale-gen en_US.UTF-8
+RUN update-locale LANG=en_US.UTF-8
+
+ENV OPT /opt/wtsi-cgp
+ENV PERL5LIB $OPT/lib/perl5
+ENV LD_LIBRARY_PATH $OPT/lib
+ENV LC_ALL en_US.UTF-8
+ENV LANG en_US.UTF-8
+
+# download and install manta
+WORKDIR /tmp
+RUN curl -sSL --retry 10 https://github.com/Illumina/manta/releases/download/v${VER_MANTA}/manta-${VER_MANTA}.release_src.tar.bz2 > manta.tar.bz2
+RUN mkdir -p manta
+RUN tar --strip-components 1 -C manta -jxf manta.tar.bz2
+WORKDIR /tmp/manta/build
+RUN ../configure --jobs=4 --prefix=$OPT/manta
+RUN make -j4 install
+
+# download and install strelka2
+WORKDIR /tmp
+RUN curl -sSL --retry 10 https://github.com/Illumina/strelka/releases/download/v${VER_STRELKA2}/strelka-${VER_STRELKA2}.release_src.tar.bz2 > strelka.tar.bz2
+RUN mkdir -p strelka
+RUN tar --strip-components 1 -C strelka -jxf strelka.tar.bz2
+WORKDIR /tmp/strelka/build
+RUN ../configure --jobs=4 --prefix=$OPT/strelka
+RUN make -j4 install
+
 FROM ubuntu:16.04
 
-LABEL maintainer="Julian Gascoyne <jmgascoyne@mdanderson.org>"
-LABEL description="This image contains the Strelka and Manta tools"
-LABEL usage="docker run -ti --rm strelka:2.9.10"
+LABEL maintainer="cgphelp@sanger.ac.uk" \
+      uk.ac.sanger.cgp="Cancer, Ageing and Somatic Mutation, Wellcome Trust Sanger Institute" \
+      version="1.0.0" \
+      description="Strelka2 docker"
 
-# Build-time arguments for versioning
-ARG PYTHON_VERSION=2.7.18
-ARG PYTHON_MAJOR_MINOR=2.7
+RUN apt-get -yq update \
+&& apt-get install -yq --no-install-recommends \
+locales \
+python \
+bzip2 \
+zlib1g \
+curl \
+unattended-upgrades && \
+unattended-upgrade -d -v && \
+apt-get remove -yq unattended-upgrades && \
+apt-get autoremove -yq
 
-# Set environment variables
-ENV DEBIAN_FRONTEND=noninteractive
-ENV MANTA_VERSION=1.6.0
-ENV STRELKA_VERSION=2.9.10
+RUN locale-gen en_US.UTF-8
+RUN update-locale LANG=en_US.UTF-8
 
+ENV OPT /opt/wtsi-cgp
+ENV PATH $OPT/manta/bin:$PATH
+ENV PATH $OPT/strelka/bin:$PATH
+ENV PERL5LIB $OPT/lib/perl5
+ENV LD_LIBRARY_PATH $OPT/lib
+ENV LC_ALL en_US.UTF-8
+ENV LANG en_US.UTF-8
 
-# Install system dependencies
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    apt-transport-https \
-    gnupg && \
-    apt-get clean && rm -rf /var/lib/apt/lists/*
+RUN mkdir -p $OPT
+COPY --from=builder $OPT $OPT
 
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    build-essential \
-    cmake \
-    wget \
-    curl \
-    git \
-    zlib1g-dev \
-    libboost-all-dev \
-    ca-certificates \
-    libssl-dev \
-    && apt-get clean && rm -rf /var/lib/apt/lists/*
+## USER CONFIGURATION
+RUN adduser --disabled-password --gecos '' ubuntu && chsh -s /bin/bash && mkdir -p /home/ubuntu
 
-# Install Python from source
-WORKDIR /opt
-RUN wget https://www.python.org/ftp/python/${PYTHON_VERSION}/Python-${PYTHON_VERSION}.tgz && \
-    tar xzf Python-${PYTHON_VERSION}.tgz && \
-    cd Python-${PYTHON_VERSION} && \
-    ./configure --prefix=/usr/local && \
-    make -j$(nproc) && \
-    make altinstall && \
-    ln -s /usr/local/bin/python${PYTHON_MAJOR_MINOR} /usr/local/bin/python && \
-    ln -s /usr/local/bin/pip${PYTHON_MAJOR_MINOR} /usr/local/bin/pip || true
+USER    ubuntu
+WORKDIR /home/ubuntu
 
-RUN wget https://bootstrap.pypa.io/pip/${PYTHON_MAJOR_MINOR}/get-pip.py -O get-pip.py && \
-    /usr/local/bin/python${PYTHON_MAJOR_MINOR} get-pip.py && \
-    rm get-pip.py && \
-    update-alternatives --install /usr/local/bin/python python /usr/local/bin/python${PYTHON_MAJOR_MINOR} 1
-
-# Clone and build Manta
-WORKDIR /opt
-RUN wget https://github.com/Illumina/manta/releases/download/v${MANTA_VERSION}/manta-${MANTA_VERSION}.release_src.tar.bz2 && \
-    tar -xjf manta-${MANTA_VERSION}.release_src.tar.bz2 && \
-    mkdir /opt/manta-build && cd /opt/manta-build && \
-    /opt/manta-${MANTA_VERSION}.release_src/configure && \
-    make -j$(nproc) install
-
-# Clone and build Strelka
-WORKDIR /opt
-RUN wget https://github.com/Illumina/strelka/releases/download/v${STRELKA_VERSION}/strelka-${STRELKA_VERSION}.release_src.tar.bz2 && \
-    tar -xjf strelka-${STRELKA_VERSION}.release_src.tar.bz2 && \
-    mkdir /opt/strelka-build && \
-    cd /opt/strelka-build && \
-    /opt/strelka-${STRELKA_VERSION}.release_src/configure && \
-    make -j$(nproc) install
-
-# Mount the binary locations on PATH and set default run command
-WORKDIR /data
 CMD ["/bin/bash"]
