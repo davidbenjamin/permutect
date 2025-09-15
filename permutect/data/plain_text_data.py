@@ -148,22 +148,11 @@ def normalize_buffer(buffer: List[RawUnnormalizedReadsDatum], read_quantile_tran
     all_ref_re = np.vstack([datum.get_ref_reads_re() for datum in buffer])
     all_reads_re = np.vstack([datum.reads_re for datum in buffer])
 
-    all_alt_reads_re = torch.from_numpy(np.vstack([datum.get_alt_reads_re() for datum in buffer]))
-    alt_read_means_ve = np.vstack([np.mean(datum.get_alt_reads_re(), axis=0) for datum in buffer])
-    alt_read_medians_ve = np.vstack([np.median(datum.get_alt_reads_re(), axis=0) for datum in buffer])
-
     binary_read_column_mask = np.ones_like(all_reads_re[0])
     binary_read_column_mask[10:15] = 0
 
-
-    #alt_counts_v = torch.IntTensor([datum.get_alt_count() for datum in buffer])
-    #alt_reads_vre = RaggedSets.from_flattened_tensor_and_sizes(all_alt_reads_re, alt_counts_v)
-    #alt_reads_vre.
-
-
     # 2D array.  Rows are read sets, columns are info features
     all_info_ve = np.vstack([datum.get_info_1d() for datum in buffer])
-    binary_read_columns = binary_column_indices(all_reads_re)
     binary_info_columns = binary_column_indices(all_info_ve)
 
     distance_columns_re = all_reads_re[:, 4:9]
@@ -186,26 +175,29 @@ def normalize_buffer(buffer: List[RawUnnormalizedReadsDatum], read_quantile_tran
     read_index_ranges = np.cumsum(read_counts)
 
     map_qual_column = all_reads_re[:, 0]
-    map_qual_boolean = np.full((len(all_reads_re), 4), True, dtype=bool)
-    map_qual_boolean[:, 0] = (map_qual_column == 60)
-    map_qual_boolean[:, 1] = (map_qual_column < 60) & (map_qual_column >= 40)
+    map_qual_boolean = np.full((len(all_reads_re), 3), True, dtype=bool)
+    map_qual_boolean[:, 0] = (map_qual_column > 59)
+    map_qual_boolean[:, 1] = (map_qual_column <= 59) & (map_qual_column >= 40)
     map_qual_boolean[:, 2] = (map_qual_column < 40) & (map_qual_column >= 20)
-    map_qual_boolean[:, 3] = (map_qual_column < 20)
+    # if the three categoricals are zero, that encodes map qual < 20
+    #map_qual_boolean[:, 3] = (map_qual_column < 20)
 
     base_qual_column = all_reads_re[:, 1]
-    base_qual_boolean = np.full((len(all_reads_re), 4), True, dtype=bool)
+    base_qual_boolean = np.full((len(all_reads_re), 3), True, dtype=bool)
     base_qual_boolean[:, 0] = (base_qual_column >= 30)
     base_qual_boolean[:, 1] = (base_qual_column < 30) & (base_qual_column >= 20)
     base_qual_boolean[:, 2] = (base_qual_column < 20) & (base_qual_column >= 10)
-    base_qual_boolean[:, 3] = (base_qual_column < 10)
+    # if the three categoricals are zero, that encodes base qual < 10
+    #base_qual_boolean[:, 3] = (base_qual_column < 10)
 
     strand_and_orientation_boolean = all_reads_re[:, 2:4] < 0.5
     error_counts_boolean_1 = all_reads_re[:, 9:] < 0.5
     error_counts_boolean_2 = (all_reads_re[:, 9:] > 0.5) & (all_reads_re[:, 9:] < 1.5)
-    error_counts_boolean_3 = (all_reads_re[:, 9:] > 1.5)
+    # if the two categoricals are zero, that encodes two or more errors
+    # error_counts_boolean_3 = (all_reads_re[:, 9:] > 1.5)
 
     boolean_output_array_re = np.hstack((map_qual_boolean, base_qual_boolean, strand_and_orientation_boolean,
-               error_counts_boolean_1, error_counts_boolean_2, error_counts_boolean_3))
+               error_counts_boolean_1, error_counts_boolean_2))
 
     # axis = 1 is essential so that each row (read) of the packed data corresponds to a row of the unpacked data
     packed_output_array = np.packbits(boolean_output_array_re, axis=1)

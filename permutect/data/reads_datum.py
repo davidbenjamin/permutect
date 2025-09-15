@@ -16,7 +16,7 @@ from permutect.utils.enums import Variation, Label
 # the leading columns are from binary quantities (either inherently binary or one-hot-encoded categorical) with np.packbits
 # applied (this converts bool tensors into byte tensors, each byte holding eight bools)
 # if the number of boolean bits is not a multiple of 8, it gets padded with zeros.  This isn't a problem.
-NUMBER_OF_BYTES_IN_PACKED_READ = 7
+NUMBER_OF_BYTES_IN_PACKED_READ = 5
 READS_ARRAY_DTYPE = np.uint8
 
 
