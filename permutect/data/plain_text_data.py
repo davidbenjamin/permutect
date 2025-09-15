@@ -173,7 +173,6 @@ def normalize_buffer(buffer: List[RawUnnormalizedReadsDatum], read_quantile_tran
         info_quantile_transform.fit(all_info_ve)
 
     distance_columns_transformed_re = read_quantile_transform.transform(distance_columns_re)
-
     all_info_transformed_ve = transform_except_for_binary_columns(all_info_ve, info_quantile_transform, binary_info_columns)
 
     # columns of raw read data are
@@ -203,17 +202,16 @@ def normalize_buffer(buffer: List[RawUnnormalizedReadsDatum], read_quantile_tran
     strand_and_orientation_boolean = all_reads_re[:, 2:4] < 0.5
     error_counts_boolean_1 = all_reads_re[:, 9:] < 0.5
     error_counts_boolean_2 = (all_reads_re[:, 9:] > 0.5) & (all_reads_re[:, 9:] < 1.5)
-    error_counts_boolean_3 = (all_reads_re[:, 9:] > 1.5) & (all_reads_re[:, 9:] < 2.5)
-    error_counts_boolean_4 = (all_reads_re[:, 9:] > 2.5)
+    error_counts_boolean_3 = (all_reads_re[:, 9:] > 1.5)
 
-    boolean_output_array = np.hstack((map_qual_boolean, base_qual_boolean, strand_and_orientation_boolean,
-               error_counts_boolean_1, error_counts_boolean_2, error_counts_boolean_3, error_counts_boolean_4))
+    boolean_output_array_re = np.hstack((map_qual_boolean, base_qual_boolean, strand_and_orientation_boolean,
+               error_counts_boolean_1, error_counts_boolean_2, error_counts_boolean_3))
 
     # axis = 1 is essential so that each row (read) of the packed data corresponds to a row of the unpacked data
-    packed_output_array = np.packbits(boolean_output_array, axis=1)
+    packed_output_array = np.packbits(boolean_output_array_re, axis=1)
 
     assert packed_output_array.dtype == np.uint8
-    assert packed_output_array.shape[1] == NUMBER_OF_BYTES_IN_PACKED_READ, f"boolean array shape {boolean_output_array.shape}, packed shape {packed_output_array.shape}"
+    assert packed_output_array.shape[1] == NUMBER_OF_BYTES_IN_PACKED_READ, f"boolean array shape {boolean_output_array_re.shape}, packed shape {packed_output_array.shape}"
 
     distance_columns_output = convert_quantile_normalized_to_uint8(distance_columns_transformed_re)
     assert packed_output_array.dtype == distance_columns_output.dtype
@@ -225,14 +223,18 @@ def normalize_buffer(buffer: List[RawUnnormalizedReadsDatum], read_quantile_tran
     normalized_result = []
     raw_datum: RawUnnormalizedReadsDatum
     for n, raw_datum in enumerate(buffer):
-        output_reads_re = output_uint8_reads_array[0 if n == 0 else read_index_ranges[n - 1]:read_index_ranges[n]]
-        output_datum: ReadsDatum = ReadsDatum(datum_array=raw_datum.array, compressed_reads_re=output_reads_re)
-        
-        # TODO: we used to put alt means and medians as extra info here.  If that's helpful to the model maybe restore
-        # TODO: it not when storing a dataset but when creating batches?
+        ref_start_index = 0 if n == 0 else read_index_ranges[n - 1]     # first index of this datum's reads
+        alt_end_index = read_index_ranges[n]
+        alt_start_index = ref_start_index + raw_datum.get_ref_count()
 
-        # TODO: info/base datum array should be uint8, not int64
-        output_datum.set_info_1d(all_info_transformed_ve[n])
+        alt_distance_medians_e = np.median(distance_columns_transformed_re[alt_start_index:alt_end_index, :], axis=0)
+        alt_boolean_means_e = np.mean(boolean_output_array_re[alt_start_index:alt_end_index, :], axis=0)
+        extra_info_e = np.hstack((alt_distance_medians_e, alt_boolean_means_e))
+
+        output_reads_re = output_uint8_reads_array[ref_start_index:alt_end_index]
+        output_datum: ReadsDatum = ReadsDatum(datum_array=raw_datum.array, compressed_reads_re=output_reads_re)
+
+        output_datum.set_info_1d(np.hstack((all_info_transformed_ve[n], extra_info_e)))
         normalized_result.append(output_datum)
 
     return normalized_result
