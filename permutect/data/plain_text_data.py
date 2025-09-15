@@ -219,6 +219,8 @@ def normalize_buffer(buffer: List[RawUnnormalizedReadsDatum], read_quantile_tran
         alt_end_index = read_index_ranges[n]
         alt_start_index = ref_start_index + raw_datum.get_ref_count()
 
+        # TODO: maybe we could also have columnwise nonparametric test statistics, like for example we record the
+        # TODO: quantiles over all ref reads
         alt_distance_medians_e = np.median(distance_columns_transformed_re[alt_start_index:alt_end_index, :], axis=0)
         alt_boolean_means_e = np.mean(boolean_output_array_re[alt_start_index:alt_end_index, :], axis=0)
         extra_info_e = np.hstack((alt_distance_medians_e, alt_boolean_means_e))
