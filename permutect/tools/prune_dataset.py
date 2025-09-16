@@ -167,6 +167,7 @@ def generate_pruned_data_buffers(pruned_data_generator, max_bytes_per_chunk: int
         yield buffer
 
 
+# TODO: code duplication with preprocess dataset packaging in tarfile
 def make_pruned_training_dataset(pruned_data_buffer_generator, pruned_tarfile):
     pruned_data_files = []
     for base_data_list in pruned_data_buffer_generator:

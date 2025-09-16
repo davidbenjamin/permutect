@@ -14,6 +14,7 @@ from mmap_ninja.ragged import RaggedMmap
 from permutect.data.reads_datum import ReadsDatum
 from permutect.data.reads_batch import ReadsBatch
 from permutect.data.batch import BatchProperty, BatchIndexedTensor
+from permutect.tools.preprocess_dataset import SUFFIX_FOR_DATA_FILES_IN_TAR
 from permutect.utils.enums import Variation, Label
 
 TENSORS_PER_BASE_DATUM = 2  # 1) 2D reads (ref and alt), 1) 1D concatenated stuff
@@ -37,6 +38,7 @@ class ReadsDataset(Dataset):
         self.num_folds = num_folds
         self.totals_slvra = BatchIndexedTensor.make_zeros(num_sources=1, include_logits=False, device=torch.device('cpu'))
 
+        # data in ram is really just a convenient way to write tests.  In actual deployment the data comes from a tarfile
         if data_in_ram is not None:
             self._data = data_in_ram
             self._memory_map_mode = False
@@ -145,7 +147,7 @@ def generate_reads_data_from_tarfile(data_tarfile) -> Generator[ReadsDatum, None
     tar = tarfile.open(data_tarfile)
     tar.extractall(temp_dir.name)
     tar.close()
-    data_files = [os.path.abspath(os.path.join(temp_dir.name, p)) for p in os.listdir(temp_dir.name)]
+    data_files = [os.path.abspath(os.path.join(temp_dir.name, p)) for p in os.listdir(temp_dir.name) if p.endswith(SUFFIX_FOR_DATA_FILES_IN_TAR)]
 
     for file in data_files:
         for datum in ReadsDatum.load_list(file):

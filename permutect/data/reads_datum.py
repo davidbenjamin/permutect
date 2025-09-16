@@ -143,17 +143,20 @@ class ReadsDatum(Datum):
         return self.compressed_reads_re[-self.get_alt_count():]
 
     @classmethod
-    def save_list(cls, base_data: List[ReadsDatum], file):
-        stacked_compressed_reads_re = np.vstack([datum.get_compressed_reads_re() for datum in base_data])
-        stacked_data_array_ve = np.vstack([datum.get_array_1d() for datum in base_data])
-        torch.save([stacked_compressed_reads_re, stacked_data_array_ve], file, pickle_protocol=4)
+    def save_list(cls, data: List[ReadsDatum], file):
+        stacked_compressed_reads_re = np.vstack([datum.get_compressed_reads_re() for datum in data])
+        stacked_data_array_ve = np.vstack([datum.get_array_1d() for datum in data])
+
+        # if tensors are allowed to have more than 127 total reads (after downsampling) change this to int16!!!!
+        read_counts_v = np.array([datum.get_ref_count() + datum.get_alt_count() for datum in data], dtype=np.int8)
+        torch.save([stacked_compressed_reads_re, stacked_data_array_ve, read_counts_v], file, pickle_protocol=4)
 
     # TODO: maybe the stacked arrays could be loaded directly as a dataset as opposed to the current approach of
     # TODO: unstacking them into Lists of ReadsDatum, then storing the data list in the datasetx
     @classmethod
     def load_list(cls, file) -> List[ReadsDatum]:
         # these are vstacked -- see save method above
-        stacked_compressed_reads_re, stacked_data_array_ve = torch.load(file)
+        stacked_compressed_reads_re, stacked_data_array_ve, read_counts_v = torch.load(file)
 
         result = []
         read_start_row = 0
