@@ -231,7 +231,7 @@ class ReadsDatum(Datum):
         # for pre-allocating tensor of all data in the tarfile, we store 1) the total data count 2) the total read count
         # 3) the tensor size (in memory, not after expanding binaries) of read data 4) the tensor size of 1D data
         with tempfile.NamedTemporaryFile(suffix=SUFFIX_FOR_DATA_COUNT_FILE_IN_TAR, delete=False) as counts_file:
-            torch.save([np.array([total_num_data, total_num_reads, read_tensor_width.value, data_tensor_width.value])],
+            torch.save(np.array([total_num_data, total_num_reads, read_tensor_width.value, data_tensor_width.value]),
                        counts_file, pickle_protocol=4)
             data_files.append(counts_file.name)
 
@@ -244,5 +244,25 @@ class ReadsDatum(Datum):
     def save_data_in_tarfile(cls, data_generator: Generator[ReadsDatum], max_bytes_in_chunk: int, output_tarfile):
         list_generator = ReadsDatum.generate_data_lists(data_generator=data_generator, max_bytes_per_chunk=max_bytes_in_chunk)
         ReadsDatum.save_lists_into_tarfile(data_list_generator=list_generator, output_tarfile=output_tarfile)
+
+    @classmethod
+    def extract_counts_from_tarfile(cls, data_tarfile):
+        temp_dir = tempfile.TemporaryDirectory()
+
+        with tarfile.open(data_tarfile, 'r') as tar:
+            for member in tar.getmembers():
+                if member.isfile() and member.name.endswith(SUFFIX_FOR_DATA_COUNT_FILE_IN_TAR):
+                    tar.extract(member, path=temp_dir.name)
+
+        count_files = [os.path.abspath(os.path.join(temp_dir.name, p)) for p in os.listdir(temp_dir.name) if
+                      p.endswith(SUFFIX_FOR_DATA_COUNT_FILE_IN_TAR)]
+
+        assert len(count_files) == 1
+
+        count_array = torch.load(count_files[0])
+        # counts array contains: total_num_data, total_num_reads, read_tensor_width, data_tensor_width
+        return count_array[0], count_array[1], count_array[2], count_array[3]
+
+
 
 

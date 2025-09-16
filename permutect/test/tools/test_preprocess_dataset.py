@@ -30,4 +30,6 @@ def test_on_10_megabases_singular():
             if training_file.endswith(SUFFIX_FOR_DATA_FILES_IN_TAR):
                 base_data_list = ReadsDatum.load_list(training_file)
 
+    a, b, c, d = ReadsDatum.extract_counts_from_tarfile(tarfile_name)
+
     dataset = ReadsDataset(data_tarfile=tarfile_name, num_folds=10)
