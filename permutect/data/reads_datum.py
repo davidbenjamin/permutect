@@ -263,6 +263,20 @@ class ReadsDatum(Datum):
         # counts array contains: total_num_data, total_num_reads, read_tensor_width, data_tensor_width
         return count_array[0], count_array[1], count_array[2], count_array[3]
 
+    @classmethod
+    def generate_reads_data_from_tarfile(cls, data_tarfile) -> Generator[ReadsDatum, None, None]:
+        # extract the tarfile to a temporary directory that will be cleaned up when the program ends
+        temp_dir = tempfile.TemporaryDirectory()
+        tar = tarfile.open(data_tarfile)
+        tar.extractall(temp_dir.name)
+        tar.close()
+        data_files = [os.path.abspath(os.path.join(temp_dir.name, p)) for p in os.listdir(temp_dir.name) if
+                      p.endswith(SUFFIX_FOR_DATA_FILES_IN_TAR)]
+
+        for file in data_files:
+            for datum in ReadsDatum.load_list(file):
+                yield datum
+
 
 
 

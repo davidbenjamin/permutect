@@ -50,7 +50,7 @@ class ReadsDataset(Dataset):
             print(f"The tarfile size is {tarfile_size} bytes on disk for an estimated {estimated_data_size_in_ram} bytes in memory and the system has {available_memory} bytes of RAM available.")
             if fits_in_ram:
                 print("loading the dataset from the tarfile into RAM:")
-                self._data = list(generate_reads_data_from_tarfile(data_tarfile))
+                self._data = list(ReadsDatum.generate_reads_data_from_tarfile(data_tarfile))
                 self._memory_map_mode = False
             else:
                 print("loading the dataset into a memory-mapped file:")
@@ -58,7 +58,7 @@ class ReadsDataset(Dataset):
 
                 RaggedMmap.from_generator(out_dir=self._memory_map_dir.name,
                                           sample_generator=make_flattened_tensor_generator(
-                                              generate_reads_data_from_tarfile(data_tarfile)),
+                                              ReadsDatum.generate_reads_data_from_tarfile(data_tarfile)),
                                           batch_size=10000, verbose=False)
                 self._data = RaggedMmap(self._memory_map_dir.name)
                 self._memory_map_mode = True
@@ -138,20 +138,6 @@ def make_flattened_tensor_generator(reads_data_generator: Generator[ReadsDatum, 
     for reads_datum in reads_data_generator:
         yield reads_datum.get_compressed_reads_re()
         yield reads_datum.get_array_1d()
-
-
-# TODO: maybe this belongs in ReadsDatum next to the saving and loading methods
-def generate_reads_data_from_tarfile(data_tarfile) -> Generator[ReadsDatum, None, None]:
-    # extract the tarfile to a temporary directory that will be cleaned up when the program ends
-    temp_dir = tempfile.TemporaryDirectory()
-    tar = tarfile.open(data_tarfile)
-    tar.extractall(temp_dir.name)
-    tar.close()
-    data_files = [os.path.abspath(os.path.join(temp_dir.name, p)) for p in os.listdir(temp_dir.name) if p.endswith(SUFFIX_FOR_DATA_FILES_IN_TAR)]
-
-    for file in data_files:
-        for datum in ReadsDatum.load_list(file):
-            yield datum
 
 
 # ex: chunk([a,b,c,d,e], 3) = [[a,b,c], [d,e]]
