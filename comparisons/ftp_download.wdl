@@ -26,7 +26,7 @@ task FTP {
         Int disk_gb = 1000
         Int boot_disk_gb = 10
         Int max_retries = 0
-        Int preemptible = 1
+        Int preemptible = 0
     }
 
 
