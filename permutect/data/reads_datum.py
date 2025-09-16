@@ -156,15 +156,21 @@ class ReadsDatum(Datum):
         stacked_data_array_ve = np.vstack([datum.get_array_1d() for datum in data])
 
         # if tensors are allowed to have more than 127 total reads (after downsampling) change this to int16!!!!
-        read_counts_v = np.array([datum.get_ref_count() + datum.get_alt_count() for datum in data], dtype=np.int8)
-        torch.save([stacked_compressed_reads_re, stacked_data_array_ve, read_counts_v], file, pickle_protocol=4)
+        read_counts_v = np.array([datum.get_ref_count() + datum.get_alt_count() for datum in data], dtype=np.int16)
+        to_save = {'compressed_reads': stacked_compressed_reads_re,
+                   'data_array': stacked_data_array_ve,
+                   'read_counts': read_counts_v}
+        #[stacked_compressed_reads_re, stacked_data_array_ve, read_counts_v]
+        torch.save(to_save, file, pickle_protocol=4)
 
     # TODO: maybe the stacked arrays could be loaded directly as a dataset as opposed to the current approach of
     # TODO: unstacking them into Lists of ReadsDatum, then storing the data list in the datasetx
     @classmethod
     def load_list(cls, file) -> List[ReadsDatum]:
+        assert file.endswith(SUFFIX_FOR_DATA_FILES_IN_TAR)
+        loaded_data = torch.load(file)
         # these are vstacked -- see save method above
-        stacked_compressed_reads_re, stacked_data_array_ve, read_counts_v = torch.load(file)
+        stacked_compressed_reads_re, stacked_data_array_ve = loaded_data['compressed_reads'], loaded_data['data_array']
 
         result = []
         read_start_row = 0
@@ -225,7 +231,6 @@ class ReadsDatum(Datum):
         # for pre-allocating tensor of all data in the tarfile, we store 1) the total data count 2) the total read count
         # 3) the tensor size (in memory, not after expanding binaries) of read data 4) the tensor size of 1D data
         with tempfile.NamedTemporaryFile(suffix=SUFFIX_FOR_DATA_COUNT_FILE_IN_TAR, delete=False) as counts_file:
-            ReadsDatum.save_list(reads_datum_list, train_data_file)
             torch.save([np.array([total_num_data, total_num_reads, read_tensor_width.value, data_tensor_width.value])],
                        counts_file, pickle_protocol=4)
             data_files.append(counts_file.name)

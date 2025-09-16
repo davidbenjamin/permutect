@@ -2,7 +2,7 @@ from argparse import Namespace
 import tempfile
 
 from permutect.data.reads_dataset import ReadsDataset
-from permutect.data.reads_datum import ReadsDatum
+from permutect.data.reads_datum import ReadsDatum, SUFFIX_FOR_DATA_FILES_IN_TAR
 from permutect.tools import preprocess_dataset
 from permutect import constants
 from permutect.misc_utils import extract_to_temp_dir
@@ -27,6 +27,7 @@ def test_on_10_megabases_singular():
     with tempfile.TemporaryDirectory() as train_temp_dir:
         training_files = extract_to_temp_dir(tarfile_name, train_temp_dir)
         for training_file in training_files:
-            base_data_list = ReadsDatum.load_list(training_file)
+            if training_file.endswith(SUFFIX_FOR_DATA_FILES_IN_TAR):
+                base_data_list = ReadsDatum.load_list(training_file)
 
     dataset = ReadsDataset(data_tarfile=tarfile_name, num_folds=10)
