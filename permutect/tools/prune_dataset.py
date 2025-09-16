@@ -146,24 +146,6 @@ def generate_pruned_data_for_all_folds(dataset: ReadsDataset, model: ArtifactMod
             yield passing_reads_datum
 
 
-# takes a ReadSet generator and organies into buffers.
-# TODO: probably code duplication since the generator is already pruned
-def generate_pruned_data_buffers(pruned_data_generator, max_bytes_per_chunk: int):
-    buffer, bytes_in_buffer = [], 0
-    for datum in pruned_data_generator:
-
-        buffer.append(datum)
-        bytes_in_buffer += datum.size_in_bytes()
-        if bytes_in_buffer > max_bytes_per_chunk:
-            report_memory_usage(f"{bytes_in_buffer} bytes in chunk.")
-            yield buffer
-            buffer, bytes_in_buffer = [], 0
-
-    # There will be some data left over, in general.
-    if buffer:
-        yield buffer
-
-
 def parse_arguments():
     parser = argparse.ArgumentParser(description='train the Mutect3 artifact model')
 
@@ -193,14 +175,9 @@ def main_without_parsing(args):
 
     model,  _, _ = load_model(getattr(args, constants.ARTIFACT_MODEL_NAME))
 
-    base_dataset = ReadsDataset(data_tarfile=original_tarfile, num_folds=NUM_FOLDS)
-
-    # generate ReadSets passing pruning
-    pruned_data_generator = generate_pruned_data_for_all_folds(base_dataset, model, training_params, tensorboard_dir)
-
-    # generate List[ReadSet]s passing pruning
-    pruned_data_buffer_generator = generate_pruned_data_buffers(pruned_data_generator, chunk_size)
-    ReadsDatum.save_lists_into_tarfile(data_list_generator=pruned_data_buffer_generator, output_tarfile=pruned_tarfile)
+    input_dataset = ReadsDataset(data_tarfile=original_tarfile, num_folds=NUM_FOLDS)
+    pruned_data_generator = generate_pruned_data_for_all_folds(input_dataset, model, training_params, tensorboard_dir)
+    ReadsDatum.save_data_in_tarfile(data_generator=pruned_data_generator, max_bytes_in_chunk=chunk_size, output_tarfile=pruned_tarfile)
 
 
 def main():

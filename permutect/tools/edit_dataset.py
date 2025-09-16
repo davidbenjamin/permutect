@@ -55,25 +55,6 @@ def generate_edited_data(base_datasets, edit_type: str, source: int):
             raise Exception(f"edit type {edit_type} not implemented yet")
 
 
-# takes a ReadSet generator and organizes into buffers.
-# TODO: probably code duplication since the generator is already pruned
-def generate_output_data_buffers(output_data_generator, max_bytes_per_chunk: int):
-    buffer, bytes_in_buffer = [], 0
-    for datum in output_data_generator:
-
-        buffer.append(datum)
-        bytes_in_buffer += datum.size_in_bytes()
-        if bytes_in_buffer > max_bytes_per_chunk:
-            report_memory_usage()
-            print(f"{bytes_in_buffer} bytes in chunk")
-            yield buffer
-            buffer, bytes_in_buffer = [], 0
-
-    # There will be some data left over, in general.
-    if buffer:
-        yield buffer
-
-
 def parse_arguments():
     parser = argparse.ArgumentParser(description='train the Mutect3 artifact model')
     parser.add_argument('--' + constants.CHUNK_SIZE_NAME, type=int, default=int(2e9), required=False,
@@ -100,10 +81,7 @@ def main_without_parsing(args):
 
     # generate ReadSets
     output_data_generator = generate_edited_data(base_datasets, edit_type, new_source)
-
-    # generate List[ReadSet]s
-    output_data_buffer_generator = generate_output_data_buffers(output_data_generator, chunk_size)
-    ReadsDatum.save_lists_into_tarfile(data_list_generator=output_data_buffer_generator, output_tarfile=output_tarfile)
+    ReadsDatum.save_data_in_tarfile(data_generator=output_data_generator, max_bytes_in_chunk=chunk_size, output_tarfile=output_tarfile)
 
 
 def main():

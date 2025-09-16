@@ -9,7 +9,7 @@ import numpy as np
 import torch
 
 from permutect.data.datum import Datum, DEFAULT_NUMPY_FLOAT
-from permutect.misc_utils import ConsistentValue
+from permutect.misc_utils import ConsistentValue, report_memory_usage
 from permutect.utils.allele_utils import trim_alleles_on_right, get_str_info_array, make_1d_sequence_tensor
 from permutect.utils.enums import Variation, Label
 
@@ -179,6 +179,23 @@ class ReadsDatum(Datum):
 
         return result
 
+    # takes a ReadsDatum generator and generates List[ReadsDatum]s of fixed size (except for a smaller final chunk)
+    @classmethod
+    def generate_data_lists(cls, data_generator: Generator[ReadsDatum], max_bytes_per_chunk: int) -> Generator[List[ReadsDatum]]:
+        buffer, bytes_in_buffer = [], 0
+        for datum in data_generator:
+
+            buffer.append(datum)
+            bytes_in_buffer += datum.size_in_bytes()
+            if bytes_in_buffer > max_bytes_per_chunk:
+                report_memory_usage(f"{bytes_in_buffer} bytes in chunk.")
+                yield buffer
+                buffer, bytes_in_buffer = [], 0
+
+        # There will be some data left over, in general.
+        if buffer:
+            yield buffer
+
     @classmethod
     def save_lists_into_tarfile(cls, data_list_generator: Generator[List[ReadsDatum]], output_tarfile):
         data_files = []
@@ -217,5 +234,10 @@ class ReadsDatum(Datum):
         with tarfile.open(output_tarfile, "w") as train_tar:
             for train_file in data_files:
                 train_tar.add(train_file, arcname=os.path.basename(train_file))
+
+    @classmethod
+    def save_data_in_tarfile(cls, data_generator: Generator[ReadsDatum], max_bytes_in_chunk: int, output_tarfile):
+        list_generator = ReadsDatum.generate_data_lists(data_generator=data_generator, max_bytes_per_chunk=max_bytes_in_chunk)
+        ReadsDatum.save_lists_into_tarfile(data_list_generator=list_generator, output_tarfile=output_tarfile)
 
 
