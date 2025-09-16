@@ -141,6 +141,7 @@ def make_flattened_tensor_generator(reads_data_generator: Generator[ReadsDatum, 
         yield reads_datum.get_array_1d()
 
 
+# TODO: maybe this belongs in ReadsDatum next to the saving and loading methods
 def generate_reads_data_from_tarfile(data_tarfile) -> Generator[ReadsDatum, None, None]:
     # extract the tarfile to a temporary directory that will be cleaned up when the program ends
     temp_dir = tempfile.TemporaryDirectory()

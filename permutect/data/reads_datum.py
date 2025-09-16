@@ -1,10 +1,15 @@
 from __future__ import annotations
-from typing import List
+
+import os
+import tarfile
+import tempfile
+from typing import List, Generator
 
 import numpy as np
 import torch
 
 from permutect.data.datum import Datum, DEFAULT_NUMPY_FLOAT
+from permutect.misc_utils import ConsistentValue
 from permutect.utils.allele_utils import trim_alleles_on_right, get_str_info_array, make_1d_sequence_tensor
 from permutect.utils.enums import Variation, Label
 
@@ -18,6 +23,9 @@ from permutect.utils.enums import Variation, Label
 # if the number of boolean bits is not a multiple of 8, it gets padded with zeros.  This isn't a problem.
 NUMBER_OF_BYTES_IN_PACKED_READ = 7
 READS_ARRAY_DTYPE = np.uint8
+
+SUFFIX_FOR_DATA_FILES_IN_TAR = ".data"
+SUFFIX_FOR_DATA_COUNT_FILE_IN_TAR = ".counts"
 
 
 # quantile-normalized data is generally some small number of standard deviations from 0.  We can store as uint8 by
@@ -170,5 +178,44 @@ class ReadsDatum(Datum):
             result.append(reads_datum)
 
         return result
+
+    @classmethod
+    def save_lists_into_tarfile(cls, data_list_generator: Generator[List[ReadsDatum]], output_tarfile):
+        data_files = []
+        num_read_features, num_info_features, haplotypes_length = ConsistentValue(), ConsistentValue(), ConsistentValue()
+        read_tensor_width, data_tensor_width = ConsistentValue(), ConsistentValue()
+
+        # save all the lists of read sets to tempfiles. . .
+        total_num_reads, total_num_data = 0, 0
+        reads_datum_list: List[ReadsDatum]
+        for reads_datum_list in data_list_generator:
+            first_datum: ReadsDatum = reads_datum_list[0]
+            num_read_features.check(first_datum.num_read_features())
+            num_info_features.check(first_datum.get_info_1d().shape[0])
+            haplotypes_length.check(first_datum.get_haplotypes_1d().shape[0])
+
+            read_tensor_width.check(first_datum.compressed_reads_re.shape[-1])
+            data_tensor_width.check(first_datum.array.shape[-1])
+
+            with tempfile.NamedTemporaryFile(suffix=SUFFIX_FOR_DATA_FILES_IN_TAR, delete=False) as train_data_file:
+                ReadsDatum.save_list(reads_datum_list, train_data_file)
+                data_files.append(train_data_file.name)
+
+            total_num_data += len(reads_datum_list)
+            for datum in reads_datum_list:
+                total_num_reads += (datum.get_ref_count() + datum.get_alt_count())
+
+        # for pre-allocating tensor of all data in the tarfile, we store 1) the total data count 2) the total read count
+        # 3) the tensor size (in memory, not after expanding binaries) of read data 4) the tensor size of 1D data
+        with tempfile.NamedTemporaryFile(suffix=SUFFIX_FOR_DATA_COUNT_FILE_IN_TAR, delete=False) as counts_file:
+            ReadsDatum.save_list(reads_datum_list, train_data_file)
+            torch.save([np.array([total_num_data, total_num_reads, read_tensor_width.value, data_tensor_width.value])],
+                       counts_file, pickle_protocol=4)
+            data_files.append(counts_file.name)
+
+        # . . . and bundle them in a tarfile
+        with tarfile.open(output_tarfile, "w") as train_tar:
+            for train_file in data_files:
+                train_tar.add(train_file, arcname=os.path.basename(train_file))
 
 
