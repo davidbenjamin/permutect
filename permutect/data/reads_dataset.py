@@ -1,5 +1,7 @@
 import math
 import os
+
+import numpy as np
 import psutil
 import random
 import tarfile
@@ -11,7 +13,8 @@ from torch.utils.data import Dataset, DataLoader
 from torch.utils.data.sampler import Sampler
 
 from mmap_ninja.ragged import RaggedMmap
-from permutect.data.reads_datum import ReadsDatum, SUFFIX_FOR_DATA_FILES_IN_TAR
+from permutect.data.datum import DATUM_ARRAY_DTYPE
+from permutect.data.reads_datum import ReadsDatum, SUFFIX_FOR_DATA_FILES_IN_TAR, READS_ARRAY_DTYPE
 from permutect.data.reads_batch import ReadsBatch
 from permutect.data.batch import BatchProperty, BatchIndexedTensor
 from permutect.utils.enums import Variation, Label
@@ -49,6 +52,25 @@ class ReadsDataset(Dataset):
 
             print(f"The tarfile size is {tarfile_size} bytes on disk for an estimated {estimated_data_size_in_ram} bytes in memory and the system has {available_memory} bytes of RAM available.")
             if fits_in_ram:
+                total_num_data, total_num_reads, read_tensor_width, data_tensor_width = ReadsDatum.extract_counts_from_tarfile(data_tarfile)
+
+                # allocate the arrays of all data, then fill it from the tarfile
+                stacked_reads_array_re = np.zeros((total_num_reads, read_tensor_width), dtype=READS_ARRAY_DTYPE)
+                stacked_data_array_ve = np.zeros((total_num_data, data_tensor_width), dtype=DATUM_ARRAY_DTYPE)
+
+                read_start_idx, datum_start_idx = 0, 0
+                for stacked_compressed_reads_re, stacked_data_array_ve, read_counts_v in ReadsDatum.generate_arrays_from_tarfile(data_tarfile):
+                    read_end_idx = read_start_idx + len(stacked_compressed_reads_re)
+                    datum_end_idx = datum_start_idx + len(stacked_data_array_ve)
+                    stacked_reads_array_re[read_start_idx:read_end_idx] = stacked_compressed_reads_re
+                    stacked_data_array_ve[datum_start_idx:datum_end_idx] = stacked_data_array_ve
+
+                    read_start_idx, datum_start_idx = read_end_idx, datum_end_idx
+
+
+
+
+
                 print("loading the dataset from the tarfile into RAM:")
                 self._data = list(ReadsDatum.generate_reads_data_from_tarfile(data_tarfile))
                 self._memory_map_mode = False

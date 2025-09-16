@@ -7,7 +7,7 @@ from permutect.tools import preprocess_dataset
 from permutect import constants
 from permutect.misc_utils import extract_to_temp_dir
 
-OVERWRITE_SAVED_TARFILE = False
+OVERWRITE_SAVED_TARFILE = True
 
 
 def test_on_10_megabases_singular():

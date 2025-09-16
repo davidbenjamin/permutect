@@ -277,6 +277,22 @@ class ReadsDatum(Datum):
             for datum in ReadsDatum.load_list(file):
                 yield datum
 
+    @classmethod
+    def generate_arrays_from_tarfile(cls, data_tarfile):
+        # extract the tarfile to a temporary directory that will be cleaned up when the program ends
+        temp_dir = tempfile.TemporaryDirectory()
+        tar = tarfile.open(data_tarfile)
+        tar.extractall(temp_dir.name)
+        tar.close()
+        data_files = [os.path.abspath(os.path.join(temp_dir.name, p)) for p in os.listdir(temp_dir.name) if
+                          p.endswith(SUFFIX_FOR_DATA_FILES_IN_TAR)]
+
+        for file in data_files:
+            loaded_data = torch.load(file)
+            stacked_compressed_reads_re, stacked_data_array_ve, read_counts_v = loaded_data['compressed_reads'], \
+                loaded_data['data_array'], loaded_data['read_counts']
+            yield stacked_compressed_reads_re, stacked_data_array_ve, read_counts_v
+
 
 
 
