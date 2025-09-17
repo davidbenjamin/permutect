@@ -53,16 +53,17 @@ class ReadsDataset(Dataset):
         else:
             tarfile_size = os.path.getsize(tarfile)    # in bytes
             total_num_data, total_num_reads, read_tensor_width, data_tensor_width = ReadsDatum.extract_counts_from_tarfile(tarfile)
+            self._read_end_indices = np.zeros(total_num_data, dtype=np.uint64)  # nth element is the index where the nth datum's reads end (exclusive)
+
             self._size = total_num_data
             estimated_data_size_in_ram = tarfile_size // TARFILE_TO_RAM_RATIO
             available_memory = psutil.virtual_memory().available
-            fits_in_ram = estimated_data_size_in_ram < 0.8 * available_memory
+            fits_in_ram = estimated_data_size_in_ram < 0.6 * available_memory
 
             print(f"The tarfile size is {tarfile_size} bytes on disk for an estimated {estimated_data_size_in_ram} bytes in memory and the system has {available_memory} bytes of RAM available.")
+
+
             if fits_in_ram:
-
-                read_end_indices = np.zeros(total_num_data, dtype=np.uint64) # nth element is the index where the nth datum's reads end (exclusive)
-
                 # allocate the arrays of all data, then fill it from the tarfile
                 stacked_reads_array_re = np.zeros((total_num_reads, read_tensor_width), dtype=READS_ARRAY_DTYPE)
                 stacked_data_ve = np.zeros((total_num_data, data_tensor_width), dtype=DATUM_ARRAY_DTYPE)
@@ -72,7 +73,7 @@ class ReadsDataset(Dataset):
 
                     read_end_idx, datum_end_idx = read_start_idx + len(reads_re), datum_start_idx + len(data_ve)
 
-                    read_end_indices[datum_start_idx:datum_end_idx] = read_start_idx + np.cumsum(read_counts_v)
+                    self._read_end_indices[datum_start_idx:datum_end_idx] = read_start_idx + np.cumsum(read_counts_v)
                     stacked_reads_array_re[read_start_idx:read_end_idx] = reads_re
                     stacked_data_ve[datum_start_idx:datum_end_idx] = data_ve
 
@@ -113,11 +114,15 @@ class ReadsDataset(Dataset):
         return self._size
 
     def __getitem__(self, index):
+        read_start_index = 0 if index == 0 else self._read_end_indices[index - 1]
+        read_end_index = self._read_end_indices[index]
+
         if self._memory_map_mode:
             bottom_index = index * TENSORS_PER_BASE_DATUM
             return ReadsDatum(datum_array=self._data[bottom_index + 1], compressed_reads_re=self._data[bottom_index])
         else:
-            return self._data[index]
+            return ReadsDatum(datum_array=self._stacked_data_ve[index],
+                              compressed_reads_re=self._stacked_reads_re[read_start_index:read_end_index])
 
     def num_sources(self) -> int:
         return self.totals_slvra.num_sources()
