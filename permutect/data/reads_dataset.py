@@ -47,8 +47,6 @@ class ReadsDataset(Dataset):
             read_lengths = np.array([datum.get_ref_count() + datum.get_alt_count() for datum in data_in_ram], dtype=np.int32)
             self._read_end_indices = np.cumsum(read_lengths)
             self._size = len(data_in_ram)
-
-            self._data = data_in_ram
             self._memory_map_mode = False
         else:
             tarfile_size = os.path.getsize(tarfile)    # in bytes
@@ -62,40 +60,33 @@ class ReadsDataset(Dataset):
 
             print(f"The tarfile size is {tarfile_size} bytes on disk for an estimated {estimated_data_size_in_ram} bytes in memory and the system has {available_memory} bytes of RAM available.")
 
-
             if fits_in_ram:
                 # allocate the arrays of all data, then fill it from the tarfile
-                stacked_reads_array_re = np.zeros((total_num_reads, read_tensor_width), dtype=READS_ARRAY_DTYPE)
-                stacked_data_ve = np.zeros((total_num_data, data_tensor_width), dtype=DATUM_ARRAY_DTYPE)
-
-                read_start_idx, datum_start_idx = 0, 0
-                for reads_re, data_ve, read_counts_v in ReadsDatum.generate_arrays_from_tarfile(tarfile):
-
-                    read_end_idx, datum_end_idx = read_start_idx + len(reads_re), datum_start_idx + len(data_ve)
-
-                    self._read_end_indices[datum_start_idx:datum_end_idx] = read_start_idx + np.cumsum(read_counts_v)
-                    stacked_reads_array_re[read_start_idx:read_end_idx] = reads_re
-                    stacked_data_ve[datum_start_idx:datum_end_idx] = data_ve
-
-                    read_start_idx, datum_start_idx = read_end_idx, datum_end_idx
-
-
-
-
-
-                print("loading the dataset from the tarfile into RAM:")
-                self._data = list(ReadsDatum.generate_reads_data_from_tarfile(tarfile))
+                self._stacked_reads_re = np.zeros((total_num_reads, read_tensor_width), dtype=READS_ARRAY_DTYPE)
+                self._stacked_data_ve = np.zeros((total_num_data, data_tensor_width), dtype=DATUM_ARRAY_DTYPE)
                 self._memory_map_mode = False
             else:
-                print("loading the dataset into a memory-mapped file:")
-                self._memory_map_dir = tempfile.TemporaryDirectory()
-
-                RaggedMmap.from_generator(out_dir=self._memory_map_dir.name,
-                                          sample_generator=make_flattened_tensor_generator(
-                                              ReadsDatum.generate_reads_data_from_tarfile(tarfile)),
-                                          batch_size=10000, verbose=False)
-                self._data = RaggedMmap(self._memory_map_dir.name)
+                stacked_reads_file = tempfile.NamedTemporaryFile()
+                stacked_data_file = tempfile.NamedTemporaryFile()
+                self._stacked_reads_re = np.memmap(stacked_reads_file.name, dtype=READS_ARRAY_DTYPE, mode='w+', shape=(total_num_reads, read_tensor_width))
+                self._stacked_data_ve = np.memmap(stacked_data_file.name, dtype=DATUM_ARRAY_DTYPE, mode='w+', shape=(total_num_data, data_tensor_width))
                 self._memory_map_mode = True
+
+            print("loading the dataset from the tarfile...")
+
+            # the following code should work for data in RAM or memmap
+            read_start_idx, datum_start_idx = 0, 0
+            for reads_re, data_ve, read_counts_v in ReadsDatum.generate_arrays_from_tarfile(tarfile):
+                read_end_idx, datum_end_idx = read_start_idx + len(reads_re), datum_start_idx + len(data_ve)
+                self._read_end_indices[datum_start_idx:datum_end_idx] = read_start_idx + np.cumsum(read_counts_v)
+                self._stacked_reads_re[read_start_idx:read_end_idx] = reads_re
+                self._stacked_data_ve[datum_start_idx:datum_end_idx] = data_ve
+                read_start_idx, datum_start_idx = read_end_idx, datum_end_idx
+
+            # set memory maps to read-only
+            if self._memory_map_mode:
+                self._stacked_reads_re.flags.writeable = False
+                self._stacked_data_ve.flags.writeable = False
 
         # this is used in the batch sampler to make same-shape batches
         self.indices_by_fold = [[] for _ in range(num_folds)]
@@ -117,11 +108,7 @@ class ReadsDataset(Dataset):
         read_start_index = 0 if index == 0 else self._read_end_indices[index - 1]
         read_end_index = self._read_end_indices[index]
 
-        if self._memory_map_mode:
-            bottom_index = index * TENSORS_PER_BASE_DATUM
-            return ReadsDatum(datum_array=self._data[bottom_index + 1], compressed_reads_re=self._data[bottom_index])
-        else:
-            return ReadsDatum(datum_array=self._stacked_data_ve[index],
+        return ReadsDatum(datum_array=self._stacked_data_ve[index],
                               compressed_reads_re=self._stacked_reads_re[read_start_index:read_end_index])
 
     def num_sources(self) -> int:
