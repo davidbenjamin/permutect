@@ -22,7 +22,7 @@ def main_without_parsing(args):
     tensorboard_dir = getattr(args, constants.TENSORBOARD_DIR_NAME)
     summary_writer = SummaryWriter(tensorboard_dir)
     report_memory_usage("Training data about to be loaded from tarfile.")
-    dataset = ReadsDataset(data_tarfile=tarfile_data, num_folds=10)
+    dataset = ReadsDataset(tarfile=tarfile_data, num_folds=10)
 
     model = pretrained_model if (pretrained_model is not None) else \
             ArtifactModel(params=params, num_read_features=dataset.num_read_features, num_info_features=dataset.num_info_features,

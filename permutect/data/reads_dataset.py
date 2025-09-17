@@ -33,37 +33,48 @@ def ratio_with_pseudocount(a, b):
 
 
 class ReadsDataset(Dataset):
-    def __init__(self, data_in_ram: Iterable[ReadsDatum] = None, data_tarfile=None, num_folds: int = 1):
+    def __init__(self, data_in_ram: Iterable[ReadsDatum] = None, tarfile=None, num_folds: int = 1):
         super(ReadsDataset, self).__init__()
-        assert data_in_ram is not None or data_tarfile is not None, "No data given"
-        assert data_in_ram is None or data_tarfile is None, "Data given from both RAM and tarfile"
+        assert data_in_ram is not None or tarfile is not None, "No data given"
+        assert data_in_ram is None or tarfile is None, "Data given from both RAM and tarfile"
         self.num_folds = num_folds
         self.totals_slvra = BatchIndexedTensor.make_zeros(num_sources=1, include_logits=False, device=torch.device('cpu'))
 
         # data in ram is really just a convenient way to write tests.  In actual deployment the data comes from a tarfile
         if data_in_ram is not None:
+            self._stacked_reads_re = np.vstack([datum.compressed_reads_re for datum in data_in_ram])
+            self._stacked_data_ve = np.vstack([datum.array for datum in data_in_ram])
+            read_lengths = np.array([datum.get_ref_count() + datum.get_alt_count() for datum in data_in_ram], dtype=np.int32)
+            self._read_end_indices = np.cumsum(read_lengths)
+            self._size = len(data_in_ram)
+
             self._data = data_in_ram
             self._memory_map_mode = False
         else:
-            tarfile_size = os.path.getsize(data_tarfile)    # in bytes
+            tarfile_size = os.path.getsize(tarfile)    # in bytes
+            total_num_data, total_num_reads, read_tensor_width, data_tensor_width = ReadsDatum.extract_counts_from_tarfile(tarfile)
+            self._size = total_num_data
             estimated_data_size_in_ram = tarfile_size // TARFILE_TO_RAM_RATIO
             available_memory = psutil.virtual_memory().available
             fits_in_ram = estimated_data_size_in_ram < 0.8 * available_memory
 
             print(f"The tarfile size is {tarfile_size} bytes on disk for an estimated {estimated_data_size_in_ram} bytes in memory and the system has {available_memory} bytes of RAM available.")
             if fits_in_ram:
-                total_num_data, total_num_reads, read_tensor_width, data_tensor_width = ReadsDatum.extract_counts_from_tarfile(data_tarfile)
+
+                read_end_indices = np.zeros(total_num_data, dtype=np.uint64) # nth element is the index where the nth datum's reads end (exclusive)
 
                 # allocate the arrays of all data, then fill it from the tarfile
                 stacked_reads_array_re = np.zeros((total_num_reads, read_tensor_width), dtype=READS_ARRAY_DTYPE)
-                stacked_data_array_ve = np.zeros((total_num_data, data_tensor_width), dtype=DATUM_ARRAY_DTYPE)
+                stacked_data_ve = np.zeros((total_num_data, data_tensor_width), dtype=DATUM_ARRAY_DTYPE)
 
                 read_start_idx, datum_start_idx = 0, 0
-                for stacked_compressed_reads_re, stacked_data_array_ve, read_counts_v in ReadsDatum.generate_arrays_from_tarfile(data_tarfile):
-                    read_end_idx = read_start_idx + len(stacked_compressed_reads_re)
-                    datum_end_idx = datum_start_idx + len(stacked_data_array_ve)
-                    stacked_reads_array_re[read_start_idx:read_end_idx] = stacked_compressed_reads_re
-                    stacked_data_array_ve[datum_start_idx:datum_end_idx] = stacked_data_array_ve
+                for reads_re, data_ve, read_counts_v in ReadsDatum.generate_arrays_from_tarfile(tarfile):
+
+                    read_end_idx, datum_end_idx = read_start_idx + len(reads_re), datum_start_idx + len(data_ve)
+
+                    read_end_indices[datum_start_idx:datum_end_idx] = read_start_idx + np.cumsum(read_counts_v)
+                    stacked_reads_array_re[read_start_idx:read_end_idx] = reads_re
+                    stacked_data_ve[datum_start_idx:datum_end_idx] = data_ve
 
                     read_start_idx, datum_start_idx = read_end_idx, datum_end_idx
 
@@ -72,7 +83,7 @@ class ReadsDataset(Dataset):
 
 
                 print("loading the dataset from the tarfile into RAM:")
-                self._data = list(ReadsDatum.generate_reads_data_from_tarfile(data_tarfile))
+                self._data = list(ReadsDatum.generate_reads_data_from_tarfile(tarfile))
                 self._memory_map_mode = False
             else:
                 print("loading the dataset into a memory-mapped file:")
@@ -80,7 +91,7 @@ class ReadsDataset(Dataset):
 
                 RaggedMmap.from_generator(out_dir=self._memory_map_dir.name,
                                           sample_generator=make_flattened_tensor_generator(
-                                              ReadsDatum.generate_reads_data_from_tarfile(data_tarfile)),
+                                              ReadsDatum.generate_reads_data_from_tarfile(tarfile)),
                                           batch_size=10000, verbose=False)
                 self._data = RaggedMmap(self._memory_map_dir.name)
                 self._memory_map_mode = True
@@ -99,7 +110,7 @@ class ReadsDataset(Dataset):
         self.haplotypes_length = len(first_datum.get_haplotypes_1d())
 
     def __len__(self):
-        return len(self._data) // TENSORS_PER_BASE_DATUM if self._memory_map_mode else len(self._data)
+        return self._size
 
     def __getitem__(self, index):
         if self._memory_map_mode:

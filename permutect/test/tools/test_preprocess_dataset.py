@@ -32,4 +32,4 @@ def test_on_10_megabases_singular():
 
     a, b, c, d = ReadsDatum.extract_counts_from_tarfile(tarfile_name)
 
-    dataset = ReadsDataset(data_tarfile=tarfile_name, num_folds=10)
+    dataset = ReadsDataset(tarfile=tarfile_name, num_folds=10)

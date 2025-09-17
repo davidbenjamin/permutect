@@ -175,7 +175,7 @@ def main_without_parsing(args):
 
     model,  _, _ = load_model(getattr(args, constants.ARTIFACT_MODEL_NAME))
 
-    input_dataset = ReadsDataset(data_tarfile=original_tarfile, num_folds=NUM_FOLDS)
+    input_dataset = ReadsDataset(tarfile=original_tarfile, num_folds=NUM_FOLDS)
     pruned_data_generator = generate_pruned_data_for_all_folds(input_dataset, model, training_params, tensorboard_dir)
     ReadsDatum.save_data_in_tarfile(data_generator=pruned_data_generator, max_bytes_in_chunk=chunk_size, output_tarfile=pruned_tarfile)
 

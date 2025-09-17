@@ -77,7 +77,7 @@ def main_without_parsing(args):
     chunk_size = getattr(args, constants.CHUNK_SIZE_NAME)
     edit_type = getattr(args, constants.DATASET_EDIT_TYPE_NAME)
     new_source = getattr(args, constants.SOURCE_NAME)
-    base_datasets = map(lambda original_tarfile: ReadsDataset(data_tarfile=original_tarfile), original_tarfiles)
+    base_datasets = map(lambda original_tarfile: ReadsDataset(tarfile=original_tarfile), original_tarfiles)
 
     # generate ReadSets
     output_data_generator = generate_edited_data(base_datasets, edit_type, new_source)

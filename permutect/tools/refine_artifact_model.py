@@ -83,7 +83,7 @@ def main_without_parsing(args):
     # artifact models has already been trained.  We're just refining it here.
     model, _, _ = load_model(getattr(args, constants.PRETRAINED_ARTIFACT_MODEL_NAME))
     report_memory_usage("Creating ReadsDataset.")
-    dataset = ReadsDataset(data_tarfile=getattr(args, constants.TRAIN_TAR_NAME), num_folds=10)
+    dataset = ReadsDataset(tarfile=getattr(args, constants.TRAIN_TAR_NAME), num_folds=10)
 
     train_artifact_model(model, dataset, training_params, summary_writer, epochs_per_evaluation=10, calibration_sources=calibration_sources)
 
