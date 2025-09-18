@@ -3,7 +3,7 @@ import random
 
 from torch import Tensor
 
-from permutect.data.reads_datum import ReadsDatum
+from permutect.data.reads_datum import ReadsDatum, RawUnnormalizedReadsDatum
 from permutect.utils.enums import Variation, Label
 from numpy.random import binomial
 
@@ -74,7 +74,7 @@ def make_random_data(art_gatk_info_gen: RandomGATKInfoGenerator, var_gatk_info_g
         alt_tensor = (art_read_gen if artifact else var_read_gen).generate(alt_count)
 
         # TODO: vary the reference sequence string?
-        data.append(ReadsDatum.from_gatk("GTAAAGT", variant_type, ref_tensor, alt_tensor, gatk_info_tensor, label))
+        data.append(RawUnnormalizedReadsDatum.from_gatk("GTAAAGT", variant_type, ref_tensor, alt_tensor, gatk_info_tensor, label))
 
     return data
 
@@ -111,7 +111,7 @@ def make_random_strand_bias_data(num_data: int, artifact_fraction=0.5, unlabeled
             alt_tensor[:, 0] = sign * torch.abs(alt_tensor[:, 0])
 
         # TODO: vary the reference sequence string?
-        data.append(ReadsDatum.from_gatk("TGGGAATG", Variation.SNV, ref_tensor, alt_tensor, gatk_info_tensor, label))
+        data.append(RawUnnormalizedReadsDatum.from_gatk("TGGGAATG", Variation.SNV, ref_tensor, alt_tensor, gatk_info_tensor, label))
 
     return data
 

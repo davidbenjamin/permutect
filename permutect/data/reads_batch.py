@@ -10,8 +10,8 @@ from torch import Tensor, IntTensor
 from torch_scatter import segment_csr
 
 from permutect.data.batch import Batch
-from permutect.data.datum import Datum
-from permutect.data.reads_datum import ReadsDatum
+from permutect.data.datum import Datum, DEFAULT_NUMPY_FLOAT
+from permutect.data.reads_datum import ReadsDatum, convert_uint8_to_quantile_normalized, NUMBER_OF_BYTES_IN_PACKED_READ
 
 
 class ReadsBatch(Batch):
@@ -34,9 +34,20 @@ class ReadsBatch(Batch):
 
     def __init__(self, data: List[ReadsDatum]):
         super().__init__(data)
-        list_of_ref_tensors = [item.get_ref_reads_re() for item in data]
-        list_of_alt_tensors = [item.get_alt_reads_re() for item in data]
-        self.reads_re = torch.from_numpy(np.vstack(list_of_ref_tensors + list_of_alt_tensors))
+        compressed_ref_arrays = [item.get_compressed_ref_reads_re() for item in data]
+        compressed_alt_arrays = [item.get_compressed_alt_reads_re() for item in data]
+        compressed_reads_re = np.vstack(compressed_ref_arrays + compressed_alt_arrays)
+
+        packed_binary_columns_re = compressed_reads_re[:, :NUMBER_OF_BYTES_IN_PACKED_READ]
+        compressed_float_columns_re = compressed_reads_re[:, NUMBER_OF_BYTES_IN_PACKED_READ:]
+
+        binary_columns_re = np.ndarray.astype(np.unpackbits(packed_binary_columns_re, axis=1), DEFAULT_NUMPY_FLOAT)
+        float_columns_re = convert_uint8_to_quantile_normalized(compressed_float_columns_re)
+
+        self.reads_re = torch.from_numpy(np.hstack((binary_columns_re, float_columns_re)))
+
+        # assert that the decompression got the expected tensor shape
+        assert self.reads_re.shape[1] == data[0].num_read_features()
 
     # pin memory for all tensors that are sent to the GPU
     def pin_memory(self):

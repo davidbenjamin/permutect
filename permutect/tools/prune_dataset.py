@@ -1,7 +1,4 @@
 import argparse
-import os
-import tarfile
-import tempfile
 from typing import List
 
 from permutect.training.model_training import train_artifact_model
@@ -149,37 +146,6 @@ def generate_pruned_data_for_all_folds(dataset: ReadsDataset, model: ArtifactMod
             yield passing_reads_datum
 
 
-# takes a ReadSet generator and organies into buffers.
-# TODO: probably code duplication since the generator is already pruned
-def generate_pruned_data_buffers(pruned_data_generator, max_bytes_per_chunk: int):
-    buffer, bytes_in_buffer = [], 0
-    for datum in pruned_data_generator:
-
-        buffer.append(datum)
-        bytes_in_buffer += datum.size_in_bytes()
-        if bytes_in_buffer > max_bytes_per_chunk:
-            report_memory_usage(f"{bytes_in_buffer} bytes in chunk.")
-            yield buffer
-            buffer, bytes_in_buffer = [], 0
-
-    # There will be some data left over, in general.
-    if buffer:
-        yield buffer
-
-
-def make_pruned_training_dataset(pruned_data_buffer_generator, pruned_tarfile):
-    pruned_data_files = []
-    for base_data_list in pruned_data_buffer_generator:
-        with tempfile.NamedTemporaryFile(delete=False) as train_data_file:
-            ReadsDatum.save_list(base_data_list, train_data_file)
-            pruned_data_files.append(train_data_file.name)
-
-    # bundle them in a tarfile
-    with tarfile.open(pruned_tarfile, "w") as train_tar:
-        for train_file in pruned_data_files:
-            train_tar.add(train_file, arcname=os.path.basename(train_file))
-
-
 def parse_arguments():
     parser = argparse.ArgumentParser(description='train the Mutect3 artifact model')
 
@@ -209,16 +175,9 @@ def main_without_parsing(args):
 
     model,  _, _ = load_model(getattr(args, constants.ARTIFACT_MODEL_NAME))
 
-    base_dataset = ReadsDataset(data_tarfile=original_tarfile, num_folds=NUM_FOLDS)
-
-    # generate ReadSets passing pruning
-    pruned_data_generator = generate_pruned_data_for_all_folds(base_dataset, model, training_params, tensorboard_dir)
-
-    # generate List[ReadSet]s passing pruning
-    pruned_data_buffer_generator = generate_pruned_data_buffers(pruned_data_generator, chunk_size)
-
-    # save as a tarfile dataset
-    make_pruned_training_dataset(pruned_data_buffer_generator, pruned_tarfile=pruned_tarfile)
+    input_dataset = ReadsDataset(tarfile=original_tarfile, num_folds=NUM_FOLDS)
+    pruned_data_generator = generate_pruned_data_for_all_folds(input_dataset, model, training_params, tensorboard_dir)
+    ReadsDatum.save_data_in_tarfile(data_generator=pruned_data_generator, max_bytes_in_chunk=chunk_size, output_tarfile=pruned_tarfile)
 
 
 def main():

@@ -30,16 +30,20 @@ GTCCTGGACACGCTGTTGGCC
 -11.327
 -0.000
 """
-from typing import List
+from typing import List, Generator
+import sys
 
 import numpy as np
+import torch
 from sklearn.preprocessing import QuantileTransformer
 
 from permutect.data.count_binning import cap_ref_count, cap_alt_count
-from permutect.data.reads_datum import ReadsDatum
+from permutect.data.reads_datum import ReadsDatum, RawUnnormalizedReadsDatum, NUMBER_OF_BYTES_IN_PACKED_READ, \
+    convert_quantile_normalized_to_uint8
 from permutect.data.datum import DEFAULT_NUMPY_FLOAT
 
 from permutect.misc_utils import report_memory_usage
+from permutect.sets.ragged_sets import RaggedSets
 from permutect.utils.enums import Variation, Label
 
 MAX_VALUE = 10000
@@ -47,7 +51,7 @@ EPSILON = 0.00001
 QUANTILE_DATA_COUNT = 10000
 
 
-def read_data(dataset_file, only_artifacts: bool = False, source: int=0):
+def read_data(dataset_file, only_artifacts: bool = False, source: int=0) -> Generator[RawUnnormalizedReadsDatum, None, None]:
     """
     generator that yields data from a plain text dataset file.
     """
@@ -87,7 +91,7 @@ def read_data(dataset_file, only_artifacts: bool = False, source: int=0):
             normal_seq_error_log_lk = read_float(file.readline())
 
             if alt_tensor_size > 0 and passes_label_filter:
-                datum = ReadsDatum.from_gatk(label=label, variant_type=Variation.get_type(ref_allele, alt_allele), source=source,
+                datum = RawUnnormalizedReadsDatum.from_gatk(label=label, variant_type=Variation.get_type(ref_allele, alt_allele), source=source,
                                            original_depth=original_depth, original_alt_count=original_alt_count,
                                            original_normal_depth=original_normal_depth, original_normal_alt_count=original_normal_alt_count,
                                            contig=contig, position=position, ref_allele=ref_allele, alt_allele=alt_allele,
@@ -103,7 +107,7 @@ def read_data(dataset_file, only_artifacts: bool = False, source: int=0):
 # if sources is None, source is set to zero
 # if List is length-1, that's the source for all files
 # otherwise each file has its own source int
-def generate_normalized_data(dataset_files, max_bytes_per_chunk: int, sources: List[int]=None):
+def generate_normalized_data(dataset_files, max_bytes_per_chunk: int, sources: List[int]=None) -> Generator[List[ReadsDatum], None, None]:
     """
     given text dataset files, generate normalized lists of read sets that fit in memory
 
@@ -113,12 +117,14 @@ def generate_normalized_data(dataset_files, max_bytes_per_chunk: int, sources: L
     :return:
     """
     for n, dataset_file in enumerate(dataset_files):
+        buffer: List[RawUnnormalizedReadsDatum]
         buffer, bytes_in_buffer = [], 0
         read_quantile_transform = QuantileTransformer(n_quantiles=100, output_distribution='normal')
         info_quantile_transform = QuantileTransformer(n_quantiles=100, output_distribution='normal')
 
         num_buffers_filled = 0
         source = 0 if sources is None else (sources[0] if len(sources) == 1 else sources[n])
+        reads_datum: RawUnnormalizedReadsDatum
         for reads_datum in read_data(dataset_file, source=source):
             buffer.append(reads_datum)
             bytes_in_buffer += reads_datum.size_in_bytes()
@@ -126,81 +132,109 @@ def generate_normalized_data(dataset_files, max_bytes_per_chunk: int, sources: L
                 report_memory_usage()
                 print(f"{bytes_in_buffer} bytes in chunk")
 
-                normalize_buffer(buffer, read_quantile_transform, info_quantile_transform)
-                yield buffer
+                yield normalize_buffer(buffer, read_quantile_transform, info_quantile_transform)
                 num_buffers_filled += 1
                 buffer, bytes_in_buffer = [], 0
         # There will be some data left over, in general.  Since it's small, use the last buffer's
         # quantile transforms for better statistical power if it's from the same text file
         if buffer:
-            normalize_buffer(buffer, read_quantile_transform, info_quantile_transform, refit_transforms=(num_buffers_filled==0))
-            yield buffer
+            yield normalize_buffer(buffer, read_quantile_transform, info_quantile_transform, refit_transforms=(num_buffers_filled==0))
 
 
 # this normalizes the buffer and also prepends new features to the info tensor
-def normalize_buffer(buffer, read_quantile_transform, info_quantile_transform, refit_transforms=True):
-    EPSILON = 0.00001   # tiny quantity for jitter
-
+def normalize_buffer(buffer: List[RawUnnormalizedReadsDatum], read_quantile_transform,
+                     info_quantile_transform, refit_transforms=True) -> List[ReadsDatum]:
     # 2D array.  Rows are ref/alt reads, columns are read features
-    all_ref = np.vstack([datum.get_ref_reads_re() for datum in buffer])
-    all_reads = np.vstack([datum.reads_re for datum in buffer])
+    all_ref_re = np.vstack([datum.get_ref_reads_re() for datum in buffer])
+    all_reads_re = np.vstack([datum.reads_re for datum in buffer])
+
+    binary_read_column_mask = np.ones_like(all_reads_re[0])
+    binary_read_column_mask[10:15] = 0
 
     # 2D array.  Rows are read sets, columns are info features
-    all_info = np.vstack([datum.get_info_1d() for datum in buffer])
+    all_info_ve = np.vstack([datum.get_info_1d() for datum in buffer])
+    binary_info_columns = binary_column_indices(all_info_ve)
 
-    binary_read_columns = binary_column_indices(all_ref)    # make sure not to use jittered arrays here!
-    binary_info_columns = binary_column_indices(all_info)   # make sure not to use jittered arrays here!
-
+    distance_columns_re = all_reads_re[:, 4:9]
+    ref_distance_columns_re = all_ref_re[:, 4:9]
     if refit_transforms:    # fit quantiles column by column (aka feature by feature)
-        read_quantile_transform.fit(all_ref)
-        info_quantile_transform.fit(all_info)
+        read_quantile_transform.fit(ref_distance_columns_re)   # only these columns are quantile-transformed
+        info_quantile_transform.fit(all_info_ve)
 
-    # it's more efficient to apply the quantile transform to all reads at once, then split it back into read sets
-    all_reads_transformed = transform_except_for_binary_columns(all_reads, read_quantile_transform, binary_read_columns)
-    all_info_transformed = transform_except_for_binary_columns(all_info, info_quantile_transform, binary_info_columns)
+    distance_columns_transformed_re = read_quantile_transform.transform(distance_columns_re)
+    all_info_transformed_ve = transform_except_for_binary_columns(all_info_ve, info_quantile_transform, binary_info_columns)
+
+    # columns of raw read data are
+    # 0 map qual -> 4 categorical columns
+    # 1 base qual -> 4 categorical columns
+    # 2,3 strand and orientation (binary) -> remain binary
+    # 4,5,6,7,8 distance stuff
+    # 9 and higher -- SNV/indel error and low BQ counts
 
     read_counts = np.array([len(datum.reads_re) for datum in buffer])
     read_index_ranges = np.cumsum(read_counts)
 
-    map_qual_column = all_reads[:, 0]
-    map_qual_categorical = np.zeros((len(all_reads), 4))
-    map_qual_categorical[:, 0] = 1 * (map_qual_column == 60)
-    map_qual_categorical[:, 1] = 1 * (map_qual_column < 60) * (map_qual_column >= 40)
-    map_qual_categorical[:, 2] = 1 * (map_qual_column < 40) * (map_qual_column >= 20)
-    map_qual_categorical[:, 3] = 1 * (map_qual_column < 20)
+    map_qual_column = all_reads_re[:, 0]
+    map_qual_boolean = np.full((len(all_reads_re), 4), True, dtype=bool)
+    map_qual_boolean[:, 0] = (map_qual_column > 59)
+    map_qual_boolean[:, 1] = (map_qual_column <= 59) & (map_qual_column >= 40)
+    map_qual_boolean[:, 2] = (map_qual_column < 40) & (map_qual_column >= 20)
+    map_qual_boolean[:, 3] = (map_qual_column < 20)
 
-    base_qual_column = all_reads[:, 1]
-    base_qual_categorical = np.zeros((len(all_reads), 4))
-    base_qual_categorical[:, 0] = 1 * (base_qual_column >= 30)
-    base_qual_categorical[:, 1] = 1 * (base_qual_column < 30) * (base_qual_column >= 20)
-    base_qual_categorical[:, 2] = 1 * (base_qual_column < 20) * (base_qual_column >= 10)
-    base_qual_categorical[:, 3] = 1 * (base_qual_column < 10)
+    base_qual_column = all_reads_re[:, 1]
+    base_qual_boolean = np.full((len(all_reads_re), 4), True, dtype=bool)
+    base_qual_boolean[:, 0] = (base_qual_column >= 30)
+    base_qual_boolean[:, 1] = (base_qual_column < 30) & (base_qual_column >= 20)
+    base_qual_boolean[:, 2] = (base_qual_column < 20) & (base_qual_column >= 10)
+    base_qual_boolean[:, 3] = (base_qual_column < 10)
 
-    # replace 0th column (map qual) by four one-hot (hence binary) categorical columns
-    # replace 1st column (base qual) by four one-hot (hence binary) categorical columns
-    # original columns 3 and 4 are binary (strand and orientation)
-    # original columns 4, 5, 6, 7, 8 (i.e. the python range 4:9) are fragment size and distances from
-    # end of read
-    # original columns 9: are usually 0 or 1, occasionally higher single-digit, and can be left alone
-    all_reads_transformed = np.hstack((map_qual_categorical, base_qual_categorical, all_reads[:, 2:4], all_reads_transformed[:, 4:9], all_reads[:, 9:]))
-    binary_read_column_mask = np.ones_like(all_reads_transformed[0])
-    binary_read_column_mask[10:15] = 0
+    strand_and_orientation_boolean = all_reads_re[:, 2:4] < 0.5
+    error_counts_boolean_1 = all_reads_re[:, 9:] < 0.5
+    error_counts_boolean_2 = (all_reads_re[:, 9:] > 0.5) & (all_reads_re[:, 9:] < 1.5)
+    error_counts_boolean_3 = (all_reads_re[:, 9:] > 1.5)
 
-    for n, datum in enumerate(buffer):
-        datum.reads_re = all_reads_transformed[0 if n == 0 else read_index_ranges[n - 1]:read_index_ranges[n]]
+    boolean_output_array_re = np.hstack((map_qual_boolean, base_qual_boolean, strand_and_orientation_boolean,
+               error_counts_boolean_1, error_counts_boolean_2, error_counts_boolean_3))
 
-        # medians are an appropriate outlier-tolerant summary, except for binary columns where the mean makes more sense
-        alt_medians = np.median(datum.get_alt_reads_re(), axis=0)
-        alt_means = np.mean(datum.get_alt_reads_re(), axis=0)
+    # axis = 1 is essential so that each row (read) of the packed data corresponds to a row of the unpacked data
+    packed_output_array = np.packbits(boolean_output_array_re, axis=1)
 
-        extra_info = binary_read_column_mask * alt_means + (1 - binary_read_column_mask) * alt_medians
-        datum.set_info_1d(np.hstack([extra_info, all_info_transformed[n]]))
+    assert packed_output_array.dtype == np.uint8
+    assert packed_output_array.shape[1] == NUMBER_OF_BYTES_IN_PACKED_READ, f"boolean array shape {boolean_output_array_re.shape}, packed shape {packed_output_array.shape}"
+
+    distance_columns_output = convert_quantile_normalized_to_uint8(distance_columns_transformed_re)
+    assert packed_output_array.dtype == distance_columns_output.dtype
+    output_uint8_reads_array = np.hstack((packed_output_array, distance_columns_output))
+
+    # TODO: a thought -- reads dataset doesn't really need to store a list of reads datum.  It could JUST store the numpy arrays,
+    # TODO: and furthermore, they could be concatenated to reduce the memory cost of many different objects
+
+    normalized_result = []
+    raw_datum: RawUnnormalizedReadsDatum
+    for n, raw_datum in enumerate(buffer):
+        ref_start_index = 0 if n == 0 else read_index_ranges[n - 1]     # first index of this datum's reads
+        alt_end_index = read_index_ranges[n]
+        alt_start_index = ref_start_index + raw_datum.get_ref_count()
+
+        # TODO: maybe we could also have columnwise nonparametric test statistics, like for example we record the
+        # TODO: quantiles over all ref reads
+        alt_distance_medians_e = np.median(distance_columns_transformed_re[alt_start_index:alt_end_index, :], axis=0)
+        alt_boolean_means_e = np.mean(boolean_output_array_re[alt_start_index:alt_end_index, :], axis=0)
+        extra_info_e = np.hstack((alt_distance_medians_e, alt_boolean_means_e))
+
+        output_reads_re = output_uint8_reads_array[ref_start_index:alt_end_index]
+        output_datum: ReadsDatum = ReadsDatum(datum_array=raw_datum.array, compressed_reads_re=output_reads_re)
+
+        output_datum.set_info_1d(np.hstack((all_info_transformed_ve[n], extra_info_e)))
+        normalized_result.append(output_datum)
+
+    return normalized_result
 
 
 def line_to_tensor(line: str) -> np.ndarray:
     tokens = line.strip().split()
-    floats = [float(token) for token in tokens]
-    return np.clip(np.array(floats, dtype=DEFAULT_NUMPY_FLOAT), -MAX_VALUE, MAX_VALUE)
+    floats = [max(min(MAX_VALUE, float(token)), -MAX_VALUE) for token in tokens]
+    return np.array(floats, dtype=DEFAULT_NUMPY_FLOAT)
 
 
 def read_2d_tensor(file, num_lines: int) -> np.ndarray:

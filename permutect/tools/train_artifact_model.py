@@ -5,7 +5,7 @@ from torch.utils.tensorboard import SummaryWriter
 from permutect import constants
 from permutect.architecture.artifact_model import ArtifactModel, load_model
 from permutect.training.model_training import train_artifact_model
-from permutect.misc_utils import gpu_if_available
+from permutect.misc_utils import gpu_if_available, report_memory_usage
 from permutect.parameters import parse_training_params, parse_model_params, add_model_params_to_parser, add_training_params_to_parser
 from permutect.data.reads_dataset import ReadsDataset
 
@@ -21,7 +21,8 @@ def main_without_parsing(args):
 
     tensorboard_dir = getattr(args, constants.TENSORBOARD_DIR_NAME)
     summary_writer = SummaryWriter(tensorboard_dir)
-    dataset = ReadsDataset(data_tarfile=tarfile_data, num_folds=10)
+    report_memory_usage("Training data about to be loaded from tarfile.")
+    dataset = ReadsDataset(tarfile=tarfile_data, num_folds=10)
 
     model = pretrained_model if (pretrained_model is not None) else \
             ArtifactModel(params=params, num_read_features=dataset.num_read_features, num_info_features=dataset.num_info_features,

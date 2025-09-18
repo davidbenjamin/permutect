@@ -48,6 +48,6 @@ def test_prune_dataset():
     events = EventAccumulator(training_tensorboard_dir.name)
     events.Reload()
 
-    pruned_base_dataset = ReadsDataset(data_tarfile=pruned_dataset, num_folds=10)
+    pruned_base_dataset = ReadsDataset(tarfile=pruned_dataset, num_folds=10)
     h = 99
 

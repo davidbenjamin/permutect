@@ -89,4 +89,4 @@ def test_read_data():
     assert data[0].get_label() == Label.UNLABELED
     assert torch.max(data[0].get_info_1d() - torch.tensor([0.192, 0.000, 0.000, 1.000, 1.000, 1.000, 1.000, 1.000, 1.000] + [1, 0, 0])).item() < 0.001
 
-    assert data[1].reads_re.size()[0] == 6
+    assert data[1].compressed_reads_re.size()[0] == 6

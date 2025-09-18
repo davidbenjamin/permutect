@@ -1,26 +1,24 @@
 import math
 import os
+
+import numpy as np
 import psutil
 import random
-import tarfile
 import tempfile
-from typing import Iterable, List
+from typing import Iterable, List, Generator
 
 import torch
 from torch.utils.data import Dataset, DataLoader
 from torch.utils.data.sampler import Sampler
 
-from mmap_ninja.ragged import RaggedMmap
-from permutect.data.count_binning import cap_ref_count, cap_alt_count
-from permutect.data.reads_datum import ReadsDatum
+from permutect.data.datum import DATUM_ARRAY_DTYPE
+from permutect.data.reads_datum import ReadsDatum, READS_ARRAY_DTYPE
 from permutect.data.reads_batch import ReadsBatch
 from permutect.data.batch import BatchProperty, BatchIndexedTensor
 from permutect.utils.enums import Variation, Label
 
-TENSORS_PER_BASE_DATUM = 2  # 1) 2D reads (ref and alt), 1) 1D concatenated stuff
-
-# tarfiles on disk take up about 4x as much as the dataset on RAM
-TARFILE_TO_RAM_RATIO = 4
+# dataset in memory takes a bit more space than on disk
+RAM_TO_TARFILE_SPACE_RATIO = 1.25
 
 
 WEIGHT_PSEUDOCOUNT = 10
@@ -31,37 +29,60 @@ def ratio_with_pseudocount(a, b):
 
 
 class ReadsDataset(Dataset):
-    def __init__(self, data_in_ram: Iterable[ReadsDatum] = None, data_tarfile=None, num_folds: int = 1):
+    def __init__(self, data_in_ram: Iterable[ReadsDatum] = None, tarfile=None, num_folds: int = 1):
         super(ReadsDataset, self).__init__()
-        assert data_in_ram is not None or data_tarfile is not None, "No data given"
-        assert data_in_ram is None or data_tarfile is None, "Data given from both RAM and tarfile"
+        assert data_in_ram is not None or tarfile is not None, "No data given"
+        assert data_in_ram is None or tarfile is None, "Data given from both RAM and tarfile"
         self.num_folds = num_folds
         self.totals_slvra = BatchIndexedTensor.make_zeros(num_sources=1, include_logits=False, device=torch.device('cpu'))
 
+        # data in ram is really just a convenient way to write tests.  In actual deployment the data comes from a tarfile
         if data_in_ram is not None:
-            self._data = data_in_ram
+            self._stacked_reads_re = np.vstack([datum.compressed_reads_re for datum in data_in_ram])
+            self._stacked_data_ve = np.vstack([datum.array for datum in data_in_ram])
+            read_lengths = np.array([datum.get_ref_count() + datum.get_alt_count() for datum in data_in_ram], dtype=np.int32)
+            self._read_end_indices = np.cumsum(read_lengths)
+            self._size = len(data_in_ram)
             self._memory_map_mode = False
         else:
-            tarfile_size = os.path.getsize(data_tarfile)    # in bytes
-            estimated_data_size_in_ram = tarfile_size // TARFILE_TO_RAM_RATIO
+            tarfile_size = os.path.getsize(tarfile)    # in bytes
+            total_num_data, total_num_reads, read_tensor_width, data_tensor_width = ReadsDatum.extract_counts_from_tarfile(tarfile)
+            self._read_end_indices = np.zeros(total_num_data, dtype=np.uint64)  # nth element is the index where the nth datum's reads end (exclusive)
+
+            self._size = total_num_data
+            estimated_data_size_in_ram = tarfile_size * RAM_TO_TARFILE_SPACE_RATIO
             available_memory = psutil.virtual_memory().available
-            fits_in_ram = estimated_data_size_in_ram < 0.8 * available_memory
+            fits_in_ram = estimated_data_size_in_ram < 0.6 * available_memory
 
             print(f"The tarfile size is {tarfile_size} bytes on disk for an estimated {estimated_data_size_in_ram} bytes in memory and the system has {available_memory} bytes of RAM available.")
+
             if fits_in_ram:
-                print("loading the dataset from the tarfile into RAM:")
-                self._data = list(make_base_data_generator_from_tarfile(data_tarfile))
+                # allocate the arrays of all data, then fill it from the tarfile
+                self._stacked_reads_re = np.zeros((total_num_reads, read_tensor_width), dtype=READS_ARRAY_DTYPE)
+                self._stacked_data_ve = np.zeros((total_num_data, data_tensor_width), dtype=DATUM_ARRAY_DTYPE)
                 self._memory_map_mode = False
             else:
-                print("loading the dataset into a memory-mapped file:")
-                self._memory_map_dir = tempfile.TemporaryDirectory()
-
-                RaggedMmap.from_generator(out_dir=self._memory_map_dir.name,
-                                          sample_generator=make_flattened_tensor_generator(
-                                              make_base_data_generator_from_tarfile(data_tarfile)),
-                                          batch_size=10000, verbose=False)
-                self._data = RaggedMmap(self._memory_map_dir.name)
+                stacked_reads_file = tempfile.NamedTemporaryFile()
+                stacked_data_file = tempfile.NamedTemporaryFile()
+                self._stacked_reads_re = np.memmap(stacked_reads_file.name, dtype=READS_ARRAY_DTYPE, mode='w+', shape=(total_num_reads, read_tensor_width))
+                self._stacked_data_ve = np.memmap(stacked_data_file.name, dtype=DATUM_ARRAY_DTYPE, mode='w+', shape=(total_num_data, data_tensor_width))
                 self._memory_map_mode = True
+
+            print("loading the dataset from the tarfile...")
+
+            # the following code should work for data in RAM or memmap
+            read_start_idx, datum_start_idx = 0, 0
+            for reads_re, data_ve, read_counts_v in ReadsDatum.generate_arrays_from_tarfile(tarfile):
+                read_end_idx, datum_end_idx = read_start_idx + len(reads_re), datum_start_idx + len(data_ve)
+                self._read_end_indices[datum_start_idx:datum_end_idx] = read_start_idx + np.cumsum(read_counts_v)
+                self._stacked_reads_re[read_start_idx:read_end_idx] = reads_re
+                self._stacked_data_ve[datum_start_idx:datum_end_idx] = data_ve
+                read_start_idx, datum_start_idx = read_end_idx, datum_end_idx
+
+            # set memory maps to read-only
+            if self._memory_map_mode:
+                self._stacked_reads_re.flags.writeable = False
+                self._stacked_data_ve.flags.writeable = False
 
         # this is used in the batch sampler to make same-shape batches
         self.indices_by_fold = [[] for _ in range(num_folds)]
@@ -71,19 +92,20 @@ class ReadsDataset(Dataset):
             fold = n % num_folds
             self.indices_by_fold[fold].append(n)
 
-        self.num_read_features = self[0].get_reads_re().shape[1]
-        self.num_info_features = len(self[0].get_info_1d())
-        self.haplotypes_length = len(self[0].get_haplotypes_1d())
+        first_datum: ReadsDatum = self[0]
+        self.num_read_features = first_datum.num_read_features()
+        self.num_info_features = len(first_datum.get_info_1d())
+        self.haplotypes_length = len(first_datum.get_haplotypes_1d())
 
     def __len__(self):
-        return len(self._data) // TENSORS_PER_BASE_DATUM if self._memory_map_mode else len(self._data)
+        return self._size
 
     def __getitem__(self, index):
-        if self._memory_map_mode:
-            bottom_index = index * TENSORS_PER_BASE_DATUM
-            return ReadsDatum(datum_array=self._data[bottom_index + 1], reads_re=self._data[bottom_index])
-        else:
-            return self._data[index]
+        read_start_index = 0 if index == 0 else self._read_end_indices[index - 1]
+        read_end_index = self._read_end_indices[index]
+
+        return ReadsDatum(datum_array=self._stacked_data_ve[index],
+                              compressed_reads_re=self._stacked_reads_re[read_start_index:read_end_index])
 
     def num_sources(self) -> int:
         return self.totals_slvra.num_sources()
@@ -133,25 +155,10 @@ class ReadsDataset(Dataset):
 
 
 # from a generator that yields BaseDatum(s), create a generator that yields the two numpy arrays needed to reconstruct the datum
-def make_flattened_tensor_generator(reads_data_generator):
+def make_flattened_tensor_generator(reads_data_generator: Generator[ReadsDatum, None, None]):
     for reads_datum in reads_data_generator:
-        yield reads_datum.get_reads_re()
+        yield reads_datum.get_compressed_reads_re()
         yield reads_datum.get_array_1d()
-
-
-def make_base_data_generator_from_tarfile(data_tarfile):
-    # extract the tarfile to a temporary directory that will be cleaned up when the program ends
-    temp_dir = tempfile.TemporaryDirectory()
-    tar = tarfile.open(data_tarfile)
-    tar.extractall(temp_dir.name)
-    tar.close()
-    data_files = [os.path.abspath(os.path.join(temp_dir.name, p)) for p in os.listdir(temp_dir.name)]
-
-    for file in data_files:
-        for datum in ReadsDatum.load_list(file):
-            ref_count = cap_ref_count(datum.get_ref_count())
-            alt_count = cap_alt_count(datum.get_alt_count())
-            yield datum.copy_with_downsampled_reads(ref_count, alt_count)
 
 
 # ex: chunk([a,b,c,d,e], 3) = [[a,b,c], [d,e]]

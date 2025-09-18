@@ -10,7 +10,7 @@ import numpy as np
 from permutect.data.count_binning import ref_count_bin_name, NUM_REF_COUNT_BINS, alt_count_bin_name, NUM_ALT_COUNT_BINS, \
     logit_bin_name, NUM_LOGIT_BINS, ref_count_bin_indices, alt_count_bin_indices, logit_bin_indices, \
     ref_count_bin_index, alt_count_bin_index
-from permutect.data.datum import Datum
+from permutect.data.datum import Datum, int16_to_float
 from permutect.misc_utils import gpu_if_available
 from permutect.utils.array_utils import flattened_indices
 from permutect.utils.enums import Label, Variation
@@ -18,7 +18,7 @@ from permutect.utils.enums import Label, Variation
 
 class Batch:
     def __init__(self, data: List[Datum]):
-        self.data = torch.from_numpy(np.vstack([d.get_array_1d() for d in data])).to(dtype=torch.long)
+        self.data = torch.from_numpy(np.vstack([d.get_array_1d() for d in data])).to(torch.long)
         self._finish_initializiation_from_data_array()
 
     def _finish_initializiation_from_data_array(self):
@@ -78,15 +78,15 @@ class Batch:
         return self.data[:, Datum.ORIGINAL_NORMAL_DEPTH_IDX]
 
     def get_info_be(self) -> Tensor:
-        return self.data[:, self.info_start:self.info_end] / Datum.FLOAT_TO_LONG_MULTIPLIER
+        return int16_to_float(self.data[:, self.info_start:self.info_end])
 
     # this is -log10ToLog(TLOD) - log(tumorDepth + 1);
     def get_seq_error_log_lks(self) -> Tensor:
-        return self.data[:, Datum.SEQ_ERROR_LOG_LK_IDX] / Datum.FLOAT_TO_LONG_MULTIPLIER
+        return int16_to_float(self.data[:, Datum.SEQ_ERROR_LOG_LK_IDX])
 
     # this is -log10ToLog(NALOD) - log(normalDepth + 1)
     def get_normal_seq_error_log_lks(self) -> Tensor:
-        return self.data[:, Datum.NORMAL_SEQ_ERROR_LOG_LK_IDX] / Datum.FLOAT_TO_LONG_MULTIPLIER
+        return int16_to_float(self.data[:, Datum.NORMAL_SEQ_ERROR_LOG_LK_IDX])
 
     def get_haplotypes_bs(self) -> IntTensor:
         # each row is 1D array of integer array reference and alt haplotypes concatenated -- A, C, G, T, deletion = 0, 1, 2, 3, 4

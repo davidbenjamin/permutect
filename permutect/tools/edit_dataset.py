@@ -55,38 +55,6 @@ def generate_edited_data(base_datasets, edit_type: str, source: int):
             raise Exception(f"edit type {edit_type} not implemented yet")
 
 
-# takes a ReadSet generator and organizes into buffers.
-# TODO: probably code duplication since the generator is already pruned
-def generate_output_data_buffers(output_data_generator, max_bytes_per_chunk: int):
-    buffer, bytes_in_buffer = [], 0
-    for datum in output_data_generator:
-
-        buffer.append(datum)
-        bytes_in_buffer += datum.size_in_bytes()
-        if bytes_in_buffer > max_bytes_per_chunk:
-            report_memory_usage()
-            print(f"{bytes_in_buffer} bytes in chunk")
-            yield buffer
-            buffer, bytes_in_buffer = [], 0
-
-    # There will be some data left over, in general.
-    if buffer:
-        yield buffer
-
-
-def make_output_training_dataset(pruned_data_buffer_generator, output_tarfile):
-    pruned_data_files = []
-    for base_data_list in pruned_data_buffer_generator:
-        with tempfile.NamedTemporaryFile(delete=False) as train_data_file:
-            ReadsDatum.save_list(base_data_list, train_data_file)
-            pruned_data_files.append(train_data_file.name)
-
-    # bundle them in a tarfile
-    with tarfile.open(output_tarfile, "w") as train_tar:
-        for train_file in pruned_data_files:
-            train_tar.add(train_file, arcname=os.path.basename(train_file))
-
-
 def parse_arguments():
     parser = argparse.ArgumentParser(description='train the Mutect3 artifact model')
     parser.add_argument('--' + constants.CHUNK_SIZE_NAME, type=int, default=int(2e9), required=False,
@@ -109,15 +77,11 @@ def main_without_parsing(args):
     chunk_size = getattr(args, constants.CHUNK_SIZE_NAME)
     edit_type = getattr(args, constants.DATASET_EDIT_TYPE_NAME)
     new_source = getattr(args, constants.SOURCE_NAME)
-    base_datasets = map(lambda original_tarfile: ReadsDataset(data_tarfile=original_tarfile), original_tarfiles)
+    base_datasets = map(lambda original_tarfile: ReadsDataset(tarfile=original_tarfile), original_tarfiles)
 
     # generate ReadSets
     output_data_generator = generate_edited_data(base_datasets, edit_type, new_source)
-
-    # generate List[ReadSet]s
-    output_data_buffer_generator = generate_output_data_buffers(output_data_generator, chunk_size)
-
-    make_output_training_dataset(output_data_buffer_generator, output_tarfile=output_tarfile)
+    ReadsDatum.save_data_in_tarfile(data_generator=output_data_generator, max_bytes_in_chunk=chunk_size, output_tarfile=output_tarfile)
 
 
 def main():
