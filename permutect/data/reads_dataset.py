@@ -4,7 +4,6 @@ import os
 import numpy as np
 import psutil
 import random
-import tarfile
 import tempfile
 from typing import Iterable, List, Generator
 
@@ -12,17 +11,14 @@ import torch
 from torch.utils.data import Dataset, DataLoader
 from torch.utils.data.sampler import Sampler
 
-from mmap_ninja.ragged import RaggedMmap
 from permutect.data.datum import DATUM_ARRAY_DTYPE
-from permutect.data.reads_datum import ReadsDatum, SUFFIX_FOR_DATA_FILES_IN_TAR, READS_ARRAY_DTYPE
+from permutect.data.reads_datum import ReadsDatum, READS_ARRAY_DTYPE
 from permutect.data.reads_batch import ReadsBatch
 from permutect.data.batch import BatchProperty, BatchIndexedTensor
 from permutect.utils.enums import Variation, Label
 
-TENSORS_PER_BASE_DATUM = 2  # 1) 2D reads (ref and alt), 1) 1D concatenated stuff
-
-# tarfiles on disk take up about 4x as much as the dataset on RAM
-TARFILE_TO_RAM_RATIO = 4
+# dataset in memory takes a bit more space than on disk
+RAM_TO_TARFILE_SPACE_RATIO = 1.25
 
 
 WEIGHT_PSEUDOCOUNT = 10
@@ -54,7 +50,7 @@ class ReadsDataset(Dataset):
             self._read_end_indices = np.zeros(total_num_data, dtype=np.uint64)  # nth element is the index where the nth datum's reads end (exclusive)
 
             self._size = total_num_data
-            estimated_data_size_in_ram = tarfile_size // TARFILE_TO_RAM_RATIO
+            estimated_data_size_in_ram = tarfile_size * RAM_TO_TARFILE_SPACE_RATIO
             available_memory = psutil.virtual_memory().available
             fits_in_ram = estimated_data_size_in_ram < 0.6 * available_memory
 
