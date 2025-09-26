@@ -4,8 +4,6 @@ import "https://api.firecloud.org/ga4gh/v1/tools/davidben:call-variants-with-per
 import "https://api.firecloud.org/ga4gh/v1/tools/davidben:strelka/versions/10/plain-WDL/descriptor" as StrelkaWorkflow
 import "https://api.firecloud.org/ga4gh/v1/tools/davidben:deepsomatic/versions/1/plain-WDL/descriptor" as DeepSomaticWorkflow
 
-
-
 workflow RunAllCallers {
     input {
         File artifact_model
@@ -107,8 +105,8 @@ workflow RunAllCallers {
             ref_dict= ref_dict,
             tumor_bam = primary_bam,
             tumor_bai = primary_bai,
-            normal_bam = control_bam,
-            normal_bai = control_bai,
+            normal_bam = select_first([control_bam]),
+            normal_bai = select_first([control_bai]),
             intervals = intervals,
             masks = masks,
             manta_extra_args = manta_extra_args,
@@ -121,28 +119,48 @@ workflow RunAllCallers {
     }
 
     call DeepSomaticWorkflow.DeepSomatic {
-        input {
-        File ref_fasta
-        File ref_fai
-        File ref_dict
-
-        File tumor_bam
-        File tumor_bai
-        File normal_bam
-        File normal_bai
-
-
-        model_type = deepsomatic_model_type
-        intervals = intervals,
-        masks = masks,
-        deepsomatic_extra_args = deepsomatic_extra_args,
-        truth_vcf = test_dataset_truth_vcf,
-        truth_vcf_idx = test_dataset_truth_vcf_idx,
-
-        Strgatk_docker = gatk_docker
-        String deepsomatic_docker = "us.gcr.io/broad-dsde-methods/davidben/deepsomatic-gpu"
-        String? gcs_project_for_requester_pays
+        input:
+            ref_fasta = ref_fasta,
+            ref_fai = ref_fai,
+            ref_dict = ref_dict,
+            tumor_bam = primary_bam,
+            tumor_bai = primary_bai,
+            normal_bam = select_first([control_bam]),
+            normal_bai = select_first([control_bai]),
+            model_type = deepsomatic_model_type,
+            intervals = intervals,
+            masks = masks,
+            deepsomatic_extra_args = deepsomatic_extra_args,
+            truth_vcf = test_dataset_truth_vcf,
+            truth_vcf_idx = test_dataset_truth_vcf_idx,
+            gatk_docker = gatk_docker,
+            deepsomatic_docker = deepsomatic_docker,
+            gcs_project_for_requester_pays = gcs_project_for_requester_pays
     }
 
+    output {
+        File permutect_vcf = Permutect.output_vcf
+        File permutect_vcf_idx = Permutect.output_vcf_idx
+        File permutect_tensorboard_report = Permutect.tensorboard_report
+        File test_dataset = Permutect.test_dataset
+        File mutect2_vcf = Permutect.mutect2_vcf
+        File mutect2_vcf_idx = Permutect.mutect2_vcf_idx
 
+        File strelka_vcf = Strelka.strelka_calls_vcf
+        File strelka_vcf_idx = Strelka.strelka_calls_vcf_idx
+
+        File deepsomatic_vcf = DeepSomatic.deepsomatic_calls_vcf
+        File deepsomatic_vcf_idx = DeepSomatic.deepsomatic_calls_vcf_idx
+
+        File? permutect_fn = Permutect.fn
+        File? permutect_fn_idx = Permutect.fn_idx
+        File? permutect_fp = Permutect.fp
+        File? permutect_fp_idx = Permutect.fp_idx
+        File? permutect_ffn = Permutect.ffn
+        File? permutect_ffn_idx = Permutect.ffn_idx
+
+        File? permutect_concordance = Permutect.concordance_summary
+        File? strelka_concordance = Strelka.concordance_summary
+        File? deepsomatic_concordance = DeepSomatic.concordance_summary
+    }
 }
