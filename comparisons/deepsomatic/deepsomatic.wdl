@@ -40,6 +40,19 @@ workflow DeepSomatic {
             intervals = intervals
     }
 
+    call GetSampleName {
+        input:
+            ref_fasta = ref_fasta,
+            ref_fai = ref_fai,
+            ref_dict = ref_dict,
+            tumor_bam = tumor_bam,
+            tumor_bai = tumor_bai,
+            normal_bam = normal_bam,
+            normal_bai = normal_bai,
+            gcs_project_for_requester_pays = gcs_project_for_requester_pays,
+            gatk_docker = gatk_docker
+    }
+
     call Deepsomatic {
         input:
             ref_fasta = ref_fasta,
@@ -47,10 +60,10 @@ workflow DeepSomatic {
             ref_dict = ref_dict,
             tumor_bam = tumor_bam,
             tumor_bai = tumor_bai,
-            tumor_sample = ,
+            tumor_sample = GetSampleName.tumor_sample,
             normal_bam = normal_bam,
             normal_bai = normal_bai,
-            normal_sample = ,
+            normal_sample = GetSampleName.normal_sample,
             intervals_bed = IntervalListToBed.output_bed,
             intervals_bed_idx = IntervalListToBed.output_bed_idx,
             model_type = model_type,
@@ -136,8 +149,10 @@ task Deepsomatic {
 
         File tumor_bam
         File tumor_bai
+        String tumor_sample
         File normal_bam
         File normal_bai
+        String normal_sample
         File intervals_bed
         File intervals_bed_idx
         String model_type
@@ -161,8 +176,8 @@ task Deepsomatic {
             --reads_tumor=~{tumor_bam} \
             --output_vcf=output/output.vcf.gz \
             --output_gvcf=output/output.g.vcf.gz \
-            --sample_name_tumor="tumor" \
-            --sample_name_normal="normal" \
+            --sample_name_tumor=~{tumor_sample} \
+            --sample_name_normal=~{normal_sample} \
             --num_shards=~{cpu} \
             --logging_dir=output/logs \
             --intermediate_results_dir output/intermediate_results_dir \
@@ -263,5 +278,63 @@ task Concordance {
         File ftn_idx = "filtered_true_negatives.vcf.idx"
         File summary = "summary.txt"
         File filter_analysis = "filter-analysis.txt"
+    }
+}
+
+task GetSampleName {
+    input {
+        File ref_fasta
+        File ref_fai
+        File ref_dict
+        File tumor_bam
+        File tumor_bai
+        File? normal_bam
+        File? normal_bai
+        String? gcs_project_for_requester_pays
+
+        String gatk_docker
+        Int mem = 2
+        Int boot_disk_size = 10
+        Int preemptible = 0
+        Int max_retries = 0
+        Int disk_space = 10
+        Int cpu = 1
+    }
+
+
+    parameter_meta{
+        ref_fasta: {localization_optional: true}
+        ref_fai: {localization_optional: true}
+        ref_dict: {localization_optional: true}
+        tumor_reads: {localization_optional: true}
+        tumor_reads_index: {localization_optional: true}
+        normal_reads: {localization_optional: true}
+        normal_reads_index: {localization_optional: true}
+    }
+
+    command <<<
+        touch normal_names.txt
+        if [[ ! -z "~{normal_bam}" ]]; then
+            gatk GetSampleName -R ~{ref_fasta} -I ~{normal_bam} -O normal_names.txt -encode \
+                ~{"--gcs-project-for-requester-pays " + gcs_project_for_requester_pays}
+        fi
+
+        gatk GetSampleName -R ~{ref_fasta} -I ~{tumor_bam} -O tumor_names.txt -encode \
+                ~{"--gcs-project-for-requester-pays " + gcs_project_for_requester_pays}
+    >>>
+
+    runtime {
+        docker: gatk_docker
+        bootDiskSizeGb: boot_disk_size
+        memory: mem + " GB"
+        disks: "local-disk " + disk_space + " SSD"
+        preemptible: preemptible
+        maxRetries: max_retries
+        cpu: cpu
+    }
+
+    output {
+        String normal_sample = read_string("normal_names.txt")
+        String tumor_sample = read_string("tumor_names.txt")
     }
 }
