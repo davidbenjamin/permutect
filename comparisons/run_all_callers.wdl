@@ -1,8 +1,8 @@
 version 1.0
 
-import "https://api.firecloud.org/ga4gh/v1/tools/davidben:call-variants-with-permutect/versions/2/plain-WDL/descriptor" as PermutectWorkflow
+import "https://api.firecloud.org/ga4gh/v1/tools/davidben:call-variants-with-permutect/versions/3/plain-WDL/descriptor" as PermutectWorkflow
 import "https://api.firecloud.org/ga4gh/v1/tools/davidben:strelka/versions/10/plain-WDL/descriptor" as StrelkaWorkflow
-import "https://api.firecloud.org/ga4gh/v1/tools/davidben:deepsomatic/versions/1/plain-WDL/descriptor" as DeepSomaticWorkflow
+import "https://api.firecloud.org/ga4gh/v1/tools/davidben:deepsomatic/versions/2/plain-WDL/descriptor" as DeepSomaticWorkflow
 
 workflow RunAllCallers {
     input {
@@ -160,6 +160,7 @@ workflow RunAllCallers {
         File? permutect_ffn_idx = Permutect.ffn_idx
 
         File? permutect_concordance = Permutect.concordance_summary
+        File? m2_concordance = Permutect.m2_concordance_summary
         File? strelka_concordance = Strelka.concordance_summary
         File? deepsomatic_concordance = DeepSomatic.concordance_summary
     }
