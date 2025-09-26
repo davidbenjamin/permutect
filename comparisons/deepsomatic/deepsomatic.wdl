@@ -306,10 +306,10 @@ task GetSampleName {
         ref_fasta: {localization_optional: true}
         ref_fai: {localization_optional: true}
         ref_dict: {localization_optional: true}
-        tumor_reads: {localization_optional: true}
-        tumor_reads_index: {localization_optional: true}
-        normal_reads: {localization_optional: true}
-        normal_reads_index: {localization_optional: true}
+        tumor_bam: {localization_optional: true}
+        tumor_bai: {localization_optional: true}
+        normal_bam: {localization_optional: true}
+        normal_bai: {localization_optional: true}
     }
 
     command <<<
