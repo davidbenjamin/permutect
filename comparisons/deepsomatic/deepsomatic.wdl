@@ -23,7 +23,7 @@ workflow DeepSomatic {
         File? truth_vcf_idx
 
         String gatk_docker = "us.gcr.io/broad-gatk/gatk"
-        String deepsomatic_docker = "us.gcr.io/broad-dsde-methods/davidben/deepsomatic"
+        String deepsomatic_docker = "us.gcr.io/broad-dsde-methods/davidben/deepsomatic-gpu"
         String? gcs_project_for_requester_pays
 
         # WDL version 1.0 does not have an empty Optional literal
@@ -161,7 +161,7 @@ task Deepsomatic {
         String deepsomatic_docker
 
         Int cpu = 4
-        Int mem_gb = 16
+        Int mem_gb = 32
         Int disk_gb = 1000
         Int boot_disk_gb = 10
         Int max_retries = 0
@@ -196,6 +196,10 @@ task Deepsomatic {
         preemptible: preemptible
         maxRetries: max_retries
         cpu: cpu
+        gpuType: "nvidia-tesla-t4"
+        gpuCount: 1
+        nvidiaDriverVersion: "535.183.01"
+        zones : ["us-central1-a", "us-central1-b", "us-central1-c"]
     }
 
     output {
