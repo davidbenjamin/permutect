@@ -35,12 +35,6 @@ workflow DeepSomatic {
         File? EMPTY_STRING_HACK
     }
 
-    call IntervalListToBed {
-        input:
-            gatk_docker = gatk_docker,
-            intervals = intervals
-    }
-
     call GetSampleName {
         input:
             ref_fasta = ref_fasta,
@@ -65,7 +59,7 @@ workflow DeepSomatic {
             normal_bam = normal_bam,
             normal_bai = normal_bai,
             normal_sample = GetSampleName.normal_sample,
-            intervals_bed = IntervalListToBed.output_bed,
+            intervals = intervals,
             model_type = model_type,
             deepsomatic_extra_args = deepsomatic_extra_args,
             deepsomatic_docker = deepsomatic_docker,
@@ -103,41 +97,7 @@ workflow DeepSomatic {
         File? filter_analysis = Concordance.filter_analysis
     }
 }
-
-task IntervalListToBed {
-    input {
-        String gatk_docker
-        File intervals
-
-        Int cpu = 2
-        Int mem_gb = 4
-        Int disk_gb = 100
-        Int boot_disk_gb = 4
-        Int max_retries = 0
-        Int preemptible = 0
-    }
-
-    command <<<
-        gatk IntervalListToBed --INPUT ~{intervals} --OUTPUT intervals.bed
-    >>>
-
-    runtime {
-        docker: gatk_docker
-        bootDiskSizeGb: boot_disk_gb
-        memory: mem_gb + " GB"
-        disks: "local-disk " + disk_gb + " SSD"
-        preemptible: preemptible
-        maxRetries: max_retries
-        cpu: cpu
-    }
-
-    output {
-        File output_bed = "intervals.bed"
-    }
-}
-
-
-
+    
 task Deepsomatic {
     input {
         File ref_fasta
@@ -150,7 +110,7 @@ task Deepsomatic {
         File normal_bam
         File normal_bai
         String normal_sample
-        File intervals_bed
+        File intervals
         String model_type
         String deepsomatic_extra_args
 
@@ -169,7 +129,7 @@ task Deepsomatic {
         run_deepsomatic \
             --model_type=~{model_type} \
             --ref=~{ref_fasta} \
-            ‑‑interval‑file=~{intervals_bed} \
+            ‑‑interval‑file=~{intervals} \
             --reads_normal=~{normal_bam} \
             --reads_tumor=~{tumor_bam} \
             --output_vcf=output/output.vcf.gz \
