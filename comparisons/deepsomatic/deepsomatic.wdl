@@ -66,7 +66,6 @@ workflow DeepSomatic {
             normal_bai = normal_bai,
             normal_sample = GetSampleName.normal_sample,
             intervals_bed = IntervalListToBed.output_bed,
-            intervals_bed_idx = IntervalListToBed.output_bed_idx,
             model_type = model_type,
             deepsomatic_extra_args = deepsomatic_extra_args,
             deepsomatic_docker = deepsomatic_docker,
@@ -120,9 +119,6 @@ task IntervalListToBed {
 
     command <<<
         gatk IntervalListToBed --INPUT ~{intervals} --OUTPUT intervals.bed
-
-        sort -k 1,1 -k 2,2n -k 3,3n intervals.bed | bgzip -c > sorted.bed.gz
-        tabix -pbed sorted.bed.gz
     >>>
 
     runtime {
@@ -136,8 +132,7 @@ task IntervalListToBed {
     }
 
     output {
-        File output_bed = "sorted.bed.gz"
-        File output_bed_idx = "sorted.bed.gz.tbi"
+        File output_bed = "intervals.bed"
     }
 }
 
@@ -156,7 +151,6 @@ task Deepsomatic {
         File normal_bai
         String normal_sample
         File intervals_bed
-        File intervals_bed_idx
         String model_type
         String deepsomatic_extra_args
 
@@ -175,6 +169,7 @@ task Deepsomatic {
         run_deepsomatic \
             --model_type=~{model_type} \
             --ref=~{ref_fasta} \
+            ‑‑interval‑file=~{intervals_bed} \
             --reads_normal=~{normal_bam} \
             --reads_tumor=~{tumor_bam} \
             --output_vcf=output/output.vcf.gz \
@@ -184,7 +179,6 @@ task Deepsomatic {
             --num_shards=~{cpu} \
             --logging_dir=output/logs \
             --intermediate_results_dir output/intermediate_results_dir \
-            ‑‑interval‑file=~{intervals_bed} \
             --use_default_pon_filtering=false \
             --dry_run=false \
             ~{deepsomatic_extra_args}
