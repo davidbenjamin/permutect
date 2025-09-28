@@ -24,6 +24,7 @@ workflow DeepSomatic {
 
         String gatk_docker = "us.gcr.io/broad-gatk/gatk"
         String deepsomatic_docker = "us.gcr.io/broad-dsde-methods/davidben/deepsomatic-gpu"
+        String nvidia_driver_version = "470.256.02"
         String? gcs_project_for_requester_pays
 
         # WDL version 1.0 does not have an empty Optional literal
@@ -68,7 +69,8 @@ workflow DeepSomatic {
             intervals_bed_idx = IntervalListToBed.output_bed_idx,
             model_type = model_type,
             deepsomatic_extra_args = deepsomatic_extra_args,
-            deepsomatic_docker = deepsomatic_docker
+            deepsomatic_docker = deepsomatic_docker,
+            nvidia_driver_version = nvidia_driver_version
     }
 
     if (defined(truth_vcf)){
@@ -159,6 +161,7 @@ task Deepsomatic {
         String deepsomatic_extra_args
 
         String deepsomatic_docker
+        String nvidia_driver_version
 
         Int cpu = 4
         Int mem_gb = 32
@@ -198,7 +201,7 @@ task Deepsomatic {
         cpu: cpu
         gpuType: "nvidia-tesla-t4"
         gpuCount: 1
-        nvidiaDriverVersion: "535.183.01"
+        nvidiaDriverVersion: nvidia_driver_version
         zones : ["us-central1-a", "us-central1-b", "us-central1-c"]
     }
 
