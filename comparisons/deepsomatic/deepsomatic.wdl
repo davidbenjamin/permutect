@@ -138,11 +138,12 @@ task DeepsomaticParabricks {
 
         pbrun deepsomatic \
             --ref ~{ref_fasta} \
-            ‑‑interval‑file ~{intervals} \
             --in-tumor-bam ~{tumor_bam} \
             --in-normal-bam ~{normal_bam} \
             --out-variants output.vcf \
             ~{deepsomatic_extra_args}
+
+        # we removed             ‑‑interval‑file ~{intervals} \
 
     >>>
 
