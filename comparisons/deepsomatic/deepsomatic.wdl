@@ -28,7 +28,8 @@ workflow DeepSomatic {
         #String deepsomatic_docker = "us.gcr.io/broad-dsde-methods/davidben/deepsomatic-gpu"
 
         # see https://github.com/clara-parabricks-workflows/parabricks-wdl/blob/main/wdl/germline_calling.wdl
-        String nvidia_driver_version = "525.60.13"
+        # and https://docs.nvidia.com/clara/parabricks/4.5.1/gettingstarted/installationrequirements.html
+        String nvidia_driver_version = "570.86.15"
         String? gcs_project_for_requester_pays
 
         # WDL version 1.0 does not have an empty Optional literal
@@ -124,6 +125,9 @@ task DeepsomaticParabricks {
     }
 
     command <<<
+        # report nvidia driver stuff, cuda compatibility etc for troubleshooting
+        nvidia-smi
+
         pbrun deepsomatic \
             --ref ~{ref_fasta} \
             ‑‑interval‑file ~{intervals} \
