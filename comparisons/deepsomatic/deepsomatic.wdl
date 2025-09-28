@@ -53,6 +53,12 @@ workflow DeepSomatic {
     #        gatk_docker = gatk_docker
     #}
 
+    call IntervalListToBed {
+        input:
+            gatk_docker = gatk_docker,
+            intervals = intervals
+    }
+
     call DeepsomaticParabricks {
         input:
             ref_fasta = ref_fasta,
@@ -62,7 +68,7 @@ workflow DeepSomatic {
             tumor_bai = tumor_bai,
             normal_bam = normal_bam,
             normal_bai = normal_bai,
-            intervals = intervals,
+            intervals = IntervalListToBed.output_bed,
             deepsomatic_extra_args = deepsomatic_extra_args,
             deepsomatic_docker = deepsomatic_docker,
             nvidia_driver_version = nvidia_driver_version
@@ -358,5 +364,38 @@ task GetSampleName {
     output {
         String normal_sample = read_string("normal_names.txt")
         String tumor_sample = read_string("tumor_names.txt")
+    }
+}
+
+
+task IntervalListToBed {
+    input {
+        String gatk_docker
+        File intervals
+
+        Int cpu = 2
+        Int mem_gb = 4
+        Int disk_gb = 100
+        Int boot_disk_gb = 4
+        Int max_retries = 0
+        Int preemptible = 0
+    }
+
+    command <<<
+        gatk IntervalListToBed --INPUT ~{intervals} --OUTPUT intervals.bed
+    >>>
+
+    runtime {
+        docker: gatk_docker
+        bootDiskSizeGb: boot_disk_gb
+        memory: mem_gb + " GB"
+        disks: "local-disk " + disk_gb + " SSD"
+        preemptible: preemptible
+        maxRetries: max_retries
+        cpu: cpu
+    }
+
+    output {
+        File output_bed = "intervals.bed"
     }
 }
