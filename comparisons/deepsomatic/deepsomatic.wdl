@@ -23,8 +23,12 @@ workflow DeepSomatic {
         File? truth_vcf_idx
 
         String gatk_docker = "us.gcr.io/broad-gatk/gatk"
-        String deepsomatic_docker = "us.gcr.io/broad-dsde-methods/davidben/deepsomatic-gpu"
-        String nvidia_driver_version = "470.256.02"
+
+        String deepsomatic_docker = "nvcr.io/nvidia/clara/clara-parabricks:4.5.1-1"
+        #String deepsomatic_docker = "us.gcr.io/broad-dsde-methods/davidben/deepsomatic-gpu"
+
+        # see https://github.com/clara-parabricks-workflows/parabricks-wdl/blob/main/wdl/germline_calling.wdl
+        String nvidia_driver_version = "525.60.13"
         String? gcs_project_for_requester_pays
 
         # WDL version 1.0 does not have an empty Optional literal
@@ -35,32 +39,29 @@ workflow DeepSomatic {
         File? EMPTY_STRING_HACK
     }
 
-    call GetSampleName {
-        input:
-            ref_fasta = ref_fasta,
-            ref_fai = ref_fai,
-            ref_dict = ref_dict,
-            tumor_bam = tumor_bam,
-            tumor_bai = tumor_bai,
-            normal_bam = normal_bam,
-            normal_bai = normal_bai,
-            gcs_project_for_requester_pays = gcs_project_for_requester_pays,
-            gatk_docker = gatk_docker
-    }
+    #call GetSampleName {
+    #    input:
+    #        ref_fasta = ref_fasta,
+    #        ref_fai = ref_fai,
+    #        ref_dict = ref_dict,
+    #        tumor_bam = tumor_bam,
+    #        tumor_bai = tumor_bai,
+    #        normal_bam = normal_bam,
+    #        normal_bai = normal_bai,
+    #        gcs_project_for_requester_pays = gcs_project_for_requester_pays,
+    #        gatk_docker = gatk_docker
+    #}
 
-    call Deepsomatic {
+    call DeepsomaticParabricks {
         input:
             ref_fasta = ref_fasta,
             ref_fai = ref_fai,
             ref_dict = ref_dict,
             tumor_bam = tumor_bam,
             tumor_bai = tumor_bai,
-            tumor_sample = GetSampleName.tumor_sample,
             normal_bam = normal_bam,
             normal_bai = normal_bai,
-            normal_sample = GetSampleName.normal_sample,
             intervals = intervals,
-            model_type = model_type,
             deepsomatic_extra_args = deepsomatic_extra_args,
             deepsomatic_docker = deepsomatic_docker,
             nvidia_driver_version = nvidia_driver_version
@@ -73,15 +74,15 @@ workflow DeepSomatic {
                 masks = if masks == "" then EMPTY_STRING_HACK else masks,
                 truth_vcf = select_first([truth_vcf]),
                 truth_vcf_idx = select_first([truth_vcf_idx]),
-                eval_vcf = Deepsomatic.output_vcf,
-                eval_vcf_idx = Deepsomatic.output_vcf_idx,
+                eval_vcf = DeepsomaticParabricks.output_vcf,
+                eval_vcf_idx = DeepsomaticParabricks.output_vcf_idx,
                 gatk_docker = gatk_docker
         }
     }
 
     output {
-        File deepsomatic_calls_vcf = Deepsomatic.output_vcf
-        File deepsomatic_calls_vcf_idx = Deepsomatic.output_vcf_idx
+        File deepsomatic_calls_vcf = DeepsomaticParabricks.output_vcf
+        File deepsomatic_calls_vcf_idx = DeepsomaticParabricks.output_vcf_idx
 
         File? fn = Concordance.fn
         File? fn_idx = Concordance.fn_idx
@@ -97,7 +98,61 @@ workflow DeepSomatic {
         File? filter_analysis = Concordance.filter_analysis
     }
 }
-    
+
+task DeepsomaticParabricks {
+    input {
+        File ref_fasta
+        File ref_fai
+        File ref_dict
+
+        File tumor_bam
+        File tumor_bai
+        File normal_bam
+        File normal_bai
+        File intervals
+        String deepsomatic_extra_args
+
+        String deepsomatic_docker
+        String nvidia_driver_version
+
+        Int cpu = 24
+        Int gpu_count = 4
+        Int mem_gb = 120
+        Int disk_gb = 1000
+        Int max_retries = 0
+        Int preemptible = 0
+    }
+
+    command <<<
+        pbrun deepsomatic \
+            --ref ~{ref_fasta} \
+            ‑‑interval‑file ~{intervals} \
+            --in-tumor-bam ~{tumor_bam} \
+            --in-normal-bam ~{normal_bam} \
+            --out-variants output.vcf \
+            ~{deepsomatic_extra_args}
+
+    >>>
+
+    runtime {
+        docker: deepsomatic_docker
+        memory: mem_gb + " GB"
+        disks: "local-disk " + disk_gb + " SSD"
+        preemptible: preemptible
+        maxRetries: max_retries
+        cpu: cpu
+        gpuType: "nvidia-tesla-t4"
+        gpuCount: gpu_count
+        nvidiaDriverVersion: nvidia_driver_version
+        zones : ["us-central1-a", "us-central1-b", "us-central1-c"]
+    }
+
+    output {
+        File output_vcf = "output.vcf"
+        File output_vcf_idx = "output/output.vcf.idx"
+    }
+}
+
 task Deepsomatic {
     input {
         File ref_fasta
