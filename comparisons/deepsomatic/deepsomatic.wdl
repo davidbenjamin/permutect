@@ -2,9 +2,7 @@ version 1.0
 
 workflow DeepSomatic {
     input {
-        File ref_fasta
-        File ref_fai
-        File ref_dict
+        File ref_tarball
 
         File tumor_bam
         File tumor_bai
@@ -61,9 +59,7 @@ workflow DeepSomatic {
 
     call DeepsomaticParabricks {
         input:
-            ref_fasta = ref_fasta,
-            ref_fai = ref_fai,
-            ref_dict = ref_dict,
+            ref_tarball = ref_tarball,
             tumor_bam = tumor_bam,
             tumor_bai = tumor_bai,
             normal_bam = normal_bam,
@@ -108,9 +104,7 @@ workflow DeepSomatic {
 
 task DeepsomaticParabricks {
     input {
-        File ref_fasta
-        File ref_fai
-        File ref_dict
+        File ref_tarball
 
         File tumor_bam
         File tumor_bai
@@ -130,14 +124,20 @@ task DeepsomaticParabricks {
         Int preemptible = 0
     }
 
+    String ref = basename(ref_tarball, ".tar")
+    String localTarball = basename(ref_tarball)
+
     command <<<
         # report nvidia driver stuff, cuda compatibility etc for troubleshooting
         nvidia-smi
 
+        mv ~{ref_tarball} ~{localTarball}
+        tar xvf ~{localTarball}
+
         pbrun deepsomatic -h
 
         pbrun deepsomatic \
-            --ref ~{ref_fasta} \
+            --ref ~{ref} \
             --in-tumor-bam ~{tumor_bam} \
             --in-normal-bam ~{normal_bam} \
             --out-variants output.vcf \
@@ -168,9 +168,7 @@ task DeepsomaticParabricks {
 
 task Deepsomatic {
     input {
-        File ref_fasta
-        File ref_fai
-        File ref_dict
+        File ref_tarball
 
         File tumor_bam
         File tumor_bai
@@ -193,10 +191,16 @@ task Deepsomatic {
         Int preemptible = 0
     }
 
+    String ref = basename(ref_tarball, ".tar")
+    String localTarball = basename(ref_tarball)
+
     command <<<
+        mv ~{ref_tarball} ~{localTarball}
+        tar xvf ~{localTarball}
+
         run_deepsomatic \
             --model_type=~{model_type} \
-            --ref=~{ref_fasta} \
+            --ref=~{ref} \
             ‑‑interval‑file=~{intervals} \
             --reads_normal=~{normal_bam} \
             --reads_tumor=~{tumor_bam} \
