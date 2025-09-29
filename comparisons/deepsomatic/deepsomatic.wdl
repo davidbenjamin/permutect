@@ -128,31 +128,24 @@ task DeepsomaticParabricks {
     String localTarball = basename(ref_tarball)
 
     command <<<
-        # report nvidia driver stuff, cuda compatibility etc for troubleshooting
-        nvidia-smi
-
-        mv ~{ref_tarball} ~{localTarball}
-        tar xvf ~{localTarball}
-
-        echo "contents of current directory"
-        ls .
-
-        echo "name of ref: " ~{ref}
-
-        echo "local tarball: " ~{localTarball}
-
-
-
-        pbrun deepsomatic -h
-
-        pbrun deepsomatic \
+        mv ~{ref_tarball} ~{localTarball} && \
+        time tar xvf ~{localTarball} && \
+        time pbrun deepsomatic \
             --ref ~{ref} \
             --in-tumor-bam ~{tumor_bam} \
             --in-normal-bam ~{normal_bam} \
             --out-variants output.vcf \
             ~{deepsomatic_extra_args}
 
+
+        # report nvidia driver stuff, cuda compatibility etc for troubleshooting
+        # nvidia-smi
         # we removed             ‑‑interval‑file ~{intervals} \
+        # echo "contents of current directory"
+        # ls .
+        # echo "name of ref: " ~{ref}
+        # echo "local tarball: " ~{localTarball}
+        # pbrun deepsomatic -h
 
     >>>
 
