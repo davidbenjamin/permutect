@@ -134,6 +134,15 @@ task DeepsomaticParabricks {
         mv ~{ref_tarball} ~{localTarball}
         tar xvf ~{localTarball}
 
+        echo "contents of current directory"
+        ls .
+
+        echo "name of ref: " ~{ref}
+
+        echo "local tarball: " ~{localTarball}
+
+
+
         pbrun deepsomatic -h
 
         pbrun deepsomatic \
