@@ -122,7 +122,7 @@ workflow Permutect {
         call Concordance as PermutectConcordance {
             input:
                 intervals = intervals,
-                masks = if masks == "" then EMPTY_STRING_HACK else masks,
+                masks = if (select_first([masks,""]) == "") then EMPTY_STRING_HACK else masks,
                 truth_vcf = select_first([test_dataset_truth_vcf]),
                 truth_vcf_idx = select_first([test_dataset_truth_vcf_idx]),
                 eval_vcf = PermutectFiltering.output_vcf,
@@ -133,7 +133,7 @@ workflow Permutect {
         call Concordance as M2Concordance {
             input:
                 intervals = intervals,
-                masks = if masks == "" then EMPTY_STRING_HACK else masks,
+                masks = if (select_first([masks,""]) == "") then EMPTY_STRING_HACK else masks,
                 truth_vcf = select_first([test_dataset_truth_vcf]),
                 truth_vcf_idx = select_first([test_dataset_truth_vcf_idx]),
                 eval_vcf = Mutect2.output_vcf,
