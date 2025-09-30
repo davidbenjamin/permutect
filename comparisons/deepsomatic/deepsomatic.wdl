@@ -2,12 +2,14 @@ version 1.0
 
 workflow DeepSomatic {
     input {
-        File ref_tarball
+        File ref_fasta
+        File ref_dict
+        File ref_fai
 
         File tumor_bam
         File tumor_bai
-        File normal_bam
-        File normal_bai
+        File? normal_bam
+        File? normal_bai
 
         # Can be WGS,WES,PACBIO,ONT,FFPE_WGS,FFPE_WES,WGS_TUMOR_ONLY,PACBIO_TUMOR_ONLY,ONT_TUMOR_ONLY
         String model_type
@@ -38,37 +40,66 @@ workflow DeepSomatic {
         File? EMPTY_STRING_HACK
     }
 
-    #call GetSampleName {
-    #    input:
-    #        ref_fasta = ref_fasta,
-    #        ref_fai = ref_fai,
-    #        ref_dict = ref_dict,
-    #        tumor_bam = tumor_bam,
-    #        tumor_bai = tumor_bai,
-    #        normal_bam = normal_bam,
-    #        normal_bai = normal_bai,
-    #        gcs_project_for_requester_pays = gcs_project_for_requester_pays,
-    #        gatk_docker = gatk_docker
-    #}
-
-    call IntervalListToBed {
+    call GetSampleName {
         input:
-            gatk_docker = gatk_docker,
-            intervals = intervals
-    }
-
-    call DeepsomaticParabricks {
-        input:
-            ref_tarball = ref_tarball,
+            ref_fasta = ref_fasta,
+            ref_fai = ref_fai,
+            ref_dict = ref_dict,
             tumor_bam = tumor_bam,
             tumor_bai = tumor_bai,
             normal_bam = normal_bam,
             normal_bai = normal_bai,
-            intervals = IntervalListToBed.output_bed,
-            deepsomatic_extra_args = deepsomatic_extra_args,
-            deepsomatic_docker = deepsomatic_docker,
-            nvidia_driver_version = nvidia_driver_version
+            gcs_project_for_requester_pays = gcs_project_for_requester_pays,
+            gatk_docker = gatk_docker
     }
+
+    call SplitContigs {
+      input:
+        ref_fasta_index = ref_fai,
+        threads = 2
+    }
+
+    #call IntervalListToBed {
+    #    input:
+    #        gatk_docker = gatk_docker,
+    #        intervals = intervals
+    #}
+
+        scatter (ctg in SplitContigs.contigs){
+            call DeepSomaticPacBio {
+                input:
+                    tumor_bam = tumor_bam,
+                    normal_bam = normal_bam,
+                    tumor_bam_index = tumor_bai,
+                    normal_bam_index = normal_bai,
+                    tumor_sample = GetSampleName.tumor_sample,
+                    normal_sample = GetSampleName.normal_sample,
+                    model_type = model_type,
+                    ref_fasta = ref_fasta,
+                    ref_fasta_index = ref_fai,
+                    contig = ctg
+            }
+        }
+
+    call MergeVCFs {
+        input:
+            input_vcfs = DeepSomaticPacBio.deepsomatic_vcf,
+            input_vcf_indices = DeepSomaticPacBio.deepsomatic_vcf_idx
+    }
+
+
+    #call DeepsomaticParabricks {
+    #    input:
+    #        ref_tarball = ref_tarball,
+    #        tumor_bam = tumor_bam,
+    #        tumor_bai = tumor_bai,
+    #        normal_bam = normal_bam,
+    #        normal_bai = normal_bai,
+    #        intervals = IntervalListToBed.output_bed,
+    #        deepsomatic_extra_args = deepsomatic_extra_args,
+    #        deepsomatic_docker = deepsomatic_docker,
+    #        nvidia_driver_version = nvidia_driver_version
+    #}
 
     if (defined(truth_vcf)){
         call Concordance {
@@ -77,15 +108,15 @@ workflow DeepSomatic {
                 masks = if masks == "" then EMPTY_STRING_HACK else masks,
                 truth_vcf = select_first([truth_vcf]),
                 truth_vcf_idx = select_first([truth_vcf_idx]),
-                eval_vcf = DeepsomaticParabricks.output_vcf,
-                eval_vcf_idx = DeepsomaticParabricks.output_vcf_idx,
+                eval_vcf = MergeVCFs.merged_vcf,
+                eval_vcf_idx = MergeVCFs.merged_vcf_idx,
                 gatk_docker = gatk_docker
         }
     }
 
     output {
-        File deepsomatic_calls_vcf = DeepsomaticParabricks.output_vcf
-        File deepsomatic_calls_vcf_idx = DeepsomaticParabricks.output_vcf_idx
+        File deepsomatic_calls_vcf = MergeVCFs.merged_vcf
+        File deepsomatic_calls_vcf_idx = MergeVCFs.merged_vcf_idx
 
         File? fn = Concordance.fn
         File? fn_idx = Concordance.fn_idx
@@ -406,3 +437,130 @@ task IntervalListToBed {
         File output_bed = "intervals.bed"
     }
 }
+
+# copied from PacBio's DeepSomatic WDL: https://github.com/PacificBiosciences/HiFi-somatic-WDL/blob/main/tasks/common.wdl
+# Use bedtools to split contigs
+task SplitContigs {
+  input {
+    File ref_fasta_index
+    Int chunk_size = 75000000
+    Int threads
+  }
+
+  Float file_size = ceil(size(ref_fasta_index, "GB") + 10)
+
+  command <<<
+  set -euxo pipefail
+
+  bedtools --version
+
+  echo "Splitting contigs for ~{ref_fasta_index}"
+  bedtools makewindows -g ~{ref_fasta_index} -w ~{chunk_size} > contigs.bed
+  grep -v -E "random|chrUn|chrM|chrEBV" contigs.bed > noalt.bed
+  # Split the contig bed files into one file for each line
+  split -l 1 noalt.bed contigs_split.
+  # Add .bed to all the contigs_split file
+  for file in $(ls contigs_split.*); do mv $file $file.bed; done
+  >>>
+
+  output {
+    Array[File] contigs = glob("contigs_split.*.bed")
+  }
+
+  runtime {
+    docker: "quay.io/biocontainers/bedtools:2.31.0--hf5e1c6e_2"
+    cpu: threads
+    memory: "~{threads * 4} GB"
+    disk: file_size + " GB"
+    maxRetries: 2
+    preemptible: 1
+  }
+}
+
+task DeepSomaticPacBio {
+    input {
+        File tumor_bam
+        File? normal_bam
+        File tumor_bam_index
+        File? normal_bam_index
+        String tumor_sample
+        String? normal_sample
+        String model_type
+        File ref_fasta
+        File ref_fasta_index
+        File? contig
+        Int threads = 16
+    }
+
+    Float file_size = ceil(size(tumor_bam, "GB") * 2 + size(normal_bam, "GB") * 2 + size(ref_fasta, "GB") + size(contig, "GB") + 20)
+
+    command <<<
+    set -euxo pipefail
+
+    /opt/deepvariant/bin/deepsomatic/run_deepsomatic --version
+
+    /opt/deepvariant/bin/deepsomatic/run_deepsomatic \
+        --model_type=~{model_type} \
+        ~{if defined(normal_bam) then "" else "--use_default_pon_filtering=true"} \
+        --ref=~{ref_fasta} \
+        ~{if (defined(normal_bam)) then "--reads_normal=~{normal_bam}" else ""} \
+        --reads_tumor=~{tumor_bam} \
+        --output_vcf=deepsomatic.vcf.gz \
+        --output_gvcf=deepsomatic.g.vcf.gz \
+        --sample_name_tumor=~{tumor_sample} \
+        ~{if (defined(normal_bam)) then "--sample_name_normal=~{normal_sample}" else ""} \
+        --num_shards=~{threads} \
+        --postprocess_variants_extra_args="--cpus=~{threads / 2},--num_partitions=~{threads / 2}" \
+        --logging_dir=logs \
+        ~{"--regions=" + contig}
+    >>>
+
+    output {
+        File deepsomatic_vcf = "deepsomatic.vcf.gz"
+        File deepsomatic_vcf_idx = "deepsomatic.vcf.gz.tbi"
+    }
+
+    runtime {
+        docker: "google/deepsomatic@sha256:d9797b8950bf615ec7010d1336b7ee0a2f12ea09323dc3585f7e9fe39b082bde"
+        cpu: threads
+        memory: "~{threads * 8} GB"
+        disk: file_size + " GB"
+        maxRetries: 0
+        preemptible: 1
+    }
+}
+
+task MergeVCFs {
+    input {
+        Array[File] input_vcfs
+        Array[File] input_vcf_indices
+
+        Int mem = 8
+        Int boot_disk_size = 8
+        Int disk = 100
+        Int preemptible = 0
+        Int max_retries =  1
+        Int cpu = 1
+    }
+
+    command {
+        set -e
+        gatk MergeVcfs -I ~{sep=' -I ' input_vcfs} -O merged.vcf
+    }
+
+    runtime {
+        docker: "us.gcr.io/broad-gatk/gatk"
+        bootDiskSizeGb: boot_disk_size
+        memory: mem + " GB"
+        disks: "local-disk " + disk + " HDD"
+        preemptible: preemptible
+        maxRetries: max_retries
+        cpu: cpu
+    }
+
+    output {
+        File merged_vcf = "merged.vcf"
+        File merged_vcf_idx = "merged.vcf.idx"
+    }
+}
+
