@@ -108,8 +108,8 @@ workflow DeepSomatic {
 
     call MergeVCFs {
         input:
-            input_vcfs = Deepsomatic.deepsomatic_vcf,
-            input_vcf_indices = Deepsomatic.deepsomatic_vcf_idx
+            input_vcfs = Deepsomatic.output_vcf,
+            input_vcf_indices = Deepsomatic.output_vcf_idx
     }
 
 
