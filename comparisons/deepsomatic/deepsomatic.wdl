@@ -17,6 +17,9 @@ workflow DeepSomatic {
         File intervals
         File? masks
 
+        Int print_reads_mem = 8
+        Int print_reads_disk = 100
+
         String deepsomatic_extra_args = ""
 
         File? truth_vcf    # used for evaluation
@@ -72,7 +75,9 @@ workflow DeepSomatic {
                 ref_fasta = ref_fasta,
                 ref_fai = ref_fai,
                 ref_dict = ref_dict,
-                intervals = subintervals
+                intervals = subintervals,
+                mem_gb = print_reads_mem,
+                disk_gb = print_reads_disk
         }
 
         call MakeCramForIntervals as RestrictedNormalCram {
@@ -84,7 +89,9 @@ workflow DeepSomatic {
                 ref_fasta = ref_fasta,
                 ref_fai = ref_fai,
                 ref_dict = ref_dict,
-                intervals = subintervals
+                intervals = subintervals,
+                mem_gb = print_reads_mem,
+                disk_gb = print_reads_disk
         }
 
         call Deepsomatic {
