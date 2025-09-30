@@ -609,7 +609,7 @@ task MakeCramForIntervals {
     }
 
     output {
-        File restricted_bam = "restricted.cram"
-        File restricted_bam_idx = "restricted.crai"
+        File restricted_cram = "restricted.cram"
+        File restricted_crai = "restricted.crai"
     }
 }
