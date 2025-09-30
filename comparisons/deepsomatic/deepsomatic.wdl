@@ -8,8 +8,8 @@ workflow DeepSomatic {
 
         File tumor_bam
         File tumor_bai
-        File? normal_bam
-        File? normal_bai
+        File normal_bam
+        File normal_bai
 
         # Can be WGS,WES,PACBIO,ONT,FFPE_WGS,FFPE_WES,WGS_TUMOR_ONLY,PACBIO_TUMOR_ONLY,ONT_TUMOR_ONLY
         String model_type
@@ -17,19 +17,16 @@ workflow DeepSomatic {
         File intervals
         File? masks
 
-        String deepsomatic_extra_args
+        String deepsomatic_extra_args = ""
 
         File? truth_vcf    # used for evaluation
         File? truth_vcf_idx
 
         String gatk_docker = "us.gcr.io/broad-gatk/gatk"
+        String deepsomatic_docker = "us.gcr.io/broad-dsde-methods/davidben/deepsomatic"
 
-        String deepsomatic_docker = "nvcr.io/nvidia/clara/clara-parabricks:4.3.1-1"
-        #String deepsomatic_docker = "us.gcr.io/broad-dsde-methods/davidben/deepsomatic-gpu"
+        Int scatter_count
 
-        # see https://github.com/clara-parabricks-workflows/parabricks-wdl/blob/main/wdl/germline_calling.wdl
-        # and https://docs.nvidia.com/clara/parabricks/4.5.1/gettingstarted/installationrequirements.html
-        String nvidia_driver_version = "525.60.13"
         String? gcs_project_for_requester_pays
 
         # WDL version 1.0 does not have an empty Optional literal
@@ -53,53 +50,69 @@ workflow DeepSomatic {
             gatk_docker = gatk_docker
     }
 
-    call SplitContigs {
-      input:
-        ref_fasta_index = ref_fai,
-        threads = 2
+    call SplitIntervals {
+        input:
+            intervals = intervals,
+            masked_intervals = masks,
+            ref_fasta = ref_fasta,
+            ref_fai = ref_fai,
+            ref_dict = ref_dict,
+            scatter_count = scatter_count,
+            gatk_docker = gatk_docker
     }
 
-    #call IntervalListToBed {
-    #    input:
-    #        gatk_docker = gatk_docker,
-    #        intervals = intervals
-    #}
+    scatter (subintervals in SplitIntervals.interval_files ) {
 
-        scatter (ctg in SplitContigs.contigs){
-            call DeepSomaticPacBio {
-                input:
-                    tumor_bam = tumor_bam,
-                    normal_bam = normal_bam,
-                    tumor_bam_index = tumor_bai,
-                    normal_bam_index = normal_bai,
-                    tumor_sample = GetSampleName.tumor_sample,
-                    normal_sample = GetSampleName.normal_sample,
-                    model_type = model_type,
-                    ref_fasta = ref_fasta,
-                    ref_fasta_index = ref_fai,
-                    contig = ctg
-            }
+        call MakeCramForIntervals as RestrictedTumorCram {
+            input:
+                gatk_docker = gatk_docker,
+                gcs_project_for_requester_pays = gcs_project_for_requester_pays,
+                original_bam = tumor_bam,
+                original_bam_idx = tumor_bai,
+                ref_fasta = ref_fasta,
+                ref_fai = ref_fai,
+                ref_dict = ref_dict,
+                intervals = subintervals
         }
+
+        call MakeCramForIntervals as RestrictedNormalCram {
+            input:
+                gatk_docker = gatk_docker,
+                gcs_project_for_requester_pays = gcs_project_for_requester_pays,
+                original_bam = normal_bam,
+                original_bam_idx = normal_bai,
+                ref_fasta = ref_fasta,
+                ref_fai = ref_fai,
+                ref_dict = ref_dict,
+                intervals = subintervals
+        }
+
+        call Deepsomatic {
+            input:
+                ref_fasta = ref_fasta,
+                ref_dict = ref_dict,
+                ref_fai = ref_fai,
+                tumor_bam = RestrictedTumorCram.restricted_cram,
+                tumor_bai = RestrictedTumorCram.restricted_crai,
+                tumor_sample = GetSampleName.tumor_sample,
+                normal_bam = RestrictedNormalCram.restricted_cram,
+                normal_bai = RestrictedNormalCram.restricted_crai,
+                normal_sample = GetSampleName.normal_sample,
+                intervals = subintervals,
+                model_type = model_type,
+                deepsomatic_extra_args = deepsomatic_extra_args,
+                deepsomatic_docker = deepsomatic_docker
+        }
+    }
+
 
     call MergeVCFs {
         input:
-            input_vcfs = DeepSomaticPacBio.deepsomatic_vcf,
-            input_vcf_indices = DeepSomaticPacBio.deepsomatic_vcf_idx
+            input_vcfs = Deepsomatic.deepsomatic_vcf,
+            input_vcf_indices = Deepsomatic.deepsomatic_vcf_idx
     }
 
 
-    #call DeepsomaticParabricks {
-    #    input:
-    #        ref_tarball = ref_tarball,
-    #        tumor_bam = tumor_bam,
-    #        tumor_bai = tumor_bai,
-    #        normal_bam = normal_bam,
-    #        normal_bai = normal_bai,
-    #        intervals = IntervalListToBed.output_bed,
-    #        deepsomatic_extra_args = deepsomatic_extra_args,
-    #        deepsomatic_docker = deepsomatic_docker,
-    #        nvidia_driver_version = nvidia_driver_version
-    #}
 
     if (defined(truth_vcf)){
         call Concordance {
@@ -133,75 +146,11 @@ workflow DeepSomatic {
     }
 }
 
-task DeepsomaticParabricks {
-    input {
-        File ref_tarball
-
-        File tumor_bam
-        File tumor_bai
-        File normal_bam
-        File normal_bai
-        File intervals
-        String deepsomatic_extra_args
-
-        String deepsomatic_docker
-        String nvidia_driver_version
-
-        Int cpu = 24
-        Int gpu_count = 4
-        Int mem_gb = 120
-        Int disk_gb = 1000
-        Int max_retries = 0
-        Int preemptible = 0
-    }
-
-    String ref = basename(ref_tarball, ".tar")
-    String localTarball = basename(ref_tarball)
-
-    command <<<
-        mv ~{ref_tarball} ~{localTarball} && \
-        time tar xvf ~{localTarball} && \
-        time pbrun deepsomatic \
-            --ref ~{ref} \
-            --in-tumor-bam ~{tumor_bam} \
-            --in-normal-bam ~{normal_bam} \
-            --out-variants output.vcf \
-            ~{deepsomatic_extra_args}
-
-
-        # report nvidia driver stuff, cuda compatibility etc for troubleshooting
-        # nvidia-smi
-        # we removed             ‑‑interval‑file ~{intervals} \
-        # echo "contents of current directory"
-        # ls .
-        # echo "name of ref: " ~{ref}
-        # echo "local tarball: " ~{localTarball}
-        # pbrun deepsomatic -h
-
-    >>>
-
-    runtime {
-        docker: deepsomatic_docker
-        memory: mem_gb + " GB"
-        disks: "local-disk " + disk_gb + " SSD"
-        preemptible: preemptible
-        maxRetries: max_retries
-        cpu: cpu
-        gpuType: "nvidia-tesla-t4"
-        gpuCount: gpu_count
-        nvidiaDriverVersion: nvidia_driver_version
-        zones : ["us-central1-a", "us-central1-b", "us-central1-c"]
-    }
-
-    output {
-        File output_vcf = "output.vcf"
-        File output_vcf_idx = "output/output.vcf.idx"
-    }
-}
-
 task Deepsomatic {
     input {
-        File ref_tarball
+        File ref_fasta
+        File ref_dict
+        File ref_fai
 
         File tumor_bam
         File tumor_bai
@@ -214,7 +163,6 @@ task Deepsomatic {
         String deepsomatic_extra_args
 
         String deepsomatic_docker
-        String nvidia_driver_version
 
         Int cpu = 4
         Int mem_gb = 32
@@ -224,16 +172,11 @@ task Deepsomatic {
         Int preemptible = 0
     }
 
-    String ref = basename(ref_tarball, ".tar")
-    String localTarball = basename(ref_tarball)
-
     command <<<
-        mv ~{ref_tarball} ~{localTarball}
-        tar xvf ~{localTarball}
 
         run_deepsomatic \
             --model_type=~{model_type} \
-            --ref=~{ref} \
+            --ref=~{ref_fasta} \
             ‑‑interval‑file=~{intervals} \
             --reads_normal=~{normal_bam} \
             --reads_tumor=~{tumor_bam} \
@@ -247,7 +190,6 @@ task Deepsomatic {
             --use_default_pon_filtering=false \
             --dry_run=false \
             ~{deepsomatic_extra_args}
-
     >>>
 
     runtime {
@@ -258,10 +200,6 @@ task Deepsomatic {
         preemptible: preemptible
         maxRetries: max_retries
         cpu: cpu
-        gpuType: "nvidia-tesla-t4"
-        gpuCount: 1
-        nvidiaDriverVersion: nvidia_driver_version
-        zones : ["us-central1-a", "us-central1-b", "us-central1-c"]
     }
 
     output {
@@ -565,3 +503,113 @@ task MergeVCFs {
     }
 }
 
+task SplitIntervals {
+    input {
+        File? intervals
+        File? masked_intervals
+        File ref_fasta
+        File ref_fai
+        File ref_dict
+        Int scatter_count
+        String? split_intervals_extra_args
+
+        # runtime
+        String gatk_docker
+        Int mem = 4
+        Int boot_disk_size = 5
+        Int disk = 10
+
+    }
+
+    parameter_meta{
+        intervals: {localization_optional: true}
+        masked_intervals: {localization_optional: true}
+        ref_fasta: {localization_optional: true}
+        ref_fai: {localization_optional: true}
+        ref_dict: {localization_optional: true}
+    }
+
+    command {
+        set -e
+
+        mkdir interval-files
+        gatk SplitIntervals \
+            -R ~{ref_fasta} \
+            ~{"-L " + intervals} \
+            ~{"-XL " + masked_intervals} \
+            -scatter ~{scatter_count} \
+            -O interval-files \
+            ~{split_intervals_extra_args}
+        cp interval-files/*.interval_list .
+    }
+
+    runtime {
+        docker: gatk_docker
+        bootDiskSizeGb: boot_disk_size
+        memory: mem + " GB"
+        disks: "local-disk " + disk + " HDD"
+        preemptible: 0
+        maxRetries: 0
+        cpu: 1
+    }
+
+    output {
+        Array[File] interval_files = glob("*.interval_list")
+    }
+}
+
+task MakeCramForIntervals {
+    input {
+        String gatk_docker
+        String? gcs_project_for_requester_pays
+        File original_bam       # this can be a BAM or CRAM
+        File original_bam_idx
+        File ref_fasta          # GATK PrintReads requires a reference for CRAMs
+        File ref_fai
+        File ref_dict
+        File intervals
+
+        Int cpu = 2
+        Int num_threads = 4
+        Int mem_gb = 8
+        Int disk_gb = 100
+        Int boot_disk_gb = 5
+        Int max_retries = 0
+        Int preemptible = 1
+    }
+
+    parameter_meta{
+        intervals: {localization_optional: true}
+        ref_fasta: {localization_optional: true}
+        ref_fai: {localization_optional: true}
+        ref_dict: {localization_optional: true}
+        original_bam: {localization_optional: true}
+        original_bam_idx: {localization_optional: true}
+    }
+
+    command <<<
+        # this command also produces the accompanying index hla.bai
+        gatk PrintReads -R ~{ref_fasta} -I ~{original_bam} -L ~{intervals} -O restricted.cram \
+            ~{"--gcs-project-for-requester-pays " + gcs_project_for_requester_pays}
+
+
+        # samtools sort -@ ~{num_threads} hla-unsorted.bam > hla.bam
+        # gatk BuildBamIndex -I hla.bam
+        # gatk ValidateSamFile -I hla.bam
+    >>>
+
+    runtime {
+        docker: gatk_docker
+        bootDiskSizeGb: boot_disk_gb
+        memory: mem_gb + " GB"
+        disks: "local-disk " + disk_gb + " SSD"
+        preemptible: preemptible
+        maxRetries: max_retries
+        cpu: cpu
+    }
+
+    output {
+        File restricted_bam = "restricted.cram"
+        File restricted_bam_idx = "restricted.crai"
+    }
+}
