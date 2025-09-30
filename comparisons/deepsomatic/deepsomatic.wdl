@@ -456,7 +456,7 @@ task SplitContigs {
 
   echo "Splitting contigs for ~{ref_fasta_index}"
   bedtools makewindows -g ~{ref_fasta_index} -w ~{chunk_size} > contigs.bed
-  grep -v -E "random|chrUn|chrM|chrEBV" contigs.bed > noalt.bed
+  grep -v -E "random|chrUn|chrM|chrEBV|alt|HLA" contigs.bed > noalt.bed
   # Split the contig bed files into one file for each line
   split -l 1 noalt.bed contigs_split.
   # Add .bed to all the contigs_split file
