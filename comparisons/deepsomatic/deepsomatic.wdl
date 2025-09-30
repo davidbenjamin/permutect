@@ -70,9 +70,11 @@ workflow DeepSomatic {
     #        gatk_docker = gatk_docker
     #}
 
-    scatter (contig in GetContigStrings.contigs ) {
+    #scatter (contig in GetContigStrings.contigs ) {
 
-        call Deepsomatic {
+    #}
+
+            call Deepsomatic {
             input:
                 ref_fasta = ref_fasta,
                 ref_dict = ref_dict,
@@ -83,19 +85,17 @@ workflow DeepSomatic {
                 normal_bam = normal_bam,
                 normal_bai = normal_bai,
                 normal_sample = GetSampleName.normal_sample,
-                contig = contig,
                 model_type = model_type,
                 deepsomatic_extra_args = deepsomatic_extra_args,
                 deepsomatic_docker = deepsomatic_docker
         }
-    }
 
 
-    call MergeVCFs {
-        input:
-            input_vcfs = Deepsomatic.output_vcf,
-            input_vcf_indices = Deepsomatic.output_vcf_idx
-    }
+    #call MergeVCFs {
+    #    input:
+    #        input_vcfs = Deepsomatic.output_vcf,
+    #        input_vcf_indices = Deepsomatic.output_vcf_idx
+    #}
 
 
 
@@ -106,15 +106,15 @@ workflow DeepSomatic {
                 masks = if masks == "" then EMPTY_STRING_HACK else masks,
                 truth_vcf = select_first([truth_vcf]),
                 truth_vcf_idx = select_first([truth_vcf_idx]),
-                eval_vcf = MergeVCFs.merged_vcf,
-                eval_vcf_idx = MergeVCFs.merged_vcf_idx,
+                eval_vcf = Deepsomatic.output_vcf,
+                eval_vcf_idx = Deepsomatic.output_vcf_idx,
                 gatk_docker = gatk_docker
         }
     }
 
     output {
-        File deepsomatic_calls_vcf = MergeVCFs.merged_vcf
-        File deepsomatic_calls_vcf_idx = MergeVCFs.merged_vcf_idx
+        File deepsomatic_calls_vcf = Deepsomatic.output_vcf
+        File deepsomatic_calls_vcf_idx = Deepsomatic.output_vcf_idx
 
         File? fn = Concordance.fn
         File? fn_idx = Concordance.fn_idx
@@ -149,19 +149,12 @@ task Deepsomatic {
 
         String deepsomatic_docker
 
-        Int cpu = 4
-        Int mem_gb = 32
-        Int disk_gb = 1000
+        Int cpu = 32
+        Int mem_gb = 96
+        Int disk_gb = 500
         Int boot_disk_gb = 10
         Int max_retries = 0
         Int preemptible = 0
-    }
-
-    parameter_meta{
-        tumor_bam: {localization_optional: true}
-        tumor_bai: {localization_optional: true}
-        normal_bam: {localization_optional: true}
-        normal_bai: {localization_optional: true}
     }
 
     command <<<
