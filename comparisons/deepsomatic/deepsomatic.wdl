@@ -490,9 +490,10 @@ task DeepSomaticPacBio {
         File ref_fasta_index
         File? contig
         Int threads = 16
+        Int disk = 500
     }
 
-    Float file_size = ceil(size(tumor_bam, "GB") * 2 + size(normal_bam, "GB") * 2 + size(ref_fasta, "GB") + size(contig, "GB") + 20)
+    # Float file_size = ceil(size(tumor_bam, "GB") * 2 + size(normal_bam, "GB") * 2 + size(ref_fasta, "GB") + size(contig, "GB") + 20)
 
     command <<<
     set -euxo pipefail
@@ -524,7 +525,7 @@ task DeepSomaticPacBio {
         docker: "google/deepsomatic@sha256:d9797b8950bf615ec7010d1336b7ee0a2f12ea09323dc3585f7e9fe39b082bde"
         cpu: threads
         memory: "~{threads * 8} GB"
-        disk: file_size + " GB"
+        disks: "local-disk " + disk + " SSD"
         maxRetries: 0
         preemptible: 1
     }
