@@ -1,6 +1,11 @@
 sample_table = "sample.tsv"
 pair_table = "pair.tsv"
 
+high_confidence_bedfile = "gs://broad-dsp-david-benjamin/seqc2/High-Confidence_Regions_v1.2.bed"
+high_confidence_exome_bedfile = "gs://broad-dsp-david-benjamin/seqc2/High-Confidence_Exonic_Regions_v1.2.bed"
+truth_vcf = "gs://broad-dsp-david-benjamin/seqc2/high-confidence_SNV_INDEL_in_HC_regions_v1.2.1.vcf"
+truth_vcf_idx = truth_vcf + ".idx"
+
 seqc2_bucket = "gs://broad-dsp-david-benjamin/seqc2"
 
 ffpe_wes_bucket = seqc2_bucket + "/ffpe/wes"
@@ -16,14 +21,20 @@ wes_novaseq_bucket = seqc2_bucket + "/wes/novaseq"
 with open(sample_table, 'w') as sample_file, open(pair_table, 'w') as pair_file:
     # write the headers
     sample_file.write('entity:sample_id\tbam\tbai\tevaluation_truth\tevaluation_truth_idx\tparticipant\n')
+    pair_file.write('entity:pair_id\tcalling_intervals\tcase_sample\tcontrol_sample\tparticipant')
 
 
     # first do the 2x2 combinations of WGS/WES and hiseq/novaseq
     for platform, platform_string in [("hiseq", "IL"), ("novaseq", "NV")]:
         for target, target_string in [("wgs", "WGS"), ("wes", "WES")]:
+            high_conf_bed = high_confidence_exome_bedfile if target == "wes" else high_confidence_bedfile
+
             bucket = f"{seqc2_bucket}/{target}/{platform}"
             for n in (1, 2, 3):
                 tumor_bam = f"{bucket}/{target_string}_{platform_string}_T_{n}.bwa.dedup.bam"
                 tumor_bai = f"{bucket}/{target_string}_{platform_string}_T_{n}.bwa.dedup.bai"
                 normal_bam = f"{bucket}/{target_string}_{platform_string}_N_{n}.bwa.dedup.bam"
                 normal_bai = f"{bucket}/{target_string}_{platform_string}_N_{n}.bwa.dedup.bai"
+
+                tumor_id = f"{target_string}_{platform_string}_T_{n}"
+                normal_id = f"{target_string}_{platform_string}_N_{n}"
