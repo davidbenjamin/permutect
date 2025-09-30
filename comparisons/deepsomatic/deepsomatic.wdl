@@ -66,44 +66,16 @@ workflow DeepSomatic {
 
     scatter (subintervals in SplitIntervals.interval_files ) {
 
-        call MakeCramForIntervals as RestrictedTumorCram {
-            input:
-                gatk_docker = gatk_docker,
-                gcs_project_for_requester_pays = gcs_project_for_requester_pays,
-                original_bam = tumor_bam,
-                original_bam_idx = tumor_bai,
-                ref_fasta = ref_fasta,
-                ref_fai = ref_fai,
-                ref_dict = ref_dict,
-                intervals = subintervals,
-                mem_gb = print_reads_mem,
-                disk_gb = print_reads_disk
-        }
-
-        call MakeCramForIntervals as RestrictedNormalCram {
-            input:
-                gatk_docker = gatk_docker,
-                gcs_project_for_requester_pays = gcs_project_for_requester_pays,
-                original_bam = normal_bam,
-                original_bam_idx = normal_bai,
-                ref_fasta = ref_fasta,
-                ref_fai = ref_fai,
-                ref_dict = ref_dict,
-                intervals = subintervals,
-                mem_gb = print_reads_mem,
-                disk_gb = print_reads_disk
-        }
-
         call Deepsomatic {
             input:
                 ref_fasta = ref_fasta,
                 ref_dict = ref_dict,
                 ref_fai = ref_fai,
-                tumor_bam = RestrictedTumorCram.restricted_cram,
-                tumor_bai = RestrictedTumorCram.restricted_crai,
+                tumor_bam = tumor_bam,
+                tumor_bai = tumor_bai,
                 tumor_sample = GetSampleName.tumor_sample,
-                normal_bam = RestrictedNormalCram.restricted_cram,
-                normal_bai = RestrictedNormalCram.restricted_crai,
+                normal_bam = normal_bam,
+                normal_bai = normal_bai,
                 normal_sample = GetSampleName.normal_sample,
                 intervals = subintervals,
                 model_type = model_type,
@@ -179,12 +151,19 @@ task Deepsomatic {
         Int preemptible = 0
     }
 
+    parameter_meta{
+        tumor_bam: {localization_optional: true}
+        tumor_bai: {localization_optional: true}
+        normal_bam: {localization_optional: true}
+        normal_bai: {localization_optional: true}
+    }
+
     command <<<
 
         run_deepsomatic \
             --model_type=~{model_type} \
             --ref=~{ref_fasta} \
-            ‑‑interval‑file=~{intervals} \
+            ‑‑regions=~{intervals} \
             --reads_normal=~{normal_bam} \
             --reads_tumor=~{tumor_bam} \
             --output_vcf=output/output.vcf.gz \
@@ -536,7 +515,7 @@ task SplitIntervals {
         ref_dict: {localization_optional: true}
     }
 
-    command {
+    command <<<
         set -e
 
         mkdir interval-files
@@ -548,7 +527,11 @@ task SplitIntervals {
             -O interval-files \
             ~{split_intervals_extra_args}
         cp interval-files/*.interval_list .
-    }
+
+        for file in *.interval_list; do
+            gatk IntervalListToBed --INPUT $file --OUTPUT ${file%.interval_list}.bed
+        done
+    >>>
 
     runtime {
         docker: gatk_docker
@@ -561,7 +544,7 @@ task SplitIntervals {
     }
 
     output {
-        Array[File] interval_files = glob("*.interval_list")
+        Array[File] interval_files = glob("*.bed")
     }
 }
 
