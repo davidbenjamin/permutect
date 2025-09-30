@@ -599,6 +599,8 @@ task MakeCramForIntervals {
         gatk PrintReads -R ~{ref_fasta} -I ~{original_bam} -L ~{intervals} -O restricted.cram \
             ~{"--gcs-project-for-requester-pays " + gcs_project_for_requester_pays}
 
+        ls .
+
 
         # samtools sort -@ ~{num_threads} hla-unsorted.bam > hla.bam
         # gatk BuildBamIndex -I hla.bam
@@ -617,6 +619,6 @@ task MakeCramForIntervals {
 
     output {
         File restricted_cram = "restricted.cram"
-        File restricted_crai = "restricted.crai"
+        File restricted_crai = "restricted.cram.crai"
     }
 }
