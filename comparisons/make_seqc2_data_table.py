@@ -33,7 +33,7 @@ with open(sample_table, 'w') as sample_file, open(pair_table, 'w') as pair_file,
     for platform, platform_string in [("hiseq", "IL"), ("novaseq", "NV")]:
         for target, target_string in [("wgs", "WGS"), ("wes", "WES")]:
             pair_set_id = f"seqc2_{target}_{platform}"
-            entity_file.write(f"pair_set_id\n")
+            entity_file.write(f"{pair_set_id}\n")
 
             high_conf_bed = high_confidence_exome_bedfile if target == "wes" else high_confidence_bedfile
 
@@ -58,7 +58,7 @@ with open(sample_table, 'w') as sample_file, open(pair_table, 'w') as pair_file,
         bucket = f"{seqc2_bucket}/titration/{coverage}x"
 
         pair_set_id = f"seqc2_titration_{coverage}x"
-        entity_file.write(f"pair_set_id\n")
+        entity_file.write(f"{pair_set_id}\n")
 
         normal_sample_id = None
         for tumor_normal_ratio in ("0-1", "1-19", "1-9", "1-4", "1-1", "3-1", "1-0"):
@@ -81,7 +81,7 @@ with open(sample_table, 'w') as sample_file, open(pair_table, 'w') as pair_file,
         bucket = f"{seqc2_bucket}/ffpe/{target}"
 
         pair_set_id = f"seqc2_ffpe_{target}"
-        entity_file.write(f"pair_set_id\n")
+        entity_file.write(f"{pair_set_id}\n")
 
         for time in [1, 2, 6, 24]:
             tumor_suffix = "_1" if target == "wes" else ""

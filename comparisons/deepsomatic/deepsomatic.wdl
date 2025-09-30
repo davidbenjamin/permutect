@@ -157,12 +157,12 @@ task Deepsomatic {
         Int preemptible = 0
     }
 
-    #parameter_meta{
-    #    tumor_bam: {localization_optional: true}
-    #    tumor_bai: {localization_optional: true}
-    #    normal_bam: {localization_optional: true}
-    #    normal_bai: {localization_optional: true}
-    #}
+    parameter_meta{
+        tumor_bam: {localization_optional: true}
+        tumor_bai: {localization_optional: true}
+        normal_bam: {localization_optional: true}
+        normal_bai: {localization_optional: true}
+    }
 
     command <<<
 
