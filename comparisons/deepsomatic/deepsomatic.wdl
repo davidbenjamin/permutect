@@ -53,18 +53,24 @@ workflow DeepSomatic {
             gatk_docker = gatk_docker
     }
 
-    call SplitIntervals {
+    call GetContigStrings {
         input:
-            intervals = intervals,
-            masked_intervals = masks,
-            ref_fasta = ref_fasta,
-            ref_fai = ref_fai,
-            ref_dict = ref_dict,
-            scatter_count = scatter_count,
-            gatk_docker = gatk_docker
+            ref_dict = ref_dict
     }
 
-    scatter (subintervals in SplitIntervals.interval_files ) {
+
+    #call SplitIntervals {
+    #    input:
+    #        intervals = intervals,
+    #        masked_intervals = masks,
+    #        ref_fasta = ref_fasta,
+    #        ref_fai = ref_fai,
+    #        ref_dict = ref_dict,
+    #        scatter_count = scatter_count,
+    #        gatk_docker = gatk_docker
+    #}
+
+    scatter (contig in GetContigStrings.contigs ) {
 
         call Deepsomatic {
             input:
@@ -77,7 +83,7 @@ workflow DeepSomatic {
                 normal_bam = normal_bam,
                 normal_bai = normal_bai,
                 normal_sample = GetSampleName.normal_sample,
-                intervals = subintervals,
+                contig = contig,
                 model_type = model_type,
                 deepsomatic_extra_args = deepsomatic_extra_args,
                 deepsomatic_docker = deepsomatic_docker
@@ -137,7 +143,7 @@ task Deepsomatic {
         File normal_bam
         File normal_bai
         String normal_sample
-        File intervals
+        String? contig
         String model_type
         String deepsomatic_extra_args
 
@@ -163,7 +169,7 @@ task Deepsomatic {
         run_deepsomatic \
             --model_type=~{model_type} \
             --ref=~{ref_fasta} \
-            ‑‑regions=~{intervals} \
+            ~{" --regions=" + contig} \
             --reads_normal=~{normal_bam} \
             --reads_tumor=~{tumor_bam} \
             --output_vcf=output/output.vcf.gz \
@@ -359,6 +365,31 @@ task IntervalListToBed {
 
     output {
         File output_bed = "intervals.bed"
+    }
+}
+
+
+
+task GetContigStrings {
+    input {
+        File ref_dict
+    }
+
+    command <<<
+        cat ~{ref_dict} | grep -v -E "random|chrUn|chrM|chrEBV|alt|HLA" | cut -f 2 | grep SN | sed 's/SN://g' > contigs.txt
+    >>>
+
+    output {
+        Array[String] contigs = read_lines("contigs.txt")
+    }
+
+    runtime {
+        docker: "quay.io/biocontainers/bedtools:2.31.0--hf5e1c6e_2"
+        cpu: 1
+        memory: "2 GB"
+        disk: "10 GB"
+        maxRetries: 0
+        preemptible: 0
     }
 }
 
