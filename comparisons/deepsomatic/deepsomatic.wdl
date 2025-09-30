@@ -601,6 +601,10 @@ task MakeCramForIntervals {
 
         ls .
 
+        # OH DEAR! HORRID GATK BUG!  The index is named restricted.cram.bai
+        # That's disgusting!!!!!
+        mv restricted.cram.bai restricted.cram.crai
+
 
         # samtools sort -@ ~{num_threads} hla-unsorted.bam > hla.bam
         # gatk BuildBamIndex -I hla.bam
