@@ -19,7 +19,7 @@ workflow Strelka {
         File? truth_vcf_idx
 
         String gatk_docker = "us.gcr.io/broad-gatk/gatk"
-        String strelka_docker
+        String strelka_docker = "us.gcr.io/broad-dsde-methods/davidben/strelka"
         String? gcs_project_for_requester_pays
 
         # WDL version 1.0 does not have an empty Optional literal

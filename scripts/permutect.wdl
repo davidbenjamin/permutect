@@ -119,14 +119,25 @@ workflow Permutect {
     }
 
     if (defined(test_dataset_truth_vcf)){
-        call Concordance {
+        call Concordance as PermutectConcordance {
             input:
                 intervals = intervals,
-                masks = if masks == "" then EMPTY_STRING_HACK else masks,
+                masks = if (select_first([masks,""]) == "") then EMPTY_STRING_HACK else masks,
                 truth_vcf = select_first([test_dataset_truth_vcf]),
                 truth_vcf_idx = select_first([test_dataset_truth_vcf_idx]),
                 eval_vcf = PermutectFiltering.output_vcf,
                 eval_vcf_idx = PermutectFiltering.output_vcf_idx,
+                gatk_docker = gatk_docker
+        }
+
+        call Concordance as M2Concordance {
+            input:
+                intervals = intervals,
+                masks = if (select_first([masks,""]) == "") then EMPTY_STRING_HACK else masks,
+                truth_vcf = select_first([test_dataset_truth_vcf]),
+                truth_vcf_idx = select_first([test_dataset_truth_vcf_idx]),
+                eval_vcf = Mutect2.output_vcf,
+                eval_vcf_idx = Mutect2.output_vcf_idx,
                 gatk_docker = gatk_docker
         }
     }
@@ -139,18 +150,20 @@ workflow Permutect {
         File mutect2_vcf = Mutect2.output_vcf
         File mutect2_vcf_idx = Mutect2.output_vcf_idx
 
-        File? fn = Concordance.fn
-        File? fn_idx = Concordance.fn_idx
-        File? fp = Concordance.fp
-        File? fp_idx = Concordance.fp_idx
-        File? tp = Concordance.tp
-        File? tp_idx = Concordance.tp_idx
-        File? ffn = Concordance.ffn
-        File? ffn_idx = Concordance.ffn_idx
-        File? ftn = Concordance.ftn
-        File? ftn_idx = Concordance.ftn_idx
-        File? concordance_summary = Concordance.summary
-        File? filter_analysis = Concordance.filter_analysis
+        File? fn = PermutectConcordance.fn
+        File? fn_idx = PermutectConcordance.fn_idx
+        File? fp = PermutectConcordance.fp
+        File? fp_idx = PermutectConcordance.fp_idx
+        File? tp = PermutectConcordance.tp
+        File? tp_idx = PermutectConcordance.tp_idx
+        File? ffn = PermutectConcordance.ffn
+        File? ffn_idx = PermutectConcordance.ffn_idx
+        File? ftn = PermutectConcordance.ftn
+        File? ftn_idx = PermutectConcordance.ftn_idx
+        File? concordance_summary = PermutectConcordance.summary
+        File? filter_analysis = PermutectConcordance.filter_analysis
+
+        File? m2_concordance_summary = M2Concordance.summary
     }
 }
 
