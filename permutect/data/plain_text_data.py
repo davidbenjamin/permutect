@@ -30,6 +30,7 @@ GTCCTGGACACGCTGTTGGCC
 -11.327
 -0.000
 """
+import tempfile
 from typing import List, Generator
 import sys
 
@@ -79,7 +80,7 @@ def count_number_of_data_and_reads_in_text_file(dataset_file):
     return num_data, num_reads
 
 
-def read_data(dataset_file, only_artifacts: bool = False, source: int=0) -> Generator[RawUnnormalizedReadsDatum, None, None]:
+def read_raw_unnormalized_data(dataset_file, only_artifacts: bool = False, source: int=0) -> Generator[RawUnnormalizedReadsDatum, None, None]:
     """
     generator that yields data from a plain text dataset file.
     """
@@ -147,7 +148,7 @@ def write_raw_unnormalized_data_to_memory_maps(dataset_files, memmap_data_file_n
     for n, dataset_file in enumerate(dataset_files):
         source = 0 if sources is None else (sources[0] if len(sources) == 1 else sources[n])
         reads_datum: RawUnnormalizedReadsDatum
-        for reads_datum in read_data(dataset_file, source=source):
+        for reads_datum in read_raw_unnormalized_data(dataset_file, source=source):
             data_array_size.check(len(reads_datum.array))
             read_array_size.check(reads_datum.reads_re.shape[-1])
 
@@ -167,13 +168,10 @@ def write_raw_unnormalized_data_to_memory_maps(dataset_files, memmap_data_file_n
     return stacked_data_ve, stacked_reads_re, read_end_indices
 
 
-
-
-
 # if sources is None, source is set to zero
 # if List is length-1, that's the source for all files
 # otherwise each file has its own source int
-def generate_normalized_data(dataset_files, max_bytes_per_chunk: int, sources: List[int]=None) -> Generator[List[ReadsDatum], None, None]:
+def generate_normalized_data(dataset_files, sources: List[int]=None) -> Generator[List[ReadsDatum], None, None]:
     """
     given text dataset files, generate normalized lists of read sets that fit in memory
 
@@ -182,29 +180,30 @@ def generate_normalized_data(dataset_files, max_bytes_per_chunk: int, sources: L
     :param max_bytes_per_chunk:
     :return:
     """
+    raw_stacked_reads_file = tempfile.NamedTemporaryFile()
+    raw_stacked_data_file = tempfile.NamedTemporaryFile()
+
+    raw_stacked_data_ve, raw_stacked_reads_re, read_end_indices = write_raw_unnormalized_data_to_memory_maps(dataset_files,
+        raw_stacked_data_file.name, raw_stacked_reads_file.name, sources)
+
+    # TODO: make a memory map of just the INFO i.e. for each row in data make a datum and get_info from it
+    # TODO: make a memory map of just ref reads (and later be cleverer and do just germline or something)
+
+    info_quantile_transform = QuantileTransformer(n_quantiles=100, output_distribution='normal')
+    # info_quantile_transform.fit( INFO MEMORY MAP GOES HERE)
+
+    read_quantile_transform = QuantileTransformer(n_quantiles=100, output_distribution='normal')
+    # read_quantile_transform.fit(REF / GERMLINE READS MEMORY MAP GOES HERE)
+
+    # TODO: iterate over datum index in raw memory maps, not over files
     for n, dataset_file in enumerate(dataset_files):
-        buffer: List[RawUnnormalizedReadsDatum]
-        buffer, bytes_in_buffer = [], 0
-        read_quantile_transform = QuantileTransformer(n_quantiles=100, output_distribution='normal')
-        info_quantile_transform = QuantileTransformer(n_quantiles=100, output_distribution='normal')
 
-        num_buffers_filled = 0
-        source = 0 if sources is None else (sources[0] if len(sources) == 1 else sources[n])
+
         reads_datum: RawUnnormalizedReadsDatum
-        for reads_datum in read_data(dataset_file, source=source):
-            buffer.append(reads_datum)
-            bytes_in_buffer += reads_datum.size_in_bytes()
-            if bytes_in_buffer > max_bytes_per_chunk:
-                report_memory_usage()
-                print(f"{bytes_in_buffer} bytes in chunk")
+        for reads_datum in read_raw_unnormalized_data(dataset_file, source=source):
 
-                yield normalize_buffer(buffer, read_quantile_transform, info_quantile_transform)
-                num_buffers_filled += 1
-                buffer, bytes_in_buffer = [], 0
-        # There will be some data left over, in general.  Since it's small, use the last buffer's
-        # quantile transforms for better statistical power if it's from the same text file
-        if buffer:
-            yield normalize_buffer(buffer, read_quantile_transform, info_quantile_transform, refit_transforms=(num_buffers_filled==0))
+            yield normalize_buffer(buffer, read_quantile_transform, info_quantile_transform)
+
 
 
 # this normalizes the buffer and also prepends new features to the info tensor
