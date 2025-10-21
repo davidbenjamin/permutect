@@ -40,15 +40,43 @@ from sklearn.preprocessing import QuantileTransformer
 from permutect.data.count_binning import cap_ref_count, cap_alt_count
 from permutect.data.reads_datum import ReadsDatum, RawUnnormalizedReadsDatum, NUMBER_OF_BYTES_IN_PACKED_READ, \
     convert_quantile_normalized_to_uint8
-from permutect.data.datum import DEFAULT_NUMPY_FLOAT
+from permutect.data.datum import DEFAULT_NUMPY_FLOAT, DATUM_ARRAY_DTYPE
 
-from permutect.misc_utils import report_memory_usage
+from permutect.misc_utils import report_memory_usage, ConsistentValue
 from permutect.sets.ragged_sets import RaggedSets
 from permutect.utils.enums import Variation, Label
 
 MAX_VALUE = 10000
 EPSILON = 0.00001
 QUANTILE_DATA_COUNT = 10000
+
+RAW_READS_DTYPE = DEFAULT_NUMPY_FLOAT
+
+
+def count_number_of_data_and_reads_in_text_file(dataset_file):
+    num_data, num_reads = 0, 0
+    gatk_info_array_size, read_array_size = 0, 0
+    with open(dataset_file) as file:
+        while label_line := file.readline():    # the label line is the first line of each datum
+
+            next(file)  # skip the contig:position,ref->alt line
+            next(file)  # skip the reference sequence line
+            next(file)  # skip the info array line
+
+            # get the read tensor sizes
+            ref_tensor_size, alt_tensor_size, normal_ref_tensor_size, normal_alt_tensor_size = map(int, file.readline().strip().split())
+
+            # skip the read tensors except for getting the array size from the very first read
+            for idx in range(ref_tensor_size + alt_tensor_size + normal_ref_tensor_size + normal_alt_tensor_size):
+                next(file)
+
+            next(file)  # skip the original depths line
+            next(file)  # skip the seq error log likelihood line
+            next(file)  # skip the normal seq error log likelihood line
+            num_data += 1
+            num_reads += (ref_tensor_size + alt_tensor_size)    # we don't use normal reads
+
+    return num_data, num_reads
 
 
 def read_data(dataset_file, only_artifacts: bool = False, source: int=0) -> Generator[RawUnnormalizedReadsDatum, None, None]:
@@ -102,6 +130,44 @@ def read_data(dataset_file, only_artifacts: bool = False, source: int=0) -> Gene
                 ref_count = cap_ref_count(datum.get_ref_count())
                 alt_count = cap_alt_count(datum.get_alt_count())
                 yield datum.copy_with_downsampled_reads(ref_count, alt_count)
+
+
+def write_raw_unnormalized_data_to_memory_maps(dataset_files, memmap_data_file_name, memmap_reads_file_name, sources: List[int]=None):
+    total_num_data, total_num_reads = 0, 0
+    data_array_size, read_array_size = ConsistentValue(), ConsistentValue()
+
+    for dataset_file in dataset_files:
+        num_data, num_reads = count_number_of_data_and_reads_in_text_file(dataset_file)
+        total_num_data += num_data
+        total_num_reads += num_reads
+
+    datum_index, read_index = 0, 0
+    stacked_data_ve, stacked_reads_re = None, None
+    read_end_indices = np.zeros(total_num_data, dtype=np.uint64)  # nth element is the index where the nth datum's reads end (exclusive)
+    for n, dataset_file in enumerate(dataset_files):
+        source = 0 if sources is None else (sources[0] if len(sources) == 1 else sources[n])
+        reads_datum: RawUnnormalizedReadsDatum
+        for reads_datum in read_data(dataset_file, source=source):
+            data_array_size.check(len(reads_datum.array))
+            read_array_size.check(reads_datum.reads_re.shape[-1])
+
+            if stacked_reads_re is None:    # allocate the memory maps
+                stacked_reads_re = np.memmap(memmap_reads_file_name, dtype=RAW_READS_DTYPE, mode='w+',
+                                             shape=(total_num_reads, read_array_size.value))
+                stacked_data_ve = np.memmap(memmap_data_file_name, dtype=DATUM_ARRAY_DTYPE, mode='w+',
+                                            shape=(total_num_data, data_array_size.value))
+            read_end_index = read_index + len(reads_datum.reads_re)
+            read_end_indices[datum_index] = read_end_index
+            stacked_data_ve[datum_index] = reads_datum.array
+            stacked_reads_re[read_index:read_end_index] = reads_datum.reads_re
+
+            datum_index += 1
+            read_index = read_end_index
+
+    return stacked_data_ve, stacked_reads_re, read_end_indices
+
+
+
 
 
 # if sources is None, source is set to zero
