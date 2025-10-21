@@ -205,12 +205,11 @@ def generate_normalized_data(dataset_files, sources: List[int]=None) -> Generato
             yield normalize_buffer(buffer, read_quantile_transform, info_quantile_transform)
 
 
-
+# TODO: I just started modifying this
 # this normalizes the buffer and also prepends new features to the info tensor
 def normalize_buffer(buffer: List[RawUnnormalizedReadsDatum], read_quantile_transform,
-                     info_quantile_transform, refit_transforms=True) -> List[ReadsDatum]:
+                     info_quantile_transform) -> List[ReadsDatum]:
     # 2D array.  Rows are ref/alt reads, columns are read features
-    all_ref_re = np.vstack([datum.get_ref_reads_re() for datum in buffer])
     all_reads_re = np.vstack([datum.reads_re for datum in buffer])
 
     binary_read_column_mask = np.ones_like(all_reads_re[0])
@@ -221,10 +220,6 @@ def normalize_buffer(buffer: List[RawUnnormalizedReadsDatum], read_quantile_tran
     binary_info_columns = binary_column_indices(all_info_ve)
 
     distance_columns_re = all_reads_re[:, 4:9]
-    ref_distance_columns_re = all_ref_re[:, 4:9]
-    if refit_transforms:    # fit quantiles column by column (aka feature by feature)
-        read_quantile_transform.fit(ref_distance_columns_re)   # only these columns are quantile-transformed
-        info_quantile_transform.fit(all_info_ve)
 
     distance_columns_transformed_re = read_quantile_transform.transform(distance_columns_re)
     all_info_transformed_ve = transform_except_for_binary_columns(all_info_ve, info_quantile_transform, binary_info_columns)
@@ -271,8 +266,6 @@ def normalize_buffer(buffer: List[RawUnnormalizedReadsDatum], read_quantile_tran
     assert packed_output_array.dtype == distance_columns_output.dtype
     output_uint8_reads_array = np.hstack((packed_output_array, distance_columns_output))
 
-    # TODO: a thought -- reads dataset doesn't really need to store a list of reads datum.  It could JUST store the numpy arrays,
-    # TODO: and furthermore, they could be concatenated to reduce the memory cost of many different objects
 
     normalized_result = []
     raw_datum: RawUnnormalizedReadsDatum
