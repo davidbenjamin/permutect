@@ -53,6 +53,7 @@ EPSILON = 0.00001
 QUANTILE_DATA_COUNT = 10000
 
 RAW_READS_DTYPE = DEFAULT_NUMPY_FLOAT
+MIN_NUM_DATA_FOR_NORMALIZATION = 1000
 MAX_NUM_DATA_FOR_NORMALIZATION = 100000
 NUM_RAW_DATA_TO_NORMALIZE_AT_ONCE = 100000
 
@@ -76,8 +77,9 @@ def count_number_of_data_and_reads_in_text_file(dataset_file):
             next(file)  # skip the original depths line
             next(file)  # skip the seq error log likelihood line
             next(file)  # skip the normal seq error log likelihood line
-            num_data += 1
-            num_reads += (ref_tensor_size + alt_tensor_size)    # we don't use normal reads
+            if alt_tensor_size > 0: # data with no alts is skipped
+                num_data += 1
+                num_reads += (ref_tensor_size + alt_tensor_size)    # we don't use normal reads
 
     return num_data, num_reads
 
@@ -167,6 +169,8 @@ def write_raw_unnormalized_data_to_memory_maps(dataset_files, memmap_data_file_n
             datum_index += 1
             read_index = read_end_index
 
+    stacked_data_ve.flush()
+    stacked_reads_re.flush()
     return stacked_data_ve, stacked_reads_re, read_end_indices
 
 
@@ -198,8 +202,9 @@ def generate_normalized_data(dataset_files, sources: List[int]=None) -> Generato
     # for every index in the normalization set, get all the reads of the corresponding datum.  Stack all these reads to
     # obtain the reads normalization array
     reads_for_normalization_re = np.vstack([raw_stacked_reads_re[read_end_indices[max(idx - 1, 0)]:read_end_indices[idx]] for idx in indices_for_normalization])
+    reads_for_normalization_distance_columns_re = reads_for_normalization_re[:, 4:9]
     read_quantile_transform = QuantileTransformer(n_quantiles=100, output_distribution='normal')
-    read_quantile_transform.fit(reads_for_normalization_re)
+    read_quantile_transform.fit(reads_for_normalization_distance_columns_re)
 
     # memory maps of normalized data
     normalized_stacked_data_ve, normalized_stacked_reads_re = None, None
@@ -211,11 +216,14 @@ def generate_normalized_data(dataset_files, sources: List[int]=None) -> Generato
         raw_datum = RawUnnormalizedReadsDatum(datum_array=raw_data_array, reads_re=reads)
         raw_data_list.append(raw_datum)
 
-        if len(raw_data_list == NUM_RAW_DATA_TO_NORMALIZE_AT_ONCE) or (n == num_data - 1 and len(raw_data_list) > 0):
+        if len(raw_data_list) == NUM_RAW_DATA_TO_NORMALIZE_AT_ONCE or (n == num_data - 1 and len(raw_data_list) > 0):
             normalized_data_list = normalize_raw_data_list(raw_data_list, read_quantile_transform, info_quantile_transform)
             raw_data_list = []
-            for datum in normalized_data_list:
-                yield datum
+
+            yield normalized_data_list
+
+            #for datum in normalized_data_list:
+            #    yield datum
 
             # TODO: if memory maps can be fast enough, this is the beginning of code to overhaul everything with memory maps,
             # TODO: even when datasets fit in RAM.  In this case, rather than generating ReadsDatum(s) we would output the
@@ -251,12 +259,20 @@ def get_normalization_set(raw_stacked_data_ve) -> List[int]:
 
         # priority is negative squared difference between original allele fraction and 1/2
         # thus most germline het-like data have highest priority
-        priority = ((raw_datum.get_original_alt_count() / raw_datum.get_original_depth()) - 0.5) ** 2
+        priority = -((raw_datum.get_original_alt_count() / raw_datum.get_original_depth()) - 0.5) ** 2
 
         indices_for_normalization_queue.put((priority, n))
-    indices_for_normalization = []
+    all_indices_for_normalization = []
+    good_indices_for_normalization = []
     while not indices_for_normalization_queue.empty():
-        indices_for_normalization.append(indices_for_normalization_queue.get()[1])
+        priority, idx = indices_for_normalization_queue.get()
+
+        all_indices_for_normalization.append(idx)
+        if priority > - 0.2**2:    # AF between 0.3 and 0.7
+            good_indices_for_normalization.append(idx)
+
+    indices_for_normalization = good_indices_for_normalization if len(good_indices_for_normalization) > MIN_NUM_DATA_FOR_NORMALIZATION else all_indices_for_normalization
+
     indices_for_normalization.sort()  # sorting indices makes traversing memory maps faster
     return indices_for_normalization
 
