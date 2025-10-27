@@ -31,6 +31,7 @@ GTCCTGGACACGCTGTTGGCC
 -0.000
 """
 import tempfile
+from queue import PriorityQueue
 from typing import List, Generator
 import sys
 
@@ -40,8 +41,8 @@ from sklearn.preprocessing import QuantileTransformer
 
 from permutect.data.count_binning import cap_ref_count, cap_alt_count
 from permutect.data.reads_datum import ReadsDatum, RawUnnormalizedReadsDatum, NUMBER_OF_BYTES_IN_PACKED_READ, \
-    convert_quantile_normalized_to_uint8
-from permutect.data.datum import DEFAULT_NUMPY_FLOAT, DATUM_ARRAY_DTYPE
+    convert_quantile_normalized_to_uint8, READS_ARRAY_DTYPE
+from permutect.data.datum import DEFAULT_NUMPY_FLOAT, DATUM_ARRAY_DTYPE, Datum
 
 from permutect.misc_utils import report_memory_usage, ConsistentValue
 from permutect.sets.ragged_sets import RaggedSets
@@ -52,11 +53,12 @@ EPSILON = 0.00001
 QUANTILE_DATA_COUNT = 10000
 
 RAW_READS_DTYPE = DEFAULT_NUMPY_FLOAT
+MAX_NUM_DATA_FOR_NORMALIZATION = 100000
+NUM_RAW_DATA_TO_NORMALIZE_AT_ONCE = 100000
 
 
 def count_number_of_data_and_reads_in_text_file(dataset_file):
     num_data, num_reads = 0, 0
-    gatk_info_array_size, read_array_size = 0, 0
     with open(dataset_file) as file:
         while label_line := file.readline():    # the label line is the first line of each datum
 
@@ -186,29 +188,83 @@ def generate_normalized_data(dataset_files, sources: List[int]=None) -> Generato
     raw_stacked_data_ve, raw_stacked_reads_re, read_end_indices = write_raw_unnormalized_data_to_memory_maps(dataset_files,
         raw_stacked_data_file.name, raw_stacked_reads_file.name, sources)
 
-    # TODO: make a memory map of just the INFO i.e. for each row in data make a datum and get_info from it
-    # TODO: make a memory map of just ref reads (and later be cleverer and do just germline or something)
+    indices_for_normalization = get_normalization_set(raw_stacked_data_ve)
 
+    # extract the INFO array from all the data arrays in the normalization set
+    info_for_normalization_ve = [Datum(array=raw_stacked_data_ve[idx]).get_info_1d() for idx in indices_for_normalization]
     info_quantile_transform = QuantileTransformer(n_quantiles=100, output_distribution='normal')
-    # info_quantile_transform.fit( INFO MEMORY MAP GOES HERE)
+    info_quantile_transform.fit(info_for_normalization_ve)
 
+    # for every index in the normalization set, get all the reads of the corresponding datum.  Stack all these reads to
+    # obtain the reads normalization array
+    reads_for_normalization_re = np.vstack([raw_stacked_reads_re[read_end_indices[max(idx - 1, 0)]:read_end_indices[idx]] for idx in indices_for_normalization])
     read_quantile_transform = QuantileTransformer(n_quantiles=100, output_distribution='normal')
-    # read_quantile_transform.fit(REF / GERMLINE READS MEMORY MAP GOES HERE)
+    read_quantile_transform.fit(reads_for_normalization_re)
 
-    # TODO: iterate over datum index in raw memory maps, not over files
-    for n, dataset_file in enumerate(dataset_files):
+    # memory maps of normalized data
+    normalized_stacked_data_ve, normalized_stacked_reads_re = None, None
+    raw_data_list = []
+    num_data = len(raw_stacked_data_ve)
+
+    for n, raw_data_array in enumerate(raw_stacked_data_ve):
+        reads = raw_stacked_reads_re[read_end_indices[max(n - 1, 0)]:read_end_indices[n]]
+        raw_datum = RawUnnormalizedReadsDatum(datum_array=raw_data_array, reads_re=reads)
+        raw_data_list.append(raw_datum)
+
+        if len(raw_data_list == NUM_RAW_DATA_TO_NORMALIZE_AT_ONCE) or (n == num_data - 1 and len(raw_data_list) > 0):
+            normalized_data_list = normalize_raw_data_list(raw_data_list, read_quantile_transform, info_quantile_transform)
+            raw_data_list = []
+            for datum in normalized_data_list:
+                yield datum
+
+            # TODO: if memory maps can be fast enough, this is the beginning of code to overhaul everything with memory maps,
+            # TODO: even when datasets fit in RAM.  In this case, rather than generating ReadsDatum(s) we would output the
+            # TODO: memory maps for a dataset
+            # initialize normalized memory maps if necessary
+            #if normalized_stacked_data_ve is None:
+            #    read_array_dim = normalized_data_list[0].compressed_reads_re.shape[-1]
+            #    data_array_dim = len(normalized_data_list[0].get_array_1d())
+            #    normalized_stacked_reads_re = np.memmap(memmap_reads_file_name, dtype=READS_ARRAY_DTYPE, mode='w+',
+            #                                 shape=(len(raw_stacked_reads_re), read_array_dim))
+            #    normalized_stacked_data_ve = np.memmap(memmap_data_file_name, dtype=DATUM_ARRAY_DTYPE, mode='w+',
+            #                                shape=(len(raw_stacked_data_ve), data_array_dim))
 
 
-        reads_datum: RawUnnormalizedReadsDatum
-        for reads_datum in read_raw_unnormalized_data(dataset_file, source=source):
+def get_normalization_set(raw_stacked_data_ve) -> List[int]:
+    """
+    # we need a set of data that are pretty reliably not artifacts for the quantile normalization.  If we don't do this
+    # and naively use the quantiles from the data as a whole we create a nasty domain shift where the artifact/non-artifact
+    # balance of test data differs fromm that of the training data and thus the normalization is different, leading to a skew
+    # of the input tensors *even* if the data re derived from the same sample prep and sequencing technology!
 
-            yield normalize_buffer(buffer, read_quantile_transform, info_quantile_transform)
+    # It is a good idea to inject a few tens of thousands of germline variants into test data to be able to make this normalization
+    # set, but the following scheme has a back-up plan in case we don't have that (or if there's no information on
+    # germline allele frequencies).
+    """
+
+    indices_for_normalization_queue = PriorityQueue(maxsize=MAX_NUM_DATA_FOR_NORMALIZATION)
+    for n, raw_data_array in enumerate(raw_stacked_data_ve):
+        raw_datum = Datum(array=raw_data_array)
+
+        if indices_for_normalization_queue.full():
+            indices_for_normalization_queue.get()  # pop the lowest-priority element i.e. the worst-suited for normalization
+
+        # priority is negative squared difference between original allele fraction and 1/2
+        # thus most germline het-like data have highest priority
+        priority = ((raw_datum.get_original_alt_count() / raw_datum.get_original_depth()) - 0.5) ** 2
+
+        indices_for_normalization_queue.put((priority, n))
+    indices_for_normalization = []
+    while not indices_for_normalization_queue.empty():
+        indices_for_normalization.append(indices_for_normalization_queue.get()[1])
+    indices_for_normalization.sort()  # sorting indices makes traversing memory maps faster
+    return indices_for_normalization
 
 
 # TODO: I just started modifying this
 # this normalizes the buffer and also prepends new features to the info tensor
-def normalize_buffer(buffer: List[RawUnnormalizedReadsDatum], read_quantile_transform,
-                     info_quantile_transform) -> List[ReadsDatum]:
+def normalize_raw_data_list(buffer: List[RawUnnormalizedReadsDatum], read_quantile_transform,
+                            info_quantile_transform) -> List[ReadsDatum]:
     # 2D array.  Rows are ref/alt reads, columns are read features
     all_reads_re = np.vstack([datum.reads_re for datum in buffer])
 
@@ -265,7 +321,6 @@ def normalize_buffer(buffer: List[RawUnnormalizedReadsDatum], read_quantile_tran
     distance_columns_output = convert_quantile_normalized_to_uint8(distance_columns_transformed_re)
     assert packed_output_array.dtype == distance_columns_output.dtype
     output_uint8_reads_array = np.hstack((packed_output_array, distance_columns_output))
-
 
     normalized_result = []
     raw_datum: RawUnnormalizedReadsDatum
