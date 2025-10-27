@@ -33,8 +33,8 @@ def parse_arguments():
     return parser.parse_args()
 
 
-def do_work(training_datasets, training_output_file, chunk_size, sources: List[int]):
-    data_list_generator = generate_normalized_data(training_datasets, max_bytes_per_chunk=chunk_size, sources=sources)
+def do_work(training_datasets, training_output_file, sources: List[int]):
+    data_list_generator = generate_normalized_data(training_datasets, sources=sources)
     ReadsDatum.save_lists_into_tarfile(data_list_generator=data_list_generator, output_tarfile=training_output_file)
 
 
@@ -44,7 +44,7 @@ def main_without_parsing(args):
     output_file = getattr(args, constants.OUTPUT_NAME)
     sources = getattr(args, constants.SOURCES_NAME)
 
-    do_work(training_datasets, output_file, chunk_size, sources)
+    do_work(training_datasets, output_file, sources)
 
 
 def main():
