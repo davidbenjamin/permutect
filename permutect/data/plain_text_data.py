@@ -174,24 +174,19 @@ def write_raw_unnormalized_data_to_memory_maps(dataset_files, memmap_data_file_n
     return stacked_data_ve, stacked_reads_re, read_end_indices
 
 
-# if sources is None, source is set to zero
-# if List is length-1, that's the source for all files
-# otherwise each file has its own source int
-def generate_normalized_data(dataset_files, sources: List[int]=None) -> Generator[List[ReadsDatum], None, None]:
+def generate_normalized_data(dataset_files, sources: List[int]=None):
     """
-    given text dataset files, generate normalized lists of read sets that fit in memory
+    given unnormalized plain text dataset files from Mutect2, normalize data and save as tarfile of memory mapped numpy arrays
 
     In addition to quantile-normalizing read tensors it also enlarges the info tensors
     :param dataset_files:
-    :param max_bytes_per_chunk:
-    :return:
+    :param sources if None, source is set to 0; if singleton list, all files are given that source; otherwise one source per file
     """
-    raw_stacked_reads_file = tempfile.NamedTemporaryFile()
-    raw_stacked_data_file = tempfile.NamedTemporaryFile()
+    raw_stacked_reads_file, raw_stacked_data_file = tempfile.NamedTemporaryFile(), tempfile.NamedTemporaryFile()
+    stacked_reads_file, stacked_data_file = tempfile.NamedTemporaryFile(), tempfile.NamedTemporaryFile()
 
     raw_stacked_data_ve, raw_stacked_reads_re, read_end_indices = write_raw_unnormalized_data_to_memory_maps(dataset_files,
         raw_stacked_data_file.name, raw_stacked_reads_file.name, sources)
-
     indices_for_normalization = get_normalization_set(raw_stacked_data_ve)
 
     # extract the INFO array from all the data arrays in the normalization set
@@ -209,6 +204,8 @@ def generate_normalized_data(dataset_files, sources: List[int]=None) -> Generato
     # memory maps of normalized data
     normalized_stacked_data_ve, normalized_stacked_reads_re = None, None
     raw_data_list = []
+    data_start_idx = 0
+    read_start_idx = 0
     num_data = len(raw_stacked_data_ve)
 
     for n, raw_data_array in enumerate(raw_stacked_data_ve):
@@ -218,24 +215,32 @@ def generate_normalized_data(dataset_files, sources: List[int]=None) -> Generato
 
         if len(raw_data_list) == NUM_RAW_DATA_TO_NORMALIZE_AT_ONCE or (n == num_data - 1 and len(raw_data_list) > 0):
             normalized_data_list = normalize_raw_data_list(raw_data_list, read_quantile_transform, info_quantile_transform)
+
+            # initialize normalized memory maps if necessary
+            if normalized_stacked_data_ve is None:
+                read_array_dim = normalized_data_list[0].compressed_reads_re.shape[-1]
+                data_array_dim = len(normalized_data_list[0].get_array_1d())
+                normalized_stacked_reads_re = np.memmap(stacked_reads_file.name, dtype=READS_ARRAY_DTYPE, mode='w+',
+                                             shape=(len(raw_stacked_reads_re), read_array_dim))
+                normalized_stacked_data_ve = np.memmap(stacked_data_file.name, dtype=DATUM_ARRAY_DTYPE, mode='w+',
+                                            shape=(len(raw_stacked_data_ve), data_array_dim))
+
+            # write normalized data to memory maps
+            reads_to_add_re = np.vstack([datum.reads_re for datum in normalized_data_list])
+            data_to_add_ve = np.vstack([datum.get_array_1d() for datum in normalized_data_list])
+            read_end_idx, data_end_idx = read_start_idx + len(reads_to_add_re), data_start_idx + len(data_to_add_ve)
+            normalized_stacked_reads_re[read_start_idx:read_end_idx] = reads_to_add_re
+            normalized_stacked_data_ve[data_start_idx:data_end_idx] = data_to_add_ve
+
+            read_start_idx, data_start_idx = read_end_idx, data_end_idx
             raw_data_list = []
 
-            yield normalized_data_list
+    normalized_stacked_data_ve.flush()
+    normalized_stacked_reads_re.flush()
 
-            #for datum in normalized_data_list:
-            #    yield datum
+    # TODO: save the normalzied mmaps into tarfile.  Given them particular extensions so that when extracting tar we
+    # TODO: know which is which
 
-            # TODO: if memory maps can be fast enough, this is the beginning of code to overhaul everything with memory maps,
-            # TODO: even when datasets fit in RAM.  In this case, rather than generating ReadsDatum(s) we would output the
-            # TODO: memory maps for a dataset
-            # initialize normalized memory maps if necessary
-            #if normalized_stacked_data_ve is None:
-            #    read_array_dim = normalized_data_list[0].compressed_reads_re.shape[-1]
-            #    data_array_dim = len(normalized_data_list[0].get_array_1d())
-            #    normalized_stacked_reads_re = np.memmap(memmap_reads_file_name, dtype=READS_ARRAY_DTYPE, mode='w+',
-            #                                 shape=(len(raw_stacked_reads_re), read_array_dim))
-            #    normalized_stacked_data_ve = np.memmap(memmap_data_file_name, dtype=DATUM_ARRAY_DTYPE, mode='w+',
-            #                                shape=(len(raw_stacked_data_ve), data_array_dim))
 
 
 def get_normalization_set(raw_stacked_data_ve) -> List[int]:
