@@ -29,10 +29,17 @@ def ratio_with_pseudocount(a, b):
 
 
 class ReadsDataset(Dataset):
-    def __init__(self, data_in_ram: Iterable[ReadsDatum] = None, tarfile=None, num_folds: int = 1):
+    # TODO: fix all uses of this that used to require a tarfile of saved chunks of data
+    def __init__(self, data_in_ram: Iterable[ReadsDatum] = None, data_and_reads_mmaps = None, num_folds: int = 1):
+        """
+
+        :param data_in_ram a List or other Iterable of ReadsDatum -- only used for tests
+        :param data_and_reads_mmaps: a tuple of (memory-mapped file of 1D data arrays, memory-mapped file of all reads)
+        :param num_folds:
+        """
         super(ReadsDataset, self).__init__()
-        assert data_in_ram is not None or tarfile is not None, "No data given"
-        assert data_in_ram is None or tarfile is None, "Data given from both RAM and tarfile"
+        assert data_in_ram is not None or data_and_reads_mmaps is not None, "No data given"
+        assert data_in_ram is None or data_and_reads_mmaps is None, "Data given from both RAM and memory maps"
         self.num_folds = num_folds
         self.totals_slvra = BatchIndexedTensor.make_zeros(num_sources=1, include_logits=False, device=torch.device('cpu'))
 

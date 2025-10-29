@@ -34,6 +34,7 @@ def parse_arguments():
 
 
 def do_work(training_datasets, training_output_file, sources: List[int]):
+    # TODO: output tarfile, not lists of reads
     data_list_generator = generate_normalized_data(training_datasets, sources=sources)
     ReadsDatum.save_lists_into_tarfile(data_list_generator=data_list_generator, output_tarfile=training_output_file)
 

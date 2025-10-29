@@ -203,11 +203,19 @@ def make_posterior_data_loader(dataset_file, input_vcf, contig_index_to_name_map
 
     # pass through the plain text dataset, normalizing and creating ReadSetDatasets as we go, running the artifact model
     # to get artifact logits, which we record in a dict keyed by variant strings.  These will later be added to PosteriorDatum objects.
-    print("reading dataset and calculating artifact logits")
-    report_memory_usage("Loading data.")
     posterior_data = []
-    for list_of_base_data in plain_text_data.generate_normalized_data([dataset_file], chunk_size):
-        report_memory_usage("Creating BaseDataset.")
+
+    report_memory_usage("Parsing and normalizing plain text data.")
+
+    # TODO: make a class to encapsulate this stuff
+    stacked_data_file_ve, stacked_reads_file_re, reads_array_shape, data_array_shape = \
+        plain_text_data.generate_normalized_data(dataset_files=[dataset_file])
+
+    # TODO construct memory-mapped dataset
+    report_memory_usage("Creating ReadsDataset.")
+
+    for list_of_base_data in :
+
         dataset = ReadsDataset(data_in_ram=list_of_base_data)
         loader = dataset.make_data_loader(dataset.all_folds(), batch_size, pin_memory=torch.cuda.is_available(), num_workers=num_workers)
 

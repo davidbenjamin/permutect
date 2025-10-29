@@ -41,7 +41,7 @@ from sklearn.preprocessing import QuantileTransformer
 
 from permutect.data.count_binning import cap_ref_count, cap_alt_count
 from permutect.data.reads_datum import ReadsDatum, RawUnnormalizedReadsDatum, NUMBER_OF_BYTES_IN_PACKED_READ, \
-    convert_quantile_normalized_to_uint8, READS_ARRAY_DTYPE
+    convert_quantile_normalized_to_uint8, READS_ARRAY_DTYPE, SUFFIX_FOR_DATA_MMAP_IN_TAR, SUFFIX_FOR_READS_MMAP_IN_TAR
 from permutect.data.datum import DEFAULT_NUMPY_FLOAT, DATUM_ARRAY_DTYPE, Datum
 
 from permutect.misc_utils import report_memory_usage, ConsistentValue
@@ -183,7 +183,8 @@ def generate_normalized_data(dataset_files, sources: List[int]=None):
     :param sources if None, source is set to 0; if singleton list, all files are given that source; otherwise one source per file
     """
     raw_stacked_reads_file, raw_stacked_data_file = tempfile.NamedTemporaryFile(), tempfile.NamedTemporaryFile()
-    stacked_reads_file, stacked_data_file = tempfile.NamedTemporaryFile(), tempfile.NamedTemporaryFile()
+    stacked_data_file = tempfile.NamedTemporaryFile(suffix=SUFFIX_FOR_DATA_MMAP_IN_TAR)
+    stacked_reads_file = tempfile.NamedTemporaryFile(suffix=SUFFIX_FOR_READS_MMAP_IN_TAR)
 
     raw_stacked_data_ve, raw_stacked_reads_re, read_end_indices = write_raw_unnormalized_data_to_memory_maps(dataset_files,
         raw_stacked_data_file.name, raw_stacked_reads_file.name, sources)
@@ -238,9 +239,13 @@ def generate_normalized_data(dataset_files, sources: List[int]=None):
     normalized_stacked_data_ve.flush()
     normalized_stacked_reads_re.flush()
 
-    # TODO: save the normalzied mmaps into tarfile.  Given them particular extensions so that when extracting tar we
-    # TODO: know which is which
+    assert data_start_idx == num_data
+    assert read_start_idx == read_end_indices[-1]
 
+    reads_array_shape = (read_start_idx, normalized_stacked_reads_re.shape[-1])
+    data_array_shape = (data_start_idx, normalized_stacked_data_ve.shape[-1])
+
+    return stacked_data_file, stacked_reads_file, reads_array_shape, data_array_shape
 
 
 def get_normalization_set(raw_stacked_data_ve) -> List[int]:
