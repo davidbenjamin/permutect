@@ -1,0 +1,132 @@
+import os
+import tarfile
+import tempfile
+from tempfile import NamedTemporaryFile
+
+import numpy as np
+
+from permutect.data.reads_datum import ReadsDatum
+
+SUFFIX_FOR_DATA_MMAP = ".data_mmap"
+SUFFIX_FOR_READS_MMAP = ".reads_mmap"
+SUFFIX_FOR_METADATA = ".metadata"
+
+
+class MemoryMappedData:
+    """
+    wrapper for
+        1) memory-mapped numpy file for stacked 1D data arrays.  The nth row of this array is the 1D array for the nth Datum.
+        2) memory-mapped numpy file for 2D stacked reads array.  The rows of this array are the ref reads of the 0th ReadsDatum,
+            the alt reads of the 0th ReadsDatum, the ref reads of the 1st ReadsDatum etc.
+
+        NOTE: the memory-mapped files may be larger than necessary.  That is, there may be junk space in the files that
+        does not correspond to actual data.  The num_data and num_reads tell us how far into the files is actual data.
+    """
+
+    def __init__(self, data_mmap, num_data, reads_mmap, num_reads):
+        self.data_mmap = data_mmap
+        self.reads_mmap = reads_mmap
+        self.num_data = num_data
+        self.num_reads = num_reads
+
+    def save_to_tarfile(self, output_tarfile):
+        """
+        It seems a little odd to save to disk when memory-mapped files are already on disk, but:
+            1) the files don't know their dtype and shape
+            2) the files don't know how much of the data are actually used
+            3) the files might be temporary files and won't persist after the Python program executes
+            4) it's convenient to package things as a single tarfile
+        :return:
+        """
+
+        # data dtype, num_data, data dimension; reads dtype, num_reads, reads dimension
+        metadata = [self.data_mmap.dtype,self.num_data, self.data_mmap.shape[-1], self.reads_mmap.dtype, self.num_reads, self.reads_mmap.shape[-1]]
+        metadata_file = NamedTemporaryFile(suffix=SUFFIX_FOR_METADATA)
+        np.save(metadata_file.name, np.array(metadata, dtype=object), allow_pickle=True)
+
+        data_file = self.data_mmap.filename
+        reads_file = self.reads_mmap.filename
+
+        with tarfile.open(output_tarfile, "w") as output_tar:
+            for file in [metadata_file, data_file, reads_file]:
+                output_tar.add(file, arcname=os.path.basename(file))
+
+        # Load the list of objects back from the .npy file
+        # Remember to set allow_pickle=True when loading as well
+
+
+    @classmethod
+    def load_from_tarfile(cls, tarfile):
+        temp_dir = tempfile.TemporaryDirectory()
+
+        with tarfile.open(tarfile, 'r') as tar:
+            for member in tar.getmembers():
+                if member.isfile():
+                    tar.extract(member, path=temp_dir.name)
+
+        metadata_files = [os.path.abspath(os.path.join(temp_dir.name, p)) for p in os.listdir(temp_dir.name) if p.endswith(SUFFIX_FOR_METADATA)]
+        data_files = [os.path.abspath(os.path.join(temp_dir.name, p)) for p in os.listdir(temp_dir.name) if p.endswith(SUFFIX_FOR_DATA_MMAP)]
+        reads_files = [os.path.abspath(os.path.join(temp_dir.name, p)) for p in os.listdir(temp_dir.name) if p.endswith(SUFFIX_FOR_READS_MMAP)]
+        assert len(metadata_files) == 1
+        assert len(data_files) == 1
+        assert len(reads_files) == 1
+
+        loaded_metadata = np.load(metadata_files[0], allow_pickle=True)
+        data_dtype, num_data, data_dim, reads_dtype, num_reads, reads_dim = (*loaded_metadata, )
+
+        # NOTE: the original file may have had excess space due to the O(N) amortized growing scheme
+        # if we load the same file with the actual num_data, as opposed to the capacity, it DOES work correctly
+        data_mmap = np.memmap(data_files[0], dtype=data_dtype, mode='r', shape=(num_data, data_dim))
+        reads_mmap = np.memmap(reads_files[0], dtype=reads_dtype, mode='r', shape=(num_reads, reads_dim))
+
+        return cls(data_mmap=data_mmap, num_data=num_data, reads_mmap=reads_mmap, num_reads=num_reads)
+
+
+
+    @classmethod
+    def write_reads_data_to_memory_maps(cls, reads_datum_source, estimated_num_data, estimated_num_reads):
+        """
+        Write RawUnnormalizedReadsDatum or ReadsDatum data to memory maps.  We set the file sizes to initial guesses but if these are outgrown we copy
+        data to larger files, just like the amortized O(N) append operation on lists.
+
+        :param reads_datum_source: an Iterable or Generator of ReadsDatum
+        :param estimated_num_data: initial estimate of how much capacity is needed
+        :param estimated_num_reads:
+        :return:
+        """
+        num_data, num_reads = 0, 0
+        data_capacity, reads_capacity = 0, 0
+        data_mmap, reads_mmap = None, None
+
+        datum: ReadsDatum
+        for datum in reads_datum_source:
+            data_array = datum.get_array_1d()
+            reads_array = datum.get_reads_array_re()    # this works both for raw unnormalized data and the compressed reads of ReadsDatum
+
+            num_data += 1
+            num_reads += len(reads_array)
+
+            # double capacity or set to initial estimate, create new file and mmap, copy old data
+            if num_data > data_capacity:
+                data_capacity = estimated_num_data if data_capacity == 0 else data_capacity*2
+                data_file = NamedTemporaryFile(suffix=SUFFIX_FOR_DATA_MMAP)
+                old_data_mmap = data_mmap
+                data_mmap = np.memmap(data_file.name, dtype=data_array.dtype, mode='w+', shape=(data_capacity, data_array.shape[-1]))
+                data_mmap[:len(old_data_mmap)] = old_data_mmap
+
+            # likewise for reads
+            if num_reads > reads_capacity:
+                reads_capacity = estimated_num_reads if reads_capacity == 0 else reads_capacity * 2
+                reads_file = NamedTemporaryFile(suffix=SUFFIX_FOR_READS_MMAP)
+                old_reads_mmap = reads_mmap
+                reads_mmap = np.memmap(reads_file.name, dtype=reads_array.dtype, mode='w+', shape=(reads_capacity, reads_array.shape[-1]))
+                reads_mmap[:len(old_reads_mmap)] = old_reads_mmap
+
+            # write new data
+            data_mmap[num_data - 1] = data_array
+            reads_mmap[num_reads - len(reads_array):num_reads] = reads_array
+
+        data_mmap.flush()
+        reads_mmap.flush()
+
+        return cls(data_mmap=data_mmap, num_data=num_data, reads_mmap=reads_mmap, num_reads=num_reads)

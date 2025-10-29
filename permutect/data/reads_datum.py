@@ -27,6 +27,9 @@ READS_ARRAY_DTYPE = np.uint8
 SUFFIX_FOR_DATA_FILES_IN_TAR = ".data"
 SUFFIX_FOR_DATA_COUNT_FILE_IN_TAR = ".counts"
 
+SUFFIX_FOR_DATA_MMAP_IN_TAR = ".data_mmap"
+SUFFIX_FOR_READS_MMAP_IN_TAR = ".reads_mmap"
+
 
 # quantile-normalized data is generally some small number of standard deviations from 0.  We can store as uint8 by
 # mapping x --> 32x + 128 and restricting to the range [0,255], which maps -4 and +4 standard deviations to the limits
@@ -112,6 +115,9 @@ class RawUnnormalizedReadsDatum(Datum):
     def size_in_bytes(self):
         return self.reads_re.nbytes + self.get_nbytes()
 
+    def get_reads_array_re(self) -> np.ndarray:
+        return self.reads_re
+
     def get_ref_reads_re(self) -> np.ndarray:
         return self.reads_re[:-self.get_alt_count()]
 
@@ -132,6 +138,9 @@ class ReadsDatum(Datum):
 
     def size_in_bytes(self):
         return self.compressed_reads_re.nbytes + self.get_nbytes()
+
+    def get_reads_array_re(self) -> np.ndarray:
+        return self.compressed_reads_re
 
     def get_compressed_reads_re(self) -> np.ndarray:
         return self.compressed_reads_re
