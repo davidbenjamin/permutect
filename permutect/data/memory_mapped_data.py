@@ -1,3 +1,4 @@
+from __future__ import annotations
 import os
 import tarfile
 import tempfile
@@ -54,12 +55,11 @@ class MemoryMappedData:
         # Load the list of objects back from the .npy file
         # Remember to set allow_pickle=True when loading as well
 
-
     @classmethod
-    def load_from_tarfile(cls, tarfile):
+    def load_from_tarfile(cls, data_tarfile) -> MemoryMappedData:
         temp_dir = tempfile.TemporaryDirectory()
 
-        with tarfile.open(tarfile, 'r') as tar:
+        with tarfile.open(data_tarfile, 'r') as tar:
             for member in tar.getmembers():
                 if member.isfile():
                     tar.extract(member, path=temp_dir.name)
@@ -81,10 +81,8 @@ class MemoryMappedData:
 
         return cls(data_mmap=data_mmap, num_data=num_data, reads_mmap=reads_mmap, num_reads=num_reads)
 
-
-
     @classmethod
-    def write_reads_data_to_memory_maps(cls, reads_datum_source, estimated_num_data, estimated_num_reads):
+    def from_generator(cls, reads_datum_source, estimated_num_data, estimated_num_reads) -> MemoryMappedData:
         """
         Write RawUnnormalizedReadsDatum or ReadsDatum data to memory maps.  We set the file sizes to initial guesses but if these are outgrown we copy
         data to larger files, just like the amortized O(N) append operation on lists.

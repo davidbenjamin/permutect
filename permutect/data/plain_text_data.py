@@ -40,6 +40,7 @@ import torch
 from sklearn.preprocessing import QuantileTransformer
 
 from permutect.data.count_binning import cap_ref_count, cap_alt_count
+from permutect.data.memory_mapped_data import MemoryMappedData
 from permutect.data.reads_datum import ReadsDatum, RawUnnormalizedReadsDatum, NUMBER_OF_BYTES_IN_PACKED_READ, \
     convert_quantile_normalized_to_uint8, READS_ARRAY_DTYPE, SUFFIX_FOR_DATA_MMAP_IN_TAR, SUFFIX_FOR_READS_MMAP_IN_TAR
 from permutect.data.datum import DEFAULT_NUMPY_FLOAT, DATUM_ARRAY_DTYPE, Datum
@@ -137,41 +138,29 @@ def read_raw_unnormalized_data(dataset_file, only_artifacts: bool = False, sourc
                 yield datum.copy_with_downsampled_reads(ref_count, alt_count)
 
 
-def write_raw_unnormalized_data_to_memory_maps(dataset_files, memmap_data_file_name, memmap_reads_file_name, sources: List[int]=None):
+def generate_raw_data_from_text_files(dataset_files, sources: List[int]=None) -> Generator[RawUnnormalizedReadsDatum]:
+    data_dim, reads_dim = ConsistentValue(), ConsistentValue()
+
+    for n, dataset_file in enumerate(dataset_files):
+        source = 0 if sources is None else (sources[0] if len(sources) == 1 else sources[n])
+        reads_datum: RawUnnormalizedReadsDatum
+        for reads_datum in read_raw_unnormalized_data(dataset_file, source=source):
+            data_dim.check(len(reads_datum.array))
+            reads_dim.check(reads_datum.reads_re.shape[-1])
+            yield reads_datum
+
+
+def write_raw_unnormalized_data_to_memory_maps(dataset_files, sources: List[int]=None):
     total_num_data, total_num_reads = 0, 0
-    data_array_size, read_array_size = ConsistentValue(), ConsistentValue()
 
     for dataset_file in dataset_files:
         num_data, num_reads = count_number_of_data_and_reads_in_text_file(dataset_file)
         total_num_data += num_data
         total_num_reads += num_reads
 
-    datum_index, read_index = 0, 0
-    stacked_data_ve, stacked_reads_re = None, None
-    read_end_indices = np.zeros(total_num_data, dtype=np.uint64)  # nth element is the index where the nth datum's reads end (exclusive)
-    for n, dataset_file in enumerate(dataset_files):
-        source = 0 if sources is None else (sources[0] if len(sources) == 1 else sources[n])
-        reads_datum: RawUnnormalizedReadsDatum
-        for reads_datum in read_raw_unnormalized_data(dataset_file, source=source):
-            data_array_size.check(len(reads_datum.array))
-            read_array_size.check(reads_datum.reads_re.shape[-1])
-
-            if stacked_reads_re is None:    # allocate the memory maps
-                stacked_reads_re = np.memmap(memmap_reads_file_name, dtype=RAW_READS_DTYPE, mode='w+',
-                                             shape=(total_num_reads, read_array_size.value))
-                stacked_data_ve = np.memmap(memmap_data_file_name, dtype=DATUM_ARRAY_DTYPE, mode='w+',
-                                            shape=(total_num_data, data_array_size.value))
-            read_end_index = read_index + len(reads_datum.reads_re)
-            read_end_indices[datum_index] = read_end_index
-            stacked_data_ve[datum_index] = reads_datum.array
-            stacked_reads_re[read_index:read_end_index] = reads_datum.reads_re
-
-            datum_index += 1
-            read_index = read_end_index
-
-    stacked_data_ve.flush()
-    stacked_reads_re.flush()
-    return stacked_data_ve, stacked_reads_re, read_end_indices
+    memory_mapped_data = MemoryMappedData.from_generator(reads_datum_source=generate_raw_data_from_text_files(dataset_files, sources),
+                                                         estimated_num_data=num_data, estimated_num_reads=num_reads)
+    return memory_mapped_data
 
 
 def generate_normalized_data(dataset_files, sources: List[int]=None):
@@ -182,19 +171,18 @@ def generate_normalized_data(dataset_files, sources: List[int]=None):
     :param dataset_files:
     :param sources if None, source is set to 0; if singleton list, all files are given that source; otherwise one source per file
     """
-    raw_stacked_reads_file, raw_stacked_data_file = tempfile.NamedTemporaryFile(), tempfile.NamedTemporaryFile()
     stacked_data_file = tempfile.NamedTemporaryFile(suffix=SUFFIX_FOR_DATA_MMAP_IN_TAR)
     stacked_reads_file = tempfile.NamedTemporaryFile(suffix=SUFFIX_FOR_READS_MMAP_IN_TAR)
 
-    raw_stacked_data_ve, raw_stacked_reads_re, read_end_indices = write_raw_unnormalized_data_to_memory_maps(dataset_files,
-        raw_stacked_data_file.name, raw_stacked_reads_file.name, sources)
-    indices_for_normalization = get_normalization_set(raw_stacked_data_ve)
+    raw_memory_mapped_data = write_raw_unnormalized_data_to_memory_maps(dataset_files, sources)
+    indices_for_normalization = get_normalization_set(raw_memory_mapped_data.data_mmap)
 
     # extract the INFO array from all the data arrays in the normalization set
-    info_for_normalization_ve = [Datum(array=raw_stacked_data_ve[idx]).get_info_1d() for idx in indices_for_normalization]
+    info_for_normalization_ve = [Datum(array=raw_memory_mapped_data.data_mmap[idx]).get_info_1d() for idx in indices_for_normalization]
     info_quantile_transform = QuantileTransformer(n_quantiles=100, output_distribution='normal')
     info_quantile_transform.fit(info_for_normalization_ve)
 
+    # TODO: left off here in applying the MemoryMappedData class
     # for every index in the normalization set, get all the reads of the corresponding datum.  Stack all these reads to
     # obtain the reads normalization array
     reads_for_normalization_re = np.vstack([raw_stacked_reads_re[read_end_indices[max(idx - 1, 0)]:read_end_indices[idx]] for idx in indices_for_normalization])
