@@ -80,6 +80,7 @@ def main_without_parsing(args):
     base_datasets = map(lambda original_tarfile: ReadsDataset(tarfile=original_tarfile), original_tarfiles)
 
     # generate ReadSets
+    # TODO: need to use MemoryMappedData
     output_data_generator = generate_edited_data(base_datasets, edit_type, new_source)
     ReadsDatum.save_data_in_tarfile(data_generator=output_data_generator, max_bytes_in_chunk=chunk_size, output_tarfile=output_tarfile)
 
