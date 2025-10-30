@@ -22,10 +22,7 @@ workflow MakeTrainingDataset {
 
         # extra arguments
         String? m2_extra_args
-
-        # preprocessing arguments
-        Int chunk_size
-
+        
         # additional modes and outputs
         File? dragstr_model
         Boolean make_bamout = false
@@ -90,7 +87,6 @@ workflow MakeTrainingDataset {
     call Preprocess {
         input:
             training_dataset = select_first([Mutect2.permutect_training_dataset]),
-            chunk_size = chunk_size,
             permutect_docker = permutect_docker
     }
 
@@ -108,7 +104,6 @@ workflow MakeTrainingDataset {
 task Preprocess {
     input {
         File training_dataset
-        Int chunk_size
         Int? source_label
 
         String permutect_docker
@@ -127,7 +122,7 @@ task Preprocess {
     command <<<
         set -e
 
-        preprocess_dataset --training_datasets ~{training_dataset} --chunk_size ~{chunk_size} ~{"--sources " + source_label} --output train.tar
+        preprocess_dataset --training_datasets ~{training_dataset} ~{"--sources " + source_label} --output train.tar
     >>>
 
     runtime {
