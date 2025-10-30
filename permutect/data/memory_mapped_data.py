@@ -118,7 +118,8 @@ class MemoryMappedData:
                 data_file = NamedTemporaryFile(suffix=SUFFIX_FOR_DATA_MMAP)
                 old_data_mmap = data_mmap
                 data_mmap = np.memmap(data_file.name, dtype=data_array.dtype, mode='w+', shape=(data_capacity, data_array.shape[-1]))
-                data_mmap[:len(old_data_mmap)] = old_data_mmap
+                if old_data_mmap is not None:
+                    data_mmap[:len(old_data_mmap)] = old_data_mmap
 
             # likewise for reads
             if num_reads > reads_capacity:
@@ -126,7 +127,8 @@ class MemoryMappedData:
                 reads_file = NamedTemporaryFile(suffix=SUFFIX_FOR_READS_MMAP)
                 old_reads_mmap = reads_mmap
                 reads_mmap = np.memmap(reads_file.name, dtype=reads_array.dtype, mode='w+', shape=(reads_capacity, reads_array.shape[-1]))
-                reads_mmap[:len(old_reads_mmap)] = old_reads_mmap
+                if old_reads_mmap is not None:
+                    reads_mmap[:len(old_reads_mmap)] = old_reads_mmap
 
             # write new data
             data_mmap[num_data - 1] = data_array
