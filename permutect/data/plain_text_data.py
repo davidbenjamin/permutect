@@ -163,7 +163,7 @@ def write_raw_unnormalized_data_to_memory_maps(dataset_files, sources: List[int]
     return memory_mapped_data
 
 
-def generate_normalized_data(raw_mmap_data: MemoryMappedData, read_quantile_transform, info_quantile_transform) -> Generator[ReadsDatum]:
+def normalized_data_generator(raw_mmap_data: MemoryMappedData, read_quantile_transform, info_quantile_transform) -> Generator[ReadsDatum]:
     raw_data_list = []
     data_mmap_ve = raw_mmap_data.data_mmap
     reads_mmap_re = raw_mmap_data.reads_mmap
@@ -181,7 +181,7 @@ def generate_normalized_data(raw_mmap_data: MemoryMappedData, read_quantile_tran
             raw_data_list = []
 
 
-def generate_normalized_data(dataset_files, sources: List[int]=None) -> MemoryMappedData:
+def make_normalized_mmap_data(dataset_files, sources: List[int]=None) -> MemoryMappedData:
     """
     given unnormalized plain text dataset files from Mutect2, normalize data and save as tarfile of memory mapped numpy arrays
 
@@ -205,7 +205,7 @@ def generate_normalized_data(dataset_files, sources: List[int]=None) -> MemoryMa
     read_quantile_transform = QuantileTransformer(n_quantiles=100, output_distribution='normal')
     read_quantile_transform.fit(reads_for_normalization_distance_columns_re)
 
-    normalized_generator = generate_normalized_data(raw_memory_mapped_data, read_quantile_transform, info_quantile_transform)
+    normalized_generator = normalized_data_generator(raw_memory_mapped_data, read_quantile_transform, info_quantile_transform)
     return MemoryMappedData.from_generator(reads_datum_source=normalized_generator,
         estimated_num_data=raw_memory_mapped_data.num_data, estimated_num_reads=raw_memory_mapped_data.num_reads)
 

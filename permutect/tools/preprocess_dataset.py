@@ -9,7 +9,7 @@ import torch
 
 from permutect import constants
 from permutect.data.reads_datum import ReadsDatum
-from permutect.data.plain_text_data import generate_normalized_data
+from permutect.data.plain_text_data import make_normalized_mmap_data
 from permutect.misc_utils import ConsistentValue
 
 
@@ -33,10 +33,9 @@ def parse_arguments():
     return parser.parse_args()
 
 
-def do_work(training_datasets, training_output_file, sources: List[int]):
-    # TODO: output tarfile, not lists of reads
-    data_list_generator = generate_normalized_data(training_datasets, sources=sources)
-    ReadsDatum.save_lists_into_tarfile(data_list_generator=data_list_generator, output_tarfile=training_output_file)
+def do_work(plain_text_dataset_files, output_tarfile, sources: List[int]):
+    memory_mapped_data = make_normalized_mmap_data(plain_text_dataset_files, sources=sources)
+    memory_mapped_data.save_to_tarfile(output_tarfile)
 
 
 def main_without_parsing(args):
