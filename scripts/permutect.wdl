@@ -32,7 +32,6 @@ workflow Permutect {
         Int batch_size
         Int num_workers
         Int? gpu_count
-        Int chunk_size
         File? test_dataset_truth_vcf    # used for evaluation
         File? test_dataset_truth_vcf_idx
 
@@ -113,7 +112,6 @@ workflow Permutect {
             gpu_count = gpu_count,
             num_spectrum_iterations = num_spectrum_iterations,
             spectrum_learning_rate = spectrum_learning_rate,
-            chunk_size = chunk_size,
             permutect_filtering_extra_args = permutect_filtering_extra_args,
             permutect_docker = permutect_docker,
     }
@@ -182,7 +180,6 @@ workflow Permutect {
         Int batch_size
         Int num_workers
         Int? gpu_count
-        Int chunk_size
         String? permutect_filtering_extra_args
 
         String permutect_docker
@@ -206,7 +203,7 @@ workflow Permutect {
             --contigs_table ~{contigs_table} \
             --output permutect-filtered.vcf \
             --tensorboard_dir tensorboard \
-            --batch_size ~{batch_size} --num_workers ~{num_workers} --chunk_size ~{chunk_size} \
+            --batch_size ~{batch_size} --num_workers ~{num_workers} \
             ~{" --num_spectrum_iterations " + num_spectrum_iterations} \
             ~{" --spectrum_learning_rate " + spectrum_learning_rate} \
             ~{" --maf_segments " + maf_segments} ~{" --normal_maf_segments " + normal_maf_segments} \
