@@ -18,7 +18,6 @@ def test_on_10_megabases_singular():
     tarfile_name = training_data_tarfile.name if not OVERWRITE_SAVED_TARFILE else training_data_tarfile
 
     preprocess_args = Namespace()
-    setattr(preprocess_args, constants.CHUNK_SIZE_NAME, 1e6)
     setattr(preprocess_args, constants.TRAINING_DATASETS_NAME, training_datasets)
     setattr(preprocess_args, constants.OUTPUT_NAME, tarfile_name)
     setattr(preprocess_args, constants.SOURCES_NAME, [0])

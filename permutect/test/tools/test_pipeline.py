@@ -24,7 +24,6 @@ def test_on_dream1():
 
     # STEP 1: preprocess the plain text training dataset yielding a training tarfile
     preprocess_args = Namespace()
-    setattr(preprocess_args, constants.CHUNK_SIZE_NAME, 1e6)
     setattr(preprocess_args, constants.TRAINING_DATASETS_NAME, training_datasets)
     setattr(preprocess_args, constants.OUTPUT_NAME, training_data_tarfile.name)
     setattr(preprocess_args, constants.SOURCES_NAME, [0])
@@ -78,7 +77,6 @@ def test_on_dream1():
     setattr(filtering_args, constants.OUTPUT_NAME, filtered_mutect3_vcf.name)
     setattr(filtering_args, constants.TENSORBOARD_DIR_NAME, filtering_tensorboard_dir.name)
     setattr(filtering_args, constants.BATCH_SIZE_NAME, 64)
-    setattr(filtering_args, constants.CHUNK_SIZE_NAME, 100000)
     setattr(filtering_args, constants.NUM_SPECTRUM_ITERATIONS_NAME, 10)
     setattr(filtering_args, constants.INITIAL_LOG_VARIANT_PRIOR_NAME, -10.0)
     setattr(filtering_args, constants.INITIAL_LOG_ARTIFACT_PRIOR_NAME, -10.0)

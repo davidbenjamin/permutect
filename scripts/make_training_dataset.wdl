@@ -25,7 +25,7 @@ workflow MakeTrainingDataset {
 
         # extra arguments
         String? m2_extra_args
-        
+
         # additional modes and outputs
         File? dragstr_model
         Boolean make_bamout = false
