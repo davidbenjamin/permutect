@@ -163,7 +163,25 @@ def write_raw_unnormalized_data_to_memory_maps(dataset_files, sources: List[int]
     return memory_mapped_data
 
 
-def generate_normalized_data(dataset_files, sources: List[int]=None):
+def generate_normalized_data(raw_mmap_data: MemoryMappedData, read_quantile_transform, info_quantile_transform) -> Generator[ReadsDatum]:
+    raw_data_list = []
+    data_mmap_ve = raw_mmap_data.data_mmap
+    reads_mmap_re = raw_mmap_data.reads_mmap
+    read_end_indices = raw_mmap_data.read_end_indices
+
+    for idx in range(raw_mmap_data.num_data):
+        reads = reads_mmap_re[read_end_indices[max(idx - 1, 0)]:read_end_indices[idx]]
+        raw_datum = RawUnnormalizedReadsDatum(datum_array=data_mmap_ve[idx], reads_re=reads)
+        raw_data_list.append(raw_datum)
+
+        if len(raw_data_list) == NUM_RAW_DATA_TO_NORMALIZE_AT_ONCE or (idx == raw_mmap_data.num_data - 1 and len(raw_data_list) > 0):
+            normalized_data_list = normalize_raw_data_list(raw_data_list, read_quantile_transform, info_quantile_transform)
+            for datum in normalized_data_list:
+                yield datum
+            raw_data_list = []
+
+
+def generate_normalized_data(dataset_files, sources: List[int]=None) -> MemoryMappedData:
     """
     given unnormalized plain text dataset files from Mutect2, normalize data and save as tarfile of memory mapped numpy arrays
 
@@ -171,10 +189,8 @@ def generate_normalized_data(dataset_files, sources: List[int]=None):
     :param dataset_files:
     :param sources if None, source is set to 0; if singleton list, all files are given that source; otherwise one source per file
     """
-    stacked_data_file = tempfile.NamedTemporaryFile(suffix=SUFFIX_FOR_DATA_MMAP_IN_TAR)
-    stacked_reads_file = tempfile.NamedTemporaryFile(suffix=SUFFIX_FOR_READS_MMAP_IN_TAR)
-
     raw_memory_mapped_data = write_raw_unnormalized_data_to_memory_maps(dataset_files, sources)
+    read_end_indices = raw_memory_mapped_data.read_end_indices
     indices_for_normalization = get_normalization_set(raw_memory_mapped_data.data_mmap)
 
     # extract the INFO array from all the data arrays in the normalization set
@@ -182,58 +198,16 @@ def generate_normalized_data(dataset_files, sources: List[int]=None):
     info_quantile_transform = QuantileTransformer(n_quantiles=100, output_distribution='normal')
     info_quantile_transform.fit(info_for_normalization_ve)
 
-    # TODO: left off here in applying the MemoryMappedData class
     # for every index in the normalization set, get all the reads of the corresponding datum.  Stack all these reads to
     # obtain the reads normalization array
-    reads_for_normalization_re = np.vstack([raw_stacked_reads_re[read_end_indices[max(idx - 1, 0)]:read_end_indices[idx]] for idx in indices_for_normalization])
+    reads_for_normalization_re = np.vstack([raw_memory_mapped_data.reads_mmap[read_end_indices[max(idx - 1, 0)]:read_end_indices[idx]] for idx in indices_for_normalization])
     reads_for_normalization_distance_columns_re = reads_for_normalization_re[:, 4:9]
     read_quantile_transform = QuantileTransformer(n_quantiles=100, output_distribution='normal')
     read_quantile_transform.fit(reads_for_normalization_distance_columns_re)
 
-    # memory maps of normalized data
-    normalized_stacked_data_ve, normalized_stacked_reads_re = None, None
-    raw_data_list = []
-    data_start_idx = 0
-    read_start_idx = 0
-    num_data = len(raw_stacked_data_ve)
-
-    for n, raw_data_array in enumerate(raw_stacked_data_ve):
-        reads = raw_stacked_reads_re[read_end_indices[max(n - 1, 0)]:read_end_indices[n]]
-        raw_datum = RawUnnormalizedReadsDatum(datum_array=raw_data_array, reads_re=reads)
-        raw_data_list.append(raw_datum)
-
-        if len(raw_data_list) == NUM_RAW_DATA_TO_NORMALIZE_AT_ONCE or (n == num_data - 1 and len(raw_data_list) > 0):
-            normalized_data_list = normalize_raw_data_list(raw_data_list, read_quantile_transform, info_quantile_transform)
-
-            # initialize normalized memory maps if necessary
-            if normalized_stacked_data_ve is None:
-                read_array_dim = normalized_data_list[0].compressed_reads_re.shape[-1]
-                data_array_dim = len(normalized_data_list[0].get_array_1d())
-                normalized_stacked_reads_re = np.memmap(stacked_reads_file.name, dtype=READS_ARRAY_DTYPE, mode='w+',
-                                             shape=(len(raw_stacked_reads_re), read_array_dim))
-                normalized_stacked_data_ve = np.memmap(stacked_data_file.name, dtype=DATUM_ARRAY_DTYPE, mode='w+',
-                                            shape=(len(raw_stacked_data_ve), data_array_dim))
-
-            # write normalized data to memory maps
-            reads_to_add_re = np.vstack([datum.reads_re for datum in normalized_data_list])
-            data_to_add_ve = np.vstack([datum.get_array_1d() for datum in normalized_data_list])
-            read_end_idx, data_end_idx = read_start_idx + len(reads_to_add_re), data_start_idx + len(data_to_add_ve)
-            normalized_stacked_reads_re[read_start_idx:read_end_idx] = reads_to_add_re
-            normalized_stacked_data_ve[data_start_idx:data_end_idx] = data_to_add_ve
-
-            read_start_idx, data_start_idx = read_end_idx, data_end_idx
-            raw_data_list = []
-
-    normalized_stacked_data_ve.flush()
-    normalized_stacked_reads_re.flush()
-
-    assert data_start_idx == num_data
-    assert read_start_idx == read_end_indices[-1]
-
-    reads_array_shape = (read_start_idx, normalized_stacked_reads_re.shape[-1])
-    data_array_shape = (data_start_idx, normalized_stacked_data_ve.shape[-1])
-
-    return stacked_data_file, stacked_reads_file, reads_array_shape, data_array_shape
+    normalized_generator = generate_normalized_data(raw_memory_mapped_data, read_quantile_transform, info_quantile_transform)
+    return MemoryMappedData.from_generator(reads_datum_source=normalized_generator,
+        estimated_num_data=raw_memory_mapped_data.num_data, estimated_num_reads=raw_memory_mapped_data.num_reads)
 
 
 def get_normalization_set(raw_stacked_data_ve) -> List[int]:
@@ -275,7 +249,6 @@ def get_normalization_set(raw_stacked_data_ve) -> List[int]:
     return indices_for_normalization
 
 
-# TODO: I just started modifying this
 # this normalizes the buffer and also prepends new features to the info tensor
 def normalize_raw_data_list(buffer: List[RawUnnormalizedReadsDatum], read_quantile_transform,
                             info_quantile_transform) -> List[ReadsDatum]:
