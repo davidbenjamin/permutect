@@ -147,6 +147,9 @@ class Datum:
     def get_alt_count(self) -> int:
         return self.array[Datum.ALT_COUNT_IDX]
 
+    def get_read_count(self) -> int:
+        return self.get_alt_count() + self.get_ref_count()
+
     def get_haplotypes_array_length(self) -> int:
         return self.array[Datum.HAPLOTYPES_LENGTH_IDX]
 

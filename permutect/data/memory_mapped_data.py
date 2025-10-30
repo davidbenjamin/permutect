@@ -6,6 +6,7 @@ from tempfile import NamedTemporaryFile
 
 import numpy as np
 
+from permutect.data.datum import Datum
 from permutect.data.reads_datum import ReadsDatum
 
 SUFFIX_FOR_DATA_MMAP = ".data_mmap"
@@ -29,6 +30,13 @@ class MemoryMappedData:
         self.reads_mmap = reads_mmap
         self.num_data = num_data
         self.num_reads = num_reads
+
+        # note: this can hold indices up to a bit over 4 billion, which is probably bigger than any training dataset we'll need
+        self.read_end_indices = np.zeros(shape=(num_data,), dtype=np.uint32)
+        idx = 0
+        for n, data_array in enumerate(self.data_mmap):
+            idx += Datum(data_array).get_read_count()
+            self.read_end_indices[n] = idx
 
     def save_to_tarfile(self, output_tarfile):
         """
