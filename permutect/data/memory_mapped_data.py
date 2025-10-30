@@ -3,11 +3,12 @@ import os
 import tarfile
 import tempfile
 from tempfile import NamedTemporaryFile
+from typing import Generator
 
 import numpy as np
 
 from permutect.data.datum import Datum
-from permutect.data.reads_datum import ReadsDatum
+from permutect.data.reads_datum import ReadsDatum, READS_ARRAY_DTYPE
 
 SUFFIX_FOR_DATA_MMAP = ".data_mmap"
 SUFFIX_FOR_READS_MMAP = ".reads_mmap"
@@ -37,6 +38,13 @@ class MemoryMappedData:
         for n, data_array in enumerate(self.data_mmap):
             idx += Datum(data_array).get_read_count()
             self.read_end_indices[n] = idx
+
+    def generate_reads_data(self) -> Generator[ReadsDatum, None, None]:
+        assert self.reads_mmap.dtype == READS_ARRAY_DTYPE
+        for idx in range(self.num_data):
+            data_array = self.data_mmap[idx]
+            reads_array = self.reads_mmap[0 if idx == 0 else self.read_end_indices[idx - 1]:self.read_end_indices[idx]]
+            yield ReadsDatum(datum_array=data_array, compressed_reads_re=reads_array)
 
     def save_to_tarfile(self, output_tarfile):
         """
