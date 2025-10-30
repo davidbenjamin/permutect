@@ -196,7 +196,7 @@ class ReadsDatum(Datum):
 
     # takes a ReadsDatum generator and generates List[ReadsDatum]s of fixed size (except for a smaller final chunk)
     @classmethod
-    def generate_data_lists(cls, data_generator: Generator[ReadsDatum], max_bytes_per_chunk: int) -> Generator[List[ReadsDatum]]:
+    def generate_data_lists(cls, data_generator: Generator[ReadsDatum, None, None], max_bytes_per_chunk: int) -> Generator[List[ReadsDatum], None, None]:
         buffer, bytes_in_buffer = [], 0
         for datum in data_generator:
 

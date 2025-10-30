@@ -138,7 +138,7 @@ def read_raw_unnormalized_data(dataset_file, only_artifacts: bool = False, sourc
                 yield datum.copy_with_downsampled_reads(ref_count, alt_count)
 
 
-def generate_raw_data_from_text_files(dataset_files, sources: List[int]=None) -> Generator[RawUnnormalizedReadsDatum]:
+def generate_raw_data_from_text_files(dataset_files, sources: List[int]=None) -> Generator[RawUnnormalizedReadsDatum, None, None]:
     data_dim, reads_dim = ConsistentValue(), ConsistentValue()
 
     for n, dataset_file in enumerate(dataset_files):
@@ -163,14 +163,14 @@ def write_raw_unnormalized_data_to_memory_maps(dataset_files, sources: List[int]
     return memory_mapped_data
 
 
-def normalized_data_generator(raw_mmap_data: MemoryMappedData, read_quantile_transform, info_quantile_transform) -> Generator[ReadsDatum]:
+def normalized_data_generator(raw_mmap_data: MemoryMappedData, read_quantile_transform, info_quantile_transform) -> Generator[ReadsDatum, None, None]:
     raw_data_list = []
     data_mmap_ve = raw_mmap_data.data_mmap
     reads_mmap_re = raw_mmap_data.reads_mmap
     read_end_indices = raw_mmap_data.read_end_indices
 
     for idx in range(raw_mmap_data.num_data):
-        reads = reads_mmap_re[read_end_indices[max(idx - 1, 0)]:read_end_indices[idx]]
+        reads = reads_mmap_re[0 if idx == 0 else read_end_indices[idx - 1]:read_end_indices[idx]]
         raw_datum = RawUnnormalizedReadsDatum(datum_array=data_mmap_ve[idx], reads_re=reads)
         raw_data_list.append(raw_datum)
 
@@ -327,6 +327,8 @@ def normalize_raw_data_list(buffer: List[RawUnnormalizedReadsDatum], read_quanti
 
         output_datum.set_info_1d(np.hstack((all_info_transformed_ve[n], extra_info_e)))
         normalized_result.append(output_datum)
+        if len(output_datum.get_reads_array_re()) == 0:
+            j = 90
 
     return normalized_result
 

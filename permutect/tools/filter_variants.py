@@ -204,7 +204,7 @@ def make_posterior_data_loader(dataset_file, input_vcf, contig_index_to_name_map
     posterior_data = []
 
     report_memory_usage("Parsing and normalizing plain text data.")
-    normalize_mmap_data = plain_text_data.make_normalized_mmap_data(dataset_files=[dataset_file])
+    normalized_mmap_data = plain_text_data.make_normalized_mmap_data(dataset_files=[dataset_file])
 
     report_memory_usage("Creating ReadsDataset.")
     # TODO: left off here.  Need to construct ReadsDataset in memory map mode from MemoryMappedData class
