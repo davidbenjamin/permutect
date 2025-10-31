@@ -11,9 +11,10 @@ import torch
 from permutect.data.datum import Datum, DATUM_ARRAY_DTYPE
 from permutect.data.reads_datum import ReadsDatum, READS_ARRAY_DTYPE
 
-SUFFIX_FOR_DATA_MMAP = ".data_mmap"
-SUFFIX_FOR_READS_MMAP = ".reads_mmap"
-SUFFIX_FOR_METADATA = ".metadata"
+# numpy.save appends .npy if the extension doesn't already include it.  We preempt this behavior.
+SUFFIX_FOR_DATA_MMAP = ".data_mmap.npy"
+SUFFIX_FOR_READS_MMAP = ".reads_mmap.npy"
+SUFFIX_FOR_METADATA = ".metadata.npy"
 
 
 class MemoryMappedData:
@@ -62,19 +63,23 @@ class MemoryMappedData:
             4) it's convenient to package things as a single tarfile
         :return:
         """
-        # we assume that we only save data once it's normalized
-        assert self.data_mmap.dtype == DATUM_ARRAY_DTYPE
-        assert self.reads_mmap.dtype == READS_ARRAY_DTYPE
-
         # num_data, data dimension; num_reads, reads dimension
         metadata = np.array([self.num_data, self.data_mmap.shape[-1], self.num_reads, self.reads_mmap.shape[-1]], dtype=np.uint32)
         metadata_file = NamedTemporaryFile(suffix=SUFFIX_FOR_METADATA)
         torch.save(metadata, metadata_file.name)
 
+        # For some reason, self.data_mmap.filename and self.reads_mmap.filename point to an empty file.  I have no clue why this is,
+        # so at risk of redundant copying I just use numpy's save function, followed later by numpy.open_memmap
+        data_file = NamedTemporaryFile(suffix=SUFFIX_FOR_DATA_MMAP)
+        np.save(data_file.name, self.data_mmap)
+
+        reads_file = NamedTemporaryFile(suffix=SUFFIX_FOR_READS_MMAP)
+        np.save(reads_file.name, self.reads_mmap)
+
         with tarfile.open(output_tarfile, "w") as output_tar:
             output_tar.add(metadata_file.name, arcname=("metadata" + SUFFIX_FOR_METADATA))
-            output_tar.add(self.data_mmap.filename, arcname=("data_array" + SUFFIX_FOR_DATA_MMAP))
-            output_tar.add(self.reads_mmap.filename, arcname=("reads_array" + SUFFIX_FOR_READS_MMAP))
+            output_tar.add(data_file.name, arcname=("data_array" + SUFFIX_FOR_DATA_MMAP))
+            output_tar.add(reads_file.name, arcname=("reads_array" + SUFFIX_FOR_READS_MMAP))
 
     # Load the list of objects back from the .npy file
     # Remember to set allow_pickle=True when loading as well
@@ -95,13 +100,12 @@ class MemoryMappedData:
         assert len(reads_files) == 1
 
         loaded_metadata = torch.load(metadata_files[0])
-        print(loaded_metadata)
         num_data, data_dim, num_reads, reads_dim = loaded_metadata[0], loaded_metadata[1], loaded_metadata[2], loaded_metadata[3]
 
         # NOTE: the original file may have had excess space due to the O(N) amortized growing scheme
         # if we load the same file with the actual num_data, as opposed to the capacity, it DOES work correctly
-        data_mmap = np.memmap(data_files[0], dtype=DATUM_ARRAY_DTYPE, mode='r', shape=(num_data, data_dim))
-        reads_mmap = np.memmap(reads_files[0], dtype=READS_ARRAY_DTYPE, mode='r', shape=(num_reads, reads_dim))
+        data_mmap = np.lib.format.open_memmap(data_files[0], mode='r', shape=(num_data, data_dim))
+        reads_mmap = np.lib.format.open_memmap(reads_files[0], mode='r', shape=(num_reads, reads_dim))
 
         return cls(data_mmap=data_mmap, num_data=num_data, reads_mmap=reads_mmap, num_reads=num_reads)
 
