@@ -6,8 +6,9 @@ from tempfile import NamedTemporaryFile
 from typing import Generator
 
 import numpy as np
+import torch
 
-from permutect.data.datum import Datum
+from permutect.data.datum import Datum, DATUM_ARRAY_DTYPE
 from permutect.data.reads_datum import ReadsDatum, READS_ARRAY_DTYPE
 
 SUFFIX_FOR_DATA_MMAP = ".data_mmap"
@@ -61,22 +62,22 @@ class MemoryMappedData:
             4) it's convenient to package things as a single tarfile
         :return:
         """
+        # we assume that we only save data once it's normalized
+        assert self.data_mmap.dtype == DATUM_ARRAY_DTYPE
+        assert self.reads_mmap.dtype == READS_ARRAY_DTYPE
 
-        # data dtype, num_data, data dimension; reads dtype, num_reads, reads dimension
-        metadata = [self.data_mmap.dtype,self.num_data, self.data_mmap.shape[-1], self.reads_mmap.dtype, self.num_reads, self.reads_mmap.shape[-1]]
+        # num_data, data dimension; num_reads, reads dimension
+        metadata = np.array([self.num_data, self.data_mmap.shape[-1], self.num_reads, self.reads_mmap.shape[-1]], dtype=np.uint32)
         metadata_file = NamedTemporaryFile(suffix=SUFFIX_FOR_METADATA)
-        np.save(metadata_file.name, np.array(metadata, dtype=object), allow_pickle=True)
-
-        data_file = self.data_mmap.filename
-        reads_file = self.reads_mmap.filename
+        torch.save(metadata, metadata_file.name)
 
         with tarfile.open(output_tarfile, "w") as output_tar:
-            for file in [metadata_file, data_file, reads_file]:
-                output_tar.add(file, arcname=os.path.basename(file))
+            output_tar.add(metadata_file.name, arcname=("metadata" + SUFFIX_FOR_METADATA))
+            output_tar.add(self.data_mmap.filename, arcname=("data_array" + SUFFIX_FOR_DATA_MMAP))
+            output_tar.add(self.reads_mmap.filename, arcname=("reads_array" + SUFFIX_FOR_READS_MMAP))
 
-        # Load the list of objects back from the .npy file
-        # Remember to set allow_pickle=True when loading as well
-
+    # Load the list of objects back from the .npy file
+    # Remember to set allow_pickle=True when loading as well
     @classmethod
     def load_from_tarfile(cls, data_tarfile) -> MemoryMappedData:
         temp_dir = tempfile.TemporaryDirectory()
@@ -93,13 +94,14 @@ class MemoryMappedData:
         assert len(data_files) == 1
         assert len(reads_files) == 1
 
-        loaded_metadata = np.load(metadata_files[0], allow_pickle=True)
-        data_dtype, num_data, data_dim, reads_dtype, num_reads, reads_dim = (*loaded_metadata, )
+        loaded_metadata = torch.load(metadata_files[0])
+        print(loaded_metadata)
+        num_data, data_dim, num_reads, reads_dim = loaded_metadata[0], loaded_metadata[1], loaded_metadata[2], loaded_metadata[3]
 
         # NOTE: the original file may have had excess space due to the O(N) amortized growing scheme
         # if we load the same file with the actual num_data, as opposed to the capacity, it DOES work correctly
-        data_mmap = np.memmap(data_files[0], dtype=data_dtype, mode='r', shape=(num_data, data_dim))
-        reads_mmap = np.memmap(reads_files[0], dtype=reads_dtype, mode='r', shape=(num_reads, reads_dim))
+        data_mmap = np.memmap(data_files[0], dtype=DATUM_ARRAY_DTYPE, mode='r', shape=(num_data, data_dim))
+        reads_mmap = np.memmap(reads_files[0], dtype=READS_ARRAY_DTYPE, mode='r', shape=(num_reads, reads_dim))
 
         return cls(data_mmap=data_mmap, num_data=num_data, reads_mmap=reads_mmap, num_reads=num_reads)
 
