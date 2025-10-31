@@ -3,10 +3,8 @@ import tempfile
 
 from permutect.data.memory_mapped_data import MemoryMappedData
 from permutect.data.reads_dataset import ReadsDataset
-from permutect.data.reads_datum import ReadsDatum, SUFFIX_FOR_DATA_FILES_IN_TAR
 from permutect.tools import preprocess_dataset
 from permutect import constants
-from permutect.misc_utils import extract_to_temp_dir
 
 OVERWRITE_SAVED_TARFILE = True
 

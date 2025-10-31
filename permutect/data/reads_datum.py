@@ -126,8 +126,6 @@ class RawUnnormalizedReadsDatum(Datum):
 
 
 class ReadsDatum(Datum):
-    # TODO: this comes up in 1) pruning, 2) memory-mapped dataset 3) loading, 4) normalizing plain-text data
-    # TODO: 1 still needs to be fixed
     def __init__(self, datum_array: np.ndarray, compressed_reads_re: np.ndarray):
         super().__init__(datum_array)
         assert compressed_reads_re.dtype == READS_ARRAY_DTYPE
