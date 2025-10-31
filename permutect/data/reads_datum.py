@@ -159,19 +159,6 @@ class ReadsDatum(Datum):
     def get_compressed_alt_reads_re(self) -> np.ndarray:
         return self.compressed_reads_re[-self.get_alt_count():]
 
-    @classmethod
-    def save_list(cls, data: List[ReadsDatum], file):
-        stacked_compressed_reads_re = np.vstack([datum.get_compressed_reads_re() for datum in data])
-        stacked_data_array_ve = np.vstack([datum.get_array_1d() for datum in data])
-
-        # if tensors are allowed to have more than 127 total reads (after downsampling) change this to int16!!!!
-        read_counts_v = np.array([datum.get_ref_count() + datum.get_alt_count() for datum in data], dtype=np.int16)
-        to_save = {'compressed_reads': stacked_compressed_reads_re,
-                   'data_array': stacked_data_array_ve,
-                   'read_counts': read_counts_v}
-        #[stacked_compressed_reads_re, stacked_data_array_ve, read_counts_v]
-        torch.save(to_save, file, pickle_protocol=4)
-
     # TODO: maybe the stacked arrays could be loaded directly as a dataset as opposed to the current approach of
     # TODO: unstacking them into Lists of ReadsDatum, then storing the data list in the datasetx
     @classmethod
@@ -212,49 +199,6 @@ class ReadsDatum(Datum):
             yield buffer
 
     @classmethod
-    def save_lists_into_tarfile(cls, data_list_generator: Generator[List[ReadsDatum]], output_tarfile):
-        data_files = []
-        num_read_features, num_info_features, haplotypes_length = ConsistentValue(), ConsistentValue(), ConsistentValue()
-        read_tensor_width, data_tensor_width = ConsistentValue(), ConsistentValue()
-
-        # save all the lists of read sets to tempfiles. . .
-        total_num_reads, total_num_data = 0, 0
-        reads_datum_list: List[ReadsDatum]
-        for reads_datum_list in data_list_generator:
-            first_datum: ReadsDatum = reads_datum_list[0]
-            num_read_features.check(first_datum.num_read_features())
-            num_info_features.check(first_datum.get_info_1d().shape[0])
-            haplotypes_length.check(first_datum.get_haplotypes_1d().shape[0])
-
-            read_tensor_width.check(first_datum.compressed_reads_re.shape[-1])
-            data_tensor_width.check(first_datum.array.shape[-1])
-
-            with tempfile.NamedTemporaryFile(suffix=SUFFIX_FOR_DATA_FILES_IN_TAR, delete=False) as train_data_file:
-                ReadsDatum.save_list(reads_datum_list, train_data_file)
-                data_files.append(train_data_file.name)
-
-            total_num_data += len(reads_datum_list)
-            for datum in reads_datum_list:
-                total_num_reads += (datum.get_ref_count() + datum.get_alt_count())
-
-        # for pre-allocating tensor of all data in the tarfile, we store 1) the total data count 2) the total read count
-        # 3) the tensor size (in memory, not after expanding binaries) of read data 4) the tensor size of 1D data
-        with tempfile.NamedTemporaryFile(suffix=SUFFIX_FOR_DATA_COUNT_FILE_IN_TAR, delete=False) as counts_file:
-            torch.save(np.array([total_num_data, total_num_reads, read_tensor_width.value, data_tensor_width.value]),
-                       counts_file, pickle_protocol=4)
-            data_files.append(counts_file.name)
-
-        # . . . and bundle them in a tarfile
-        with tarfile.open(output_tarfile, "w") as train_tar:
-            for train_file in data_files:
-                train_tar.add(train_file, arcname=os.path.basename(train_file))
-
-    @classmethod
-    def save_data_in_tarfile(cls, data_generator: Generator[ReadsDatum], max_bytes_in_chunk: int, output_tarfile):
-        list_generator = ReadsDatum.generate_data_lists(data_generator=data_generator, max_bytes_per_chunk=max_bytes_in_chunk)
-        ReadsDatum.save_lists_into_tarfile(data_list_generator=list_generator, output_tarfile=output_tarfile)
-
-    @classmethod
     def extract_counts_from_tarfile(cls, data_tarfile):
         temp_dir = tempfile.TemporaryDirectory()
 
@@ -271,20 +215,6 @@ class ReadsDatum(Datum):
         count_array = torch.load(count_files[0])
         # counts array contains: total_num_data, total_num_reads, read_tensor_width, data_tensor_width
         return count_array[0], count_array[1], count_array[2], count_array[3]
-
-    @classmethod
-    def generate_reads_data_from_tarfile(cls, data_tarfile) -> Generator[ReadsDatum, None, None]:
-        # extract the tarfile to a temporary directory that will be cleaned up when the program ends
-        temp_dir = tempfile.TemporaryDirectory()
-        tar = tarfile.open(data_tarfile)
-        tar.extractall(temp_dir.name)
-        tar.close()
-        data_files = [os.path.abspath(os.path.join(temp_dir.name, p)) for p in os.listdir(temp_dir.name) if
-                      p.endswith(SUFFIX_FOR_DATA_FILES_IN_TAR)]
-
-        for file in data_files:
-            for datum in ReadsDatum.load_list(file):
-                yield datum
 
     @classmethod
     def generate_arrays_from_tarfile(cls, data_tarfile):
