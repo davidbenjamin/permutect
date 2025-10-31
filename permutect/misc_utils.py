@@ -108,10 +108,3 @@ def backpropagate(optimizer: torch.optim.Optimizer, loss: Tensor, params_to_clip
     loss.backward()
     nn.utils.clip_grad_norm_(params_to_clip, max_norm=1.0)
     optimizer.step()
-
-
-def extract_to_temp_dir(tar_file, directory):
-    tar = tarfile.open(tar_file)
-    tar.extractall(directory)
-    tar.close()
-    return [os.path.abspath(os.path.join(directory, p)) for p in os.listdir(directory)]
