@@ -1,6 +1,7 @@
 import argparse
-from typing import List
+from typing import List, Generator
 
+from permutect.data.memory_mapped_data import MemoryMappedData
 from permutect.training.model_training import train_artifact_model
 from permutect.architecture.artifact_model import ArtifactModel, load_model
 from tqdm.autonotebook import tqdm
@@ -122,7 +123,7 @@ def generated_pruned_data_for_fold(art_threshold: float, nonart_threshold: float
                 yield datum # this is a ReadSet
 
 
-def generate_pruned_data_for_all_folds(dataset: ReadsDataset, model: ArtifactModel, training_params: TrainingParameters, tensorboard_dir):
+def generate_pruned_data_for_all_folds(dataset: ReadsDataset, model: ArtifactModel, training_params: TrainingParameters, tensorboard_dir) -> Generator[ReadsDatum, None, None]:
     # for each fold in turn, train an artifact model on all other folds and prune the chosen fold
     use_gpu = torch.cuda.is_available()
 
@@ -151,9 +152,6 @@ def parse_arguments():
 
     add_training_params_to_parser(parser)
 
-    parser.add_argument('--' + constants.CHUNK_SIZE_NAME, type=int, default=int(2e9), required=False,
-                        help='size in bytes of output binary data files')
-
     # input / output
     parser.add_argument('--' + constants.TRAIN_TAR_NAME, type=str, required=True,
                         help='tarfile of training/validation datasets produced by preprocess_dataset.py')
@@ -170,14 +168,14 @@ def main_without_parsing(args):
 
     tensorboard_dir = getattr(args, constants.TENSORBOARD_DIR_NAME)
     pruned_tarfile = getattr(args, constants.OUTPUT_NAME)
-    chunk_size = getattr(args, constants.CHUNK_SIZE_NAME)
     original_tarfile = getattr(args, constants.TRAIN_TAR_NAME)
 
     model,  _, _ = load_model(getattr(args, constants.ARTIFACT_MODEL_NAME))
 
     input_dataset = ReadsDataset(tarfile=original_tarfile, num_folds=NUM_FOLDS)
     pruned_data_generator = generate_pruned_data_for_all_folds(input_dataset, model, training_params, tensorboard_dir)
-    ReadsDatum.save_data_in_tarfile(data_generator=pruned_data_generator, max_bytes_in_chunk=chunk_size, output_tarfile=pruned_tarfile)
+    MemoryMappedData.from_generator(reads_datum_source=pruned_data_generator, estimated_num_data=len(input_dataset),
+                                    estimated_num_reads=10*len(input_dataset)).save_to_tarfile(output_tarfile=pruned_tarfile)
 
 
 def main():

@@ -29,8 +29,6 @@ def test_prune_dataset():
     setattr(prune_dataset_args, constants.TRAIN_TAR_NAME, training_data_tarfile)
     setattr(prune_dataset_args, constants.ARTIFACT_MODEL_NAME, artifact_model)
 
-    setattr(prune_dataset_args, constants.CHUNK_SIZE_NAME, 2e9)
-
     # training hyperparameters
     setattr(prune_dataset_args, constants.BATCH_SIZE_NAME, 64)
     setattr(prune_dataset_args, constants.NUM_WORKERS_NAME, 2)
