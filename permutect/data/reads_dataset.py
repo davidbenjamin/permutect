@@ -12,6 +12,7 @@ from torch.utils.data import Dataset, DataLoader
 from torch.utils.data.sampler import Sampler
 
 from permutect.data.datum import DATUM_ARRAY_DTYPE
+from permutect.data.memory_mapped_data import MemoryMappedData
 from permutect.data.reads_datum import ReadsDatum, READS_ARRAY_DTYPE
 from permutect.data.reads_batch import ReadsBatch
 from permutect.data.batch import BatchProperty, BatchIndexedTensor
@@ -30,66 +31,25 @@ def ratio_with_pseudocount(a, b):
 
 class ReadsDataset(Dataset):
     # TODO: fix all uses of this that used to require a tarfile of saved chunks of data
-    def __init__(self, data_in_ram: Iterable[ReadsDatum] = None, data_and_reads_mmaps = None, num_folds: int = 1):
+    def __init__(self, memory_mapped_data: MemoryMappedData, num_folds: int = 1):
         """
-
-        :param data_in_ram a List or other Iterable of ReadsDatum -- only used for tests
-        :param data_and_reads_mmaps: a tuple of (memory-mapped file of 1D data arrays, memory-mapped file of all reads)
         :param num_folds:
         """
         super(ReadsDataset, self).__init__()
-        assert data_in_ram is not None or data_and_reads_mmaps is not None, "No data given"
-        assert data_in_ram is None or data_and_reads_mmaps is None, "Data given from both RAM and memory maps"
         self.num_folds = num_folds
         self.totals_slvra = BatchIndexedTensor.make_zeros(num_sources=1, include_logits=False, device=torch.device('cpu'))
+        self.memory_mapped_data = memory_mapped_data
+        self._size = memory_mapped_data.num_data
+        self._read_end_indices = memory_mapped_data.read_end_indices
 
-        # data in ram is really just a convenient way to write tests.  In actual deployment the data comes from a tarfile
-        if data_in_ram is not None:
-            self._stacked_reads_re = np.vstack([datum.compressed_reads_re for datum in data_in_ram])
-            self._stacked_data_ve = np.vstack([datum.array for datum in data_in_ram])
-            read_lengths = np.array([datum.get_ref_count() + datum.get_alt_count() for datum in data_in_ram], dtype=np.int32)
-            self._read_end_indices = np.cumsum(read_lengths)
-            self._size = len(data_in_ram)
-            self._memory_map_mode = False
-        else:
-            tarfile_size = os.path.getsize(tarfile)    # in bytes
-            total_num_data, total_num_reads, read_tensor_width, data_tensor_width = ReadsDatum.extract_counts_from_tarfile(tarfile)
-            self._read_end_indices = np.zeros(total_num_data, dtype=np.uint64)  # nth element is the index where the nth datum's reads end (exclusive)
+        available_memory = psutil.virtual_memory().available
+        fits_in_ram = memory_mapped_data.size_in_bytes() < 0.6 * available_memory
+        self._memory_map_mode = fits_in_ram
+        print(f"Data occupy {memory_mapped_data.size_in_bytes() // 1000000} Mb and the system has {available_memory // 1000000} Mb of RAM available.")
 
-            self._size = total_num_data
-            estimated_data_size_in_ram = tarfile_size * RAM_TO_TARFILE_SPACE_RATIO
-            available_memory = psutil.virtual_memory().available
-            fits_in_ram = estimated_data_size_in_ram < 0.6 * available_memory
-
-            print(f"The tarfile size is {tarfile_size} bytes on disk for an estimated {estimated_data_size_in_ram} bytes in memory and the system has {available_memory} bytes of RAM available.")
-
-            if fits_in_ram:
-                # allocate the arrays of all data, then fill it from the tarfile
-                self._stacked_reads_re = np.zeros((total_num_reads, read_tensor_width), dtype=READS_ARRAY_DTYPE)
-                self._stacked_data_ve = np.zeros((total_num_data, data_tensor_width), dtype=DATUM_ARRAY_DTYPE)
-                self._memory_map_mode = False
-            else:
-                stacked_reads_file = tempfile.NamedTemporaryFile()
-                stacked_data_file = tempfile.NamedTemporaryFile()
-                self._stacked_reads_re = np.memmap(stacked_reads_file.name, dtype=READS_ARRAY_DTYPE, mode='w+', shape=(total_num_reads, read_tensor_width))
-                self._stacked_data_ve = np.memmap(stacked_data_file.name, dtype=DATUM_ARRAY_DTYPE, mode='w+', shape=(total_num_data, data_tensor_width))
-                self._memory_map_mode = True
-
-            print("loading the dataset from the tarfile...")
-
-            # the following code should work for data in RAM or memmap
-            read_start_idx, datum_start_idx = 0, 0
-            for reads_re, data_ve, read_counts_v in ReadsDatum.generate_arrays_from_tarfile(tarfile):
-                read_end_idx, datum_end_idx = read_start_idx + len(reads_re), datum_start_idx + len(data_ve)
-                self._read_end_indices[datum_start_idx:datum_end_idx] = read_start_idx + np.cumsum(read_counts_v)
-                self._stacked_reads_re[read_start_idx:read_end_idx] = reads_re
-                self._stacked_data_ve[datum_start_idx:datum_end_idx] = data_ve
-                read_start_idx, datum_start_idx = read_end_idx, datum_end_idx
-
-            # set memory maps to read-only
-            if self._memory_map_mode:
-                self._stacked_reads_re.flags.writeable = False
-                self._stacked_data_ve.flags.writeable = False
+        # copy memory-mapped data to RAM if space allows, otherwise use the memory-mapped data
+        self._stacked_reads_re = memory_mapped_data.reads_mmap.copy() if fits_in_ram else memory_mapped_data.reads_mmap
+        self._stacked_data_ve = memory_mapped_data.data_mmap.copy() if fits_in_ram else memory_mapped_data.data_mmap
 
         # this is used in the batch sampler to make same-shape batches
         self.indices_by_fold = [[] for _ in range(num_folds)]

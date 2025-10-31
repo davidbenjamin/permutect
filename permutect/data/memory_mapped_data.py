@@ -39,6 +39,12 @@ class MemoryMappedData:
             idx += Datum(data_array).get_read_count()
             self.read_end_indices[n] = idx
 
+    def __len__(self):
+        return self.num_data
+
+    def size_in_bytes(self):
+        return self.data_mmap.nbytes + self.reads_mmap.nbytes
+
     def generate_reads_data(self) -> Generator[ReadsDatum, None, None]:
         assert self.reads_mmap.dtype == READS_ARRAY_DTYPE
         for idx in range(self.num_data):
