@@ -207,36 +207,31 @@ def make_posterior_data_loader(dataset_file, input_vcf, contig_index_to_name_map
     normalized_mmap_data = plain_text_data.make_normalized_mmap_data(dataset_files=[dataset_file])
 
     report_memory_usage("Creating ReadsDataset.")
-    # TODO: left off here.  Need to construct ReadsDataset in memory map mode from MemoryMappedData class
+    dataset = ReadsDataset(memory_mapped_data=normalized_mmap_data)
+    loader = dataset.make_data_loader(dataset.all_folds(), batch_size, pin_memory=torch.cuda.is_available(), num_workers=num_workers)
 
-    for list_of_base_data in :
+    print("creating posterior data...")
+    batch: ReadsBatch
+    for batch in tqdm(prefetch_generator(loader), mininterval=60, total=len(loader)):
+        artifact_logits_b, _, _, features_be = model.calculate_logits(batch)
 
-        dataset = ReadsDataset(data_in_ram=list_of_base_data)
-        loader = dataset.make_data_loader(dataset.all_folds(), batch_size, pin_memory=torch.cuda.is_available(), num_workers=num_workers)
+        for datum_array, logit, embedding in zip(batch.get_data_be(), artifact_logits_b.detach().tolist(), features_be.cpu()):
+            datum = Datum(datum_array)
+            contig_name = contig_index_to_name_map[datum.get_contig()]
+            position = datum.get_position()
+            encoding = encode(contig_name, position, datum.get_ref_allele(), datum.get_alt_allele())
+            if encoding in allele_frequencies and encoding not in m2_filtering_to_keep:
+                allele_frequency = allele_frequencies[encoding]
 
-        print("creating posterior data for this chunk...")
-        batch: ReadsBatch
-        for batch in tqdm(prefetch_generator(loader), mininterval=60, total=len(loader)):
-            artifact_logits_b, _, _, features_be = model.calculate_logits(batch)
+                # these are default dicts, so if there's no segmentation for the contig we will get no overlaps but not an error
+                # For a general IntervalTree there is a list of potentially multiple overlaps but here there is either one or zero
+                segmentation_overlaps = segmentation[contig_name][position]
+                normal_segmentation_overlaps = normal_segmentation[contig_name][position]
+                maf = list(segmentation_overlaps)[0].data if segmentation_overlaps else 0.5
+                normal_maf = list(normal_segmentation_overlaps)[0].data if normal_segmentation_overlaps else 0.5
 
-            for datum_array, logit, embedding in zip(batch.get_data_be(),
-                    artifact_logits_b.detach().tolist(), features_be.cpu()):
-                datum = Datum(datum_array)
-                contig_name = contig_index_to_name_map[datum.get_contig()]
-                position = datum.get_position()
-                encoding = encode(contig_name, position, datum.get_ref_allele(), datum.get_alt_allele())
-                if encoding in allele_frequencies and encoding not in m2_filtering_to_keep:
-                    allele_frequency = allele_frequencies[encoding]
-
-                    # these are default dicts, so if there's no segmentation for the contig we will get no overlaps but not an error
-                    # For a general IntervalTree there is a list of potentially multiple overlaps but here there is either one or zero
-                    segmentation_overlaps = segmentation[contig_name][position]
-                    normal_segmentation_overlaps = normal_segmentation[contig_name][position]
-                    maf = list(segmentation_overlaps)[0].data if segmentation_overlaps else 0.5
-                    normal_maf = list(normal_segmentation_overlaps)[0].data if normal_segmentation_overlaps else 0.5
-
-                    posterior_datum = PosteriorDatum(datum_array, allele_frequency, logit, maf, normal_maf, embedding)
-                    posterior_data.append(posterior_datum)
+                posterior_datum = PosteriorDatum(datum_array, allele_frequency, logit, maf, normal_maf, embedding)
+                posterior_data.append(posterior_datum)
 
     print(f"Size of filtering dataset: {len(posterior_data)}")
     posterior_dataset = PosteriorDataset(posterior_data)
