@@ -1,26 +1,17 @@
 import math
-import os
-
-import numpy as np
 import psutil
 import random
-import tempfile
-from typing import Iterable, List, Generator
+from typing import  List, Generator
 
 import torch
 from torch.utils.data import Dataset, DataLoader
 from torch.utils.data.sampler import Sampler
 
-from permutect.data.datum import DATUM_ARRAY_DTYPE
 from permutect.data.memory_mapped_data import MemoryMappedData
-from permutect.data.reads_datum import ReadsDatum, READS_ARRAY_DTYPE
+from permutect.data.reads_datum import ReadsDatum
 from permutect.data.reads_batch import ReadsBatch
 from permutect.data.batch import BatchProperty, BatchIndexedTensor
 from permutect.utils.enums import Variation, Label
-
-# dataset in memory takes a bit more space than on disk
-RAM_TO_TARFILE_SPACE_RATIO = 1.25
-
 
 WEIGHT_PSEUDOCOUNT = 10
 
@@ -30,7 +21,6 @@ def ratio_with_pseudocount(a, b):
 
 
 class ReadsDataset(Dataset):
-    # TODO: fix all uses of this that used to require a tarfile of saved chunks of data
     def __init__(self, memory_mapped_data: MemoryMappedData, num_folds: int = 1):
         """
         :param num_folds:
