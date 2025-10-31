@@ -25,10 +25,5 @@ def test_on_10_megabases_singular():
 
     with tempfile.TemporaryDirectory() as train_temp_dir:
         training_files = extract_to_temp_dir(tarfile_name, train_temp_dir)
-        for training_file in training_files:
-            if training_file.endswith(SUFFIX_FOR_DATA_FILES_IN_TAR):
-                base_data_list = ReadsDatum.load_list(training_file)
-
-    a, b, c, d = ReadsDatum.extract_counts_from_tarfile(tarfile_name)
 
     dataset = ReadsDataset(tarfile=tarfile_name, num_folds=10)
