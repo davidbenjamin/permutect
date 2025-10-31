@@ -5,6 +5,7 @@ from torch.utils.tensorboard import SummaryWriter
 
 from permutect import constants
 from permutect.architecture.spectra.artifact_spectra import ArtifactSpectra
+from permutect.data.memory_mapped_data import MemoryMappedData
 from permutect.training.model_training import train_artifact_model
 from permutect.architecture.artifact_model import load_model
 from permutect.architecture.posterior_model import plot_artifact_spectra
@@ -83,7 +84,8 @@ def main_without_parsing(args):
     # artifact models has already been trained.  We're just refining it here.
     model, _, _ = load_model(getattr(args, constants.PRETRAINED_ARTIFACT_MODEL_NAME))
     report_memory_usage("Creating ReadsDataset.")
-    dataset = ReadsDataset(tarfile=getattr(args, constants.TRAIN_TAR_NAME), num_folds=10)
+    memory_mapped_data = MemoryMappedData.load_from_tarfile(getattr(args, constants.TRAIN_TAR_NAME))
+    dataset = ReadsDataset(memory_mapped_data=memory_mapped_data, num_folds=10)
 
     train_artifact_model(model, dataset, training_params, summary_writer, epochs_per_evaluation=10, calibration_sources=calibration_sources)
 

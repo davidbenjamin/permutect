@@ -1,6 +1,7 @@
 from argparse import Namespace
 import tempfile
 
+from permutect.data.memory_mapped_data import MemoryMappedData
 from permutect.data.reads_dataset import ReadsDataset
 from permutect.data.reads_datum import ReadsDatum, SUFFIX_FOR_DATA_FILES_IN_TAR
 from permutect.tools import preprocess_dataset
@@ -23,7 +24,5 @@ def test_on_10_megabases_singular():
     setattr(preprocess_args, constants.SOURCES_NAME, [0])
     preprocess_dataset.main_without_parsing(preprocess_args)
 
-    with tempfile.TemporaryDirectory() as train_temp_dir:
-        training_files = extract_to_temp_dir(tarfile_name, train_temp_dir)
-
-    dataset = ReadsDataset(tarfile=tarfile_name, num_folds=10)
+    memory_mapped_data = MemoryMappedData.load_from_tarfile(tarfile_name)
+    dataset = ReadsDataset(memory_mapped_data=memory_mapped_data, num_folds=10)
