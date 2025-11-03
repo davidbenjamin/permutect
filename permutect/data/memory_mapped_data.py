@@ -48,11 +48,15 @@ class MemoryMappedData:
         return self.data_mmap.nbytes + self.reads_mmap.nbytes
 
     def generate_reads_data(self) -> Generator[ReadsDatum, None, None]:
+        print("Generating ReadsDatum objects from memory-mapped data.")
         assert self.reads_mmap.dtype == READS_ARRAY_DTYPE
+        count = 0
         for idx in range(self.num_data):
             data_array = self.data_mmap[idx]
             reads_array = self.reads_mmap[0 if idx == 0 else self.read_end_indices[idx - 1]:self.read_end_indices[idx]]
             yield ReadsDatum(datum_array=data_array, compressed_reads_re=reads_array)
+            count += 1
+        print(f"generated {count} objects.")
 
     def save_to_tarfile(self, output_tarfile):
         """
