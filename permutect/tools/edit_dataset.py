@@ -1,18 +1,8 @@
 import argparse
-import os
-import tarfile
-import tempfile
 from enum import Enum
-
-import torch.utils.data
-
-from tqdm.autonotebook import tqdm
 
 from permutect import constants
 from permutect.data.memory_mapped_data import MemoryMappedData
-from permutect.data.reads_dataset import ReadsDataset
-from permutect.data.reads_datum import ReadsDatum
-from permutect.misc_utils import report_memory_usage
 from permutect.utils.enums import Label
 
 
@@ -74,7 +64,7 @@ def main_without_parsing(args):
     output_tarfile = getattr(args, constants.OUTPUT_NAME)
     edit_type = getattr(args, constants.DATASET_EDIT_TYPE_NAME)
     new_source = getattr(args, constants.SOURCE_NAME)
-    memory_mapped_datas = map(lambda input_tarfile: MemoryMappedData.load_from_tarfile(data_tarfile=input_tarfile), original_tarfiles)
+    memory_mapped_datas = [MemoryMappedData.load_from_tarfile(data_tarfile=input_tarfile) for input_tarfile in original_tarfiles]
 
     for mmd in memory_mapped_datas:
         print(f"Input dataset with {mmd.num_data} data and {mmd.num_reads} reads.")
