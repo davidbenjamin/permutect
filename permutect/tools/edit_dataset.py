@@ -77,6 +77,9 @@ def main_without_parsing(args):
     new_source = getattr(args, constants.SOURCE_NAME)
     memory_mapped_datas = map(lambda input_tarfile: MemoryMappedData.load_from_tarfile(data_tarfile=input_tarfile), original_tarfiles)
 
+    for mmd in memory_mapped_datas:
+        print(f"Input dataset with {mmd.num_data} data and {mmd.num_reads} reads.")
+
     output_data_generator = generate_edited_data(memory_mapped_datas, edit_type, new_source)
     total_num_data = sum([mmd.num_data for mmd in memory_mapped_datas])
     total_num_reads = sum([mmd.num_reads for mmd in memory_mapped_datas])
