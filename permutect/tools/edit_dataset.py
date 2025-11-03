@@ -28,8 +28,7 @@ class EditType(Enum):
 # generates BaseDatum(s) from the original dataset that *pass* the pruning thresholds
 def generate_edited_data(memory_mapped_datas, edit_type: str, source: int):
     for memory_mapped_data in memory_mapped_datas:
-        pbar = tqdm(enumerate(memory_mapped_data.generate_reads_data()), mininterval=60)
-        for n, reads_datum in pbar:
+        for reads_datum in memory_mapped_data.generate_reads_data():
             if source is not None:
                 reads_datum.set_source(source)
 
