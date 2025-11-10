@@ -193,14 +193,19 @@ def make_normalized_mmap_data(dataset_files, sources: List[int]=None) -> MemoryM
     read_end_indices = raw_memory_mapped_data.read_end_indices
     indices_for_normalization = get_normalization_set(raw_memory_mapped_data.data_mmap)
 
+    # define ref read ranges for each datum in the normalization set
+    normalization_read_start_indices = [read_end_indices[max(idx - 1, 0)] for idx in indices_for_normalization]
+    normalization_ref_counts = [Datum(array=raw_memory_mapped_data.data_mmap[idx]).get_ref_count() for idx in indices_for_normalization]
+    normalization_ref_end_indices = [(start + ref_count) for start, ref_count in zip(normalization_read_start_indices, normalization_ref_counts)]
+
     # extract the INFO array from all the data arrays in the normalization set
-    info_for_normalization_ve = [Datum(array=raw_memory_mapped_data.data_mmap[idx]).get_info_1d() for idx in indices_for_normalization]
+    info_for_normalization_ve = np.vstack([Datum(array=raw_memory_mapped_data.data_mmap[idx]).get_info_1d() for idx in indices_for_normalization])
     info_quantile_transform = QuantileTransformer(n_quantiles=100, output_distribution='normal')
     info_quantile_transform.fit(info_for_normalization_ve)
 
     # for every index in the normalization set, get all the reads of the corresponding datum.  Stack all these reads to
     # obtain the reads normalization array
-    reads_for_normalization_re = np.vstack([raw_memory_mapped_data.reads_mmap[read_end_indices[max(idx - 1, 0)]:read_end_indices[idx]] for idx in indices_for_normalization])
+    reads_for_normalization_re = np.vstack([raw_memory_mapped_data.reads_mmap[start:end] for start, end in zip(normalization_read_start_indices, normalization_ref_end_indices)])
     reads_for_normalization_distance_columns_re = reads_for_normalization_re[:, 4:9]
     read_quantile_transform = QuantileTransformer(n_quantiles=100, output_distribution='normal')
     read_quantile_transform.fit(reads_for_normalization_distance_columns_re)
