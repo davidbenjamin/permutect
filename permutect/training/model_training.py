@@ -30,23 +30,23 @@ from permutect.utils.enums import Variation, Epoch, Label
 WORST_OFFENDERS_QUEUE_SIZE = 100
 
 
-def train_artifact_model(model: ArtifactModel, dataset: ReadsDataset, training_params: TrainingParameters, summary_writer: SummaryWriter,
-                         validation_fold: int = None, training_folds: List[int] = None, epochs_per_evaluation: int = None, calibration_sources: List[int] = None):
+def train_artifact_model(model: ArtifactModel, train_dataset: ReadsDataset, valid_dataset: ReadsDataset, training_params: TrainingParameters, summary_writer: SummaryWriter,
+                         epochs_per_evaluation: int = None, calibration_sources: List[int] = None):
     device, dtype = model._device, model._dtype
     bce = nn.BCEWithLogitsLoss(reduction='none')  # no reduction because we may want to first multiply by weights for unbalanced data
     ce = nn.CrossEntropyLoss(reduction='none')  # likewise
-    balancer = Balancer(num_sources=dataset.num_sources(), device=device).to(device=device, dtype=dtype)
-    downsampler: Downsampler = Downsampler(num_sources=dataset.num_sources()).to(device=device, dtype=dtype)
+    balancer = Balancer(num_sources=train_dataset.num_sources(), device=device).to(device=device, dtype=dtype)
+    downsampler: Downsampler = Downsampler(num_sources=train_dataset.num_sources()).to(device=device, dtype=dtype)
 
     # save the model after every epoch in order to restore it if training goes off the rails
     checkpoint_file = tempfile.NamedTemporaryFile(suffix=".pt")
     best_checkpoint = None
 
     print("fitting downsampler parameters to the dataset")
-    downsampler.optimize_downsampling_balance(dataset.totals_slvra.to(device=device))
+    downsampler.optimize_downsampling_balance(train_dataset.totals_slvra.to(device=device))
 
-    num_sources = dataset.validate_sources()
-    dataset.report_totals()
+    num_sources = train_dataset.validate_sources()
+    train_dataset.report_totals()
     model.reset_source_predictor(num_sources)
     is_cuda = device.type == 'cuda'
     print(f"Is CUDA available? {is_cuda}")
@@ -55,20 +55,17 @@ def train_artifact_model(model: ArtifactModel, dataset: ReadsDataset, training_p
     train_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(train_optimizer, factor=0.2, patience=5,
         threshold=0.001, min_lr=(training_params.learning_rate / 100), verbose=True)
 
-    validation_fold_to_use = (dataset.num_folds - 1) if validation_fold is None else validation_fold
-    training_folds_to_use = dataset.all_but_one_fold(validation_fold_to_use) if training_folds is None else training_folds
-
-    train_loader = dataset.make_data_loader(training_folds_to_use, training_params.batch_size, is_cuda, training_params.num_workers)
+    train_loader = train_dataset.make_data_loader(training_params.batch_size, is_cuda, training_params.num_workers)
     report_memory_usage(f"Train loader created.")
-    valid_loader = dataset.make_data_loader([validation_fold_to_use], training_params.inference_batch_size, is_cuda, training_params.num_workers)
+    valid_loader = valid_dataset.make_data_loader(training_params.inference_batch_size, is_cuda, training_params.num_workers)
     report_memory_usage(f"Validation loader created.")
 
     calibration_train_loader = train_loader if calibration_sources is None else \
-        dataset.make_data_loader(training_folds_to_use, training_params.batch_size,
+        train_dataset.make_data_loader(training_params.batch_size,
                                  is_cuda, training_params.num_workers, sources_to_use=calibration_sources)
 
     calibration_valid_loader = valid_loader if calibration_sources is None else \
-        dataset.make_data_loader([validation_fold_to_use], training_params.inference_batch_size,
+        valid_dataset.make_data_loader(training_params.inference_batch_size,
                                  is_cuda, training_params.num_workers, sources_to_use=calibration_sources)
 
     first_epoch, last_epoch = 1, training_params.num_epochs + training_params.num_calibration_epochs

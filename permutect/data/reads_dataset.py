@@ -16,17 +16,31 @@ from permutect.utils.enums import Variation, Label
 WEIGHT_PSEUDOCOUNT = 10
 
 
+# it is often convenient to arbitrarily use the last fold for validation
+def last_fold_only(num_folds: int):
+    return [num_folds - 1]  # use the last fold for validation
+
+def all_but_the_last_fold(num_folds: int):
+    return list(range(num_folds - 1))
+
+def all_but_one_fold(num_folds: int, fold_to_exclude: int):
+    return list(range(fold_to_exclude)) + list(range(fold_to_exclude + 1, num_folds))
+
+def all_folds(num_folds: int):
+    return list(range(num_folds))
+
 def ratio_with_pseudocount(a, b):
     return (a + WEIGHT_PSEUDOCOUNT) / (b + WEIGHT_PSEUDOCOUNT)
 
 
 class ReadsDataset(Dataset):
-    def __init__(self, memory_mapped_data: MemoryMappedData, num_folds: int = 1):
+    def __init__(self, memory_mapped_data: MemoryMappedData, num_folds: int = 1, folds_to_use: List[int] = None):
         """
         :param num_folds:
         """
         super(ReadsDataset, self).__init__()
         self.num_folds = num_folds
+        self.folds_to_use = folds_to_use
         self.totals_slvra = BatchIndexedTensor.make_zeros(num_sources=1, include_logits=False, device=torch.device('cpu'))
         self.memory_mapped_data = memory_mapped_data
         self._size = memory_mapped_data.num_data
@@ -76,18 +90,6 @@ class ReadsDataset(Dataset):
                 for label in Label:
                     print(f"{label.name}: {int(totals_slv[source, label, var_type].item())}")
 
-    # it is often convenient to arbitrarily use the last fold for validation
-    def last_fold_only(self):
-        return [self.num_folds - 1]  # use the last fold for validation
-
-    def all_but_the_last_fold(self):
-        return list(range(self.num_folds - 1))
-
-    def all_but_one_fold(self, fold_to_exclude: int):
-        return list(range(fold_to_exclude)) + list(range(fold_to_exclude + 1, self.num_folds))
-
-    def all_folds(self):
-        return list(range(self.num_folds))
 
     def validate_sources(self) -> int:
         num_sources = self.num_sources()
@@ -100,15 +102,10 @@ class ReadsDataset(Dataset):
             print(f"Data come from multiple sources, with counts {totals_by_source_s.cpu().tolist()}.")
         return num_sources
 
-    def make_data_loader(self, folds_to_use: List[int], batch_size: int, pin_memory=False, num_workers: int = 0,
+    def make_data_loader(self, batch_size: int, pin_memory=False, num_workers: int = 0,
                          sources_to_use: List[int] = None, labeled_only: bool = False):
         sampler = SemiSupervisedBatchSampler(self, batch_size, folds_to_use, sources_to_use, labeled_only)
         return DataLoader(dataset=self, batch_sampler=sampler, collate_fn=ReadsBatch, pin_memory=pin_memory, num_workers=num_workers)
-
-    def make_train_and_valid_loaders(self, validation_fold: int, batch_size: int, is_cuda: bool, num_workers: int, sources_to_use: List[int] = None):
-        train_loader = self.make_data_loader(self.all_but_one_fold(validation_fold), batch_size, is_cuda, num_workers, sources_to_use)
-        valid_loader = self.make_data_loader([validation_fold], batch_size, is_cuda, num_workers, sources_to_use)
-        return train_loader, valid_loader
 
 
 # from a generator that yields BaseDatum(s), create a generator that yields the two numpy arrays needed to reconstruct the datum

@@ -208,7 +208,7 @@ def make_posterior_data_loader(dataset_file, input_vcf, contig_index_to_name_map
 
     report_memory_usage("Creating ReadsDataset.")
     dataset = ReadsDataset(memory_mapped_data=normalized_mmap_data)
-    loader = dataset.make_data_loader(dataset.all_folds(), batch_size, pin_memory=torch.cuda.is_available(), num_workers=num_workers)
+    loader = dataset.make_data_loader(batch_size, pin_memory=torch.cuda.is_available(), num_workers=num_workers)
 
     print("creating posterior data...")
     batch: ReadsBatch
