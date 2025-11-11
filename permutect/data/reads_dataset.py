@@ -40,7 +40,6 @@ class ReadsDataset(Dataset):
         """
         super(ReadsDataset, self).__init__()
         self.num_folds = num_folds
-        self.folds_to_use = folds_to_use
         self.totals_slvra = BatchIndexedTensor.make_zeros(num_sources=1, include_logits=False, device=torch.device('cpu'))
         self.memory_mapped_data = memory_mapped_data
         self._size = memory_mapped_data.num_data
@@ -55,13 +54,15 @@ class ReadsDataset(Dataset):
         self._stacked_reads_re = memory_mapped_data.reads_mmap.copy() if fits_in_ram else memory_mapped_data.reads_mmap
         self._stacked_data_ve = memory_mapped_data.data_mmap.copy() if fits_in_ram else memory_mapped_data.data_mmap
 
-        # this is used in the batch sampler to make same-shape batches
-        self.indices_by_fold = [[] for _ in range(num_folds)]
+        self.indices_in_use = []
+
+        folds_set = set(folds_to_use)
 
         for n, datum in enumerate(self):
             self.totals_slvra.record_datum(datum)
             fold = n % num_folds
-            self.indices_by_fold[fold].append(n)
+            if fold in folds_set:
+                self.indices_in_use.append(n)
 
         first_datum: ReadsDatum = self[0]
         self.num_read_features = first_datum.num_read_features()
@@ -104,7 +105,7 @@ class ReadsDataset(Dataset):
 
     def make_data_loader(self, batch_size: int, pin_memory=False, num_workers: int = 0,
                          sources_to_use: List[int] = None, labeled_only: bool = False):
-        sampler = SemiSupervisedBatchSampler(self, batch_size, folds_to_use, sources_to_use, labeled_only)
+        sampler = SemiSupervisedBatchSampler(self, batch_size, sources_to_use, labeled_only)
         return DataLoader(dataset=self, batch_sampler=sampler, collate_fn=ReadsBatch, pin_memory=pin_memory, num_workers=num_workers)
 
 
@@ -124,20 +125,13 @@ def chunk(lis, chunk_size):
 # the artifact model handles weighting the losses to compensate for class imbalance between supervised and unsupervised
 # thus the sampler is not responsible for balancing the data
 class SemiSupervisedBatchSampler(Sampler):
-    def __init__(self, dataset: ReadsDataset, batch_size: int, folds_to_use: List[int],
-                 sources_to_use: List[int] = None, labeled_only: bool = False):
+    def __init__(self, dataset: ReadsDataset, batch_size: int, sources_to_use: List[int] = None, labeled_only: bool = False):
         # combine the index maps of all relevant folds
         self.indices_to_use = []
         source_set = None if sources_to_use is None else set(sources_to_use)
-        for fold in folds_to_use:
-            indices_in_fold = dataset.indices_by_fold[fold] if not labeled_only else \
-                [idx for idx in dataset.indices_by_fold[fold] if dataset[idx].get_label() != Label.UNLABELED]
-            if sources_to_use is None:
-                source_indices_in_fold = indices_in_fold
-            else:
-                source_indices_in_fold = [idx for idx in indices_in_fold if dataset[idx].get_source() in source_set]
-
-            self.indices_to_use.extend(source_indices_in_fold)
+        for idx in dataset.indices_in_use:
+            if (source_set is None or dataset[idx].get_source() in source_set) and not (labeled_only and dataset[idx].get_label() == Label.UNLABELED):
+                self.indices_to_use.append(idx)
 
         self.batch_size = batch_size
         self.num_batches = math.ceil(len(self.indices_to_use) / self.batch_size)
