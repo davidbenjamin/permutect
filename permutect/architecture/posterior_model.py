@@ -18,6 +18,7 @@ from permutect.data.prefetch_generator import prefetch_generator
 from permutect.metrics import plotting
 from permutect.data.count_binning import NUM_ALT_COUNT_BINS, count_from_alt_bin_index, alt_count_bin_index
 from permutect.misc_utils import StreamingAverage, gpu_if_available, backpropagate
+from permutect.utils.array_utils import index_tensor, add_at_index
 from permutect.utils.stats_utils import beta_binomial_log_lk
 from permutect.utils.enums import Variation, Call
 
@@ -48,6 +49,17 @@ def germline_log_likelihood(afs, mafs, alt_counts, depths, het_beta=None):
 
     return torch.logsumexp(torch.vstack((alt_minor_ll, alt_major_ll, hom_ll)), dim=0)
 
+def get_ref_contexts_and_alt_bases(batch: PosteriorBatch):
+    # each row is the ref sequence, followed by the alt sequence (hstacked) with A = 0, C = 1 . . . deletion = 4
+    haplotypes_bs = batch.get_haplotypes_bs()
+    seq_length = haplotypes_bs.shape[-1] // 2
+    ref_center_idx = (seq_length - 1) // 2
+    alt_center_idx = ref_center_idx + seq_length
+    idx0 =  haplotypes_bs[:, ref_center_idx - 1]
+    idx1 = haplotypes_bs[:, ref_center_idx].int()
+    idx2 = haplotypes_bs[:, ref_center_idx + 1]
+    idx3 = haplotypes_bs[:, alt_center_idx]
+    return idx0, idx1, idx2, idx3
 
 # this works for ArtifactSpectra and OverdispersedBinomialMixture
 def plot_artifact_spectra(artifact_spectra, depth: int = None):
@@ -84,6 +96,10 @@ class PosteriorModel(torch.nn.Module):
 
         # pre-softmax priors of different call types [log P(variant), log P(artifact), log P(seq error)] for each variant type
         self._unnormalized_priors_vc = torch.nn.Parameter(torch.ones(len(Variation), len(Call)))
+
+        # context and substitution dependent (the 3 r's stand for ref context, the 'a' is for alt base)
+        self.log_somatic_snv_modulators_rrra = torch.nn.Parameter(torch.zeros(5, 5, 5, 5))
+
         with torch.no_grad():
             self._unnormalized_priors_vc[:, Call.SOMATIC] = variant_log_prior
             self._unnormalized_priors_vc[:, Call.ARTIFACT] = artifact_log_prior
@@ -93,8 +109,36 @@ class PosteriorModel(torch.nn.Module):
 
         self.to(device=self._device, dtype=self._dtype)
 
-    def make_unnormalized_priors_bc(self, variant_types_b: IntTensor, allele_frequencies_1d: Tensor) -> Tensor:
+    def get_somatic_snv_modulation(self, batch: PosteriorBatch) -> Tensor:
+        idx0, idx1, idx2, idx3 = get_ref_contexts_and_alt_bases(batch)
+        modulations = index_tensor(self.log_somatic_snv_modulators_rrra, (idx0, idx1, idx2, idx3))
+        mask = batch.get_variant_types() == Variation.SNV
+        return modulations * mask
+
+    def make_unnormalized_priors_bc(self, batch: PosteriorBatch, variant_types_b: IntTensor, allele_frequencies_1d: Tensor) -> Tensor:
         result_bc = self._unnormalized_priors_vc[variant_types_b.long(), :].to(device=self._device, dtype=self._dtype)
+
+        # so far result_bc[:, Call.SOMATIC] accounts for the overall mutation rate parameters for somatic SNV, and
+        # somatic small/large insertion/deletion.  For the case of SNVs (which we can target with a mask) we wish to account
+        # for substitution type eg A -> C, A -> T, G -> A and 3-base context eg AGT -> AAT.
+        #
+        # To achieve this, the model contains a 4D 4x4x4x4 tensor, the first three indices being the 3-base context and the fourth
+        # being the substitution type.  For example the indices of AGT -> AAT are 0,2,3,0.  Some index combinations, like
+        # 0,1,0,1 / ACA -> ACA represent non-mutations and are irrelevant.
+        #
+        # we interpret this 4D tensor, which we initialize to 0, as an additive (log space) perturbation to the overall
+        # mutation rate.  Its values can be positive or negative.  In order to share statistical power among these 4x4x4x3
+        # parameters (which might be a significant number relative to the number of somatic mutations in a sample), we give
+        # them a common Gaussian prior.  In order to maintain interpretability of the global mutation rate parameter, the
+        # mean of this Gaussian is pinned to 0.
+        #
+        # this common Gaussian is not relevant here.  Only the 4D tensor matters.  However, The common Gaussian *is* used in
+        # training, where it contributes an additional loss term that tends to encourage the entries of the 4D tensor to
+        # come from the shared prior when there are few data.
+
+        if batch is not None:
+            snv_modulation = self.get_somatic_snv_modulation(batch)
+            result_bc[:, Call.SOMATIC] += snv_modulation
         result_bc[:, Call.SEQ_ERROR] = 0
         result_bc[:, Call.GERMLINE] = -9999 if self.no_germline_mode else torch.log(1 - torch.square(1 - allele_frequencies_1d))     # 1 minus hom ref probability
         return result_bc   # batch size x len(CallType)
@@ -131,7 +175,7 @@ class PosteriorModel(torch.nn.Module):
         # spectra tensors contain the likelihood that these *particular* reads (that is, not just the read count) are alt
         # normal log likelihoods contain everything going on in the matched normal sample
         # note that the call to make_unnormalized_priors ensures that no_germline_mode works
-        log_priors_bc = torch.nn.functional.log_softmax(self.make_unnormalized_priors_bc(var_types_b, batch.get_allele_frequencies()), dim=1)
+        log_priors_bc = torch.nn.functional.log_softmax(self.make_unnormalized_priors_bc(batch, var_types_b, batch.get_allele_frequencies()), dim=1)
         depths_b, alt_counts_b, mafs_b, afs_b = batch.get_original_depths(), batch.get_original_alt_counts(), batch.get_mafs(), batch.get_allele_frequencies()
         normal_depths_b, normal_alt_counts_b = batch.get_original_normal_depths(), batch.get_original_normal_alt_counts()
 
@@ -183,8 +227,17 @@ class PosteriorModel(torch.nn.Module):
         :return:
         """
         spectra_and_prior_params = chain(self.somatic_spectrum.parameters(), self.artifact_spectra.parameters(),
-                                         [self._unnormalized_priors_vc], self.normal_artifact_spectra.parameters())
+                                         [self._unnormalized_priors_vc, self.log_somatic_snv_modulators_rrra], self.normal_artifact_spectra.parameters())
         optimizer = torch.optim.Adam(spectra_and_prior_params, lr=learning_rate)
+
+        # first, count how many times each context appears in the data
+        context_counts_rrra = 0.1 * torch.ones_like(self.log_somatic_snv_modulators_rrra)
+        for batch in tqdm(prefetch_generator(posterior_loader), mininterval=10, total=len(posterior_loader)):
+            idx0, idx1, idx2, idx3 = get_ref_contexts_and_alt_bases(batch)
+            is_snv = (batch.get_variant_types() == Variation.SNV).float()
+            add_at_index(tens=context_counts_rrra, idx=(idx0, idx1, idx2, idx3), values=is_snv)
+        log_context_proportions_rrra = torch.log(context_counts_rrra / torch.sum(context_counts_rrra))
+
 
         for epoch in trange(1, num_iterations + 1, desc="AF spectra epoch"):
             epoch_loss = StreamingAverage()
@@ -215,12 +268,17 @@ class PosteriorModel(torch.nn.Module):
                 # a missing non-INSERTION etc
                 # we use a germline allele frequency of 0.001 for the missing sites but it doesn't really matter
                 for var_type_idx, variant_type in enumerate(Variation):
-                    log_priors = torch.nn.functional.log_softmax(self.make_unnormalized_priors_bc(torch.LongTensor([var_type_idx]).to(device=self._device, dtype=self._dtype), torch.tensor([0.001], device=self._device)), dim=1)
+                    log_priors = torch.nn.functional.log_softmax(self.make_unnormalized_priors_bc(None, torch.LongTensor([var_type_idx]).to(device=self._device, dtype=self._dtype), torch.tensor([0.001], device=self._device)), dim=1)
                     log_seq_error_prior = log_priors.squeeze()[Call.SEQ_ERROR]
                     missing_loss = -ignored_to_non_ignored_ratio * log_seq_error_prior  
                     loss += missing_loss
 
                 backpropagate(optimizer, loss)
+
+                # restore the constraint that the overall SNV prior is actually the overall prior even with the modulations
+                snv_modulation_excess = torch.logsumexp((self.log_somatic_snv_modulators_rrra.detach() + log_context_proportions_rrra).view(-1), dim=-1).item()
+                with torch.no_grad():
+                    self.log_somatic_snv_modulators_rrra -= snv_modulation_excess
 
                 epoch_loss.record_sum(batch.size() * loss.detach().item(), batch.size())
             # iteration over posterior dataloader finished
@@ -254,7 +312,7 @@ class PosteriorModel(torch.nn.Module):
                 # bar plot of log priors -- data is indexed by call type name, and x ticks are variant types
                 log_prior_bar_plot_data = defaultdict(list)
                 for var_type_idx, variant_type in enumerate(Variation):
-                    log_priors = torch.nn.functional.log_softmax(self.make_unnormalized_priors_bc(torch.LongTensor([var_type_idx]).to(device=self._device, dtype=self._dtype), torch.tensor([0.001])), dim=-1)
+                    log_priors = torch.nn.functional.log_softmax(self.make_unnormalized_priors_bc(None, torch.LongTensor([var_type_idx]).to(device=self._device, dtype=self._dtype), torch.tensor([0.001])), dim=-1)
                     log_priors_cpu = log_priors.squeeze().detach().cpu()
                     for call_type in (Call.SOMATIC, Call.ARTIFACT, Call.NORMAL_ARTIFACT):
                         log_prior_bar_plot_data[call_type.name].append(log_priors_cpu[call_type])

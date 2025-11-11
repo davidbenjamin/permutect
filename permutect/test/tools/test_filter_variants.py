@@ -7,7 +7,7 @@ from permutect.tools import filter_variants
 
 def test_filtering_on_dream1_chr20():
     # Inputs
-    artifact_model = '/Users/davidben/mutect3/permutect/integration-tests/hiseqx-NA12878-model.pt'
+    artifact_model = '/Users/davidben/permutect/integration-tests/hiseqx-NA12878-model.pt'
 
     mutect2_vcf = '/Users/davidben/permutect/integration-tests/mutect2_chr20.vcf'
     maf_segments = '/Users/davidben/permutect/integration-tests/segments.table'
