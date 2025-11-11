@@ -39,7 +39,6 @@ class ReadsDataset(Dataset):
         :param num_folds:
         """
         super(ReadsDataset, self).__init__()
-        self.num_folds = num_folds
         self.totals_slvra = BatchIndexedTensor.make_zeros(num_sources=1, include_logits=False, device=torch.device('cpu'))
         self.memory_mapped_data = memory_mapped_data
         self._size = memory_mapped_data.num_data
@@ -56,7 +55,7 @@ class ReadsDataset(Dataset):
 
         self.indices_in_use = []
 
-        folds_set = set(folds_to_use)
+        folds_set = set(all_folds(num_folds) if folds_to_use is None else folds_to_use)
 
         for n, datum in enumerate(self):
             self.totals_slvra.record_datum(datum)

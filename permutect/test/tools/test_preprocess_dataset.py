@@ -10,7 +10,7 @@ OVERWRITE_SAVED_TARFILE = True
 
 
 def test_on_10_megabases_singular():
-    training_datasets = ["/Users/davidben/permutect/integration-tests/hiseqx-NA12878-8000-data.dataset"]
+    training_datasets = ["/Users/davidben/permutect/integration-tests/hiseqx-NA12878-80000-data.dataset"]
     training_data_tarfile = tempfile.NamedTemporaryFile() if not OVERWRITE_SAVED_TARFILE else \
         "/Users/davidben/permutect/integration-tests/preprocessed-dataset.tar"
 
@@ -24,3 +24,6 @@ def test_on_10_megabases_singular():
 
     memory_mapped_data = MemoryMappedData.load_from_tarfile(tarfile_name)
     dataset = ReadsDataset(memory_mapped_data=memory_mapped_data, num_folds=10)
+    print("success")
+
+test_on_10_megabases_singular()
