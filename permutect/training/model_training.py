@@ -169,7 +169,7 @@ def train_artifact_model(model: ArtifactModel, train_dataset: ReadsDataset, vali
 
                 print(f"performing evaluation on epoch {epoch}")
                 if epoch_type == Epoch.VALID:
-                    evaluate_model(model, epoch, dataset, balancer, downsampler, train_loader, valid_loader, summary_writer, collect_embeddings=False, report_worst=False)
+                    evaluate_model(model, epoch, num_sources, balancer, downsampler, train_loader, valid_loader, summary_writer, collect_embeddings=False, report_worst=False)
 
             if not is_calibration_epoch and epoch_type == Epoch.TRAIN:
                 mean_over_labels = torch.mean(loss_metrics.get_marginal(BatchProperty.LABEL)).item()
@@ -196,12 +196,12 @@ def train_artifact_model(model: ArtifactModel, train_dataset: ReadsDataset, vali
     record_embeddings(model, train_loader, summary_writer)
 
 @torch.inference_mode()
-def collect_evaluation_data(model: ArtifactModel, dataset: ReadsDataset, balancer: Balancer, downsampler: Downsampler,
+def collect_evaluation_data(model: ArtifactModel, num_sources: int, balancer: Balancer, downsampler: Downsampler,
                             train_loader, valid_loader, report_worst: bool):
     # the keys are tuples of (Label; rounded alt count)
     worst_offenders_by_label_and_alt_count = defaultdict(lambda: PriorityQueue(WORST_OFFENDERS_QUEUE_SIZE))
 
-    evaluation_metrics = EvaluationMetrics(num_sources=dataset.num_sources(), device=model._device)
+    evaluation_metrics = EvaluationMetrics(num_sources=num_sources, device=model._device)
     epoch_types = [Epoch.TRAIN, Epoch.VALID]
     for epoch_type in epoch_types:
         assert epoch_type == Epoch.TRAIN or epoch_type == Epoch.VALID  # not doing TEST here
@@ -243,11 +243,11 @@ def collect_evaluation_data(model: ArtifactModel, dataset: ReadsDataset, balance
 
 
 @torch.inference_mode()
-def evaluate_model(model: ArtifactModel, epoch: int, dataset: ReadsDataset, balancer: Balancer, downsampler: Downsampler, train_loader, valid_loader,
+def evaluate_model(model: ArtifactModel, epoch: int, num_sources: int, balancer: Balancer, downsampler: Downsampler, train_loader, valid_loader,
                    summary_writer: SummaryWriter, collect_embeddings: bool = False, report_worst: bool = False):
 
     # self.freeze_all()
-    evaluation_metrics, worst_offenders_by_label_and_alt_count = collect_evaluation_data(model, dataset, balancer, downsampler, train_loader, valid_loader, report_worst)
+    evaluation_metrics, worst_offenders_by_label_and_alt_count = collect_evaluation_data(model, num_sources, balancer, downsampler, train_loader, valid_loader, report_worst)
     evaluation_metrics.put_on_cpu()
     evaluation_metrics.make_plots(summary_writer, epoch=epoch)
 

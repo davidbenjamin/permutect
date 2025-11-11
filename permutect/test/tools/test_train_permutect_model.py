@@ -11,9 +11,9 @@ OVERWRITE_SAVED_MODEL = True
 
 
 def test_train_artifact_model():
-    training_data_tarfile = "/Users/davidben/mutect3/permutect/integration-tests/preprocessed-dataset.tar"
+    training_data_tarfile = "/Users/davidben/permutect/integration-tests/preprocessed-dataset.tar"
     saved_model = tempfile.NamedTemporaryFile() if not OVERWRITE_SAVED_MODEL else \
-        '/Users/davidben/mutect3/permutect/integration-tests/hiseqx-NA12878-model.pt'
+        '/Users/davidben/permutect/integration-tests/hiseqx-NA12878-model.pt'
     training_tensorboard_dir = tempfile.TemporaryDirectory()
 
     train_model_args = Namespace()
@@ -57,3 +57,5 @@ def test_train_artifact_model():
     events.Reload()
 
     loaded_model, _, _ = load_model(saved_model)
+
+test_train_artifact_model()

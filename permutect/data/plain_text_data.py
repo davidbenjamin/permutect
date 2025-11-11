@@ -210,6 +210,28 @@ def make_normalized_mmap_data(dataset_files, sources: List[int]=None) -> MemoryM
     read_quantile_transform = QuantileTransformer(n_quantiles=100, output_distribution='normal')
     read_quantile_transform.fit(reads_for_normalization_distance_columns_re)
 
+    # print out quantiles for debugging
+    print("Here are the percentiles of the read quantile transform:")
+    print(f"0: {read_quantile_transform.quantiles_[0]}")
+    print(f"10: {read_quantile_transform.quantiles_[10]}")
+    print(f"25: {read_quantile_transform.quantiles_[25]}")
+    print(f"50: {read_quantile_transform.quantiles_[50]}")
+    print(f"75: {read_quantile_transform.quantiles_[75]}")
+    print(f"90: {read_quantile_transform.quantiles_[90]}")
+    print(f"100: {read_quantile_transform.quantiles_[99]}")
+
+    print("Here are the percentiles of the info quantile transform:")
+    print(f"0: {info_quantile_transform.quantiles_[0]}")
+    print(f"10: {info_quantile_transform.quantiles_[10]}")
+    print(f"25: {info_quantile_transform.quantiles_[25]}")
+    print(f"50: {info_quantile_transform.quantiles_[50]}")
+    print(f"75: {info_quantile_transform.quantiles_[75]}")
+    print(f"90: {info_quantile_transform.quantiles_[90]}")
+    print(f"100: {info_quantile_transform.quantiles_[99]}")
+
+
+    #
+
     normalized_generator = normalized_data_generator(raw_memory_mapped_data, read_quantile_transform, info_quantile_transform)
     return MemoryMappedData.from_generator(reads_datum_source=normalized_generator,
         estimated_num_data=raw_memory_mapped_data.num_data, estimated_num_reads=raw_memory_mapped_data.num_reads)
