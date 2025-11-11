@@ -8,7 +8,6 @@ seaborn>=0.13.2
 pysam~=0.22.0
 pandas~=2.1.3
 cyvcf2~=0.30.15
-mmap-ninja >= 0.2.4
 # Protobuf 4.0 is incompatible with TF. Force < 3.20 until they unblock upgrade.
 protobuf >= 3.9.2, < 3.20
 
