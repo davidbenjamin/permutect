@@ -1,6 +1,7 @@
 import argparse
 from typing import List
 from permutect import constants
+from permutect.data.memory_mapped_data import MemoryMappedData
 from permutect.data.plain_text_data import make_normalized_mmap_data
 
 

@@ -24,3 +24,5 @@ def test_on_10_megabases_singular():
 
     memory_mapped_data = MemoryMappedData.load_from_tarfile(tarfile_name)
     dataset = ReadsDataset(memory_mapped_data=memory_mapped_data, num_folds=10)
+
+test_on_10_megabases_singular()
