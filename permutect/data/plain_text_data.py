@@ -55,7 +55,7 @@ QUANTILE_DATA_COUNT = 10000
 
 RAW_READS_DTYPE = DEFAULT_NUMPY_FLOAT
 MIN_NUM_DATA_FOR_NORMALIZATION = 1000
-MAX_NUM_DATA_FOR_NORMALIZATION = 100000
+MAX_NUM_DATA_FOR_NORMALIZATION = 1000000
 NUM_RAW_DATA_TO_NORMALIZE_AT_ONCE = 100000
 
 
@@ -226,29 +226,12 @@ def get_normalization_set(raw_stacked_data_ve) -> List[int]:
     # set, but the following scheme has a back-up plan in case we don't have that (or if there's no information on
     # germline allele frequencies).
     """
+    size_excess = (len(raw_stacked_data_ve) // MAX_NUM_DATA_FOR_NORMALIZATION) + 1
 
-    indices_for_normalization_queue = PriorityQueue(maxsize=MAX_NUM_DATA_FOR_NORMALIZATION)
+    indices_for_normalization = []
     for n, raw_data_array in enumerate(raw_stacked_data_ve):
-        raw_datum = Datum(array=raw_data_array)
-
-        if indices_for_normalization_queue.full():
-            indices_for_normalization_queue.get()  # pop the lowest-priority element i.e. the worst-suited for normalization
-
-        # priority is negative squared difference between original allele fraction and 1/2
-        # thus most germline het-like data have highest priority
-        priority = -((raw_datum.get_original_alt_count() / raw_datum.get_original_depth()) - 0.5) ** 2
-
-        indices_for_normalization_queue.put((priority, n))
-    all_indices_for_normalization = []
-    good_indices_for_normalization = []
-    while not indices_for_normalization_queue.empty():
-        priority, idx = indices_for_normalization_queue.get()
-
-        all_indices_for_normalization.append(idx)
-        if priority > - 0.2**2:    # AF between 0.3 and 0.7
-            good_indices_for_normalization.append(idx)
-
-    indices_for_normalization = good_indices_for_normalization if len(good_indices_for_normalization) > MIN_NUM_DATA_FOR_NORMALIZATION else all_indices_for_normalization
+        if n % size_excess == 0:
+            indices_for_normalization.append(n)
 
     indices_for_normalization.sort()  # sorting indices makes traversing memory maps faster
     return indices_for_normalization
