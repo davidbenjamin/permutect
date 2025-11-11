@@ -10,9 +10,9 @@ OVERWRITE_SAVED_TARFILE = True
 
 
 def test_on_10_megabases_singular():
-    training_datasets = ["/Users/davidben/mutect3/permutect/integration-tests/hiseqx-NA12878.dataset"]
+    training_datasets = ["/Users/davidben/permutect/integration-tests/hiseqx-NA12878-8000-data.dataset"]
     training_data_tarfile = tempfile.NamedTemporaryFile() if not OVERWRITE_SAVED_TARFILE else \
-        "/Users/davidben/mutect3/permutect/integration-tests/preprocessed-dataset.tar"
+        "/Users/davidben/permutect/integration-tests/preprocessed-dataset.tar"
 
     tarfile_name = training_data_tarfile.name if not OVERWRITE_SAVED_TARFILE else training_data_tarfile
 
