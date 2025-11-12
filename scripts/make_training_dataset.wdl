@@ -15,6 +15,9 @@ workflow MakeTrainingDataset {
         File reads
         File reads_index
 
+        # NOTE: this is a HACK because call-caching on Terra is unreliable.
+        File? cached_plain_text_dataset
+
         File? gnomad
         File? gnomad_idx
         File? blacklist_vcf
@@ -54,42 +57,44 @@ workflow MakeTrainingDataset {
         Int emergency_extra_disk = 0
     }
 
-    call m2.Mutect2 {
-        input:
-            intervals = intervals,
-            masked_intervals = masked_intervals,
-            ref_fasta = ref_fasta,
-            ref_fai = ref_fai,
-            ref_dict = ref_dict,
-            tumor_reads = reads,
-            tumor_reads_index = reads_index,
-            gnomad = gnomad,
-            gnomad_idx = gnomad_idx,
-            pon = blacklist_vcf,
-            pon_idx = blacklist_vcf_idx,
-            m2_extra_args = m2_extra_args,
-            dragstr_model = dragstr_model,
-            make_bamout = make_bamout,
-            make_permutect_training_dataset = true,
-            permutect_training_dataset_truth_vcf = permutect_training_dataset_truth_vcf,
-            permutect_training_dataset_truth_vcf_idx = permutect_training_dataset_truth_vcf_idx,
-            skip_filtering = true,
-            gatk_docker = gatk_docker,
-            gatk_override = gatk_override,
-            scatter_count = scatter_count,
-            preemptible = preemptible,
-            max_retries =  max_retries,
-            small_task_cpu = small_task_cpu,
-            small_task_mem = small_task_mem,
-            small_task_disk = small_task_disk,
-            boot_disk_size = boot_disk_size,
-            gcs_project_for_requester_pays = gcs_project_for_requester_pays,
-            emergency_extra_disk = emergency_extra_disk
+    if (!defined(cached_plain_text_dataset)) {
+        call m2.Mutect2 {
+            input:
+                intervals = intervals,
+                masked_intervals = masked_intervals,
+                ref_fasta = ref_fasta,
+                ref_fai = ref_fai,
+                ref_dict = ref_dict,
+                tumor_reads = reads,
+                tumor_reads_index = reads_index,
+                gnomad = gnomad,
+                gnomad_idx = gnomad_idx,
+                pon = blacklist_vcf,
+                pon_idx = blacklist_vcf_idx,
+                m2_extra_args = m2_extra_args,
+                dragstr_model = dragstr_model,
+                make_bamout = make_bamout,
+                make_permutect_training_dataset = true,
+                permutect_training_dataset_truth_vcf = permutect_training_dataset_truth_vcf,
+                permutect_training_dataset_truth_vcf_idx = permutect_training_dataset_truth_vcf_idx,
+                skip_filtering = true,
+                gatk_docker = gatk_docker,
+                gatk_override = gatk_override,
+                scatter_count = scatter_count,
+                preemptible = preemptible,
+                max_retries =  max_retries,
+                small_task_cpu = small_task_cpu,
+                small_task_mem = small_task_mem,
+                small_task_disk = small_task_disk,
+                boot_disk_size = boot_disk_size,
+                gcs_project_for_requester_pays = gcs_project_for_requester_pays,
+                emergency_extra_disk = emergency_extra_disk
+        }
     }
 
     call Preprocess {
         input:
-            training_dataset = select_first([Mutect2.permutect_training_dataset]),
+            training_dataset = select_first([cached_plain_text_dataset, Mutect2.permutect_training_dataset]),
             chunk_size = chunk_size,
             permutect_docker = permutect_docker
     }
@@ -100,6 +105,7 @@ workflow MakeTrainingDataset {
         File mutect_stats = Mutect2.mutect_stats
         File permutect_contigs_table = Mutect2.permutect_contigs_table
         File permutect_read_groups_table = Mutect2.permutect_read_groups_table
+        File plain_text_dataset = select_first([cached_plain_text_dataset, Mutect2.permutect_training_dataset])
         File train_tar = Preprocess.train_tar
     }
 
