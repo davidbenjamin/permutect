@@ -18,7 +18,7 @@ from permutect.data.prefetch_generator import prefetch_generator
 from permutect.metrics import plotting
 from permutect.data.count_binning import NUM_ALT_COUNT_BINS, count_from_alt_bin_index, alt_count_bin_index
 from permutect.misc_utils import StreamingAverage, gpu_if_available, backpropagate
-from permutect.utils.array_utils import index_tensor
+from permutect.utils.array_utils import index_tensor, add_at_index
 from permutect.utils.stats_utils import beta_binomial_log_lk
 from permutect.utils.enums import Variation, Call
 
@@ -49,6 +49,17 @@ def germline_log_likelihood(afs, mafs, alt_counts, depths, het_beta=None):
 
     return torch.logsumexp(torch.vstack((alt_minor_ll, alt_major_ll, hom_ll)), dim=0)
 
+def get_ref_contexts_and_alt_bases(batch: PosteriorBatch):
+    # each row is the ref sequence, followed by the alt sequence (hstacked) with A = 0, C = 1 . . . deletion = 4
+    haplotypes_bs = batch.get_haplotypes_bs()
+    seq_length = haplotypes_bs.shape[-1] // 2
+    ref_center_idx = (seq_length - 1) // 2
+    alt_center_idx = ref_center_idx + seq_length
+    idx0 =  haplotypes_bs[:, ref_center_idx - 1]
+    idx1 = haplotypes_bs[:, ref_center_idx].int()
+    idx2 = haplotypes_bs[:, ref_center_idx + 1]
+    idx3 = haplotypes_bs[:, alt_center_idx]
+    return idx0, idx1, idx2, idx3
 
 # this works for ArtifactSpectra and OverdispersedBinomialMixture
 def plot_artifact_spectra(artifact_spectra, depth: int = None):
@@ -87,7 +98,7 @@ class PosteriorModel(torch.nn.Module):
         self._unnormalized_priors_vc = torch.nn.Parameter(torch.ones(len(Variation), len(Call)))
 
         # context and substitution dependent (the 3 r's stand for ref context, the 'a' is for alt base)
-        self.somatic_snv_modulators_rrra = torch.nn.Parameter(torch.zeros(5, 5, 5, 5))
+        self.log_somatic_snv_modulators_rrra = torch.nn.Parameter(torch.zeros(5, 5, 5, 5))
 
         with torch.no_grad():
             self._unnormalized_priors_vc[:, Call.SOMATIC] = variant_log_prior
@@ -99,20 +110,9 @@ class PosteriorModel(torch.nn.Module):
         self.to(device=self._device, dtype=self._dtype)
 
     def get_somatic_snv_modulation(self, batch: PosteriorBatch) -> Tensor:
-        # each row is the ref sequence, followed by the alt sequence (hstacked) with A = 0, C = 1 . . . deletion = 4
-
-        haplotypes_bs = IntTensor(batch.get_haplotypes_bs())
-        seq_length = haplotypes_bs.shape[-1] // 2
-        ref_center_idx = (seq_length - 1) // 2
-        alt_center_idx = ref_center_idx + seq_length
-        idx0 =  haplotypes_bs[:, ref_center_idx - 1]
-        idx1 = haplotypes_bs[:, ref_center_idx].int()
-        idx2 = haplotypes_bs[:, ref_center_idx + 1]
-        idx3 = haplotypes_bs[:, alt_center_idx]
-
-        modulations = index_tensor(self.somatic_snv_modulators_rrra, (idx0, idx1, idx2, idx3))
+        idx0, idx1, idx2, idx3 = get_ref_contexts_and_alt_bases(batch)
+        modulations = index_tensor(self.log_somatic_snv_modulators_rrra, (idx0, idx1, idx2, idx3))
         mask = batch.get_variant_types() == Variation.SNV
-
         return modulations * mask
 
     def make_unnormalized_priors_bc(self, batch: PosteriorBatch, variant_types_b: IntTensor, allele_frequencies_1d: Tensor) -> Tensor:
@@ -227,8 +227,17 @@ class PosteriorModel(torch.nn.Module):
         :return:
         """
         spectra_and_prior_params = chain(self.somatic_spectrum.parameters(), self.artifact_spectra.parameters(),
-                                         [self._unnormalized_priors_vc, self.somatic_snv_modulators_rrra], self.normal_artifact_spectra.parameters())
+                                         [self._unnormalized_priors_vc, self.log_somatic_snv_modulators_rrra], self.normal_artifact_spectra.parameters())
         optimizer = torch.optim.Adam(spectra_and_prior_params, lr=learning_rate)
+
+        # first, count how many times each context appears in the data
+        context_counts_rrra = 0.1 * torch.ones_like(self.log_somatic_snv_modulators_rrra)
+        for batch in tqdm(prefetch_generator(posterior_loader), mininterval=10, total=len(posterior_loader)):
+            idx0, idx1, idx2, idx3 = get_ref_contexts_and_alt_bases(batch)
+            is_snv = (batch.get_variant_types() == Variation.SNV).float()
+            add_at_index(tens=context_counts_rrra, idx=(idx0, idx1, idx2, idx3), values=is_snv)
+        log_context_proportions_rrra = torch.log(context_counts_rrra / torch.sum(context_counts_rrra))
+
 
         for epoch in trange(1, num_iterations + 1, desc="AF spectra epoch"):
             epoch_loss = StreamingAverage()
@@ -259,12 +268,17 @@ class PosteriorModel(torch.nn.Module):
                 # a missing non-INSERTION etc
                 # we use a germline allele frequency of 0.001 for the missing sites but it doesn't really matter
                 for var_type_idx, variant_type in enumerate(Variation):
-                    log_priors = torch.nn.functional.log_softmax(self.make_unnormalized_priors_bc(batch, torch.LongTensor([var_type_idx]).to(device=self._device, dtype=self._dtype), torch.tensor([0.001], device=self._device)), dim=1)
+                    log_priors = torch.nn.functional.log_softmax(self.make_unnormalized_priors_bc(None, torch.LongTensor([var_type_idx]).to(device=self._device, dtype=self._dtype), torch.tensor([0.001], device=self._device)), dim=1)
                     log_seq_error_prior = log_priors.squeeze()[Call.SEQ_ERROR]
                     missing_loss = -ignored_to_non_ignored_ratio * log_seq_error_prior  
                     loss += missing_loss
 
                 backpropagate(optimizer, loss)
+
+                # restore the constraint that the overall SNV prior is actually the overall prior even with the modulations
+                snv_modulation_excess = torch.logsumexp((self.log_somatic_snv_modulators_rrra.detach() + log_context_proportions_rrra).view(-1), dim=-1).item()
+                with torch.no_grad():
+                    self.log_somatic_snv_modulators_rrra -= snv_modulation_excess
 
                 epoch_loss.record_sum(batch.size() * loss.detach().item(), batch.size())
             # iteration over posterior dataloader finished
