@@ -36,6 +36,15 @@ workflow Permutect {
         File? test_dataset_truth_vcf    # used for evaluation
         File? test_dataset_truth_vcf_idx
 
+        # These HACKS are required to get around Terra's unreliable call-caching
+        File? cached_plain_text_test_dataset
+        File? cached_mutect2_vcf
+        File? cached_mutect2_vcf_idx
+        File? cached_contigs_table
+        File? cached_maf_segments
+        File? cached_normal_maf_segments
+        File? cached_mutect_stats
+
         String? permutect_filtering_extra_args
         String gatk_docker
         String? gcs_project_for_requester_pays
@@ -52,46 +61,48 @@ workflow Permutect {
         File? EMPTY_STRING_HACK
     }
 
-    call m2.Mutect2 {
-        input:
-            make_permutect_training_dataset = false,
-            make_permutect_test_dataset = true,
-            permutect_test_dataset_truth_vcf = test_dataset_truth_vcf,
-            permutect_test_dataset_truth_vcf_idx = test_dataset_truth_vcf_idx,
-            intervals = intervals,
-            masked_intervals = masks,
-            ref_fasta = ref_fasta,
-            ref_fai = ref_fai,
-            ref_dict = ref_dict,
-            tumor_reads = primary_bam,
-            tumor_reads_index = primary_bai,
-            normal_reads = if select_first([control_bam, ""]) == "" then EMPTY_STRING_HACK else control_bam,
-            normal_reads_index = if select_first([control_bam, ""]) == "" then EMPTY_STRING_HACK else control_bai,
+    if(!define(cached_plain_text_test_dataset)) {
+        call m2.Mutect2 {
+            input:
+                make_permutect_training_dataset = false,
+                make_permutect_test_dataset = true,
+                permutect_test_dataset_truth_vcf = test_dataset_truth_vcf,
+                permutect_test_dataset_truth_vcf_idx = test_dataset_truth_vcf_idx,
+                intervals = intervals,
+                masked_intervals = masks,
+                ref_fasta = ref_fasta,
+                ref_fai = ref_fai,
+                ref_dict = ref_dict,
+                tumor_reads = primary_bam,
+                tumor_reads_index = primary_bai,
+                normal_reads = if select_first([control_bam, ""]) == "" then EMPTY_STRING_HACK else control_bam,
+                normal_reads_index = if select_first([control_bam, ""]) == "" then EMPTY_STRING_HACK else control_bai,
 
-            scatter_count = scatter_count,
-            gnomad = if gnomad == "" then EMPTY_STRING_HACK else gnomad,
-            gnomad_idx = if gnomad == "" then EMPTY_STRING_HACK else gnomad_idx,
-            variants_for_contamination = if select_first([variants_for_contamination, ""]) == "" then EMPTY_STRING_HACK else variants_for_contamination,
-            variants_for_contamination_idx = if select_first([variants_for_contamination, ""]) == "" then EMPTY_STRING_HACK else variants_for_contamination_idx,
-            skip_filtering = skip_m2_filtering,
-            realignment_index_bundle = realignment_index_bundle,
-            realignment_extra_args = realignment_extra_args,
-            dragstr_model = if dragstr_model == "" then EMPTY_STRING_HACK else dragstr_model,
-            run_orientation_bias_mixture_model_filter = run_orientation_bias_mixture_model_filter,
-            m2_extra_args = m2_extra_args,
-            make_bamout = false,
+                scatter_count = scatter_count,
+                gnomad = if gnomad == "" then EMPTY_STRING_HACK else gnomad,
+                gnomad_idx = if gnomad == "" then EMPTY_STRING_HACK else gnomad_idx,
+                variants_for_contamination = if select_first([variants_for_contamination, ""]) == "" then EMPTY_STRING_HACK else variants_for_contamination,
+                variants_for_contamination_idx = if select_first([variants_for_contamination, ""]) == "" then EMPTY_STRING_HACK else variants_for_contamination_idx,
+                skip_filtering = skip_m2_filtering,
+                realignment_index_bundle = realignment_index_bundle,
+                realignment_extra_args = realignment_extra_args,
+                dragstr_model = if dragstr_model == "" then EMPTY_STRING_HACK else dragstr_model,
+                run_orientation_bias_mixture_model_filter = run_orientation_bias_mixture_model_filter,
+                m2_extra_args = m2_extra_args,
+                make_bamout = false,
 
-            gatk_docker = gatk_docker,
-            gcs_project_for_requester_pays = if select_first([gcs_project_for_requester_pays, ""]) == "" then EMPTY_STRING_HACK else gcs_project_for_requester_pays,
-            gatk_override = gatk_override,
-            preemptible = preemptible,
-            max_retries = max_retries
+                gatk_docker = gatk_docker,
+                gcs_project_for_requester_pays = if select_first([gcs_project_for_requester_pays, ""]) == "" then EMPTY_STRING_HACK else gcs_project_for_requester_pays,
+                gatk_override = gatk_override,
+                preemptible = preemptible,
+                max_retries = max_retries
+        }
     }
 
     call SplitMultiallelics {
         input:
-            input_vcf = Mutect2.output_vcf,
-            input_vcf_idx = Mutect2.output_vcf_idx,
+            input_vcf = select_first([Mutect2.output_vcf, cached_mutect2_vcf]),
+            input_vcf_idx = select_first([Mutect2.output_vcf_idx, cached_mutect2_vcf_idx]),
             ref_fasta = ref_fasta,
             ref_fai = ref_fai,
             ref_dict = ref_dict,
@@ -103,11 +114,11 @@ workflow Permutect {
             mutect2_vcf = SplitMultiallelics.output_vcf,
             mutect2_vcf_idx = SplitMultiallelics.output_vcf_idx,
             artifact_model = artifact_model,
-            test_dataset = select_first([Mutect2.permutect_test_dataset]),
-            contigs_table = Mutect2.permutect_contigs_table,
-            maf_segments = Mutect2.maf_segments,
-            normal_maf_segments = Mutect2.normal_maf_segments,
-            mutect_stats = Mutect2.mutect_stats,
+            test_dataset = select_first([Mutect2.permutect_test_dataset, cached_plain_text_test_dataset]),
+            contigs_table = select_first([Mutect2.permutect_contigs_table, cached_contigs_table]),
+            maf_segments = select_first([Mutect2.maf_segments, cached_maf_segments]),
+            normal_maf_segments = select_first([Mutect2.normal_maf_segments, cached_normal_maf_segments]),
+            mutect_stats = select_first([Mutect2.mutect_stats, cached_mutect_stats]),
             batch_size = batch_size,
             num_workers = num_workers,
             gpu_count = gpu_count,
@@ -136,8 +147,8 @@ workflow Permutect {
                 masks = if (select_first([masks,""]) == "") then EMPTY_STRING_HACK else masks,
                 truth_vcf = select_first([test_dataset_truth_vcf]),
                 truth_vcf_idx = select_first([test_dataset_truth_vcf_idx]),
-                eval_vcf = Mutect2.output_vcf,
-                eval_vcf_idx = Mutect2.output_vcf_idx,
+                eval_vcf = select_first([Mutect2.output_vcf, cached_mutect2_vcf]),
+                eval_vcf_idx = select_first([Mutect2.output_vcf_idx, cached_mutect2_vcf_idx]),
                 gatk_docker = gatk_docker
         }
     }
@@ -146,9 +157,13 @@ workflow Permutect {
         File output_vcf = PermutectFiltering.output_vcf
         File output_vcf_idx = PermutectFiltering.output_vcf_idx
         File tensorboard_report = PermutectFiltering.tensorboard_report
-        File test_dataset = select_first([Mutect2.permutect_test_dataset])
-        File mutect2_vcf = Mutect2.output_vcf
-        File mutect2_vcf_idx = Mutect2.output_vcf_idx
+        File test_dataset = select_first([Mutect2.permutect_test_dataset, cached_plain_text_test_dataset])
+        File mutect2_vcf = select_first([Mutect2.output_vcf, cached_mutect2_vcf])
+        File mutect2_vcf_idx = select_first([Mutect2.output_vcf_idx, cached_mutect2_vcf_idx])
+        File contigs_table = select_first([Mutect2.permutect_contigs_table, cached_contigs_table])
+        File maf_segments = select_first([Mutect2.maf_segments, cached_maf_segments])
+        File normal_maf_segments = select_first([Mutect2.normal_maf_segments, cached_normal_maf_segments])
+        File mutect_stats = select_first([Mutect2.mutect_stats, cached_mutect_stats])
 
         File? fn = PermutectConcordance.fn
         File? fn_idx = PermutectConcordance.fn_idx

@@ -102,9 +102,9 @@ workflow MakeTrainingDataset {
     output {
         File? bamout = Mutect2.bamout
         File? bamout_index = Mutect2.bamout_index
-        File mutect_stats = Mutect2.mutect_stats
-        File permutect_contigs_table = Mutect2.permutect_contigs_table
-        File permutect_read_groups_table = Mutect2.permutect_read_groups_table
+        File? mutect_stats = Mutect2.mutect_stats
+        File? permutect_contigs_table = Mutect2.permutect_contigs_table
+        File? permutect_read_groups_table = Mutect2.permutect_read_groups_table
         File plain_text_dataset = select_first([cached_plain_text_dataset, Mutect2.permutect_training_dataset])
         File train_tar = Preprocess.train_tar
     }
