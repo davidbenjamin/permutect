@@ -61,7 +61,7 @@ workflow Permutect {
         File? EMPTY_STRING_HACK
     }
 
-    if(!define(cached_plain_text_test_dataset)) {
+    if(!defined(cached_plain_text_test_dataset)) {
         call m2.Mutect2 {
             input:
                 make_permutect_training_dataset = false,
