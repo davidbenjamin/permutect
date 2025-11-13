@@ -60,14 +60,6 @@ def train_artifact_model(model: ArtifactModel, train_dataset: ReadsDataset, vali
     valid_loader = valid_dataset.make_data_loader(training_params.inference_batch_size, is_cuda, training_params.num_workers)
     report_memory_usage(f"Validation loader created.")
 
-    calibration_train_loader = train_loader if calibration_sources is None else \
-        train_dataset.make_data_loader(training_params.batch_size,
-                                 is_cuda, training_params.num_workers, sources_to_use=calibration_sources)
-
-    calibration_valid_loader = valid_loader if calibration_sources is None else \
-        valid_dataset.make_data_loader(training_params.inference_batch_size,
-                                 is_cuda, training_params.num_workers, sources_to_use=calibration_sources)
-
     first_epoch, last_epoch = 1, training_params.num_epochs + training_params.num_calibration_epochs
     for epoch in trange(1, last_epoch + 1, desc="Epoch"):
         start_of_epoch = time.time()
@@ -90,10 +82,10 @@ def train_artifact_model(model: ArtifactModel, train_dataset: ReadsDataset, vali
             alt_count_loss_metrics = LossMetrics(num_sources=num_sources, device=device)
             source_prediction_loss_metrics = LossMetrics(num_sources=num_sources, device=device)  # based on calibrated logits
 
-            loader = (calibration_train_loader if epoch_type == Epoch.TRAIN else calibration_valid_loader) if is_calibration_epoch else \
-                (train_loader if epoch_type == Epoch.TRAIN else valid_loader)
+            loader = train_loader if epoch_type == Epoch.TRAIN else valid_loader
 
             batch: ReadsBatch
+            parent_batch: ReadsBatch
             for parent_batch in tqdm(prefetch_generator(loader), mininterval=60, total=len(loader)):
                 # TODO: really to get the assumed balance we should only train on downsampled batches.  But using one
                 # TODO: downsampled batch with the proper balance will still go a long way
@@ -110,15 +102,19 @@ def train_artifact_model(model: ArtifactModel, train_dataset: ReadsDataset, vali
                 parent_batch_distances_bk = model.feature_clustering.centroid_distances(parent_output.features_be)
                 second_nearest_dist_b = torch.kthvalue(parent_batch_distances_bk, k=2, dim=-1).values
 
+                sources = parent_batch.get_sources()
+                source_mask_b = 1 if (calibration_sources is None or not is_calibration_epoch) else \
+                    torch.sum(torch.vstack([(sources == source).int() for source in calibration_sources]), dim=-1)
+
                 # first handle the labeled loss and the adversarial tasks, which treat the parent and downsampled batches independently
                 loss = 0
                 for n, (batch, output) in enumerate(zip(batches, outputs)):
                     labels_b = batch.get_training_labels()
                     is_labeled_b = batch.get_is_labeled_mask()
 
-                    source_losses_b = model.compute_source_prediction_losses(output.features_be, batch)
-                    alt_count_losses_b = model.compute_alt_count_losses(output.features_be, batch)
-                    supervised_losses_b = is_labeled_b * bce(output.calibrated_logits_b, labels_b)
+                    source_losses_b = source_mask_b * model.compute_source_prediction_losses(output.features_be, batch)
+                    alt_count_losses_b = source_mask_b * model.compute_alt_count_losses(output.features_be, batch)
+                    supervised_losses_b = source_mask_b * is_labeled_b * bce(output.calibrated_logits_b, labels_b)
 
                     # unsupervised loss uses uncalibrated logits because different counts should NOT be the same after calibration,
                     # but should be identical before.  Note that unsupervised losses is used with and without labels
@@ -130,8 +126,9 @@ def train_artifact_model(model: ArtifactModel, train_dataset: ReadsDataset, vali
                     consistency_loss_b = torch.square(consistency_dist_b / second_nearest_dist_b)
 
                     # unsupervised loss: cross-entropy between cluster-resolved predictions
-                    unsupervised_losses_b = consistency_loss_b
-                    loss += torch.sum(output.weights * (supervised_losses_b + unsupervised_losses_b + alt_count_losses_b) + output.source_weights * source_losses_b)
+                    unsupervised_losses_b = source_mask_b * consistency_loss_b
+                    losses = output.weights * (supervised_losses_b + unsupervised_losses_b + alt_count_losses_b) + output.source_weights * source_losses_b
+                    loss += torch.sum(losses)
 
                     loss_metrics.record(batch, supervised_losses_b, is_labeled_b * output.weights)
                     loss_metrics.record(batch, unsupervised_losses_b, output.weights)

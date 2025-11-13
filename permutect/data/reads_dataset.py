@@ -102,9 +102,8 @@ class ReadsDataset(Dataset):
             print(f"Data come from multiple sources, with counts {totals_by_source_s.cpu().tolist()}.")
         return num_sources
 
-    def make_data_loader(self, batch_size: int, pin_memory=False, num_workers: int = 0,
-                         sources_to_use: List[int] = None, labeled_only: bool = False):
-        sampler = SemiSupervisedBatchSampler(self, batch_size, sources_to_use, labeled_only)
+    def make_data_loader(self, batch_size: int, pin_memory=False, num_workers: int = 0, labeled_only: bool = False):
+        sampler = SemiSupervisedBatchSampler(self, batch_size, labeled_only)
         return DataLoader(dataset=self, batch_sampler=sampler, collate_fn=ReadsBatch, pin_memory=pin_memory, num_workers=num_workers)
 
 
@@ -124,12 +123,11 @@ def chunk(lis, chunk_size):
 # the artifact model handles weighting the losses to compensate for class imbalance between supervised and unsupervised
 # thus the sampler is not responsible for balancing the data
 class SemiSupervisedBatchSampler(Sampler):
-    def __init__(self, dataset: ReadsDataset, batch_size: int, sources_to_use: List[int] = None, labeled_only: bool = False):
+    def __init__(self, dataset: ReadsDataset, batch_size: int, labeled_only: bool = False):
         # combine the index maps of all relevant folds
         self.indices_to_use = []
-        source_set = None if sources_to_use is None else set(sources_to_use)
         for idx in dataset.indices_in_use:
-            if (source_set is None or dataset[idx].get_source() in source_set) and not (labeled_only and dataset[idx].get_label() == Label.UNLABELED):
+            if not (labeled_only and dataset[idx].get_label() == Label.UNLABELED):
                 self.indices_to_use.append(idx)
 
         self.batch_size = batch_size
