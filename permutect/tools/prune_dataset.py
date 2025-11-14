@@ -138,12 +138,14 @@ def generate_pruned_data_for_all_folds(fold_datasets: List[ReadsDataset], model:
         label_art_frac = totals_l[Label.ARTIFACT].item() / (totals_l[Label.ARTIFACT].item() + totals_l[Label.VARIANT].item())
         train_artifact_model(model, fold_dataset, valid_dataset, training_params, summary_writer=summary_writer)
 
+        labeled_only_memmap_data = fold_dataset.memory_mapped_data.restrict_to_labeled_only()
+        labeled_only_dataset = ReadsDataset(labeled_only_memmap_data)
 
 
         # TODO: maybe this should be done by variant type and/or count
         # learn pruning thresholds on the held-out data
-        labeled_only_pruning_loader = fold_dataset.make_data_loader(training_params.batch_size, use_gpu,
-                                                               training_params.num_workers, labeled_only=True)
+        labeled_only_pruning_loader = labeled_only_dataset.make_data_loader(training_params.batch_size, use_gpu,
+                                                               training_params.num_workers)
         art_threshold, nonart_threshold = calculate_pruning_thresholds(labeled_only_pruning_loader, model, label_art_frac, training_params)
 
         # unlike when learning thresholds, we load labeled and unlabeled data here

@@ -71,6 +71,23 @@ class MemoryMappedData:
             reads_datum_source = self.generate_reads_data(num_folds=num_folds, folds_to_use=folds_to_use)
             return MemoryMappedData.from_generator(reads_datum_source, estimated_num_data, estimated_num_reads)
 
+    def restrict_to_labeled_only(self) -> MemoryMappedData:
+        labeled_count, total = 0, 0
+        # estimated the proportion of labeled data
+        for n, datum in enumerate(self.generate_reads_data()):
+            if n > 1000:
+                break
+            total += 1
+            labeled_count += 1 if datum.is_labeled() else 0
+
+        labeled_proportion = labeled_count / total
+        fudge_factor = 1.1
+        estimated_num_reads = self.num_reads * labeled_proportion * fudge_factor
+        estimated_num_data = self.num_data * labeled_proportion * fudge_factor
+
+        reads_datum_source = (datum for datum in self.generate_reads_data() if datum.is_labeled())
+        return MemoryMappedData.from_generator(reads_datum_source, estimated_num_data, estimated_num_reads)
+
     def save_to_tarfile(self, output_tarfile):
         """
         It seems a little odd to save to disk when memory-mapped files are already on disk, but:

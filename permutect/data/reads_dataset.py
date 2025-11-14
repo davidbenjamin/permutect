@@ -66,15 +66,6 @@ class ReadsDataset(IterableDataset):
     def __len__(self):
         return self._size
 
-    # TODO: I hope this is never used since we have deleted it
-    # TODO: I think it was omnly used indirectly through the Sampler/DataLoader
-    #def __getitem__(self, index):
-    #    read_start_index = 0 if index == 0 else self._read_end_indices[index - 1]
-    #    read_end_index = self._read_end_indices[index]
-
-    #    return ReadsDatum(datum_array=self._stacked_data_ve[index],
-    #                          compressed_reads_re=self._stacked_reads_re[read_start_index:read_end_index])
-
     def __iter__(self):
         worker_info = get_worker_info()
         worker_id = 0 if worker_info is None else worker_info.id
@@ -156,8 +147,8 @@ class ReadsDataset(IterableDataset):
             print(f"Data come from multiple sources, with counts {totals_by_source_s.cpu().tolist()}.")
         return num_sources
 
-    def make_data_loader(self, batch_size: int, pin_memory=False, num_workers: int = 0, labeled_only: bool = False):
-        sampler = SemiSupervisedBatchSampler(self, batch_size, labeled_only)
+    def make_data_loader(self, batch_size: int, pin_memory=False, num_workers: int = 0):
+        sampler = SemiSupervisedBatchSampler(self, batch_size)
         return DataLoader(dataset=self, batch_sampler=sampler, collate_fn=ReadsBatch, pin_memory=pin_memory, num_workers=num_workers)
 
 
@@ -177,12 +168,11 @@ def chunk(lis, chunk_size):
 # the artifact model handles weighting the losses to compensate for class imbalance between supervised and unsupervised
 # thus the sampler is not responsible for balancing the data
 class SemiSupervisedBatchSampler(Sampler):
-    def __init__(self, dataset: ReadsDataset, batch_size: int, labeled_only: bool = False):
+    def __init__(self, dataset: ReadsDataset, batch_size: int):
         # combine the index maps of all relevant folds
         self.indices_to_use = []
         for idx in range(len(dataset)):
-            if not (labeled_only and dataset[idx].get_label() == Label.UNLABELED):
-                self.indices_to_use.append(idx)
+            self.indices_to_use.append(idx)
 
         self.batch_size = batch_size
         self.num_batches = math.ceil(len(self.indices_to_use) / self.batch_size)
