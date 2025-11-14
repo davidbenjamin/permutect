@@ -108,9 +108,19 @@ class ReadsDataset(IterableDataset):
         data_per_chunk = num_data_per_worker // chunks_per_worker
         chunks = list(range(chunks_per_worker))
         random.shuffle(chunks)
+
+        if worker_info is None:
+            print("Iterating over the whole dataset in a single process.")
+        else:
+            print(f"Iterating with worker {worker_id} out of {num_workers}.")
+            print(f"This worker is responsible for data range [{worker_start_idx}, {worker_end_idx}).")
+
         for chunk in chunks:
             chunk_start_idx = worker_start_idx + chunk * data_per_chunk
             chunk_end_idx = (worker_start_idx + (chunk + 1) * data_per_chunk) if (chunk == chunks_per_worker - 1) else worker_end_idx
+
+            print(f"Worker {worker_id} loading chunk [{chunk_start_idx}, {chunk_end_idx}) into RAM.")
+
             chunk_read_start_idx = 0 if chunk_start_idx == 0 else self._read_end_indices[chunk_start_idx - 1]
             chunk_read_end_idx = self._read_end_indices[chunk_end_idx - 1]
 
