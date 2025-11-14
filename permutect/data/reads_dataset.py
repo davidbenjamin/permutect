@@ -35,35 +35,27 @@ def ratio_with_pseudocount(a, b):
 
 
 class ReadsDataset(IterableDataset):
-    def __init__(self, memory_mapped_data: MemoryMappedData, num_folds: int = 1, folds_to_use: List[int] = None):
+    def __init__(self, memory_mapped_data: MemoryMappedData, num_folds: int = None, folds_to_use: List[int] = None):
         """
         :param num_folds:
         """
         super(ReadsDataset, self).__init__()
         self.totals_slvra = BatchIndexedTensor.make_zeros(num_sources=1, include_logits=False, device=torch.device('cpu'))
-        self.memory_mapped_data = memory_mapped_data
-        self._size = memory_mapped_data.num_data
-        self._read_end_indices = memory_mapped_data.read_end_indices
+        # if no folds, no copying is done; otherwise this creates a new file on disk
+        self.memory_mapped_data = memory_mapped_data.restrict_to_folds(num_folds, folds_to_use)
+        self._size = self.memory_mapped_data.num_data
+        self._read_end_indices = self.memory_mapped_data.read_end_indices
 
         available_memory = psutil.virtual_memory().available
-        fits_in_ram = memory_mapped_data.size_in_bytes() < 0.6 * available_memory
-        self._memory_map_mode = fits_in_ram
         print(f"Data occupy {memory_mapped_data.size_in_bytes() // 1000000} Mb and the system has {available_memory // 1000000} Mb of RAM available.")
 
         # copy memory-mapped data to RAM if space allows, otherwise use the memory-mapped data
-        self._stacked_reads_re = memory_mapped_data.reads_mmap.copy() if fits_in_ram else memory_mapped_data.reads_mmap
-        self._stacked_data_ve = memory_mapped_data.data_mmap.copy() if fits_in_ram else memory_mapped_data.data_mmap
-
-        self.indices_in_use = []
-
-        folds_set = set(all_folds(num_folds) if folds_to_use is None else folds_to_use)
+        self._stacked_reads_re = self.memory_mapped_data.reads_mmap
+        self._stacked_data_ve = self.memory_mapped_data.data_mmap
 
         # TODO: does this still work when we implement it as an IterableDataset?
-        for n, datum in enumerate(self):
+        for datum in self.memory_mapped_data.generate_reads_data():
             self.totals_slvra.record_datum(datum)
-            fold = n % num_folds
-            if fold in folds_set:
-                self.indices_in_use.append(n)
 
         first_datum: ReadsDatum = self[0]
         self.num_read_features = first_datum.num_read_features()
@@ -140,8 +132,6 @@ class ReadsDataset(IterableDataset):
                 read_end_idx = chunk_read_end_indices[idx]
                 yield ReadsDatum(datum_array=chunk_data_ve[idx], compressed_reads_re=chunk_reads_re[read_start_idx:read_end_idx])
 
-
-
     def num_sources(self) -> int:
         return self.totals_slvra.num_sources()
 
@@ -190,7 +180,7 @@ class SemiSupervisedBatchSampler(Sampler):
     def __init__(self, dataset: ReadsDataset, batch_size: int, labeled_only: bool = False):
         # combine the index maps of all relevant folds
         self.indices_to_use = []
-        for idx in dataset.indices_in_use:
+        for idx in range(len(dataset)):
             if not (labeled_only and dataset[idx].get_label() == Label.UNLABELED):
                 self.indices_to_use.append(idx)
 

@@ -3,7 +3,7 @@ import os
 import tarfile
 import tempfile
 from tempfile import NamedTemporaryFile
-from typing import Generator
+from typing import Generator, List
 
 import numpy as np
 import torch
@@ -47,16 +47,29 @@ class MemoryMappedData:
     def size_in_bytes(self):
         return self.data_mmap.nbytes + self.reads_mmap.nbytes
 
-    def generate_reads_data(self) -> Generator[ReadsDatum, None, None]:
+    def generate_reads_data(self, num_folds: int = None, folds_to_use: List[int] = None) -> Generator[ReadsDatum, None, None]:
+        folds_set = None if folds_to_use is None else set(folds_to_use)
         print("Generating ReadsDatum objects from memory-mapped data.")
         assert self.reads_mmap.dtype == READS_ARRAY_DTYPE
         count = 0
         for idx in range(self.num_data):
-            data_array = self.data_mmap[idx]
-            reads_array = self.reads_mmap[0 if idx == 0 else self.read_end_indices[idx - 1]:self.read_end_indices[idx]]
-            yield ReadsDatum(datum_array=data_array, compressed_reads_re=reads_array)
-            count += 1
+            if folds_to_use is None or (idx % num_folds in folds_set):
+                data_array = self.data_mmap[idx]
+                reads_array = self.reads_mmap[0 if idx == 0 else self.read_end_indices[idx - 1]:self.read_end_indices[idx]]
+                yield ReadsDatum(datum_array=data_array, compressed_reads_re=reads_array)
+                count += 1
         print(f"generated {count} objects.")
+
+    def restrict_to_folds(self, num_folds: int = None, folds_to_use: List[int] = None) -> MemoryMappedData:
+        if folds_to_use is None:
+            return self
+        else:
+            proportion = len(folds_to_use) / num_folds
+            fudge_factor = 1.1
+            estimated_num_data = self.num_data * proportion * fudge_factor
+            estimated_num_reads = self.num_reads * proportion * fudge_factor
+            reads_datum_source = self.generate_reads_data(num_folds=num_folds, folds_to_use=folds_to_use)
+            return MemoryMappedData.from_generator(reads_datum_source, estimated_num_data, estimated_num_reads)
 
     def save_to_tarfile(self, output_tarfile):
         """
