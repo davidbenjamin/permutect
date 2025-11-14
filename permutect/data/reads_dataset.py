@@ -4,7 +4,8 @@ import random
 from typing import  List, Generator
 
 import torch
-from torch.utils.data import Dataset, DataLoader
+from torch.distributed.rpc import get_worker_info
+from torch.utils.data import Dataset, DataLoader, IterableDataset
 from torch.utils.data.sampler import Sampler
 
 from permutect.data.memory_mapped_data import MemoryMappedData
@@ -33,7 +34,7 @@ def ratio_with_pseudocount(a, b):
     return (a + WEIGHT_PSEUDOCOUNT) / (b + WEIGHT_PSEUDOCOUNT)
 
 
-class ReadsDataset(Dataset):
+class ReadsDataset(IterableDataset):
     def __init__(self, memory_mapped_data: MemoryMappedData, num_folds: int = 1, folds_to_use: List[int] = None):
         """
         :param num_folds:
@@ -57,6 +58,7 @@ class ReadsDataset(Dataset):
 
         folds_set = set(all_folds(num_folds) if folds_to_use is None else folds_to_use)
 
+        # TODO: does this still work when we implement it as an IterableDataset?
         for n, datum in enumerate(self):
             self.totals_slvra.record_datum(datum)
             fold = n % num_folds
@@ -68,15 +70,77 @@ class ReadsDataset(Dataset):
         self.num_info_features = len(first_datum.get_info_1d())
         self.haplotypes_length = len(first_datum.get_haplotypes_1d())
 
+    # this is not required for an IterableDataset, but it can't hurt!
     def __len__(self):
         return self._size
 
-    def __getitem__(self, index):
-        read_start_index = 0 if index == 0 else self._read_end_indices[index - 1]
-        read_end_index = self._read_end_indices[index]
+    # TODO: I hope this is never used since we have deleted it
+    # TODO: I think it was omnly used indirectly through the Sampler/DataLoader
+    #def __getitem__(self, index):
+    #    read_start_index = 0 if index == 0 else self._read_end_indices[index - 1]
+    #    read_end_index = self._read_end_indices[index]
 
-        return ReadsDatum(datum_array=self._stacked_data_ve[index],
-                              compressed_reads_re=self._stacked_reads_re[read_start_index:read_end_index])
+    #    return ReadsDatum(datum_array=self._stacked_data_ve[index],
+    #                          compressed_reads_re=self._stacked_reads_re[read_start_index:read_end_index])
+
+    def __iter__(self):
+        worker_info = get_worker_info()
+        worker_id = 0 if worker_info is None else worker_info.id
+        num_workers = 1 if worker_info is None else worker_info.num_workers
+
+        num_data_per_worker = self._size // num_workers
+        num_bytes_per_worker = self.memory_mapped_data.size_in_bytes() // num_workers
+
+        # note: this is the total available system memory, not per process
+        total_available_memory_in_bytes = psutil.virtual_memory().available
+        available_memory_per_worker = total_available_memory_in_bytes // num_workers
+
+        # we want the amount of memory loaded to RAM at any given time to be well below the total available memory
+        # thus we multiply by a cautious fudge factor
+        fudge_factor = 4
+        chunks_per_worker = 1 + ((fudge_factor * num_bytes_per_worker) // available_memory_per_worker)
+
+        # The way multiple DataLoader workers work in PyTorch is not so obvious.
+        # 1) There is an original Dataset
+        # 2) There is a DataLoader associated with that Dataset that creates one copy of the Dataset for each worker
+        #    process.  I believe that tensors and numpy arrays in RAM are deep-copied in this process, and I'm pretty
+        #   sure that the memory-map file backing the dataset is not copied.
+        # 3) when iter() is called it is usually done so implicitly via the DataLoader, in which case "self" refers to
+        # one of the copies and we are only responsible for part of the memory-mapped data.
+        # 4) this part of the memory-mapped data might be too big for available RAM, so we load one contiguous chunk
+        # (this is a chunk within the subset of data that this worker is responsible for) into RAM at a time.
+
+        # example of specific number: num_data = 21, num_workers = 4, then data_per_worker is 5 and the index ranges
+        # are [0,5), [5,10), [10,15), [15,21)
+        worker_start_idx = worker_id * num_data_per_worker
+        worker_end_idx = (worker_id + 1) * num_data_per_worker if worker_id < num_workers - 1 else self._size
+
+        num_data_for_this_worker = worker_end_idx - worker_start_idx
+        data_per_chunk = num_data_per_worker // chunks_per_worker
+        chunks = list(range(chunks_per_worker))
+        random.shuffle(chunks)
+        for chunk in chunks:
+            chunk_start_idx = worker_start_idx + chunk * data_per_chunk
+            chunk_end_idx = (worker_start_idx + (chunk + 1) * data_per_chunk) if (chunk == chunks_per_worker - 1) else worker_end_idx
+            chunk_read_start_idx = 0 if chunk_start_idx == 0 else self._read_end_indices[chunk_start_idx - 1]
+            chunk_read_end_idx = self._read_end_indices[chunk_end_idx]
+
+            # TODO: I think the .copy() is necessary to copy the slice of the memory-map from disk into RAM
+            # these operations should be really fast because it's all sequential access
+            chunk_data_ve = self._stacked_data_ve[chunk_start_idx:chunk_end_idx].copy()
+            chunk_reads_re = self._stacked_reads_re[chunk_read_start_idx:chunk_read_end_idx].copy()
+            chunk_read_end_indices = self._read_end_indices[chunk_start_idx:chunk_end_idx]
+
+            # now that it's all in RAM, we can yield in randomly-accessed order
+            indices = list(range(len(chunk_data_ve)))
+            random.shuffle(indices)
+
+            for idx in indices:
+                read_start_idx = 0 if idx == 0 else chunk_read_end_indices[idx - 1]
+                read_end_idx = chunk_read_end_indices[idx]
+                yield ReadsDatum(datum_array=chunk_data_ve[idx], compressed_reads_re=chunk_reads_re[read_start_idx:read_end_idx])
+
+
 
     def num_sources(self) -> int:
         return self.totals_slvra.num_sources()
