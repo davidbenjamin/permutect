@@ -148,43 +148,12 @@ class ReadsDataset(IterableDataset):
         return num_sources
 
     def make_data_loader(self, batch_size: int, pin_memory=False, num_workers: int = 0):
-        sampler = SemiSupervisedBatchSampler(self, batch_size)
-        return DataLoader(dataset=self, batch_sampler=sampler, collate_fn=ReadsBatch, pin_memory=pin_memory, num_workers=num_workers)
-
-
-# from a generator that yields BaseDatum(s), create a generator that yields the two numpy arrays needed to reconstruct the datum
-def make_flattened_tensor_generator(reads_data_generator: Generator[ReadsDatum, None, None]):
-    for reads_datum in reads_data_generator:
-        yield reads_datum.get_compressed_reads_re()
-        yield reads_datum.get_array_1d()
+        return DataLoader(dataset=self, batch_size=batch_size, collate_fn=ReadsBatch, pin_memory=pin_memory,
+                          num_workers=num_workers, prefetch_factor=2, persistent_workers=True)
 
 
 # ex: chunk([a,b,c,d,e], 3) = [[a,b,c], [d,e]]
 def chunk(lis, chunk_size):
     return [lis[i:i + chunk_size] for i in range(0, len(lis), chunk_size)]
 
-
-# Labeled and unlabeled data are mixed.
-# the artifact model handles weighting the losses to compensate for class imbalance between supervised and unsupervised
-# thus the sampler is not responsible for balancing the data
-class SemiSupervisedBatchSampler(Sampler):
-    def __init__(self, dataset: ReadsDataset, batch_size: int):
-        # combine the index maps of all relevant folds
-        self.indices_to_use = []
-        for idx in range(len(dataset)):
-            self.indices_to_use.append(idx)
-
-        self.batch_size = batch_size
-        self.num_batches = math.ceil(len(self.indices_to_use) / self.batch_size)
-
-    def __iter__(self):
-        batches = []    # list of lists of indices -- each sublist is a batch
-        random.shuffle(self.indices_to_use)
-        batches.extend(chunk(self.indices_to_use, self.batch_size))
-        random.shuffle(batches)
-
-        return iter(batches)
-
-    def __len__(self):
-        return self.num_batches
 
