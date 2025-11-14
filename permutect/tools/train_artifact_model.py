@@ -27,8 +27,8 @@ def main_without_parsing(args):
     valid_dataset = ReadsDataset(memory_mapped_data=memory_mapped_data, num_folds=num_folds, folds_to_use=last_fold_only(num_folds))
 
     model = pretrained_model if (pretrained_model is not None) else \
-            ArtifactModel(params=params, num_read_features=train_dataset.num_read_features, num_info_features=train_dataset.num_info_features,
-                          haplotypes_length=train_dataset.haplotypes_length, device=gpu_if_available())
+            ArtifactModel(params=params, num_read_features=train_dataset.num_read_features(), num_info_features=train_dataset.num_info_features(),
+                          haplotypes_length=train_dataset.haplotypes_length(), device=gpu_if_available())
 
     train_artifact_model(model, train_dataset, valid_dataset, training_params, summary_writer=summary_writer, epochs_per_evaluation=10)
     summary_writer.close()

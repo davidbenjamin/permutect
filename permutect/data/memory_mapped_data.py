@@ -37,8 +37,8 @@ class MemoryMappedData:
         # note: this can hold indices up to a bit over 4 billion, which is probably bigger than any training dataset we'll need
         self.read_end_indices = np.zeros(shape=(num_data,), dtype=np.uint32)
         idx = 0
-        for n, data_array in enumerate(self.data_mmap):
-            idx += Datum(data_array).get_read_count()
+        for n in range(num_data):
+            idx += Datum(data_mmap[n]).get_read_count()
             self.read_end_indices[n] = idx
 
     def __len__(self):
@@ -66,8 +66,8 @@ class MemoryMappedData:
         else:
             proportion = len(folds_to_use) / num_folds
             fudge_factor = 1.1
-            estimated_num_data = self.num_data * proportion * fudge_factor
-            estimated_num_reads = self.num_reads * proportion * fudge_factor
+            estimated_num_data = int(self.num_data * proportion * fudge_factor)
+            estimated_num_reads = int(self.num_reads * proportion * fudge_factor)
             reads_datum_source = self.generate_reads_data(num_folds=num_folds, folds_to_use=folds_to_use)
             return MemoryMappedData.from_generator(reads_datum_source, estimated_num_data, estimated_num_reads)
 

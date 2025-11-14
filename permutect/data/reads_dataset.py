@@ -1,17 +1,15 @@
-import math
 import psutil
 import random
-from typing import  List, Generator
+from typing import  List
 
 import torch
-from torch.distributed.rpc import get_worker_info
-from torch.utils.data import Dataset, DataLoader, IterableDataset
-from torch.utils.data.sampler import Sampler
+from torch.utils.data import DataLoader, IterableDataset
 
 from permutect.data.memory_mapped_data import MemoryMappedData
 from permutect.data.reads_datum import ReadsDatum
 from permutect.data.reads_batch import ReadsBatch
 from permutect.data.batch import BatchProperty, BatchIndexedTensor
+from permutect.misc_utils import ConsistentValue
 from permutect.utils.enums import Variation, Label
 
 WEIGHT_PSEUDOCOUNT = 10
@@ -53,21 +51,29 @@ class ReadsDataset(IterableDataset):
         self._stacked_reads_re = self.memory_mapped_data.reads_mmap
         self._stacked_data_ve = self.memory_mapped_data.data_mmap
 
-        # TODO: does this still work when we implement it as an IterableDataset?
+        self._num_read_features, self._num_info_features, self._haplotypes_length = ConsistentValue(), ConsistentValue(), ConsistentValue()
         for datum in self.memory_mapped_data.generate_reads_data():
             self.totals_slvra.record_datum(datum)
+            self._num_read_features.check(datum.num_read_features())
+            self._num_info_features.check(len(datum.get_info_1d()))
+            self._haplotypes_length.check(len(datum.get_haplotypes_1d()))
 
-        first_datum: ReadsDatum = self[0]
-        self.num_read_features = first_datum.num_read_features()
-        self.num_info_features = len(first_datum.get_info_1d())
-        self.haplotypes_length = len(first_datum.get_haplotypes_1d())
+
+    def num_read_features(self) -> int:
+        return self._num_read_features.value
+
+    def num_info_features(self) -> int:
+        return self._num_info_features.value
+
+    def haplotypes_length(self) -> int:
+        return self._haplotypes_length.value
 
     # this is not required for an IterableDataset, but it can't hurt!
     def __len__(self):
         return self._size
 
     def __iter__(self):
-        worker_info = get_worker_info()
+        worker_info = torch.utils.data.get_worker_info()
         worker_id = 0 if worker_info is None else worker_info.id
         num_workers = 1 if worker_info is None else worker_info.num_workers
 
@@ -106,7 +112,7 @@ class ReadsDataset(IterableDataset):
             chunk_start_idx = worker_start_idx + chunk * data_per_chunk
             chunk_end_idx = (worker_start_idx + (chunk + 1) * data_per_chunk) if (chunk == chunks_per_worker - 1) else worker_end_idx
             chunk_read_start_idx = 0 if chunk_start_idx == 0 else self._read_end_indices[chunk_start_idx - 1]
-            chunk_read_end_idx = self._read_end_indices[chunk_end_idx]
+            chunk_read_end_idx = self._read_end_indices[chunk_end_idx - 1]
 
             # TODO: I think the .copy() is necessary to copy the slice of the memory-map from disk into RAM
             # these operations should be really fast because it's all sequential access
@@ -149,7 +155,7 @@ class ReadsDataset(IterableDataset):
 
     def make_data_loader(self, batch_size: int, pin_memory=False, num_workers: int = 0):
         return DataLoader(dataset=self, batch_size=batch_size, collate_fn=ReadsBatch, pin_memory=pin_memory,
-                          num_workers=num_workers, prefetch_factor=2, persistent_workers=True)
+                          num_workers=num_workers, prefetch_factor=2 if num_workers > 0 else None, persistent_workers=num_workers > 0)
 
 
 # ex: chunk([a,b,c,d,e], 3) = [[a,b,c], [d,e]]
