@@ -64,6 +64,7 @@ class MemoryMappedData:
         if folds_to_use is None:
             return self
         else:
+            print(f"Restricting to folds {folds_to_use} out of {num_folds} total folds.")
             proportion = len(folds_to_use) / num_folds
             fudge_factor = 1.1
             estimated_num_data = int(self.num_data * proportion * fudge_factor)
@@ -72,6 +73,7 @@ class MemoryMappedData:
             return MemoryMappedData.from_generator(reads_datum_source, estimated_num_data, estimated_num_reads)
 
     def restrict_to_labeled_only(self) -> MemoryMappedData:
+        print("Restricting dataset to labeled data only.")
         labeled_count, total = 0, 0
         # estimated the proportion of labeled data
         for n, datum in enumerate(self.generate_reads_data()):

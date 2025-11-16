@@ -11,7 +11,8 @@ OVERWRITE_SAVED_MODEL = True
 
 
 def test_train_artifact_model():
-    training_data_tarfile = "/Users/davidben/permutect/integration-tests/preprocessed-dataset.tar"
+    training_data_tarfile = "/Users/davidben/permutect/train.tar"
+    #training_data_tarfile = "/Users/davidben/permutect/integration-tests/preprocessed-dataset.tar"
     saved_model = tempfile.NamedTemporaryFile() if not OVERWRITE_SAVED_MODEL else \
         '/Users/davidben/permutect/integration-tests/hiseqx-NA12878-model.pt'
     training_tensorboard_dir = tempfile.TemporaryDirectory()
@@ -58,4 +59,9 @@ def test_train_artifact_model():
 
     loaded_model, _, _ = load_model(saved_model)
 
-test_train_artifact_model()
+def main():
+    test_train_artifact_model()
+
+# this is necessary; otherwise running with multiple workers will create a weird multiprocessing error
+if __name__ == '__main__':
+    main()

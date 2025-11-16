@@ -52,11 +52,13 @@ class ReadsDataset(IterableDataset):
         self._stacked_data_ve = self.memory_mapped_data.data_mmap
 
         self._num_read_features, self._num_info_features, self._haplotypes_length = ConsistentValue(), ConsistentValue(), ConsistentValue()
+        print("Recording data counts. . .")
         for datum in self.memory_mapped_data.generate_reads_data():
             self.totals_slvra.record_datum(datum)
             self._num_read_features.check(datum.num_read_features())
             self._num_info_features.check(len(datum.get_info_1d()))
             self._haplotypes_length.check(len(datum.get_haplotypes_1d()))
+        print("Done recording data counts.")
 
 
     def num_read_features(self) -> int:
