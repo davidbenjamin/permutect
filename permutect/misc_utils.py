@@ -1,3 +1,4 @@
+import time
 from typing import Iterator
 
 import psutil
@@ -101,6 +102,17 @@ class StreamingAverage:
     def record_with_weights(self, values: Tensor, weights: Tensor):
         self._count += torch.sum(weights).item()
         self._sum += torch.sum(values * weights).item()
+
+
+class Timer:
+    def __init__(self, message: str = None):
+        if message is not None:
+            print(message)
+        self._start_time = time.perf_counter()
+
+    def report(self, message: str = ""):
+        elapsed_time = time.perf_counter() - self._start_time
+        print(f"{message}: {elapsed_time:0.4f} seconds")
 
 
 def backpropagate(optimizer: torch.optim.Optimizer, loss: Tensor, params_to_clip: Iterator[Parameter] = []):

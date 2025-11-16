@@ -9,7 +9,7 @@ from permutect.data.memory_mapped_data import MemoryMappedData
 from permutect.data.reads_datum import ReadsDatum
 from permutect.data.reads_batch import ReadsBatch
 from permutect.data.batch import BatchProperty, BatchIndexedTensor
-from permutect.misc_utils import ConsistentValue
+from permutect.misc_utils import ConsistentValue, Timer, report_memory_usage
 from permutect.utils.enums import Variation, Label
 
 WEIGHT_PSEUDOCOUNT = 10
@@ -52,13 +52,13 @@ class ReadsDataset(IterableDataset):
         self._stacked_data_ve = self.memory_mapped_data.data_mmap
 
         self._num_read_features, self._num_info_features, self._haplotypes_length = ConsistentValue(), ConsistentValue(), ConsistentValue()
-        print("Recording data counts. . .")
+        data_recording_timer = Timer("Recording data counts. . .")
         for datum in self.memory_mapped_data.generate_reads_data():
             self.totals_slvra.record_datum(datum)
             self._num_read_features.check(datum.num_read_features())
             self._num_info_features.check(len(datum.get_info_1d()))
             self._haplotypes_length.check(len(datum.get_haplotypes_1d()))
-        print("Done recording data counts.")
+        data_recording_timer.report("Time to record data counts")
 
 
     def num_read_features(self) -> int:
@@ -91,6 +91,7 @@ class ReadsDataset(IterableDataset):
         # thus we multiply by a cautious fudge factor
         fudge_factor = 4
         chunks_per_worker = 1 + ((fudge_factor * num_bytes_per_worker) // available_memory_per_worker)
+        print(f"Worker {worker_id} will divide its portion of the data into {chunks_per_worker} chunks.")
 
         # The way multiple DataLoader workers work in PyTorch is not so obvious.
         # 1) There is an original Dataset
@@ -108,7 +109,7 @@ class ReadsDataset(IterableDataset):
         worker_end_idx = (worker_id + 1) * num_data_per_worker if worker_id < num_workers - 1 else self._size
 
         num_data_for_this_worker = worker_end_idx - worker_start_idx
-        data_per_chunk = num_data_per_worker // chunks_per_worker
+        data_per_chunk = num_data_for_this_worker // chunks_per_worker
         chunks = list(range(chunks_per_worker))
         random.shuffle(chunks)
 
@@ -122,16 +123,17 @@ class ReadsDataset(IterableDataset):
             chunk_start_idx = worker_start_idx + chunk * data_per_chunk
             chunk_end_idx = (worker_start_idx + (chunk + 1) * data_per_chunk) if (chunk == chunks_per_worker - 1) else worker_end_idx
 
-            print(f"Worker {worker_id} loading chunk [{chunk_start_idx}, {chunk_end_idx}) into RAM.")
-
             chunk_read_start_idx = 0 if chunk_start_idx == 0 else self._read_end_indices[chunk_start_idx - 1]
             chunk_read_end_idx = self._read_end_indices[chunk_end_idx - 1]
 
+            ram_timer = Timer(f"Worker {worker_id} loading chunk [{chunk_start_idx}, {chunk_end_idx}) into RAM.")
             # TODO: I think the .copy() is necessary to copy the slice of the memory-map from disk into RAM
             # these operations should be really fast because it's all sequential access
             chunk_data_ve = self._stacked_data_ve[chunk_start_idx:chunk_end_idx].copy()
             chunk_reads_re = self._stacked_reads_re[chunk_read_start_idx:chunk_read_end_idx].copy()
-            chunk_read_end_indices = self._read_end_indices[chunk_start_idx:chunk_end_idx]
+            chunk_read_end_indices = self._read_end_indices[chunk_start_idx:chunk_end_idx] - chunk_read_start_idx
+            ram_timer.report("Time to load chunk data into RAM")
+            report_memory_usage("Chunk data loaded into RAM.")
 
             # now that it's all in RAM, we can yield in randomly-accessed order
             indices = list(range(len(chunk_data_ve)))
@@ -140,7 +142,9 @@ class ReadsDataset(IterableDataset):
             for idx in indices:
                 read_start_idx = 0 if idx == 0 else chunk_read_end_indices[idx - 1]
                 read_end_idx = chunk_read_end_indices[idx]
-                yield ReadsDatum(datum_array=chunk_data_ve[idx], compressed_reads_re=chunk_reads_re[read_start_idx:read_end_idx])
+                datum = ReadsDatum(datum_array=chunk_data_ve[idx], compressed_reads_re=chunk_reads_re[read_start_idx:read_end_idx])
+                #assert datum.get_ref_count() + datum.get_alt_count() == len(datum.get_reads_array_re())
+                yield datum
 
     def num_sources(self) -> int:
         return self.totals_slvra.num_sources()

@@ -10,6 +10,7 @@ import torch
 
 from permutect.data.datum import Datum, DATUM_ARRAY_DTYPE
 from permutect.data.reads_datum import ReadsDatum, READS_ARRAY_DTYPE
+from permutect.misc_utils import Timer
 
 # numpy.save appends .npy if the extension doesn't already include it.  We preempt this behavior.
 SUFFIX_FOR_DATA_MMAP = ".data_mmap.npy"
@@ -121,6 +122,7 @@ class MemoryMappedData:
     # Remember to set allow_pickle=True when loading as well
     @classmethod
     def load_from_tarfile(cls, data_tarfile) -> MemoryMappedData:
+        loading_timer = Timer()
         temp_dir = tempfile.TemporaryDirectory()
 
         with tarfile.open(data_tarfile, 'r') as tar:
@@ -142,6 +144,7 @@ class MemoryMappedData:
         # if we load the same file with the actual num_data, as opposed to the capacity, it DOES work correctly
         data_mmap = np.lib.format.open_memmap(data_files[0], mode='r', shape=(num_data, data_dim))
         reads_mmap = np.lib.format.open_memmap(reads_files[0], mode='r', shape=(num_reads, reads_dim))
+        loading_timer.report("Time to load data from tarfile")
 
         return cls(data_mmap=data_mmap, num_data=num_data, reads_mmap=reads_mmap, num_reads=num_reads)
 
