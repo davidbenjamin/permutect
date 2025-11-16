@@ -73,6 +73,7 @@ class ReadsDataset(IterableDataset):
         return self._size
 
     def __iter__(self):
+        print("Inside a ReadsDataset's .__iter__ function")
         worker_info = torch.utils.data.get_worker_info()
         worker_id = 0 if worker_info is None else worker_info.id
         num_workers = 1 if worker_info is None else worker_info.num_workers
