@@ -194,7 +194,10 @@ def normalized_data_generator(raw_mmap_data: MemoryMappedData) -> Generator[Read
 
 def make_read_and_info_quantile_transforms(read_end_indices, data_ve, reads_re):
     read_end_indices = read_end_indices
-    indices_for_normalization = get_normalization_set(data_ve)
+
+    # indices_for_normalization = get_normalization_set(data_ve)
+    # revert to old behavior: use all ref data for normalization
+    indices_for_normalization = list(range(len(data_ve)))
 
     # define ref read ranges for each datum in the normalization set
     normalization_read_start_indices = [read_end_indices[max(idx - 1, 0)] for idx in indices_for_normalization]
