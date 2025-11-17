@@ -180,32 +180,23 @@ def normalized_data_generator(raw_mmap_data: MemoryMappedData, read_quantile_tra
                 yield datum
             raw_data_list = []
 
-
-def make_normalized_mmap_data(dataset_files, sources: List[int]=None) -> MemoryMappedData:
-    """
-    given unnormalized plain text dataset files from Mutect2, normalize data and save as tarfile of memory mapped numpy arrays
-
-    In addition to quantile-normalizing read tensors it also enlarges the info tensors
-    :param dataset_files:
-    :param sources if None, source is set to 0; if singleton list, all files are given that source; otherwise one source per file
-    """
-    raw_memory_mapped_data = write_raw_unnormalized_data_to_memory_maps(dataset_files, sources)
-    read_end_indices = raw_memory_mapped_data.read_end_indices
-    indices_for_normalization = get_normalization_set(raw_memory_mapped_data.data_mmap)
+def make_read_and_info_quantile_transforms(read_end_indices, data_ve, reads_re):
+    read_end_indices = read_end_indices
+    indices_for_normalization = get_normalization_set(data_ve)
 
     # define ref read ranges for each datum in the normalization set
     normalization_read_start_indices = [read_end_indices[max(idx - 1, 0)] for idx in indices_for_normalization]
-    normalization_ref_counts = [Datum(array=raw_memory_mapped_data.data_mmap[idx]).get_ref_count() for idx in indices_for_normalization]
+    normalization_ref_counts = [Datum(array=data_ve[idx]).get_ref_count() for idx in indices_for_normalization]
     normalization_ref_end_indices = [(start + ref_count) for start, ref_count in zip(normalization_read_start_indices, normalization_ref_counts)]
 
     # extract the INFO array from all the data arrays in the normalization set
-    info_for_normalization_ve = np.vstack([Datum(array=raw_memory_mapped_data.data_mmap[idx]).get_info_1d() for idx in indices_for_normalization])
+    info_for_normalization_ve = np.vstack([Datum(array=data_ve[idx]).get_info_1d() for idx in indices_for_normalization])
     info_quantile_transform = QuantileTransformer(n_quantiles=100, output_distribution='normal')
     info_quantile_transform.fit(info_for_normalization_ve)
 
     # for every index in the normalization set, get all the reads of the corresponding datum.  Stack all these reads to
     # obtain the reads normalization array
-    reads_for_normalization_re = np.vstack([raw_memory_mapped_data.reads_mmap[start:end] for start, end in zip(normalization_read_start_indices, normalization_ref_end_indices)])
+    reads_for_normalization_re = np.vstack([reads_re[start:end] for start, end in zip(normalization_read_start_indices, normalization_ref_end_indices)])
     reads_for_normalization_distance_columns_re = reads_for_normalization_re[:, 4:9]
     read_quantile_transform = QuantileTransformer(n_quantiles=100, output_distribution='normal')
     read_quantile_transform.fit(reads_for_normalization_distance_columns_re)
@@ -228,9 +219,22 @@ def make_normalized_mmap_data(dataset_files, sources: List[int]=None) -> MemoryM
     print(f"75: {info_quantile_transform.quantiles_[75]}")
     print(f"90: {info_quantile_transform.quantiles_[90]}")
     print(f"100: {info_quantile_transform.quantiles_[99]}")
+    return read_quantile_transform, info_quantile_transform
 
 
-    #
+def make_normalized_mmap_data(dataset_files, sources: List[int]=None) -> MemoryMappedData:
+    """
+    given unnormalized plain text dataset files from Mutect2, normalize data and save as tarfile of memory mapped numpy arrays
+
+    In addition to quantile-normalizing read tensors it also enlarges the info tensors
+    :param dataset_files:
+    :param sources if None, source is set to 0; if singleton list, all files are given that source; otherwise one source per file
+    """
+    raw_memory_mapped_data = write_raw_unnormalized_data_to_memory_maps(dataset_files, sources)
+
+    read_quantile_transform, info_quantile_transform = make_read_and_info_quantile_transforms(
+        read_end_indices=raw_memory_mapped_data.read_end_indices, data_ve=raw_memory_mapped_data.data_mmap,
+        reads_re=raw_memory_mapped_data.reads_mmap)
 
     normalized_generator = normalized_data_generator(raw_memory_mapped_data, read_quantile_transform, info_quantile_transform)
     return MemoryMappedData.from_generator(reads_datum_source=normalized_generator,
