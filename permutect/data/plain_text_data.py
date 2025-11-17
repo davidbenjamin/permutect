@@ -30,6 +30,7 @@ GTCCTGGACACGCTGTTGGCC
 -11.327
 -0.000
 """
+import math
 import tempfile
 from queue import PriorityQueue
 from typing import List, Generator
@@ -163,22 +164,33 @@ def write_raw_unnormalized_data_to_memory_maps(dataset_files, sources: List[int]
     return memory_mapped_data
 
 
-def normalized_data_generator(raw_mmap_data: MemoryMappedData, read_quantile_transform, info_quantile_transform) -> Generator[ReadsDatum, None, None]:
-    raw_data_list = []
+def normalized_data_generator(raw_mmap_data: MemoryMappedData) -> Generator[ReadsDatum, None, None]:
     data_mmap_ve = raw_mmap_data.data_mmap
     reads_mmap_re = raw_mmap_data.reads_mmap
     read_end_indices = raw_mmap_data.read_end_indices
 
-    for idx in range(raw_mmap_data.num_data):
-        reads = reads_mmap_re[0 if idx == 0 else read_end_indices[idx - 1]:read_end_indices[idx]]
-        raw_datum = RawUnnormalizedReadsDatum(datum_array=data_mmap_ve[idx], reads_re=reads)
-        raw_data_list.append(raw_datum)
+    num_chunks = math.ceil(raw_mmap_data.num_data // NUM_RAW_DATA_TO_NORMALIZE_AT_ONCE)
+    data_per_chunk = raw_mmap_data.num_data // num_chunks
 
-        if len(raw_data_list) == NUM_RAW_DATA_TO_NORMALIZE_AT_ONCE or (idx == raw_mmap_data.num_data - 1 and len(raw_data_list) > 0):
-            normalized_data_list = normalize_raw_data_list(raw_data_list, read_quantile_transform, info_quantile_transform)
-            for datum in normalized_data_list:
-                yield datum
-            raw_data_list = []
+    for chunk in range(num_chunks):
+        start_idx = chunk * data_per_chunk
+        end_idx = raw_mmap_data.num_data if (chunk == num_chunks - 1)  else (start_idx + data_per_chunk)
+
+        read_start_idx = 0 if start_idx == 0 else read_end_indices[start_idx - 1]
+
+        read_quantile_transform, info_quantile_transform = make_read_and_info_quantile_transforms(
+            read_end_indices=(read_end_indices[start_idx:end_idx]-read_start_idx), data_ve=data_mmap_ve[start_idx:end_idx],
+            reads_re=reads_mmap_re[read_start_idx:read_end_indices[end_idx - 1]],)
+
+        raw_data_list = []
+        for idx in range(start_idx, end_idx):
+            reads = reads_mmap_re[0 if idx == 0 else read_end_indices[idx - 1]:read_end_indices[idx]]
+            raw_datum = RawUnnormalizedReadsDatum(datum_array=data_mmap_ve[idx], reads_re=reads)
+            raw_data_list.append(raw_datum)
+
+        normalized_data_list = normalize_raw_data_list(raw_data_list, read_quantile_transform, info_quantile_transform)
+        for datum in normalized_data_list:
+            yield datum
 
 def make_read_and_info_quantile_transforms(read_end_indices, data_ve, reads_re):
     read_end_indices = read_end_indices
@@ -232,11 +244,7 @@ def make_normalized_mmap_data(dataset_files, sources: List[int]=None) -> MemoryM
     """
     raw_memory_mapped_data = write_raw_unnormalized_data_to_memory_maps(dataset_files, sources)
 
-    read_quantile_transform, info_quantile_transform = make_read_and_info_quantile_transforms(
-        read_end_indices=raw_memory_mapped_data.read_end_indices, data_ve=raw_memory_mapped_data.data_mmap,
-        reads_re=raw_memory_mapped_data.reads_mmap)
-
-    normalized_generator = normalized_data_generator(raw_memory_mapped_data, read_quantile_transform, info_quantile_transform)
+    normalized_generator = normalized_data_generator(raw_memory_mapped_data)
     return MemoryMappedData.from_generator(reads_datum_source=normalized_generator,
         estimated_num_data=raw_memory_mapped_data.num_data, estimated_num_reads=raw_memory_mapped_data.num_reads)
 
