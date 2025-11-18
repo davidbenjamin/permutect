@@ -1,6 +1,7 @@
 import argparse
-from typing import List
+from typing import List, Generator
 
+from permutect.data.memory_mapped_data import MemoryMappedData
 from permutect.training.model_training import train_artifact_model
 from permutect.architecture.artifact_model import ArtifactModel, load_model
 from tqdm.autonotebook import tqdm
@@ -122,26 +123,33 @@ def generated_pruned_data_for_fold(art_threshold: float, nonart_threshold: float
                 yield datum # this is a ReadSet
 
 
-def generate_pruned_data_for_all_folds(dataset: ReadsDataset, model: ArtifactModel, training_params: TrainingParameters, tensorboard_dir):
+def generate_pruned_data_for_all_folds(fold_datasets: List[ReadsDataset], model: ArtifactModel, training_params: TrainingParameters, tensorboard_dir) -> Generator[ReadsDatum, None, None]:
     # for each fold in turn, train an artifact model on all other folds and prune the chosen fold
     use_gpu = torch.cuda.is_available()
 
-    for pruning_fold in range(NUM_FOLDS):
+    for pruning_fold, fold_dataset in enumerate(fold_datasets):
+        # validate against the cyclically next dataset
+        valid_dataset = fold_datasets[pruning_fold + 1 % len(fold_datasets)]
+
         summary_writer = SummaryWriter(tensorboard_dir + "/fold_" + str(pruning_fold))
         report_memory_usage(f"Pruning data from fold {pruning_fold} of {NUM_FOLDS}.")
 
-        totals_l = dataset.totals_slvra.get_marginal((BatchProperty.LABEL,)) # totals by label
+        totals_l = fold_dataset.totals_slvra.get_marginal((BatchProperty.LABEL,)) # totals by label
         label_art_frac = totals_l[Label.ARTIFACT].item() / (totals_l[Label.ARTIFACT].item() + totals_l[Label.VARIANT].item())
-        train_artifact_model(model, dataset, training_params, summary_writer=summary_writer, training_folds=[pruning_fold])
+        train_artifact_model(model, fold_dataset, valid_dataset, training_params, summary_writer=summary_writer)
+
+        labeled_only_memmap_data = fold_dataset.memory_mapped_data.restrict_to_labeled_only()
+        labeled_only_dataset = ReadsDataset(labeled_only_memmap_data)
+
 
         # TODO: maybe this should be done by variant type and/or count
         # learn pruning thresholds on the held-out data
-        labeled_only_pruning_loader = dataset.make_data_loader([pruning_fold], training_params.batch_size, use_gpu,
-                                                               training_params.num_workers, labeled_only=True)
+        labeled_only_pruning_loader = labeled_only_dataset.make_data_loader(training_params.batch_size, use_gpu,
+                                                               training_params.num_workers)
         art_threshold, nonart_threshold = calculate_pruning_thresholds(labeled_only_pruning_loader, model, label_art_frac, training_params)
 
         # unlike when learning thresholds, we load labeled and unlabeled data here
-        pruning_base_data_loader = dataset.make_data_loader([pruning_fold], training_params.batch_size, use_gpu, training_params.num_epochs)
+        pruning_base_data_loader = fold_dataset.make_data_loader(training_params.batch_size, use_gpu, training_params.num_epochs)
         for passing_reads_datum in generated_pruned_data_for_fold(art_threshold, nonart_threshold, pruning_base_data_loader, model):
             yield passing_reads_datum
 
@@ -150,9 +158,6 @@ def parse_arguments():
     parser = argparse.ArgumentParser(description='train the Mutect3 artifact model')
 
     add_training_params_to_parser(parser)
-
-    parser.add_argument('--' + constants.CHUNK_SIZE_NAME, type=int, default=int(2e9), required=False,
-                        help='size in bytes of output binary data files')
 
     # input / output
     parser.add_argument('--' + constants.TRAIN_TAR_NAME, type=str, required=True,
@@ -170,14 +175,15 @@ def main_without_parsing(args):
 
     tensorboard_dir = getattr(args, constants.TENSORBOARD_DIR_NAME)
     pruned_tarfile = getattr(args, constants.OUTPUT_NAME)
-    chunk_size = getattr(args, constants.CHUNK_SIZE_NAME)
     original_tarfile = getattr(args, constants.TRAIN_TAR_NAME)
 
     model,  _, _ = load_model(getattr(args, constants.ARTIFACT_MODEL_NAME))
 
-    input_dataset = ReadsDataset(tarfile=original_tarfile, num_folds=NUM_FOLDS)
-    pruned_data_generator = generate_pruned_data_for_all_folds(input_dataset, model, training_params, tensorboard_dir)
-    ReadsDatum.save_data_in_tarfile(data_generator=pruned_data_generator, max_bytes_in_chunk=chunk_size, output_tarfile=pruned_tarfile)
+    memory_mapped_data = MemoryMappedData.load_from_tarfile(original_tarfile)
+    input_fold_datasets = [ReadsDataset(memory_mapped_data=memory_mapped_data, num_folds=NUM_FOLDS, folds_to_use=[fold]) for fold in range(NUM_FOLDS)]
+    pruned_data_generator = generate_pruned_data_for_all_folds(input_fold_datasets, model, training_params, tensorboard_dir)
+    MemoryMappedData.from_generator(reads_datum_source=pruned_data_generator, estimated_num_data=len(input_fold_datasets[0])*NUM_FOLDS,
+                                    estimated_num_reads=10*len(input_fold_datasets[0])*NUM_FOLDS).save_to_tarfile(output_tarfile=pruned_tarfile)
 
 
 def main():

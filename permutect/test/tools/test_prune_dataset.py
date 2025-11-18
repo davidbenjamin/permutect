@@ -3,6 +3,7 @@ from argparse import Namespace
 
 from tensorboard.backend.event_processing.event_accumulator import EventAccumulator
 from permutect import constants
+from permutect.data.memory_mapped_data import MemoryMappedData
 from permutect.data.reads_dataset import ReadsDataset
 from permutect.tools import prune_dataset
 
@@ -29,8 +30,6 @@ def test_prune_dataset():
     setattr(prune_dataset_args, constants.TRAIN_TAR_NAME, training_data_tarfile)
     setattr(prune_dataset_args, constants.ARTIFACT_MODEL_NAME, artifact_model)
 
-    setattr(prune_dataset_args, constants.CHUNK_SIZE_NAME, 2e9)
-
     # training hyperparameters
     setattr(prune_dataset_args, constants.BATCH_SIZE_NAME, 64)
     setattr(prune_dataset_args, constants.NUM_WORKERS_NAME, 2)
@@ -48,6 +47,7 @@ def test_prune_dataset():
     events = EventAccumulator(training_tensorboard_dir.name)
     events.Reload()
 
-    pruned_base_dataset = ReadsDataset(tarfile=pruned_dataset, num_folds=10)
-    h = 99
+    memory_mapped_data = MemoryMappedData.load_from_tarfile(pruned_dataset.name)
+    pruned_dataset = ReadsDataset(memory_mapped_data=memory_mapped_data, num_folds=10)
+
 

@@ -7,13 +7,14 @@ from permutect import constants
 from permutect.architecture.artifact_model import load_model
 from permutect.tools import train_artifact_model
 
-OVERWRITE_SAVED_MODEL = False
+OVERWRITE_SAVED_MODEL = True
 
 
 def test_train_artifact_model():
-    training_data_tarfile = "/Users/davidben/mutect3/permutect/integration-tests/preprocessed-dataset.tar"
+    training_data_tarfile = "/Users/davidben/permutect/train.tar"
+    #training_data_tarfile = "/Users/davidben/permutect/integration-tests/preprocessed-dataset.tar"
     saved_model = tempfile.NamedTemporaryFile() if not OVERWRITE_SAVED_MODEL else \
-        '/Users/davidben/mutect3/permutect/integration-tests/hiseqx-NA12878-model.pt'
+        '/Users/davidben/permutect/integration-tests/hiseqx-NA12878-model.pt'
     training_tensorboard_dir = tempfile.TemporaryDirectory()
 
     train_model_args = Namespace()
@@ -41,7 +42,7 @@ def test_train_artifact_model():
     setattr(train_model_args, constants.REWEIGHTING_RANGE_NAME, 0.3)
     setattr(train_model_args, constants.BATCH_SIZE_NAME, 64)
     setattr(train_model_args, constants.INFERENCE_BATCH_SIZE_NAME, 64)
-    setattr(train_model_args, constants.NUM_WORKERS_NAME, 0)
+    setattr(train_model_args, constants.NUM_WORKERS_NAME, 2)
     setattr(train_model_args, constants.NUM_EPOCHS_NAME, 2)
     setattr(train_model_args, constants.NUM_CALIBRATION_EPOCHS_NAME, 0)
     setattr(train_model_args, constants.LEARNING_RATE_NAME, 0.001)
@@ -57,3 +58,10 @@ def test_train_artifact_model():
     events.Reload()
 
     loaded_model, _, _ = load_model(saved_model)
+
+def main():
+    test_train_artifact_model()
+
+# this is necessary; otherwise running with multiple workers will create a weird multiprocessing error
+if __name__ == '__main__':
+    main()

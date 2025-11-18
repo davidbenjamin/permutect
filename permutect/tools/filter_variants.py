@@ -79,7 +79,6 @@ def parse_arguments():
     parser.add_argument('--' + constants.NUM_WORKERS_NAME, type=int, default=0, required=False,
                         help='number of subprocesses devoted to data loading, which includes reading from memory map, '
                              'collating batches, and transferring to GPU.')
-    parser.add_argument('--' + constants.CHUNK_SIZE_NAME, type=int, default=100000, required=False, help='size in bytes of intermediate binary datasets')
     parser.add_argument('--' + constants.NUM_SPECTRUM_ITERATIONS_NAME, type=int, default=10, required=False,
                         help='number of epochs for fitting allele fraction spectra')
     parser.add_argument('--' + constants.SPECTRUM_LEARNING_RATE_NAME, type=float, default=0.001, required=False,
@@ -139,7 +138,6 @@ def main_without_parsing(args):
                       output_vcf=getattr(args, constants.OUTPUT_NAME),
                       batch_size=getattr(args, constants.BATCH_SIZE_NAME),
                       num_workers=getattr(args, constants.NUM_WORKERS_NAME),
-                      chunk_size=getattr(args, constants.CHUNK_SIZE_NAME),
                       num_spectrum_iterations=getattr(args, constants.NUM_SPECTRUM_ITERATIONS_NAME),
                       spectrum_learning_rate=getattr(args, constants.SPECTRUM_LEARNING_RATE_NAME),
                       tensorboard_dir=getattr(args, constants.TENSORBOARD_DIR_NAME),
@@ -152,7 +150,7 @@ def main_without_parsing(args):
 
 
 def make_filtered_vcf(artifact_model_path, initial_log_variant_prior: float, initial_log_artifact_prior: float,
-                      test_dataset_file, contigs_table, input_vcf, output_vcf, batch_size: int, num_workers: int, chunk_size: int, num_spectrum_iterations: int,
+                      test_dataset_file, contigs_table, input_vcf, output_vcf, batch_size: int, num_workers: int, num_spectrum_iterations: int,
                       spectrum_learning_rate: float, tensorboard_dir, genomic_span: int, germline_mode: bool = False, no_germline_mode: bool = False, het_beta: float = None,
                       segmentation=defaultdict(IntervalTree), normal_segmentation=defaultdict(IntervalTree)):
     print("Loading artifact model and test dataset")
@@ -167,7 +165,7 @@ def make_filtered_vcf(artifact_model_path, initial_log_variant_prior: float, ini
 
     posterior_model = PosteriorModel(initial_log_variant_prior, initial_log_artifact_prior, no_germline_mode=no_germline_mode, num_base_features=model.pooling_dimension(), het_beta=het_beta)
     posterior_data_loader = make_posterior_data_loader(test_dataset_file, input_vcf, contig_index_to_name_map,
-        model, batch_size, num_workers=num_workers, chunk_size=chunk_size, segmentation=segmentation, normal_segmentation=normal_segmentation)
+        model, batch_size, num_workers=num_workers, segmentation=segmentation, normal_segmentation=normal_segmentation)
 
     print("Learning AF spectra")
     summary_writer = SummaryWriter(tensorboard_dir)
@@ -187,7 +185,7 @@ def make_filtered_vcf(artifact_model_path, initial_log_variant_prior: float, ini
 
 @torch.inference_mode()
 def make_posterior_data_loader(dataset_file, input_vcf, contig_index_to_name_map, model: ArtifactModel,
-                               batch_size: int, num_workers: int, chunk_size: int, segmentation=defaultdict(IntervalTree), normal_segmentation=defaultdict(IntervalTree)):
+                               batch_size: int, num_workers: int, segmentation=defaultdict(IntervalTree), normal_segmentation=defaultdict(IntervalTree)):
     print("Reading test dataset")
 
     m2_filtering_to_keep = set()
@@ -203,37 +201,37 @@ def make_posterior_data_loader(dataset_file, input_vcf, contig_index_to_name_map
 
     # pass through the plain text dataset, normalizing and creating ReadSetDatasets as we go, running the artifact model
     # to get artifact logits, which we record in a dict keyed by variant strings.  These will later be added to PosteriorDatum objects.
-    print("reading dataset and calculating artifact logits")
-    report_memory_usage("Loading data.")
     posterior_data = []
-    for list_of_base_data in plain_text_data.generate_normalized_data([dataset_file], chunk_size):
-        report_memory_usage("Creating BaseDataset.")
-        dataset = ReadsDataset(data_in_ram=list_of_base_data)
-        loader = dataset.make_data_loader(dataset.all_folds(), batch_size, pin_memory=torch.cuda.is_available(), num_workers=num_workers)
 
-        print("creating posterior data for this chunk...")
-        batch: ReadsBatch
-        for batch in tqdm(prefetch_generator(loader), mininterval=60, total=len(loader)):
-            artifact_logits_b, _, _, features_be = model.calculate_logits(batch)
+    report_memory_usage("Parsing and normalizing plain text data.")
+    normalized_mmap_data = plain_text_data.make_normalized_mmap_data(dataset_files=[dataset_file])
 
-            for datum_array, logit, embedding in zip(batch.get_data_be(),
-                    artifact_logits_b.detach().tolist(), features_be.cpu()):
-                datum = Datum(datum_array)
-                contig_name = contig_index_to_name_map[datum.get_contig()]
-                position = datum.get_position()
-                encoding = encode(contig_name, position, datum.get_ref_allele(), datum.get_alt_allele())
-                if encoding in allele_frequencies and encoding not in m2_filtering_to_keep:
-                    allele_frequency = allele_frequencies[encoding]
+    report_memory_usage("Creating ReadsDataset.")
+    dataset = ReadsDataset(memory_mapped_data=normalized_mmap_data)
+    loader = dataset.make_data_loader(batch_size, pin_memory=torch.cuda.is_available(), num_workers=num_workers)
 
-                    # these are default dicts, so if there's no segmentation for the contig we will get no overlaps but not an error
-                    # For a general IntervalTree there is a list of potentially multiple overlaps but here there is either one or zero
-                    segmentation_overlaps = segmentation[contig_name][position]
-                    normal_segmentation_overlaps = normal_segmentation[contig_name][position]
-                    maf = list(segmentation_overlaps)[0].data if segmentation_overlaps else 0.5
-                    normal_maf = list(normal_segmentation_overlaps)[0].data if normal_segmentation_overlaps else 0.5
+    print("creating posterior data...")
+    batch: ReadsBatch
+    for batch in tqdm(prefetch_generator(loader), mininterval=60, total=len(loader)):
+        artifact_logits_b, _, _, features_be = model.calculate_logits(batch)
 
-                    posterior_datum = PosteriorDatum(datum_array, allele_frequency, logit, maf, normal_maf, embedding)
-                    posterior_data.append(posterior_datum)
+        for datum_array, logit, embedding in zip(batch.get_data_be(), artifact_logits_b.detach().tolist(), features_be.cpu()):
+            datum = Datum(datum_array)
+            contig_name = contig_index_to_name_map[datum.get_contig()]
+            position = datum.get_position()
+            encoding = encode(contig_name, position, datum.get_ref_allele(), datum.get_alt_allele())
+            if encoding in allele_frequencies and encoding not in m2_filtering_to_keep:
+                allele_frequency = allele_frequencies[encoding]
+
+                # these are default dicts, so if there's no segmentation for the contig we will get no overlaps but not an error
+                # For a general IntervalTree there is a list of potentially multiple overlaps but here there is either one or zero
+                segmentation_overlaps = segmentation[contig_name][position]
+                normal_segmentation_overlaps = normal_segmentation[contig_name][position]
+                maf = list(segmentation_overlaps)[0].data if segmentation_overlaps else 0.5
+                normal_maf = list(normal_segmentation_overlaps)[0].data if normal_segmentation_overlaps else 0.5
+
+                posterior_datum = PosteriorDatum(datum_array, allele_frequency, logit, maf, normal_maf, embedding)
+                posterior_data.append(posterior_datum)
 
     print(f"Size of filtering dataset: {len(posterior_data)}")
     posterior_dataset = PosteriorDataset(posterior_data)

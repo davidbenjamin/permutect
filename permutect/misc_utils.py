@@ -1,3 +1,4 @@
+import time
 from typing import Iterator
 
 import psutil
@@ -103,15 +104,19 @@ class StreamingAverage:
         self._sum += torch.sum(values * weights).item()
 
 
+class Timer:
+    def __init__(self, message: str = None):
+        if message is not None:
+            print(message)
+        self._start_time = time.perf_counter()
+
+    def report(self, message: str = ""):
+        elapsed_time = time.perf_counter() - self._start_time
+        print(f"{message}: {elapsed_time:0.4f} seconds")
+
+
 def backpropagate(optimizer: torch.optim.Optimizer, loss: Tensor, params_to_clip: Iterator[Parameter] = []):
     optimizer.zero_grad(set_to_none=True)
     loss.backward()
     nn.utils.clip_grad_norm_(params_to_clip, max_norm=1.0)
     optimizer.step()
-
-
-def extract_to_temp_dir(tar_file, directory):
-    tar = tarfile.open(tar_file)
-    tar.extractall(directory)
-    tar.close()
-    return [os.path.abspath(os.path.join(directory, p)) for p in os.listdir(directory)]

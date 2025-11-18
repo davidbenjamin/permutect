@@ -5,10 +5,11 @@ from torch.utils.tensorboard import SummaryWriter
 
 from permutect import constants
 from permutect.architecture.spectra.artifact_spectra import ArtifactSpectra
+from permutect.data.memory_mapped_data import MemoryMappedData
 from permutect.training.model_training import train_artifact_model
 from permutect.architecture.artifact_model import load_model
 from permutect.architecture.posterior_model import plot_artifact_spectra
-from permutect.data.reads_dataset import ReadsDataset
+from permutect.data.reads_dataset import ReadsDataset, all_but_the_last_fold, last_fold_only
 from permutect.data.reads_datum import ReadsDatum
 from permutect.parameters import add_training_params_to_parser, parse_training_params
 from permutect.misc_utils import report_memory_usage
@@ -83,9 +84,15 @@ def main_without_parsing(args):
     # artifact models has already been trained.  We're just refining it here.
     model, _, _ = load_model(getattr(args, constants.PRETRAINED_ARTIFACT_MODEL_NAME))
     report_memory_usage("Creating ReadsDataset.")
-    dataset = ReadsDataset(tarfile=getattr(args, constants.TRAIN_TAR_NAME), num_folds=10)
+    memory_mapped_data = MemoryMappedData.load_from_tarfile(getattr(args, constants.TRAIN_TAR_NAME))
 
-    train_artifact_model(model, dataset, training_params, summary_writer, epochs_per_evaluation=10, calibration_sources=calibration_sources)
+    num_folds = 10
+    train_dataset = ReadsDataset(memory_mapped_data=memory_mapped_data, num_folds=num_folds,
+                                 folds_to_use=all_but_the_last_fold(num_folds))
+    valid_dataset = ReadsDataset(memory_mapped_data=memory_mapped_data, num_folds=num_folds,
+                                 folds_to_use=last_fold_only(num_folds))
+
+    train_artifact_model(model, train_dataset, valid_dataset, training_params, summary_writer, epochs_per_evaluation=10, calibration_sources=calibration_sources)
 
     for var_type in Variation:
         cal_fig, cal_axes = model.feature_clustering.plot_distance_calibration(var_type=var_type, device=model._device, dtype=model._dtype)
@@ -93,7 +100,7 @@ def main_without_parsing(args):
 
     report_memory_usage("Finished training.")
 
-    artifact_log_priors, artifact_spectra = learn_artifact_priors_and_spectra(dataset, genomic_span) if learn_artifact_spectra else (None, None)
+    artifact_log_priors, artifact_spectra = learn_artifact_priors_and_spectra(train_dataset, genomic_span) if learn_artifact_spectra else (None, None)
     if artifact_spectra is not None:
         art_spectra_fig, art_spectra_axs = plot_artifact_spectra(artifact_spectra, depth=50)
         summary_writer.add_figure("Artifact AF Spectra", art_spectra_fig)

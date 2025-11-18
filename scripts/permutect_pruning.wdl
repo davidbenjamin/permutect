@@ -9,7 +9,6 @@ workflow PrunePermutect {
         Int num_calibration_epochs
         Int batch_size
         Int inference_batch_size
-        Int chunk_size
         Int? num_workers
         String? train_m3_extra_args
 
@@ -29,7 +28,6 @@ workflow PrunePermutect {
             num_calibration_epochs = num_calibration_epochs,
             batch_size = batch_size,
             inference_batch_size = inference_batch_size,
-            chunk_size = chunk_size,
             num_workers = num_workers,
             extra_args = train_m3_extra_args
     }
@@ -50,7 +48,6 @@ task PrunePermutect {
         Int num_calibration_epochs
         Int batch_size
         Int inference_batch_size
-        Int chunk_size
         Int? num_workers
         String? extra_args
 
@@ -74,7 +71,6 @@ task PrunePermutect {
             --artifact_model ~{artifact_model} \
             --batch_size ~{batch_size} \
             --inference_batch_size ~{inference_batch_size} \
-            --chunk_size ~{chunk_size} \
             ~{"--num_workers " + num_workers} \
             --num_epochs ~{num_epochs} \
             --num_calibration_epochs ~{num_calibration_epochs} \

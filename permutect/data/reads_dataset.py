@@ -1,111 +1,151 @@
-import math
-import os
-
-import numpy as np
 import psutil
 import random
-import tempfile
-from typing import Iterable, List, Generator
+from typing import  List
 
 import torch
-from torch.utils.data import Dataset, DataLoader
-from torch.utils.data.sampler import Sampler
+from torch.utils.data import DataLoader, IterableDataset
 
-from permutect.data.datum import DATUM_ARRAY_DTYPE
-from permutect.data.reads_datum import ReadsDatum, READS_ARRAY_DTYPE
+from permutect.data.memory_mapped_data import MemoryMappedData
+from permutect.data.reads_datum import ReadsDatum
 from permutect.data.reads_batch import ReadsBatch
 from permutect.data.batch import BatchProperty, BatchIndexedTensor
+from permutect.misc_utils import ConsistentValue, Timer, report_memory_usage
 from permutect.utils.enums import Variation, Label
-
-# dataset in memory takes a bit more space than on disk
-RAM_TO_TARFILE_SPACE_RATIO = 1.25
-
 
 WEIGHT_PSEUDOCOUNT = 10
 
+
+# it is often convenient to arbitrarily use the last fold for validation
+def last_fold_only(num_folds: int):
+    return [num_folds - 1]  # use the last fold for validation
+
+def all_but_the_last_fold(num_folds: int):
+    return list(range(num_folds - 1))
+
+def all_but_one_fold(num_folds: int, fold_to_exclude: int):
+    return list(range(fold_to_exclude)) + list(range(fold_to_exclude + 1, num_folds))
+
+def all_folds(num_folds: int):
+    return list(range(num_folds))
 
 def ratio_with_pseudocount(a, b):
     return (a + WEIGHT_PSEUDOCOUNT) / (b + WEIGHT_PSEUDOCOUNT)
 
 
-class ReadsDataset(Dataset):
-    def __init__(self, data_in_ram: Iterable[ReadsDatum] = None, tarfile=None, num_folds: int = 1):
+class ReadsDataset(IterableDataset):
+    def __init__(self, memory_mapped_data: MemoryMappedData, num_folds: int = None, folds_to_use: List[int] = None):
+        """
+        :param num_folds:
+        """
         super(ReadsDataset, self).__init__()
-        assert data_in_ram is not None or tarfile is not None, "No data given"
-        assert data_in_ram is None or tarfile is None, "Data given from both RAM and tarfile"
-        self.num_folds = num_folds
         self.totals_slvra = BatchIndexedTensor.make_zeros(num_sources=1, include_logits=False, device=torch.device('cpu'))
+        # if no folds, no copying is done; otherwise this creates a new file on disk
+        self.memory_mapped_data = memory_mapped_data.restrict_to_folds(num_folds, folds_to_use)
+        self._size = self.memory_mapped_data.num_data
+        self._read_end_indices = self.memory_mapped_data.read_end_indices
 
-        # data in ram is really just a convenient way to write tests.  In actual deployment the data comes from a tarfile
-        if data_in_ram is not None:
-            self._stacked_reads_re = np.vstack([datum.compressed_reads_re for datum in data_in_ram])
-            self._stacked_data_ve = np.vstack([datum.array for datum in data_in_ram])
-            read_lengths = np.array([datum.get_ref_count() + datum.get_alt_count() for datum in data_in_ram], dtype=np.int32)
-            self._read_end_indices = np.cumsum(read_lengths)
-            self._size = len(data_in_ram)
-            self._memory_map_mode = False
-        else:
-            tarfile_size = os.path.getsize(tarfile)    # in bytes
-            total_num_data, total_num_reads, read_tensor_width, data_tensor_width = ReadsDatum.extract_counts_from_tarfile(tarfile)
-            self._read_end_indices = np.zeros(total_num_data, dtype=np.uint64)  # nth element is the index where the nth datum's reads end (exclusive)
+        available_memory = psutil.virtual_memory().available
+        print(f"Data occupy {memory_mapped_data.size_in_bytes() // 1000000} Mb and the system has {available_memory // 1000000} Mb of RAM available.")
 
-            self._size = total_num_data
-            estimated_data_size_in_ram = tarfile_size * RAM_TO_TARFILE_SPACE_RATIO
-            available_memory = psutil.virtual_memory().available
-            fits_in_ram = estimated_data_size_in_ram < 0.6 * available_memory
+        # copy memory-mapped data to RAM if space allows, otherwise use the memory-mapped data
+        self._stacked_reads_re = self.memory_mapped_data.reads_mmap
+        self._stacked_data_ve = self.memory_mapped_data.data_mmap
 
-            print(f"The tarfile size is {tarfile_size} bytes on disk for an estimated {estimated_data_size_in_ram} bytes in memory and the system has {available_memory} bytes of RAM available.")
-
-            if fits_in_ram:
-                # allocate the arrays of all data, then fill it from the tarfile
-                self._stacked_reads_re = np.zeros((total_num_reads, read_tensor_width), dtype=READS_ARRAY_DTYPE)
-                self._stacked_data_ve = np.zeros((total_num_data, data_tensor_width), dtype=DATUM_ARRAY_DTYPE)
-                self._memory_map_mode = False
-            else:
-                stacked_reads_file = tempfile.NamedTemporaryFile()
-                stacked_data_file = tempfile.NamedTemporaryFile()
-                self._stacked_reads_re = np.memmap(stacked_reads_file.name, dtype=READS_ARRAY_DTYPE, mode='w+', shape=(total_num_reads, read_tensor_width))
-                self._stacked_data_ve = np.memmap(stacked_data_file.name, dtype=DATUM_ARRAY_DTYPE, mode='w+', shape=(total_num_data, data_tensor_width))
-                self._memory_map_mode = True
-
-            print("loading the dataset from the tarfile...")
-
-            # the following code should work for data in RAM or memmap
-            read_start_idx, datum_start_idx = 0, 0
-            for reads_re, data_ve, read_counts_v in ReadsDatum.generate_arrays_from_tarfile(tarfile):
-                read_end_idx, datum_end_idx = read_start_idx + len(reads_re), datum_start_idx + len(data_ve)
-                self._read_end_indices[datum_start_idx:datum_end_idx] = read_start_idx + np.cumsum(read_counts_v)
-                self._stacked_reads_re[read_start_idx:read_end_idx] = reads_re
-                self._stacked_data_ve[datum_start_idx:datum_end_idx] = data_ve
-                read_start_idx, datum_start_idx = read_end_idx, datum_end_idx
-
-            # set memory maps to read-only
-            if self._memory_map_mode:
-                self._stacked_reads_re.flags.writeable = False
-                self._stacked_data_ve.flags.writeable = False
-
-        # this is used in the batch sampler to make same-shape batches
-        self.indices_by_fold = [[] for _ in range(num_folds)]
-
-        for n, datum in enumerate(self):
+        self._num_read_features, self._num_info_features, self._haplotypes_length = ConsistentValue(), ConsistentValue(), ConsistentValue()
+        data_recording_timer = Timer("Recording data counts. . .")
+        for datum in self.memory_mapped_data.generate_reads_data():
             self.totals_slvra.record_datum(datum)
-            fold = n % num_folds
-            self.indices_by_fold[fold].append(n)
+            self._num_read_features.check(datum.num_read_features())
+            self._num_info_features.check(len(datum.get_info_1d()))
+            self._haplotypes_length.check(len(datum.get_haplotypes_1d()))
+        data_recording_timer.report("Time to record data counts")
 
-        first_datum: ReadsDatum = self[0]
-        self.num_read_features = first_datum.num_read_features()
-        self.num_info_features = len(first_datum.get_info_1d())
-        self.haplotypes_length = len(first_datum.get_haplotypes_1d())
 
+    def num_read_features(self) -> int:
+        return self._num_read_features.value
+
+    def num_info_features(self) -> int:
+        return self._num_info_features.value
+
+    def haplotypes_length(self) -> int:
+        return self._haplotypes_length.value
+
+    # this is not required for an IterableDataset, but it can't hurt!
     def __len__(self):
         return self._size
 
-    def __getitem__(self, index):
-        read_start_index = 0 if index == 0 else self._read_end_indices[index - 1]
-        read_end_index = self._read_end_indices[index]
+    def __iter__(self):
+        print("Inside a ReadsDataset's .__iter__ function")
+        worker_info = torch.utils.data.get_worker_info()
+        worker_id = 0 if worker_info is None else worker_info.id
+        num_workers = 1 if worker_info is None else worker_info.num_workers
 
-        return ReadsDatum(datum_array=self._stacked_data_ve[index],
-                              compressed_reads_re=self._stacked_reads_re[read_start_index:read_end_index])
+        num_data_per_worker = self._size // num_workers
+        num_bytes_per_worker = self.memory_mapped_data.size_in_bytes() // num_workers
+
+        # note: this is the total available system memory, not per process
+        total_available_memory_in_bytes = psutil.virtual_memory().available
+        available_memory_per_worker = total_available_memory_in_bytes // num_workers
+
+        # we want the amount of memory loaded to RAM at any given time to be well below the total available memory
+        # thus we multiply by a cautious fudge factor that accounts for: 1) maybe space in RAM is less efficient than space in disk,
+        # 2) one chunk might still be in memory, not yet garbage-collected, when the next is loaded
+        fudge_factor = 8
+        chunks_per_worker = 1 + ((fudge_factor * num_bytes_per_worker) // available_memory_per_worker)
+        print(f"Worker {worker_id} will divide its portion of the data into {chunks_per_worker} chunks.")
+
+        # The way multiple DataLoader workers work in PyTorch is not so obvious.
+        # 1) There is an original Dataset
+        # 2) There is a DataLoader associated with that Dataset that creates one copy of the Dataset for each worker
+        #    process.  I believe that tensors and numpy arrays in RAM are deep-copied in this process, and I'm pretty
+        #   sure that the memory-map file backing the dataset is not copied.
+        # 3) when iter() is called it is usually done so implicitly via the DataLoader, in which case "self" refers to
+        # one of the copies and we are only responsible for part of the memory-mapped data.
+        # 4) this part of the memory-mapped data might be too big for available RAM, so we load one contiguous chunk
+        # (this is a chunk within the subset of data that this worker is responsible for) into RAM at a time.
+
+        # example of specific number: num_data = 21, num_workers = 4, then data_per_worker is 5 and the index ranges
+        # are [0,5), [5,10), [10,15), [15,21)
+        worker_start_idx = worker_id * num_data_per_worker
+        worker_end_idx = (worker_id + 1) * num_data_per_worker if worker_id < num_workers - 1 else self._size
+
+        num_data_for_this_worker = worker_end_idx - worker_start_idx
+        data_per_chunk = num_data_for_this_worker // chunks_per_worker
+        chunks = list(range(chunks_per_worker))
+        random.shuffle(chunks)
+
+        if worker_info is None:
+            print("Iterating over the whole dataset in a single process.")
+        else:
+            print(f"Iterating with worker {worker_id} out of {num_workers}.")
+            print(f"This worker is responsible for data range [{worker_start_idx}, {worker_end_idx}).")
+
+        for chunk in chunks:
+            chunk_start_idx = worker_start_idx + chunk * data_per_chunk
+            chunk_end_idx = (worker_start_idx + (chunk + 1) * data_per_chunk) if (chunk == chunks_per_worker - 1) else worker_end_idx
+
+            chunk_read_start_idx = 0 if chunk_start_idx == 0 else self._read_end_indices[chunk_start_idx - 1]
+            chunk_read_end_idx = self._read_end_indices[chunk_end_idx - 1]
+
+            ram_timer = Timer(f"Worker {worker_id} loading chunk [{chunk_start_idx}, {chunk_end_idx}) into RAM.")
+            # TODO: I think the .copy() is necessary to copy the slice of the memory-map from disk into RAM
+            # these operations should be really fast because it's all sequential access
+            chunk_data_ve = self._stacked_data_ve[chunk_start_idx:chunk_end_idx].copy()
+            chunk_reads_re = self._stacked_reads_re[chunk_read_start_idx:chunk_read_end_idx].copy()
+            chunk_read_end_indices = self._read_end_indices[chunk_start_idx:chunk_end_idx] - chunk_read_start_idx
+            ram_timer.report("Time to load chunk data into RAM")
+            report_memory_usage("Chunk data loaded into RAM.")
+
+            # now that it's all in RAM, we can yield in randomly-accessed order
+            indices = list(range(len(chunk_data_ve)))
+            random.shuffle(indices)
+
+            for idx in indices:
+                read_start_idx = 0 if idx == 0 else chunk_read_end_indices[idx - 1]
+                read_end_idx = chunk_read_end_indices[idx]
+                datum = ReadsDatum(datum_array=chunk_data_ve[idx], compressed_reads_re=chunk_reads_re[read_start_idx:read_end_idx])
+                #assert datum.get_ref_count() + datum.get_alt_count() == len(datum.get_reads_array_re())
+                yield datum
 
     def num_sources(self) -> int:
         return self.totals_slvra.num_sources()
@@ -119,18 +159,6 @@ class ReadsDataset(Dataset):
                 for label in Label:
                     print(f"{label.name}: {int(totals_slv[source, label, var_type].item())}")
 
-    # it is often convenient to arbitrarily use the last fold for validation
-    def last_fold_only(self):
-        return [self.num_folds - 1]  # use the last fold for validation
-
-    def all_but_the_last_fold(self):
-        return list(range(self.num_folds - 1))
-
-    def all_but_one_fold(self, fold_to_exclude: int):
-        return list(range(fold_to_exclude)) + list(range(fold_to_exclude + 1, self.num_folds))
-
-    def all_folds(self):
-        return list(range(self.num_folds))
 
     def validate_sources(self) -> int:
         num_sources = self.num_sources()
@@ -143,59 +171,13 @@ class ReadsDataset(Dataset):
             print(f"Data come from multiple sources, with counts {totals_by_source_s.cpu().tolist()}.")
         return num_sources
 
-    def make_data_loader(self, folds_to_use: List[int], batch_size: int, pin_memory=False, num_workers: int = 0,
-                         sources_to_use: List[int] = None, labeled_only: bool = False):
-        sampler = SemiSupervisedBatchSampler(self, batch_size, folds_to_use, sources_to_use, labeled_only)
-        return DataLoader(dataset=self, batch_sampler=sampler, collate_fn=ReadsBatch, pin_memory=pin_memory, num_workers=num_workers)
-
-    def make_train_and_valid_loaders(self, validation_fold: int, batch_size: int, is_cuda: bool, num_workers: int, sources_to_use: List[int] = None):
-        train_loader = self.make_data_loader(self.all_but_one_fold(validation_fold), batch_size, is_cuda, num_workers, sources_to_use)
-        valid_loader = self.make_data_loader([validation_fold], batch_size, is_cuda, num_workers, sources_to_use)
-        return train_loader, valid_loader
-
-
-# from a generator that yields BaseDatum(s), create a generator that yields the two numpy arrays needed to reconstruct the datum
-def make_flattened_tensor_generator(reads_data_generator: Generator[ReadsDatum, None, None]):
-    for reads_datum in reads_data_generator:
-        yield reads_datum.get_compressed_reads_re()
-        yield reads_datum.get_array_1d()
+    def make_data_loader(self, batch_size: int, pin_memory=False, num_workers: int = 0):
+        return DataLoader(dataset=self, batch_size=batch_size, collate_fn=ReadsBatch, pin_memory=pin_memory,
+                          num_workers=num_workers, prefetch_factor=2 if num_workers > 0 else None, persistent_workers=num_workers > 0)
 
 
 # ex: chunk([a,b,c,d,e], 3) = [[a,b,c], [d,e]]
 def chunk(lis, chunk_size):
     return [lis[i:i + chunk_size] for i in range(0, len(lis), chunk_size)]
 
-
-# Labeled and unlabeled data are mixed.
-# the artifact model handles weighting the losses to compensate for class imbalance between supervised and unsupervised
-# thus the sampler is not responsible for balancing the data
-class SemiSupervisedBatchSampler(Sampler):
-    def __init__(self, dataset: ReadsDataset, batch_size: int, folds_to_use: List[int],
-                 sources_to_use: List[int] = None, labeled_only: bool = False):
-        # combine the index maps of all relevant folds
-        self.indices_to_use = []
-        source_set = None if sources_to_use is None else set(sources_to_use)
-        for fold in folds_to_use:
-            indices_in_fold = dataset.indices_by_fold[fold] if not labeled_only else \
-                [idx for idx in dataset.indices_by_fold[fold] if dataset[idx].get_label() != Label.UNLABELED]
-            if sources_to_use is None:
-                source_indices_in_fold = indices_in_fold
-            else:
-                source_indices_in_fold = [idx for idx in indices_in_fold if dataset[idx].get_source() in source_set]
-
-            self.indices_to_use.extend(source_indices_in_fold)
-
-        self.batch_size = batch_size
-        self.num_batches = math.ceil(len(self.indices_to_use) / self.batch_size)
-
-    def __iter__(self):
-        batches = []    # list of lists of indices -- each sublist is a batch
-        random.shuffle(self.indices_to_use)
-        batches.extend(chunk(self.indices_to_use, self.batch_size))
-        random.shuffle(batches)
-
-        return iter(batches)
-
-    def __len__(self):
-        return self.num_batches
 

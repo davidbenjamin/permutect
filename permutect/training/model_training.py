@@ -30,23 +30,23 @@ from permutect.utils.enums import Variation, Epoch, Label
 WORST_OFFENDERS_QUEUE_SIZE = 100
 
 
-def train_artifact_model(model: ArtifactModel, dataset: ReadsDataset, training_params: TrainingParameters, summary_writer: SummaryWriter,
-                         validation_fold: int = None, training_folds: List[int] = None, epochs_per_evaluation: int = None, calibration_sources: List[int] = None):
+def train_artifact_model(model: ArtifactModel, train_dataset: ReadsDataset, valid_dataset: ReadsDataset, training_params: TrainingParameters, summary_writer: SummaryWriter,
+                         epochs_per_evaluation: int = None, calibration_sources: List[int] = None):
     device, dtype = model._device, model._dtype
     bce = nn.BCEWithLogitsLoss(reduction='none')  # no reduction because we may want to first multiply by weights for unbalanced data
     ce = nn.CrossEntropyLoss(reduction='none')  # likewise
-    balancer = Balancer(num_sources=dataset.num_sources(), device=device).to(device=device, dtype=dtype)
-    downsampler: Downsampler = Downsampler(num_sources=dataset.num_sources()).to(device=device, dtype=dtype)
+    balancer = Balancer(num_sources=train_dataset.num_sources(), device=device).to(device=device, dtype=dtype)
+    downsampler: Downsampler = Downsampler(num_sources=train_dataset.num_sources()).to(device=device, dtype=dtype)
 
     # save the model after every epoch in order to restore it if training goes off the rails
     checkpoint_file = tempfile.NamedTemporaryFile(suffix=".pt")
     best_checkpoint = None
 
     print("fitting downsampler parameters to the dataset")
-    downsampler.optimize_downsampling_balance(dataset.totals_slvra.to(device=device))
+    downsampler.optimize_downsampling_balance(train_dataset.totals_slvra.to(device=device))
 
-    num_sources = dataset.validate_sources()
-    dataset.report_totals()
+    num_sources = train_dataset.validate_sources()
+    train_dataset.report_totals()
     model.reset_source_predictor(num_sources)
     is_cuda = device.type == 'cuda'
     print(f"Is CUDA available? {is_cuda}")
@@ -55,21 +55,10 @@ def train_artifact_model(model: ArtifactModel, dataset: ReadsDataset, training_p
     train_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(train_optimizer, factor=0.2, patience=5,
         threshold=0.001, min_lr=(training_params.learning_rate / 100), verbose=True)
 
-    validation_fold_to_use = (dataset.num_folds - 1) if validation_fold is None else validation_fold
-    training_folds_to_use = dataset.all_but_one_fold(validation_fold_to_use) if training_folds is None else training_folds
-
-    train_loader = dataset.make_data_loader(training_folds_to_use, training_params.batch_size, is_cuda, training_params.num_workers)
+    train_loader = train_dataset.make_data_loader(training_params.batch_size, is_cuda, training_params.num_workers)
     report_memory_usage(f"Train loader created.")
-    valid_loader = dataset.make_data_loader([validation_fold_to_use], training_params.inference_batch_size, is_cuda, training_params.num_workers)
+    valid_loader = valid_dataset.make_data_loader(training_params.inference_batch_size, is_cuda, training_params.num_workers)
     report_memory_usage(f"Validation loader created.")
-
-    calibration_train_loader = train_loader if calibration_sources is None else \
-        dataset.make_data_loader(training_folds_to_use, training_params.batch_size,
-                                 is_cuda, training_params.num_workers, sources_to_use=calibration_sources)
-
-    calibration_valid_loader = valid_loader if calibration_sources is None else \
-        dataset.make_data_loader([validation_fold_to_use], training_params.inference_batch_size,
-                                 is_cuda, training_params.num_workers, sources_to_use=calibration_sources)
 
     first_epoch, last_epoch = 1, training_params.num_epochs + training_params.num_calibration_epochs
     for epoch in trange(1, last_epoch + 1, desc="Epoch"):
@@ -93,10 +82,10 @@ def train_artifact_model(model: ArtifactModel, dataset: ReadsDataset, training_p
             alt_count_loss_metrics = LossMetrics(num_sources=num_sources, device=device)
             source_prediction_loss_metrics = LossMetrics(num_sources=num_sources, device=device)  # based on calibrated logits
 
-            loader = (calibration_train_loader if epoch_type == Epoch.TRAIN else calibration_valid_loader) if is_calibration_epoch else \
-                (train_loader if epoch_type == Epoch.TRAIN else valid_loader)
+            loader = train_loader if epoch_type == Epoch.TRAIN else valid_loader
 
             batch: ReadsBatch
+            parent_batch: ReadsBatch
             for parent_batch in tqdm(prefetch_generator(loader), mininterval=60, total=len(loader)):
                 # TODO: really to get the assumed balance we should only train on downsampled batches.  But using one
                 # TODO: downsampled batch with the proper balance will still go a long way
@@ -113,15 +102,19 @@ def train_artifact_model(model: ArtifactModel, dataset: ReadsDataset, training_p
                 parent_batch_distances_bk = model.feature_clustering.centroid_distances(parent_output.features_be)
                 second_nearest_dist_b = torch.kthvalue(parent_batch_distances_bk, k=2, dim=-1).values
 
+                sources = parent_batch.get_sources()
+                source_mask_b = 1 if (calibration_sources is None or not is_calibration_epoch) else \
+                    torch.sum(torch.vstack([(sources == source).int() for source in calibration_sources]), dim=-1)
+
                 # first handle the labeled loss and the adversarial tasks, which treat the parent and downsampled batches independently
                 loss = 0
                 for n, (batch, output) in enumerate(zip(batches, outputs)):
                     labels_b = batch.get_training_labels()
                     is_labeled_b = batch.get_is_labeled_mask()
 
-                    source_losses_b = model.compute_source_prediction_losses(output.features_be, batch)
-                    alt_count_losses_b = model.compute_alt_count_losses(output.features_be, batch)
-                    supervised_losses_b = is_labeled_b * bce(output.calibrated_logits_b, labels_b)
+                    source_losses_b = source_mask_b * model.compute_source_prediction_losses(output.features_be, batch)
+                    alt_count_losses_b = source_mask_b * model.compute_alt_count_losses(output.features_be, batch)
+                    supervised_losses_b = source_mask_b * is_labeled_b * bce(output.calibrated_logits_b, labels_b)
 
                     # unsupervised loss uses uncalibrated logits because different counts should NOT be the same after calibration,
                     # but should be identical before.  Note that unsupervised losses is used with and without labels
@@ -133,8 +126,9 @@ def train_artifact_model(model: ArtifactModel, dataset: ReadsDataset, training_p
                     consistency_loss_b = torch.square(consistency_dist_b / second_nearest_dist_b)
 
                     # unsupervised loss: cross-entropy between cluster-resolved predictions
-                    unsupervised_losses_b = consistency_loss_b
-                    loss += torch.sum(output.weights * (supervised_losses_b + unsupervised_losses_b + alt_count_losses_b) + output.source_weights * source_losses_b)
+                    unsupervised_losses_b = source_mask_b * consistency_loss_b
+                    losses = output.weights * (supervised_losses_b + unsupervised_losses_b + alt_count_losses_b) + output.source_weights * source_losses_b
+                    loss += torch.sum(losses)
 
                     loss_metrics.record(batch, supervised_losses_b, is_labeled_b * output.weights)
                     loss_metrics.record(batch, unsupervised_losses_b, output.weights)
@@ -172,7 +166,7 @@ def train_artifact_model(model: ArtifactModel, dataset: ReadsDataset, training_p
 
                 print(f"performing evaluation on epoch {epoch}")
                 if epoch_type == Epoch.VALID:
-                    evaluate_model(model, epoch, dataset, balancer, downsampler, train_loader, valid_loader, summary_writer, collect_embeddings=False, report_worst=False)
+                    evaluate_model(model, epoch, num_sources, balancer, downsampler, train_loader, valid_loader, summary_writer, collect_embeddings=False, report_worst=False)
 
             if not is_calibration_epoch and epoch_type == Epoch.TRAIN:
                 mean_over_labels = torch.mean(loss_metrics.get_marginal(BatchProperty.LABEL)).item()
@@ -199,12 +193,12 @@ def train_artifact_model(model: ArtifactModel, dataset: ReadsDataset, training_p
     record_embeddings(model, train_loader, summary_writer)
 
 @torch.inference_mode()
-def collect_evaluation_data(model: ArtifactModel, dataset: ReadsDataset, balancer: Balancer, downsampler: Downsampler,
+def collect_evaluation_data(model: ArtifactModel, num_sources: int, balancer: Balancer, downsampler: Downsampler,
                             train_loader, valid_loader, report_worst: bool):
     # the keys are tuples of (Label; rounded alt count)
     worst_offenders_by_label_and_alt_count = defaultdict(lambda: PriorityQueue(WORST_OFFENDERS_QUEUE_SIZE))
 
-    evaluation_metrics = EvaluationMetrics(num_sources=dataset.num_sources(), device=model._device)
+    evaluation_metrics = EvaluationMetrics(num_sources=num_sources, device=model._device)
     epoch_types = [Epoch.TRAIN, Epoch.VALID]
     for epoch_type in epoch_types:
         assert epoch_type == Epoch.TRAIN or epoch_type == Epoch.VALID  # not doing TEST here
@@ -246,11 +240,11 @@ def collect_evaluation_data(model: ArtifactModel, dataset: ReadsDataset, balance
 
 
 @torch.inference_mode()
-def evaluate_model(model: ArtifactModel, epoch: int, dataset: ReadsDataset, balancer: Balancer, downsampler: Downsampler, train_loader, valid_loader,
+def evaluate_model(model: ArtifactModel, epoch: int, num_sources: int, balancer: Balancer, downsampler: Downsampler, train_loader, valid_loader,
                    summary_writer: SummaryWriter, collect_embeddings: bool = False, report_worst: bool = False):
 
     # self.freeze_all()
-    evaluation_metrics, worst_offenders_by_label_and_alt_count = collect_evaluation_data(model, dataset, balancer, downsampler, train_loader, valid_loader, report_worst)
+    evaluation_metrics, worst_offenders_by_label_and_alt_count = collect_evaluation_data(model, num_sources, balancer, downsampler, train_loader, valid_loader, report_worst)
     evaluation_metrics.put_on_cpu()
     evaluation_metrics.make_plots(summary_writer, epoch=epoch)
 

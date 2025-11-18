@@ -9,10 +9,10 @@ def test_filtering_on_dream1_chr20():
     # Inputs
     artifact_model = '/Users/davidben/mutect3/permutect/integration-tests/hiseqx-NA12878-model.pt'
 
-    mutect2_vcf = '/Users/davidben/mutect3/permutect/integration-tests/dream1-chr20/mutect2_chr20.vcf'
-    maf_segments = '/Users/davidben/mutect3/permutect/integration-tests/dream1-chr20/segments.table'
-    contigs_table = '/Users/davidben/mutect3/permutect/integration-tests/dream1-chr20/contigs.table'
-    filtering_dataset = '/Users/davidben/mutect3/permutect/integration-tests/dream1-chr20/test_chr20.dataset'
+    mutect2_vcf = '/Users/davidben/permutect/integration-tests/mutect2_chr20.vcf'
+    maf_segments = '/Users/davidben/permutect/integration-tests/segments.table'
+    contigs_table = '/Users/davidben/permutect/integration-tests/contigs.table'
+    filtering_dataset = '/Users/davidben/permutect/integration-tests/test_chr20.dataset'
 
     # Outputs
     permutect_vcf = tempfile.NamedTemporaryFile()
@@ -26,7 +26,6 @@ def test_filtering_on_dream1_chr20():
     setattr(filtering_args, constants.TENSORBOARD_DIR_NAME, tensorboard_dir.name)
     setattr(filtering_args, constants.BATCH_SIZE_NAME, 64)
     setattr(filtering_args, constants.NUM_WORKERS_NAME, 0)
-    setattr(filtering_args, constants.CHUNK_SIZE_NAME, 100000)
     setattr(filtering_args, constants.NUM_SPECTRUM_ITERATIONS_NAME, 2)
     setattr(filtering_args, constants.HET_BETA_NAME, 10)
     setattr(filtering_args, constants.SPECTRUM_LEARNING_RATE_NAME, 0.001)
@@ -41,3 +40,5 @@ def test_filtering_on_dream1_chr20():
 
     filter_variants.main_without_parsing(filtering_args)
     h = 9
+
+test_filtering_on_dream1_chr20()

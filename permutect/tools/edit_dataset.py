@@ -1,17 +1,8 @@
 import argparse
-import os
-import tarfile
-import tempfile
 from enum import Enum
 
-import torch.utils.data
-
-from tqdm.autonotebook import tqdm
-
 from permutect import constants
-from permutect.data.reads_dataset import ReadsDataset
-from permutect.data.reads_datum import ReadsDatum
-from permutect.misc_utils import report_memory_usage
+from permutect.data.memory_mapped_data import MemoryMappedData
 from permutect.utils.enums import Label
 
 
@@ -25,40 +16,37 @@ class EditType(Enum):
 
 
 # generates BaseDatum(s) from the original dataset that *pass* the pruning thresholds
-def generate_edited_data(base_datasets, edit_type: str, source: int):
-    pbar = tqdm(enumerate(torch.utils.data.ConcatDataset(base_datasets)), mininterval=60)
+def generate_edited_data(memory_mapped_datas, edit_type: str, source: int):
+    for memory_mapped_data in memory_mapped_datas:
+        for reads_datum in memory_mapped_data.generate_reads_data():
+            if source is not None:
+                reads_datum.set_source(source)
 
-    for n, reads_datum in pbar:
-        if source is not None:
-            reads_datum.set_source(source)
-
-        if edit_type == EditType.UNLABEL_ARTIFACTS.value:
-            if reads_datum.get_label() == Label.ARTIFACT:
-                reads_datum.set_label(Label.UNLABELED)
-            yield reads_datum
-        elif edit_type == EditType.UNLABEL_VARIANTS.value:
-            if reads_datum.get_label() == Label.VARIANT:
-                reads_datum.set_label(Label.UNLABELED)
-            yield reads_datum
-        elif edit_type == EditType.UNLABEL_EVERYTHING.value:
-            reads_datum.set_label(Label.UNLABELED)
-            yield reads_datum
-        elif edit_type == EditType.REMOVE_ARTIFACTS.value:
-            if reads_datum.get_label() != Label.ARTIFACT:
+            if edit_type == EditType.UNLABEL_ARTIFACTS.value:
+                if reads_datum.get_label() == Label.ARTIFACT:
+                    reads_datum.set_label(Label.UNLABELED)
                 yield reads_datum
-        elif edit_type == EditType.REMOVE_VARIANTS.value:
-            if reads_datum.get_label() != Label.VARIANT:
+            elif edit_type == EditType.UNLABEL_VARIANTS.value:
+                if reads_datum.get_label() == Label.VARIANT:
+                    reads_datum.set_label(Label.UNLABELED)
                 yield reads_datum
-        elif edit_type == EditType.KEEP_EVERYTHING.value:
-            yield reads_datum
-        else:
-            raise Exception(f"edit type {edit_type} not implemented yet")
+            elif edit_type == EditType.UNLABEL_EVERYTHING.value:
+                reads_datum.set_label(Label.UNLABELED)
+                yield reads_datum
+            elif edit_type == EditType.REMOVE_ARTIFACTS.value:
+                if reads_datum.get_label() != Label.ARTIFACT:
+                    yield reads_datum
+            elif edit_type == EditType.REMOVE_VARIANTS.value:
+                if reads_datum.get_label() != Label.VARIANT:
+                    yield reads_datum
+            elif edit_type == EditType.KEEP_EVERYTHING.value:
+                yield reads_datum
+            else:
+                raise Exception(f"edit type {edit_type} not implemented yet")
 
 
 def parse_arguments():
     parser = argparse.ArgumentParser(description='train the Mutect3 artifact model')
-    parser.add_argument('--' + constants.CHUNK_SIZE_NAME, type=int, default=int(2e9), required=False,
-                        help='size in bytes of output binary data files')
     parser.add_argument('--' + constants.DATASET_EDIT_TYPE_NAME, type=str, required=True,
                         help='how to modify the dataset')
     parser.add_argument('--' + constants.SOURCE_NAME, type=int, required=False, help='new source integer to apply')
@@ -74,14 +62,18 @@ def parse_arguments():
 def main_without_parsing(args):
     original_tarfiles = getattr(args, constants.TRAIN_TAR_NAME) # list of files
     output_tarfile = getattr(args, constants.OUTPUT_NAME)
-    chunk_size = getattr(args, constants.CHUNK_SIZE_NAME)
     edit_type = getattr(args, constants.DATASET_EDIT_TYPE_NAME)
     new_source = getattr(args, constants.SOURCE_NAME)
-    base_datasets = map(lambda original_tarfile: ReadsDataset(tarfile=original_tarfile), original_tarfiles)
+    memory_mapped_datas = [MemoryMappedData.load_from_tarfile(data_tarfile=input_tarfile) for input_tarfile in original_tarfiles]
 
-    # generate ReadSets
-    output_data_generator = generate_edited_data(base_datasets, edit_type, new_source)
-    ReadsDatum.save_data_in_tarfile(data_generator=output_data_generator, max_bytes_in_chunk=chunk_size, output_tarfile=output_tarfile)
+    for mmd in memory_mapped_datas:
+        print(f"Input dataset with {mmd.num_data} data and {mmd.num_reads} reads.")
+
+    output_data_generator = generate_edited_data(memory_mapped_datas, edit_type, new_source)
+    total_num_data = sum([mmd.num_data for mmd in memory_mapped_datas])
+    total_num_reads = sum([mmd.num_reads for mmd in memory_mapped_datas])
+    MemoryMappedData.from_generator(reads_datum_source=output_data_generator, estimated_num_data=total_num_data,
+                                    estimated_num_reads=total_num_reads).save_to_tarfile(output_tarfile=output_tarfile)
 
 
 def main():
