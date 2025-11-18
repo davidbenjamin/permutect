@@ -31,23 +31,19 @@ GTCCTGGACACGCTGTTGGCC
 -0.000
 """
 import math
-import tempfile
 from queue import PriorityQueue
 from typing import List, Generator
-import sys
 
 import numpy as np
-import torch
 from sklearn.preprocessing import QuantileTransformer
 
 from permutect.data.count_binning import cap_ref_count, cap_alt_count
 from permutect.data.memory_mapped_data import MemoryMappedData
 from permutect.data.reads_datum import ReadsDatum, RawUnnormalizedReadsDatum, NUMBER_OF_BYTES_IN_PACKED_READ, \
-    convert_quantile_normalized_to_uint8, READS_ARRAY_DTYPE, SUFFIX_FOR_DATA_MMAP_IN_TAR, SUFFIX_FOR_READS_MMAP_IN_TAR
-from permutect.data.datum import DEFAULT_NUMPY_FLOAT, DATUM_ARRAY_DTYPE, Datum
+    convert_quantile_normalized_to_uint8
+from permutect.data.datum import DEFAULT_NUMPY_FLOAT, Datum
 
-from permutect.misc_utils import report_memory_usage, ConsistentValue
-from permutect.sets.ragged_sets import RaggedSets
+from permutect.misc_utils import ConsistentValue
 from permutect.utils.enums import Variation, Label
 
 MAX_VALUE = 10000
@@ -57,7 +53,7 @@ QUANTILE_DATA_COUNT = 10000
 RAW_READS_DTYPE = DEFAULT_NUMPY_FLOAT
 MIN_NUM_DATA_FOR_NORMALIZATION = 1000
 MAX_NUM_DATA_FOR_NORMALIZATION = 100000
-NUM_RAW_DATA_TO_NORMALIZE_AT_ONCE = 100000
+NUM_RAW_DATA_TO_NORMALIZE_AT_ONCE = 10000
 
 
 def count_number_of_data_and_reads_in_text_file(dataset_file):
