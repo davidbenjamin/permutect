@@ -88,8 +88,9 @@ class ReadsDataset(IterableDataset):
         available_memory_per_worker = total_available_memory_in_bytes // num_workers
 
         # we want the amount of memory loaded to RAM at any given time to be well below the total available memory
-        # thus we multiply by a cautious fudge factor
-        fudge_factor = 4
+        # thus we multiply by a cautious fudge factor that accounts for: 1) maybe space in RAM is less efficient than space in disk,
+        # 2) one chunk might still be in memory, not yet garbage-collected, when the next is loaded
+        fudge_factor = 8
         chunks_per_worker = 1 + ((fudge_factor * num_bytes_per_worker) // available_memory_per_worker)
         print(f"Worker {worker_id} will divide its portion of the data into {chunks_per_worker} chunks.")
 
