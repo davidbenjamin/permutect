@@ -165,7 +165,7 @@ def normalized_data_generator(raw_mmap_data: MemoryMappedData) -> Generator[Read
     reads_mmap_re = raw_mmap_data.reads_mmap
     read_end_indices = raw_mmap_data.read_end_indices
 
-    num_chunks = math.ceil(raw_mmap_data.num_data // NUM_RAW_DATA_TO_NORMALIZE_AT_ONCE)
+    num_chunks = math.ceil(raw_mmap_data.num_data / NUM_RAW_DATA_TO_NORMALIZE_AT_ONCE)
     data_per_chunk = raw_mmap_data.num_data // num_chunks
 
     for chunk in range(num_chunks):

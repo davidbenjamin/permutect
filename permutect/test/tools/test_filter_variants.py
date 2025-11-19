@@ -2,17 +2,18 @@ import tempfile
 from argparse import Namespace
 
 from permutect import constants
+from permutect.test.test_file_names import ARTIFACT_MODEL_V_0_4_0, MUTECT2_CHR20_FILTERED_VCF, SEGMENTS_TABLE, \
+    CONTIGS_TABLE, DREAM_1_CHR20_PLAIN_TEXT_DATA
 from permutect.tools import filter_variants
 
 
 def test_filtering_on_dream1_chr20():
     # Inputs
-    artifact_model = '/Users/davidben/permutect/integration-tests/hiseqx-NA12878-model.pt'
-
-    mutect2_vcf = '/Users/davidben/permutect/integration-tests/mutect2_chr20.vcf'
-    maf_segments = '/Users/davidben/permutect/integration-tests/segments.table'
-    contigs_table = '/Users/davidben/permutect/integration-tests/contigs.table'
-    filtering_dataset = '/Users/davidben/permutect/integration-tests/test_chr20.dataset'
+    artifact_model = ARTIFACT_MODEL_V_0_4_0
+    mutect2_vcf = MUTECT2_CHR20_FILTERED_VCF
+    maf_segments = SEGMENTS_TABLE
+    contigs_table = CONTIGS_TABLE
+    filtering_dataset = DREAM_1_CHR20_PLAIN_TEXT_DATA
 
     # Outputs
     permutect_vcf = tempfile.NamedTemporaryFile()

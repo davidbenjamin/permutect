@@ -3,16 +3,18 @@ import tempfile
 
 from permutect.data.memory_mapped_data import MemoryMappedData
 from permutect.data.reads_dataset import ReadsDataset
+from permutect.test import test_file_names
+from permutect.test.test_file_names import SMALL_PLAIN_TEXT_DATA, PREPROCESSED_DATA
 from permutect.tools import preprocess_dataset
 from permutect import constants
 
-OVERWRITE_SAVED_TARFILE = True
+
+OVERWRITE_SAVED_TARFILE = False
 
 
 def test_on_10_megabases_singular():
-    training_datasets = ["/Users/davidben/permutect/integration-tests/hiseqx-NA12878-80000-data.dataset"]
-    training_data_tarfile = tempfile.NamedTemporaryFile() if not OVERWRITE_SAVED_TARFILE else \
-        "/Users/davidben/permutect/integration-tests/preprocessed-dataset.tar"
+    training_datasets = [SMALL_PLAIN_TEXT_DATA]
+    training_data_tarfile = tempfile.NamedTemporaryFile() if not OVERWRITE_SAVED_TARFILE else PREPROCESSED_DATA
 
     tarfile_name = training_data_tarfile.name if not OVERWRITE_SAVED_TARFILE else training_data_tarfile
 
