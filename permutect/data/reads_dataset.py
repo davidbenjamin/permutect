@@ -1,3 +1,5 @@
+import gc
+
 import psutil
 import random
 from typing import  List
@@ -146,6 +148,13 @@ class ReadsDataset(IterableDataset):
                 datum = ReadsDatum(datum_array=chunk_data_ve[idx], compressed_reads_re=chunk_reads_re[read_start_idx:read_end_idx])
                 #assert datum.get_ref_count() + datum.get_alt_count() == len(datum.get_reads_array_re())
                 yield datum
+
+            # we have finished yielding all the data in this chunk.  Because this is such a large amount of data,
+            # we explicitly free memory (delete objects and garbage collect) before loading the next chunk
+            del chunk_data_ve
+            del chunk_reads_re
+            del indices
+            gc.collect()
 
     def num_sources(self) -> int:
         return self.totals_slvra.num_sources()
