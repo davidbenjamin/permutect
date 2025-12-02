@@ -1,6 +1,7 @@
 import math
 
 import torch
+from matplotlib import pyplot as plt
 from torch import nn, IntTensor
 from torch.distributions import Beta
 
@@ -74,6 +75,20 @@ class ArtifactSpectra(nn.Module):
         alpha_1, beta_1 = alpha.view(1).to(device=fractions_f.device), beta.view(1).to(device=fractions_f.device)
         densities_f = torch.exp(Beta(alpha_1, beta_1).log_prob(fractions_f))
         return fractions_f, densities_f
+
+    # this works for ArtifactSpectra and OverdispersedBinomialMixture
+    def plot_artifact_spectra(self, depth: int = None):
+        # plot AF spectra in two-column grid with as many rows as needed
+        art_spectra_fig, art_spectra_axs = plt.subplots(math.ceil(len(Variation) / 2), 2, sharex='all', sharey='all')
+        for variant_type in Variation:
+            n = variant_type
+            row, col = int(n / 2), n % 2
+            frac, dens = self.spectrum_density_vs_fraction(variant_type, depth)
+            art_spectra_axs[row, col].plot(frac.detach().numpy(), dens.detach().numpy(), label=variant_type.name)
+            art_spectra_axs[row, col].set_title(variant_type.name + " artifact AF spectrum")
+        for ax in art_spectra_fig.get_axes():
+            ax.label_outer()
+        return art_spectra_fig, art_spectra_axs
 
     '''
     here x is a 1D tensor, a single datum/row of the 2D tensors as above
