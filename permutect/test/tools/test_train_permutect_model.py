@@ -6,15 +6,15 @@ from tensorboard.backend.event_processing.event_accumulator import EventAccumula
 from permutect import constants
 from permutect.architecture.artifact_model import load_model
 from permutect.tools import train_artifact_model
+from permutect.test.test_file_names import *
 
-OVERWRITE_SAVED_MODEL = True
+MAKE_NEW_ARTIFACT_MODEL = False
 
 
 def test_train_artifact_model():
-    training_data_tarfile = "/Users/davidben/permutect/train.tar"
+    training_data_tarfile = PREPROCESSED_DATA
     #training_data_tarfile = "/Users/davidben/permutect/integration-tests/preprocessed-dataset.tar"
-    saved_model = tempfile.NamedTemporaryFile() if not OVERWRITE_SAVED_MODEL else \
-        '/Users/davidben/permutect/integration-tests/hiseqx-NA12878-model.pt'
+    saved_model = tempfile.NamedTemporaryFile() if not MAKE_NEW_ARTIFACT_MODEL else SMALL_ARTIFACT_MODEL
     training_tensorboard_dir = tempfile.TemporaryDirectory()
 
     train_model_args = Namespace()
@@ -49,7 +49,7 @@ def test_train_artifact_model():
     setattr(train_model_args, constants.WEIGHT_DECAY_NAME, 0.01)
 
     # path to saved model
-    setattr(train_model_args, constants.OUTPUT_NAME, saved_model if OVERWRITE_SAVED_MODEL else saved_model.name)
+    setattr(train_model_args, constants.OUTPUT_NAME, saved_model if MAKE_NEW_ARTIFACT_MODEL else saved_model.name)
     setattr(train_model_args, constants.TENSORBOARD_DIR_NAME, training_tensorboard_dir.name)
 
     train_artifact_model.main_without_parsing(train_model_args)
