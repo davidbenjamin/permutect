@@ -49,21 +49,6 @@ def germline_log_likelihood(afs, mafs, alt_counts, depths, het_beta=None):
     return torch.logsumexp(torch.vstack((alt_minor_ll, alt_major_ll, hom_ll)), dim=0)
 
 
-# this works for ArtifactSpectra and OverdispersedBinomialMixture
-def plot_artifact_spectra(artifact_spectra, depth: int = None):
-    # plot AF spectra in two-column grid with as many rows as needed
-    art_spectra_fig, art_spectra_axs = plt.subplots(ceil(len(Variation) / 2), 2, sharex='all', sharey='all')
-    for variant_type in Variation:
-        n = variant_type
-        row, col = int(n / 2), n % 2
-        frac, dens = artifact_spectra.spectrum_density_vs_fraction(variant_type, depth)
-        art_spectra_axs[row, col].plot(frac.detach().numpy(), dens.detach().numpy(), label=variant_type.name)
-        art_spectra_axs[row, col].set_title(variant_type.name + " artifact AF spectrum")
-    for ax in art_spectra_fig.get_axes():
-        ax.label_outer()
-    return art_spectra_fig, art_spectra_axs
-
-
 class PosteriorModel(torch.nn.Module):
     """
 
@@ -239,7 +224,7 @@ class PosteriorModel(torch.nn.Module):
                 summary_writer.add_scalar("spectrum negative log evidence", epoch_loss.get(), epoch)
 
                 for depth in [9, 19, 30, 50, 100]:
-                    art_spectra_fig, art_spectra_axs = plot_artifact_spectra(self.artifact_spectra, depth)
+                    art_spectra_fig, art_spectra_axs = self.artifact_spectra.plot_artifact_spectra(depth)
                     summary_writer.add_figure("Artifact AF Spectra at depth = " + str(depth), art_spectra_fig, epoch)
 
                 #normal_artifact_spectra_fig, normal_artifact_spectra_axs = plot_artifact_spectra(self.normal_artifact_spectra)

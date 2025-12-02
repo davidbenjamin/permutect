@@ -8,7 +8,6 @@ from permutect.architecture.spectra.artifact_spectra import ArtifactSpectra
 from permutect.data.memory_mapped_data import MemoryMappedData
 from permutect.training.model_training import train_artifact_model
 from permutect.architecture.artifact_model import load_model
-from permutect.architecture.posterior_model import plot_artifact_spectra
 from permutect.data.reads_dataset import ReadsDataset, all_but_the_last_fold, last_fold_only
 from permutect.data.reads_datum import ReadsDatum
 from permutect.parameters import add_training_params_to_parser, parse_training_params
@@ -102,7 +101,7 @@ def main_without_parsing(args):
 
     artifact_log_priors, artifact_spectra = learn_artifact_priors_and_spectra(train_dataset, genomic_span) if learn_artifact_spectra else (None, None)
     if artifact_spectra is not None:
-        art_spectra_fig, art_spectra_axs = plot_artifact_spectra(artifact_spectra, depth=50)
+        art_spectra_fig, art_spectra_axs = artifact_spectra.plot_artifact_spectra(depth=50)
         summary_writer.add_figure("Artifact AF Spectra", art_spectra_fig)
 
     summary_writer.close()
