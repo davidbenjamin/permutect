@@ -33,6 +33,7 @@ def main_without_parsing(args):
                           haplotypes_length=train_dataset.haplotypes_length(), device=gpu_if_available())
 
     train_artifact_model(model, train_dataset, valid_dataset, training_params, summary_writer=summary_writer, epochs_per_evaluation=10)
+
     summary_writer.close()
 
     # TODO: this is currently wrong because we are using the separate artifact model, not the full model
