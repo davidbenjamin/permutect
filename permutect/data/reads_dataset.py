@@ -1,3 +1,5 @@
+import gc
+
 import psutil
 import random
 from typing import  List
@@ -33,14 +35,14 @@ def ratio_with_pseudocount(a, b):
 
 
 class ReadsDataset(IterableDataset):
-    def __init__(self, memory_mapped_data: MemoryMappedData, num_folds: int = None, folds_to_use: List[int] = None):
+    def __init__(self, memory_mapped_data: MemoryMappedData, num_folds: int = None, folds_to_use: List[int] = None, keep_probs_by_label_l = None):
         """
         :param num_folds:
         """
         super(ReadsDataset, self).__init__()
         self.totals_slvra = BatchIndexedTensor.make_zeros(num_sources=1, include_logits=False, device=torch.device('cpu'))
         # if no folds, no copying is done; otherwise this creates a new file on disk
-        self.memory_mapped_data = memory_mapped_data.restrict_to_folds(num_folds, folds_to_use)
+        self.memory_mapped_data = memory_mapped_data.restrict_to_folds(num_folds, folds_to_use, keep_probs_by_label_l)
         self._size = self.memory_mapped_data.num_data
         self._read_end_indices = self.memory_mapped_data.read_end_indices
 
@@ -60,6 +62,10 @@ class ReadsDataset(IterableDataset):
             self._haplotypes_length.check(len(datum.get_haplotypes_1d()))
         data_recording_timer.report("Time to record data counts")
 
+        self.totals_by_label_l = self.totals_slvra.get_marginal((BatchProperty.LABEL,)) # totals by label
+
+    def totals_by_label(self):
+        return self.totals_by_label_l
 
     def num_read_features(self) -> int:
         return self._num_read_features.value
@@ -122,7 +128,7 @@ class ReadsDataset(IterableDataset):
 
         for chunk in chunks:
             chunk_start_idx = worker_start_idx + chunk * data_per_chunk
-            chunk_end_idx = (worker_start_idx + (chunk + 1) * data_per_chunk) if (chunk == chunks_per_worker - 1) else worker_end_idx
+            chunk_end_idx = (worker_start_idx + (chunk + 1) * data_per_chunk) if (chunk < chunks_per_worker - 1) else worker_end_idx
 
             chunk_read_start_idx = 0 if chunk_start_idx == 0 else self._read_end_indices[chunk_start_idx - 1]
             chunk_read_end_idx = self._read_end_indices[chunk_end_idx - 1]
@@ -146,6 +152,13 @@ class ReadsDataset(IterableDataset):
                 datum = ReadsDatum(datum_array=chunk_data_ve[idx], compressed_reads_re=chunk_reads_re[read_start_idx:read_end_idx])
                 #assert datum.get_ref_count() + datum.get_alt_count() == len(datum.get_reads_array_re())
                 yield datum
+
+            # we have finished yielding all the data in this chunk.  Because this is such a large amount of data,
+            # we explicitly free memory (delete objects and garbage collect) before loading the next chunk
+            del chunk_data_ve
+            del chunk_reads_re
+            del indices
+            gc.collect()
 
     def num_sources(self) -> int:
         return self.totals_slvra.num_sources()

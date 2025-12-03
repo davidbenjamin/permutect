@@ -24,14 +24,14 @@ from permutect.metrics.loss_metrics import LossMetrics
 from permutect.data.batch import BatchProperty
 from permutect.data.count_binning import alt_count_bin_index, round_alt_count_to_bin_center, alt_count_bin_name
 from permutect.parameters import TrainingParameters
-from permutect.misc_utils import report_memory_usage, backpropagate, freeze, unfreeze
+from permutect.misc_utils import report_memory_usage, backpropagate, freeze, unfreeze, Timer
 from permutect.utils.enums import Variation, Epoch, Label
 
 WORST_OFFENDERS_QUEUE_SIZE = 100
 
 
 def train_artifact_model(model: ArtifactModel, train_dataset: ReadsDataset, valid_dataset: ReadsDataset, training_params: TrainingParameters, summary_writer: SummaryWriter,
-                         epochs_per_evaluation: int = None, calibration_sources: List[int] = None):
+                         epochs_per_evaluation: int = None, calibration_sources: List[int] = None, embedding_dataset: ReadsDataset = None):
     device, dtype = model._device, model._dtype
     bce = nn.BCEWithLogitsLoss(reduction='none')  # no reduction because we may want to first multiply by weights for unbalanced data
     ce = nn.CrossEntropyLoss(reduction='none')  # likewise
@@ -56,6 +56,8 @@ def train_artifact_model(model: ArtifactModel, train_dataset: ReadsDataset, vali
         threshold=0.001, min_lr=(training_params.learning_rate / 100), verbose=True)
 
     train_loader = train_dataset.make_data_loader(training_params.batch_size, is_cuda, training_params.num_workers)
+    embeddings_loader = train_loader if embedding_dataset is None else \
+        embedding_dataset.make_data_loader(training_params.batch_size, is_cuda, training_params.num_workers)
     report_memory_usage(f"Train loader created.")
     valid_loader = valid_dataset.make_data_loader(training_params.inference_batch_size, is_cuda, training_params.num_workers)
     report_memory_usage(f"Validation loader created.")
@@ -154,7 +156,8 @@ def train_artifact_model(model: ArtifactModel, train_dataset: ReadsDataset, vali
             alt_count_loss_metrics.write_to_summary_writer(epoch_type, epoch, summary_writer, prefix="alt-count-loss")
             source_prediction_loss_metrics.write_to_summary_writer(epoch_type, epoch, summary_writer, prefix="source-loss")
             loss_metrics.report_marginals(f"Semisupervised loss for {epoch_type.name} epoch {epoch}.")
-            source_prediction_loss_metrics.report_marginals(f"Source prediction loss for {epoch_type.name} epoch {epoch}.")
+            if num_sources > 1:
+                source_prediction_loss_metrics.report_marginals(f"Source prediction loss for {epoch_type.name} epoch {epoch}.")
 
             if (epochs_per_evaluation is not None and epoch % epochs_per_evaluation == 0) or (epoch == last_epoch):
                 balancer.make_plots(summary_writer, "log(label-balancing weights)", epoch_type, epoch, type_of_plot="weights")
@@ -162,7 +165,8 @@ def train_artifact_model(model: ArtifactModel, train_dataset: ReadsDataset, vali
                 loss_metrics.make_plots(summary_writer, "semisupervised loss", epoch_type, epoch)
                 loss_metrics.make_plots(summary_writer, "total weight of data vs alt and ref counts", epoch_type, epoch, type_of_plot="counts")
                 alt_count_loss_metrics.make_plots(summary_writer, "alt count prediction loss", epoch_type, epoch)
-                source_prediction_loss_metrics.make_plots(summary_writer, "source prediction loss", epoch_type, epoch)
+                if num_sources > 1:
+                    source_prediction_loss_metrics.make_plots(summary_writer, "source prediction loss", epoch_type, epoch)
 
                 print(f"performing evaluation on epoch {epoch}")
                 if epoch_type == Epoch.VALID:
@@ -190,7 +194,10 @@ def train_artifact_model(model: ArtifactModel, train_dataset: ReadsDataset, vali
         print(f"Time elapsed(s): {time.time() - start_of_epoch:.1f}")
         # note that we have not learned the AF spectrum yet
     # done with training
-    record_embeddings(model, train_loader, summary_writer)
+    report_memory_usage(f"Training complete, recording embeddings for tensorboard.")
+    embeddings_timer = Timer("Creating training and validation datasets")
+    record_embeddings(model, embeddings_loader, summary_writer)
+    embeddings_timer.report("Time to record embeddings for tensorboard.")
 
 @torch.inference_mode()
 def collect_evaluation_data(model: ArtifactModel, num_sources: int, balancer: Balancer, downsampler: Downsampler,
