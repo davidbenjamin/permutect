@@ -12,7 +12,7 @@ from permutect.parameters import parse_training_params, parse_model_params, add_
 from permutect.data.reads_dataset import ReadsDataset, all_but_the_last_fold, last_fold_only
 
 
-MAX_EMBEDDINGS_TO_RECORD_PER_LABEL = 100000
+MAX_EMBEDDINGS_TO_RECORD_PER_LABEL = 10000
 
 def main_without_parsing(args):
     params = parse_model_params(args)
