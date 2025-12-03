@@ -35,14 +35,14 @@ def ratio_with_pseudocount(a, b):
 
 
 class ReadsDataset(IterableDataset):
-    def __init__(self, memory_mapped_data: MemoryMappedData, num_folds: int = None, folds_to_use: List[int] = None):
+    def __init__(self, memory_mapped_data: MemoryMappedData, num_folds: int = None, folds_to_use: List[int] = None, keep_probs_by_label_l = None):
         """
         :param num_folds:
         """
         super(ReadsDataset, self).__init__()
         self.totals_slvra = BatchIndexedTensor.make_zeros(num_sources=1, include_logits=False, device=torch.device('cpu'))
         # if no folds, no copying is done; otherwise this creates a new file on disk
-        self.memory_mapped_data = memory_mapped_data.restrict_to_folds(num_folds, folds_to_use)
+        self.memory_mapped_data = memory_mapped_data.restrict_to_folds(num_folds, folds_to_use, keep_probs_by_label_l)
         self._size = self.memory_mapped_data.num_data
         self._read_end_indices = self.memory_mapped_data.read_end_indices
 
@@ -62,6 +62,10 @@ class ReadsDataset(IterableDataset):
             self._haplotypes_length.check(len(datum.get_haplotypes_1d()))
         data_recording_timer.report("Time to record data counts")
 
+        self.totals_by_label_l = self.totals_slvra.get_marginal((BatchProperty.LABEL,)) # totals by label
+
+    def totals_by_label(self):
+        return self.totals_by_label_l
 
     def num_read_features(self) -> int:
         return self._num_read_features.value

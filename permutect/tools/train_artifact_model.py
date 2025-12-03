@@ -1,5 +1,6 @@
 import argparse
 
+import torch
 from torch.utils.tensorboard import SummaryWriter
 
 from permutect import constants
@@ -10,6 +11,8 @@ from permutect.misc_utils import gpu_if_available, report_memory_usage, Timer
 from permutect.parameters import parse_training_params, parse_model_params, add_model_params_to_parser, add_training_params_to_parser
 from permutect.data.reads_dataset import ReadsDataset, all_but_the_last_fold, last_fold_only
 
+
+MAX_EMBEDDINGS_TO_RECORD_PER_LABEL = 100000
 
 def main_without_parsing(args):
     params = parse_model_params(args)
@@ -26,6 +29,9 @@ def main_without_parsing(args):
     subset_timer = Timer("Creating training and validation datasets")
     train_dataset = ReadsDataset(memory_mapped_data=memory_mapped_data, num_folds=num_folds, folds_to_use=all_but_the_last_fold(num_folds))
     valid_dataset = ReadsDataset(memory_mapped_data=memory_mapped_data, num_folds=num_folds, folds_to_use=last_fold_only(num_folds))
+    keep_probs_by_label_l = torch.clamp(MAX_EMBEDDINGS_TO_RECORD_PER_LABEL / (train_dataset.totals_by_label() + 1), min=0, max=1)
+    embeddings_dataset = ReadsDataset(memory_mapped_data=memory_mapped_data, num_folds=num_folds,
+                                 folds_to_use=all_but_the_last_fold(num_folds), keep_probs_by_label_l=keep_probs_by_label_l)
     subset_timer.report("Time to create training and validation datasets")
 
     model = pretrained_model if (pretrained_model is not None) else \

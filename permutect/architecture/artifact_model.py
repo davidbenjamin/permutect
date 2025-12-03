@@ -48,7 +48,6 @@ def sums_over_chunks(tensor2d: Tensor, chunk_size: int):
 def make_gated_ref_alt_mlp_encoder(input_dimension: int, params: ModelParameters) -> GatedRefAltMLP:
     return GatedRefAltMLP(d_model=input_dimension, d_ffn=params.self_attention_hidden_dimension, num_blocks=params.num_self_attention_layers)
 
-
 class ArtifactModel(torch.nn.Module):
     """
     DeepSets framework for reads and variant info.  We embed each read and concatenate the mean ref read

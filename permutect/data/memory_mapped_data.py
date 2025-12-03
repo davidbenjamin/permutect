@@ -1,5 +1,6 @@
 from __future__ import annotations
 import os
+import random
 import tarfile
 import tempfile
 from tempfile import NamedTemporaryFile
@@ -48,7 +49,7 @@ class MemoryMappedData:
     def size_in_bytes(self):
         return self.data_mmap.nbytes + self.reads_mmap.nbytes
 
-    def generate_reads_data(self, num_folds: int = None, folds_to_use: List[int] = None) -> Generator[ReadsDatum, None, None]:
+    def generate_reads_data(self, num_folds: int = None, folds_to_use: List[int] = None, keep_probs_by_label_l = None) -> Generator[ReadsDatum, None, None]:
         folds_set = None if folds_to_use is None else set(folds_to_use)
         print("Generating ReadsDatum objects from memory-mapped data.")
         assert self.reads_mmap.dtype == READS_ARRAY_DTYPE
@@ -57,11 +58,13 @@ class MemoryMappedData:
             if folds_to_use is None or (idx % num_folds in folds_set):
                 data_array = self.data_mmap[idx]
                 reads_array = self.reads_mmap[0 if idx == 0 else self.read_end_indices[idx - 1]:self.read_end_indices[idx]]
-                yield ReadsDatum(datum_array=data_array, compressed_reads_re=reads_array)
-                count += 1
+                datum = ReadsDatum(datum_array=data_array, compressed_reads_re=reads_array)
+                if keep_probs_by_label_l is None or random.random() < keep_probs_by_label_l[datum.get_label()]:
+                    yield datum
+                    count += 1
         print(f"generated {count} objects.")
 
-    def restrict_to_folds(self, num_folds: int = None, folds_to_use: List[int] = None) -> MemoryMappedData:
+    def restrict_to_folds(self, num_folds: int = None, folds_to_use: List[int] = None, keep_probs_by_label_l = None) -> MemoryMappedData:
         if folds_to_use is None:
             return self
         else:
@@ -70,7 +73,7 @@ class MemoryMappedData:
             fudge_factor = 1.1
             estimated_num_data = int(self.num_data * proportion * fudge_factor)
             estimated_num_reads = int(self.num_reads * proportion * fudge_factor)
-            reads_datum_source = self.generate_reads_data(num_folds=num_folds, folds_to_use=folds_to_use)
+            reads_datum_source = self.generate_reads_data(num_folds=num_folds, folds_to_use=folds_to_use, keep_probs_by_label_l=keep_probs_by_label_l)
             return MemoryMappedData.from_generator(reads_datum_source, estimated_num_data, estimated_num_reads)
 
     def restrict_to_labeled_only(self) -> MemoryMappedData:
