@@ -1,16 +1,12 @@
-from collections import defaultdict
 from itertools import chain
 
 import torch
 from matplotlib import pyplot as plt
-from torch import Tensor, IntTensor
+from torch import Tensor
 from torch.utils.tensorboard import SummaryWriter
 from tqdm.autonotebook import trange, tqdm
 
 from permutect.architecture.posterior_model_priors import PosteriorModelPriors
-from permutect.architecture.spectra.artifact_spectra import ArtifactSpectra
-from permutect.architecture.spectra.normal_artifact_spectrum import NormalArtifactSpectrum
-from permutect.architecture.spectra.somatic_spectrum import SomaticSpectrum
 from permutect.architecture.spectra.posterior_model_spectra import PosteriorModelSpectra
 from permutect.data.datum import DEFAULT_GPU_FLOAT, DEFAULT_CPU_FLOAT
 from permutect.data.posterior_data import PosteriorBatch
