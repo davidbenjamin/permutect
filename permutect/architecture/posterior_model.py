@@ -97,8 +97,8 @@ class PosteriorModel(torch.nn.Module):
         sufficient evidence was found to emit test data.  Without this parameter (i.e. if it were set to zero) we would
         underestimate the frequency of sequencing error, hence overestimate the prior probability of variation.
         """
-        spectra_and_prior_params = chain(self.spectra.parameters(), self.priors.parameters())
-        optimizer = torch.optim.Adam(spectra_and_prior_params, lr=learning_rate)
+        spectra_params = chain(self.spectra.parameters())
+        optimizer = torch.optim.Adam(spectra_params, lr=learning_rate)
 
         for epoch in trange(1, num_iterations + 1, desc="AF spectra epoch"):
             epoch_loss = StreamingAverage()
