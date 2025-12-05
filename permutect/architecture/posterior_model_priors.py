@@ -1,6 +1,9 @@
+from collections import defaultdict
+
 import torch
 from torch import nn, IntTensor, Tensor
 
+from permutect.metrics import plotting
 from permutect.misc_utils import gpu_if_available
 from permutect.utils.enums import Variation, Call
 
@@ -36,3 +39,17 @@ class PosteriorModelPriors(nn.Module):
             self._unnormalized_priors_vc.copy_(torch.log(posterior_totals_vc/(posterior_totals_vc + overall_total)))
             self._unnormalized_priors_vc[:, Call.SEQ_ERROR] = 0
             self._unnormalized_priors_vc[:, Call.GERMLINE] = -9999 if self.no_germline_mode else 0
+
+    def plot_log_priors(self):
+        # bar plot of log priors -- data is indexed by call type name, and x ticks are variant types
+        log_prior_bar_plot_data = defaultdict(list)
+        for var_type_idx, variant_type in enumerate(Variation):
+            log_priors = self.log_priors_bc(
+                torch.LongTensor([var_type_idx]).to(device=self._device, dtype=self._unnormalized_priors_vc.dtype), torch.tensor([0.001]))
+            log_priors_cpu = log_priors.squeeze().detach().cpu()
+            for call_type in (Call.SOMATIC, Call.ARTIFACT, Call.NORMAL_ARTIFACT):
+                log_prior_bar_plot_data[call_type.name].append(log_priors_cpu[call_type])
+
+        prior_fig, prior_ax = plotting.grouped_bar_plot(log_prior_bar_plot_data, [v_type.name for v_type in Variation],
+                                                        "log priors")
+        return prior_fig, prior_ax
