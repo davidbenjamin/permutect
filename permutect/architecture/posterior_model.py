@@ -119,16 +119,6 @@ class PosteriorModel(torch.nn.Module):
                 loss = -torch.mean(log_evidence)
                 #loss = - torch.sum(confidence_mask * log_evidence) / (torch.sum(confidence_mask) + 0.000001)
 
-                # note that we don't multiply by batch size because we take the mean of log evidence above
-                # however, we must sum over variant types since each ignored site is simultaneously a missing non-SNV,
-                # a missing non-INSERTION etc
-                # we use a germline allele frequency of 0.001 for the missing sites but it doesn't really matter
-                for var_type_idx, variant_type in enumerate(Variation):
-                    log_priors = self.priors.log_priors_bc(torch.LongTensor([var_type_idx]).to(device=self._device, dtype=self._dtype), torch.tensor([0.001], device=self._device))
-                    log_seq_error_prior = log_priors.squeeze()[Call.SEQ_ERROR]
-                    missing_loss = -ignored_to_non_ignored_ratio * log_seq_error_prior  
-                    loss += missing_loss
-
                 backpropagate(optimizer, loss)
 
                 epoch_loss.record_sum(batch.size() * loss.detach().item(), batch.size())
