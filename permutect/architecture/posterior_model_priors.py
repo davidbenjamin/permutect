@@ -26,24 +26,13 @@ class PosteriorModelPriors(nn.Module):
         unnormalized_priors_bc[:, Call.GERMLINE] = -9999 if self.no_germline_mode else torch.log(1 - torch.square(1 - allele_frequencies_1d))     # 1 minus hom ref probability
         return torch.nn.functional.log_softmax(unnormalized_priors_bc, dim=-1)
 
-    def update_priors_m_step(self, posteriors_nc, types_n, ignored_to_non_ignored_ratio):
+    def update_priors_m_step(self, posterior_totals_vc, ignored_to_non_ignored_ratio):
         # update the priors in an EM-style M step.  We'll need the counts of each call type vs variant type
-        total_nonignored = torch.sum(posteriors_nc).item()
+        total_nonignored = torch.sum(posterior_totals_vc).item()
         total_ignored = ignored_to_non_ignored_ratio * total_nonignored
         overall_total = total_ignored + total_nonignored
 
         with torch.no_grad():
-            for c, call_type in enumerate(Call):
-                if call_type == Call.SEQ_ERROR or call_type == Call.GERMLINE:
-                    continue
-                posteriors_n = posteriors_nc[:, c]
-
-                for t, var_type in enumerate(Variation):
-                    var_type_mask = (types_n == t)
-                    total_for_this_call_and_var_type = torch.sum(posteriors_n * var_type_mask)
-
-                    self._unnormalized_priors_vc[t, c] = torch.log(
-                        total_for_this_call_and_var_type / (total_for_this_call_and_var_type + overall_total)).item()
-
+            self._unnormalized_priors_vc.copy_(torch.log(posterior_totals_vc/(posterior_totals_vc + overall_total)))
             self._unnormalized_priors_vc[:, Call.SEQ_ERROR] = 0
             self._unnormalized_priors_vc[:, Call.GERMLINE] = -9999 if self.no_germline_mode else 0

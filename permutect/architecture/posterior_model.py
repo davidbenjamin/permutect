@@ -103,22 +103,17 @@ class PosteriorModel(torch.nn.Module):
         for epoch in trange(1, num_iterations + 1, desc="AF spectra epoch"):
             epoch_loss = StreamingAverage()
 
-            # store posteriors as a list (to be stacked at the end of the epoch) for an M step
-            # 'l' for loader, 'b' for batch, 'c' for call type
-            posteriors_lbc = []
-            alt_counts_lb = []
-            depths_lb = []
-            types_lb = []
+            # data for M step
+            posterior_totals_tc = torch.zeros((len(Variation), len(Call)), device=self._device)
 
             batch: PosteriorBatch
             for batch in tqdm(prefetch_generator(posterior_loader), mininterval=10, total=len(posterior_loader)):
                 relative_posteriors = self.log_relative_posteriors_bc(batch)
                 log_evidence = torch.logsumexp(relative_posteriors, dim=1)
 
-                posteriors_lbc.append(torch.softmax(relative_posteriors, dim=-1).detach())
-                alt_counts_lb.append(batch.get_alt_counts().detach())
-                depths_lb.append(batch.get_original_depths().detach())
-                types_lb.append(batch.get_variant_types().detach())
+                # the next line performs "for b in batch: posterior_total_tc[var_types[b],:] += posteriors_bc[b, :]"
+                posteriors_bc = torch.softmax(relative_posteriors, dim=-1).detach()
+                posterior_totals_tc.index_add_(dim=0, index=batch.get_variant_types(), source=posteriors_bc)
 
                 # confidence_mask = torch.logical_or(batch.get_artifact_logits() < 0, batch.get_artifact_logits() > 3)
                 loss = -torch.mean(log_evidence)
@@ -139,13 +134,7 @@ class PosteriorModel(torch.nn.Module):
                 epoch_loss.record_sum(batch.size() * loss.detach().item(), batch.size())
             # iteration over posterior dataloader finished
 
-            # 'n' denotes index of data within entire Posterior Dataset
-            posteriors_nc = torch.vstack(posteriors_lbc)
-            alt_counts_n = torch.hstack(alt_counts_lb)
-            depths_n = torch.hstack(depths_lb)
-            types_n = torch.hstack(types_lb)
-
-            self.priors.update_priors_m_step(posteriors_nc, types_n, ignored_to_non_ignored_ratio)
+            self.priors.update_priors_m_step(posterior_totals_tc, ignored_to_non_ignored_ratio)
             # TODO: fix the M step for the new somatic spectrum?
             #self.somatic_spectrum.update_m_step(posteriors_nc[:, Call.SOMATIC], alt_counts_n, depths_n)
 
