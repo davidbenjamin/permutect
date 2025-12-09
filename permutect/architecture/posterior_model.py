@@ -123,8 +123,8 @@ class PosteriorModel(torch.nn.Module):
                 loss = -torch.mean(log_evidence)
                 #loss = - torch.sum(confidence_mask * log_evidence) / (torch.sum(confidence_mask) + 0.000001)
 
-                if not use_context_dependence:
-                    backpropagate(optimizer, loss)
+                #if not use_context_dependence:
+                backpropagate(optimizer, loss)
                 epoch_loss.record_sum(batch.size() * loss.detach().item(), batch.size())
             # iteration over posterior dataloader finished
 
