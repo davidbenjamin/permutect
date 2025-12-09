@@ -163,7 +163,7 @@ class PosteriorModelPriors(nn.Module):
                     backpropagate(shared_prior_optimizer, -log_prob)
         else:   # if not using context-dependent SNV priors
             with torch.no_grad():
-                self.somatic_snv_log_priors_rrra = self.log_priors_vc[Variation.SNV, Call.SOMATIC]
+                self.somatic_snv_log_priors_rrra.fill_(self.log_priors_vc[Variation.SNV, Call.SOMATIC])
 
     def make_priors_bar_plot(self, snv_context_totals_rrra):
         # bar plot of log priors -- data is indexed by call type name, and x ticks are variant types
