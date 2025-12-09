@@ -95,7 +95,8 @@ class PosteriorModel(torch.nn.Module):
         # we begin learning with context-dependent priors turned off
         self.priors.disable_context_dependent_snv_priors()
         for epoch in trange(1, num_iterations + 1, desc="AF spectra epoch"):
-            if epoch > (num_iterations / 2):
+            use_context_dependence = (epoch > (num_iterations / 2))
+            if use_context_dependence:
                 self.priors.enable_context_dependent_snv_priors()
             epoch_loss = StreamingAverage()
 
@@ -122,7 +123,8 @@ class PosteriorModel(torch.nn.Module):
                 loss = -torch.mean(log_evidence)
                 #loss = - torch.sum(confidence_mask * log_evidence) / (torch.sum(confidence_mask) + 0.000001)
 
-                backpropagate(optimizer, loss)
+                if not use_context_dependence:
+                    backpropagate(optimizer, loss)
                 epoch_loss.record_sum(batch.size() * loss.detach().item(), batch.size())
             # iteration over posterior dataloader finished
 
