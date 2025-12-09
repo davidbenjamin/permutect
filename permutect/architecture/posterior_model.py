@@ -92,6 +92,8 @@ class PosteriorModel(torch.nn.Module):
         spectra_params = chain(self.spectra.parameters())
         optimizer = torch.optim.Adam(spectra_params, lr=learning_rate)
 
+        # we begin learning with context-dependent priors turned off
+        self.priors.disable_context_dependent_snv_priors()
         for epoch in trange(1, num_iterations + 1, desc="AF spectra epoch"):
             epoch_loss = StreamingAverage()
 

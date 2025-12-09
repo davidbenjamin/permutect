@@ -47,6 +47,7 @@ class PosteriorModelPriors(nn.Module):
         super(PosteriorModelPriors, self).__init__()
         self.no_germline_mode = no_germline_mode
         self._device = device
+        self.use_context_dependent_snv_priors = True
 
         # pre-softmax priors of different call types [log P(variant), log P(artifact), log P(seq error)] for each variant type
         # although these vectors are defined for all variant types, somatic SNVs are handled separately
@@ -70,6 +71,12 @@ class PosteriorModelPriors(nn.Module):
         for base in range(4):
             self.NONTRIVIAL_CONTEXTS_rrra[:, base, :, base] = 0
         self.NUM_NONTRIVIAL_CONTEXTS = 4 * 4 * 4 * 3
+
+    def enable_context_dependent_snv_priors(self) -> None:
+        self.use_context_dependent_snv_priors = True
+
+    def disable_context_dependent_snv_priors(self) -> None:
+        self.use_context_dependent_snv_priors = False
 
     @classmethod
     def initialize_snv_context_totals_rrra(cls, device=gpu_if_available()):
@@ -99,8 +106,9 @@ class PosteriorModelPriors(nn.Module):
         log_priors_bc[:, Call.GERMLINE] = -9999 if self.no_germline_mode else torch.log(
             1 - torch.square(1 - allele_frequencies_b))  # 1 minus hom ref probability
 
-        log_priors_bc[:, Call.SOMATIC] = is_snv_b * self.somatic_snv_log_priors(batch) + \
-            (1 - is_snv_b) * log_priors_bc[:, Call.SOMATIC]
+        if self.use_context_dependent_snv_priors:
+            log_priors_bc[:, Call.SOMATIC] = is_snv_b * self.somatic_snv_log_priors(batch) + \
+                (1 - is_snv_b) * log_priors_bc[:, Call.SOMATIC]
         return torch.nn.functional.log_softmax(log_priors_bc, dim=-1)
 
     def update_priors_m_step(self, posterior_totals_vc, somatic_snv_totals_rrra,
@@ -120,38 +128,42 @@ class PosteriorModelPriors(nn.Module):
             self.log_priors_vc[:, Call.SEQ_ERROR] = 0
             self.log_priors_vc[:, Call.GERMLINE] = -9999 if self.no_germline_mode else 0
 
-        # shared Beta(alpha, beta) prior on all context-dependent mutation rates.  In the M step for a particular
-        # context these act as pseudocounts.
-        # TODO: should we initialize this better?
-        alpha, beta = torch.tensor([1.1], requires_grad=True, device=self._device), torch.tensor([1.1], requires_grad=True, device=self._device)
+        if self.use_context_dependent_snv_priors:
+            # shared Beta(alpha, beta) prior on all context-dependent mutation rates.  In the M step for a particular
+            # context these act as pseudocounts.
+            # TODO: should we initialize this better?
+            alpha, beta = torch.tensor([1.1], requires_grad=True, device=self._device), torch.tensor([1.1], requires_grad=True, device=self._device)
 
-        shared_prior_optimizer = torch.optim.Adam([alpha, beta])
-        for iteration in range(50):
-            # closed form optimization (since shared beta prior is conjugate) of context-dependent priors
-            # with shared prior parameters alpha, beta held fixed
+            shared_prior_optimizer = torch.optim.Adam([alpha, beta])
+            for iteration in range(50):
+                # closed form optimization (since shared beta prior is conjugate) of context-dependent priors
+                # with shared prior parameters alpha, beta held fixed
+                with torch.no_grad():
+                    self.somatic_snv_log_priors_rrra.copy_(torch.log((snv_context_totals_rrra + alpha - 1) /
+                        (snv_context_totals_rrra + total_ignored_per_context + alpha + beta - 2)))
+
+                    # make a 1D tensor of the different nontrivial log SNV priors and fit alpha, beta to initialize
+                    nontrivial_log_priors = torch.exp(self.somatic_snv_log_priors_rrra.flatten()[self.NONTRIVIAL_CONTEXTS_rrra.flatten().nonzero()])
+                    new_alpha, new_beta, _, _ = stats.beta.fit(nontrivial_log_priors.cpu(), floc=0, fscale=1)
+                    alpha[0] = new_alpha
+                    beta[0] = new_beta
+
+                # non-closed form gradient descent optimization of alpha, beta with context-dependent priors held fixed
+                # the contribution of the shared prior to the log likelihood is
+                # sum_context log Beta(context mutation rate | alpha, beta)
+                # = sum_context {-log Beta(alpha, beta) + (alpha - 1) log(rate_contxt) + (beta-1)log(1-rate_context)
+                # where the sum is over non-trivial contexts (exclude eg context = AGG, alt base = G)
+                # that is
+                sum_1 = torch.sum(self.somatic_snv_log_priors_rrra * self.NONTRIVIAL_CONTEXTS_rrra).detach()
+                sum_2 = torch.sum(torch.log1p(-self.somatic_snv_log_priors_rrra) * self.NONTRIVIAL_CONTEXTS_rrra).detach()
+
+                for subiteration in range(100):
+                    log_prob = self.NUM_NONTRIVIAL_CONTEXTS * (torch.lgamma(alpha + beta) - torch.lgamma(alpha) - torch.lgamma(beta)) + \
+                               (alpha - 1) * sum_1 + (beta - 1) * sum_2
+                    backpropagate(shared_prior_optimizer, -log_prob)
+        else:   # if not using context-dependent SNV priors
             with torch.no_grad():
-                self.somatic_snv_log_priors_rrra.copy_(torch.log((snv_context_totals_rrra + alpha - 1) /
-                    (snv_context_totals_rrra + total_ignored_per_context + alpha + beta - 2)))
-
-                # make a 1D tensor of the different nontrivial log SNV priors and fit alpha, beta to initialize
-                nontrivial_log_priors = torch.exp(self.somatic_snv_log_priors_rrra.flatten()[self.NONTRIVIAL_CONTEXTS_rrra.flatten().nonzero()])
-                new_alpha, new_beta, _, _ = stats.beta.fit(nontrivial_log_priors.cpu(), floc=0, fscale=1)
-                alpha[0] = new_alpha
-                beta[0] = new_beta
-
-            # non-closed form gradient descent optimization of alpha, beta with context-dependent priors held fixed
-            # the contribution of the shared prior to the log likelihood is
-            # sum_context log Beta(context mutation rate | alpha, beta)
-            # = sum_context {-log Beta(alpha, beta) + (alpha - 1) log(rate_contxt) + (beta-1)log(1-rate_context)
-            # where the sum is over non-trivial contexts (exclude eg context = AGG, alt base = G)
-            # that is
-            sum_1 = torch.sum(self.somatic_snv_log_priors_rrra * self.NONTRIVIAL_CONTEXTS_rrra).detach()
-            sum_2 = torch.sum(torch.log1p(-self.somatic_snv_log_priors_rrra) * self.NONTRIVIAL_CONTEXTS_rrra).detach()
-
-            for subiteration in range(100):
-                log_prob = self.NUM_NONTRIVIAL_CONTEXTS * (torch.lgamma(alpha + beta) - torch.lgamma(alpha) - torch.lgamma(beta)) + \
-                           (alpha - 1) * sum_1 + (beta - 1) * sum_2
-                backpropagate(shared_prior_optimizer, -log_prob)
+                self.somatic_snv_log_priors_rrra = self.log_priors_vc[Variation.SNV, Call.SOMATIC]
 
     def make_priors_bar_plot(self, snv_context_totals_rrra):
         # bar plot of log priors -- data is indexed by call type name, and x ticks are variant types
