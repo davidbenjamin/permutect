@@ -50,12 +50,12 @@ class PosteriorModelPriors(nn.Module):
 
         # pre-softmax priors of different call types [log P(variant), log P(artifact), log P(seq error)] for each variant type
         # although these vectors are defined for all variant types, somatic SNVs are handled separately
-        self._unnormalized_priors_vc = torch.nn.Parameter(torch.zeros(len(Variation), len(Call)))
+        self.log_priors_vc = torch.nn.Parameter(torch.zeros(len(Variation), len(Call)))
         with torch.no_grad():
-            self._unnormalized_priors_vc[:, Call.SOMATIC] = variant_log_prior
-            self._unnormalized_priors_vc[:, Call.ARTIFACT] = artifact_log_prior
-            self._unnormalized_priors_vc[:, Call.GERMLINE] = -9999 if self.no_germline_mode else 0
-            self._unnormalized_priors_vc[:, Call.NORMAL_ARTIFACT] = artifact_log_prior
+            self.log_priors_vc[:, Call.SOMATIC] = variant_log_prior
+            self.log_priors_vc[:, Call.ARTIFACT] = artifact_log_prior
+            self.log_priors_vc[:, Call.GERMLINE] = -9999 if self.no_germline_mode else 0
+            self.log_priors_vc[:, Call.NORMAL_ARTIFACT] = artifact_log_prior
 
         # context and substitution dependent (the 3 r's stand for ref context, the 'a' is for alt base)
         # we have 5 values just in case there is a D in the ref context (an indel next to a SNV, perhaps)
@@ -90,18 +90,18 @@ class PosteriorModelPriors(nn.Module):
 
     def log_priors_bc(self, batch: PosteriorBatch) -> torch.Tensor:
         variant_types_b = batch.get_variant_types().long()
-        allele_frequencies_1d = batch.get_allele_frequencies()
-        is_snv = (variant_types_b == Variation.SNV).float()
+        allele_frequencies_b = batch.get_allele_frequencies()
+        is_snv_b = (variant_types_b == Variation.SNV).float()
 
         # seq error and germline initialized to 0 or -9999 as discussed above
-        unnormalized_priors_bc = self._unnormalized_priors_vc[variant_types_b.long(), :]
-        unnormalized_priors_bc[:, Call.SEQ_ERROR] = 0
-        unnormalized_priors_bc[:, Call.GERMLINE] = -9999 if self.no_germline_mode else torch.log(
-            1 - torch.square(1 - allele_frequencies_1d))  # 1 minus hom ref probability
+        log_priors_bc = self.log_priors_vc[variant_types_b.long(), :]
+        log_priors_bc[:, Call.SEQ_ERROR] = 0
+        log_priors_bc[:, Call.GERMLINE] = -9999 if self.no_germline_mode else torch.log(
+            1 - torch.square(1 - allele_frequencies_b))  # 1 minus hom ref probability
 
-        unnormalized_priors_bc[:, Call.SOMATIC] = is_snv * self.somatic_snv_log_priors(batch) + \
-            (1 - is_snv) * unnormalized_priors_bc[:, Call.SOMATIC]
-        return torch.nn.functional.log_softmax(unnormalized_priors_bc, dim=-1)
+        log_priors_bc[:, Call.SOMATIC] = is_snv_b * self.somatic_snv_log_priors(batch) + \
+            (1 - is_snv_b) * log_priors_bc[:, Call.SOMATIC]
+        return torch.nn.functional.log_softmax(log_priors_bc, dim=-1)
 
     def update_priors_m_step(self, posterior_totals_vc, somatic_snv_totals_rrra,
                              snv_context_totals_rrra, ignored_to_non_ignored_ratio):
@@ -116,9 +116,9 @@ class PosteriorModelPriors(nn.Module):
         total_ignored_per_context = total_nonignored * ignored_to_non_ignored_ratio / 64
 
         with torch.no_grad():
-            self._unnormalized_priors_vc.copy_(torch.log(posterior_totals_vc/(posterior_totals_vc + overall_total)))
-            self._unnormalized_priors_vc[:, Call.SEQ_ERROR] = 0
-            self._unnormalized_priors_vc[:, Call.GERMLINE] = -9999 if self.no_germline_mode else 0
+            self.log_priors_vc.copy_(torch.log(posterior_totals_vc / (posterior_totals_vc + overall_total)))
+            self.log_priors_vc[:, Call.SEQ_ERROR] = 0
+            self.log_priors_vc[:, Call.GERMLINE] = -9999 if self.no_germline_mode else 0
 
         # shared Beta(alpha, beta) prior on all context-dependent mutation rates.  In the M step for a particular
         # context these act as pseudocounts.
@@ -156,7 +156,7 @@ class PosteriorModelPriors(nn.Module):
     def make_priors_bar_plot(self, snv_context_totals_rrra):
         # bar plot of log priors -- data is indexed by call type name, and x ticks are variant types
 
-        log_prior_bar_plot_data = {call.name : self._unnormalized_priors_vc[:, call].cpu().detach().numpy() \
+        log_prior_bar_plot_data = {call.name : self.log_priors_vc[:, call].cpu().detach().numpy() \
                 for call in [Call.SOMATIC, Call.ARTIFACT, Call.NORMAL_ARTIFACT]}
 
         somatic_snv_rates_rrra = self.NONTRIVIAL_CONTEXTS_rrra * torch.exp(self.somatic_snv_log_priors_rrra).detach()
