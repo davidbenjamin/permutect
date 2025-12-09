@@ -95,8 +95,9 @@ class PosteriorModel(torch.nn.Module):
         # we begin learning with context-dependent priors turned off
         self.priors.disable_context_dependent_snv_priors()
         for epoch in trange(1, num_iterations + 1, desc="AF spectra epoch"):
+            if epoch > (num_iterations / 2):
+                self.priors.enable_context_dependent_snv_priors()
             epoch_loss = StreamingAverage()
-
 
             # E-step totals indexed by variant type and call type
             # for somatic SNVs, totals indexed by 3-base context and substitution alt base
