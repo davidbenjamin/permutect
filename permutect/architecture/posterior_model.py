@@ -96,8 +96,8 @@ class PosteriorModel(torch.nn.Module):
         self.priors.disable_context_dependent_snv_priors()
         for epoch in trange(1, num_iterations + 1, desc="AF spectra epoch"):
             use_context_dependence = (epoch > (num_iterations / 2))
-            #if use_context_dependence:
-            #    self.priors.enable_context_dependent_snv_priors()
+            if use_context_dependence:
+                self.priors.enable_context_dependent_snv_priors()
             epoch_loss = StreamingAverage()
 
             # E-step totals indexed by variant type and call type

@@ -139,12 +139,12 @@ class PosteriorModelPriors(nn.Module):
                 # closed form optimization (since shared beta prior is conjugate) of context-dependent priors
                 # with shared prior parameters alpha, beta held fixed
                 with torch.no_grad():
-                    self.somatic_snv_log_priors_rrra.copy_(torch.log((snv_context_totals_rrra + alpha - 1) /
+                    self.somatic_snv_log_priors_rrra.copy_(torch.log((somatic_snv_totals_rrra + alpha - 1) /
                         (snv_context_totals_rrra + total_ignored_per_context + alpha + beta - 2)))
 
                     # make a 1D tensor of the different nontrivial log SNV priors and fit alpha, beta to initialize
-                    nontrivial_log_priors = torch.exp(self.somatic_snv_log_priors_rrra.flatten()[self.NONTRIVIAL_CONTEXTS_rrra.flatten().nonzero()])
-                    new_alpha, new_beta, _, _ = stats.beta.fit(nontrivial_log_priors.cpu(), floc=0, fscale=1)
+                    nontrivial_priors = torch.exp(self.somatic_snv_log_priors_rrra.flatten()[self.NONTRIVIAL_CONTEXTS_rrra.flatten().nonzero()])
+                    new_alpha, new_beta, _, _ = stats.beta.fit(nontrivial_priors.cpu(), floc=0, fscale=1)
                     alpha[0] = new_alpha
                     beta[0] = new_beta
 
