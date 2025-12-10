@@ -144,9 +144,14 @@ class PosteriorModelPriors(nn.Module):
 
                     # make a 1D tensor of the different nontrivial log SNV priors and fit alpha, beta to initialize
                     nontrivial_priors = torch.exp(self.somatic_snv_log_priors_rrra.flatten()[self.NONTRIVIAL_CONTEXTS_rrra.flatten().nonzero()])
-                    new_alpha, new_beta, _, _ = stats.beta.fit(nontrivial_priors.cpu(), floc=0, fscale=1)
-                    alpha[0] = new_alpha
-                    beta[0] = new_beta
+
+                    # initial guess for alpha and beta via method of moments.  This is taken from the scipy.stats.beta.fit code
+                    # which we don't use in its entirety because it throws weird errors
+                    xbar = torch.mean(nontrivial_priors).item()
+                    fac = xbar * (1 - xbar) / torch.var(nontrivial_priors).item() - 1
+                    alpha[0] = xbar * fac
+                    beta[0] = (1 - xbar) * fac
+                    #new_alpha, new_beta, _, _ = stats.beta.fit(nontrivial_priors.cpu(), floc=0, fscale=1)
 
                 # non-closed form gradient descent optimization of alpha, beta with context-dependent priors held fixed
                 # the contribution of the shared prior to the log likelihood is

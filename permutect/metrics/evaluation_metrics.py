@@ -216,7 +216,7 @@ class EmbeddingMetrics:
             interesting = interesting_indices & indices
             boring = boring_indices & indices
             boring_count = max(len(interesting) // 3, 100) if is_filter_variants else len(boring)
-            boring_to_keep = np.array([int(n) for n in boring])[np.random.choice(len(boring), size=boring_count, replace=False)]
+            boring_to_keep = np.array([]) if len(boring) == 0 else np.array([int(n) for n in boring])[np.random.choice(len(boring), size=boring_count, replace=False)]
             idx = sample_indices_for_tensorboard(np.hstack((boring_to_keep, np.array([int(n) for n in interesting]))))
 
             summary_writer.add_embedding(stacked_features[idx],
@@ -231,7 +231,7 @@ class EmbeddingMetrics:
             interesting = interesting_indices & indices
             boring = boring_indices & indices
             boring_count = max(len(interesting) // 3, 100) if is_filter_variants else len(boring)
-            boring_to_keep = np.array([int(n) for n in boring])[np.random.choice(len(boring), size=boring_count, replace=False)]
+            boring_to_keep = np.array([]) if len(boring) == 0 else np.array([int(n) for n in boring])[np.random.choice(len(boring), size=boring_count, replace=False)]
             idx = sample_indices_for_tensorboard(np.hstack((boring_to_keep, np.array([int(n) for n in interesting]))))
 
             if len(idx) > 0:
