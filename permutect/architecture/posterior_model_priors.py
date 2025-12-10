@@ -149,8 +149,17 @@ class PosteriorModelPriors(nn.Module):
                     # which we don't use in its entirety because it throws weird errors
                     xbar = torch.mean(nontrivial_priors).item()
                     fac = xbar * (1 - xbar) / torch.var(nontrivial_priors).item() - 1
-                    alpha[0] = xbar * fac
-                    beta[0] = (1 - xbar) * fac
+                    new_alpha = xbar * fac
+                    new_beta = (1 - xbar) * fac
+                    # since pseudocounts are alpha - 1, beta - 1, we want them alpha and beta to be greater than 1
+                    # to avoid weird numerical problems.  If we scale them by the same factor the mean is unchanged
+                    if new_alpha < 1.1:
+                        scale_factor = 1.1 / new_alpha
+                        new_alpha = new_alpha * scale_factor
+                        new_beta = new_beta * scale_factor
+
+                    alpha[0] = new_alpha
+                    beta[0] = new_beta
                     #new_alpha, new_beta, _, _ = stats.beta.fit(nontrivial_priors.cpu(), floc=0, fscale=1)
 
                 # non-closed form gradient descent optimization of alpha, beta with context-dependent priors held fixed
@@ -159,13 +168,13 @@ class PosteriorModelPriors(nn.Module):
                 # = sum_context {-log Beta(alpha, beta) + (alpha - 1) log(rate_contxt) + (beta-1)log(1-rate_context)
                 # where the sum is over non-trivial contexts (exclude eg context = AGG, alt base = G)
                 # that is
-                sum_1 = torch.sum(self.somatic_snv_log_priors_rrra * self.NONTRIVIAL_CONTEXTS_rrra).detach()
-                sum_2 = torch.sum(torch.log1p(-self.somatic_snv_log_priors_rrra) * self.NONTRIVIAL_CONTEXTS_rrra).detach()
+                #sum_1 = torch.sum(self.somatic_snv_log_priors_rrra * self.NONTRIVIAL_CONTEXTS_rrra).detach()
+                #sum_2 = torch.sum(torch.log1p(-self.somatic_snv_log_priors_rrra) * self.NONTRIVIAL_CONTEXTS_rrra).detach()
 
-                for subiteration in range(100):
-                    log_prob = self.NUM_NONTRIVIAL_CONTEXTS * (torch.lgamma(alpha + beta) - torch.lgamma(alpha) - torch.lgamma(beta)) + \
-                               (alpha - 1) * sum_1 + (beta - 1) * sum_2
-                    backpropagate(shared_prior_optimizer, -log_prob)
+                #for subiteration in range(100):
+                #    log_prob = self.NUM_NONTRIVIAL_CONTEXTS * (torch.lgamma(alpha + beta) - torch.lgamma(alpha) - torch.lgamma(beta)) + \
+                #               (alpha - 1) * sum_1 + (beta - 1) * sum_2
+                #    backpropagate(shared_prior_optimizer, -log_prob)
         else:   # if not using context-dependent SNV priors
             with torch.no_grad():
                 self.somatic_snv_log_priors_rrra.fill_(self.log_priors_vc[Variation.SNV, Call.SOMATIC])
