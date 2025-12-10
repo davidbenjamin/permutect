@@ -121,7 +121,7 @@ class PosteriorModelPriors(nn.Module):
         total_ignored = ignored_to_non_ignored_ratio * total_nonignored
         overall_total = total_ignored + total_nonignored
         # coarse assumption that every context is equally likely
-        total_ignored_per_context = total_nonignored * ignored_to_non_ignored_ratio / 64
+        total_ignored_per_context = total_ignored / 64
 
         with torch.no_grad():
             self.log_priors_vc.copy_(torch.log(posterior_totals_vc / (posterior_totals_vc + overall_total)))
