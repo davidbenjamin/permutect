@@ -36,13 +36,18 @@ workflow Permutect {
         File? test_dataset_truth_vcf_idx
 
         # These HACKS are required to get around Terra's unreliable call-caching
-        File? cached_plain_text_test_dataset
-        File? cached_mutect2_vcf
-        File? cached_mutect2_vcf_idx
-        File? cached_contigs_table
-        File? cached_maf_segments
-        File? cached_normal_maf_segments
-        File? cached_mutect_stats
+        # note: defining them as Strings instead of Files is essential because otherwise
+        # a cached input gs://[some hash]/final-outputs/file.txt is written as
+        # gs://[some hash]/final-outputs/[another hash]/final-outputs/file.txt
+        # and eventually the file name gets too long and throws an error in Terra/cromwell.
+        # if we define them as Strings it uses the literal value
+        String? cached_plain_text_test_dataset
+        String? cached_mutect2_vcf
+        String? cached_mutect2_vcf_idx
+        String? cached_contigs_table
+        String? cached_maf_segments
+        String? cached_normal_maf_segments
+        String? cached_mutect_stats
 
         String? permutect_filtering_extra_args
         String gatk_docker
@@ -156,12 +161,12 @@ workflow Permutect {
         File output_vcf_idx = PermutectFiltering.output_vcf_idx
         File tensorboard_report = PermutectFiltering.tensorboard_report
         File test_dataset = select_first([Mutect2.permutect_test_dataset, cached_plain_text_test_dataset])
-        File mutect2_vcf = select_first([Mutect2.output_vcf, cached_mutect2_vcf])
-        File mutect2_vcf_idx = select_first([Mutect2.output_vcf_idx, cached_mutect2_vcf_idx])
-        File contigs_table = select_first([Mutect2.permutect_contigs_table, cached_contigs_table])
-        File maf_segments = select_first([Mutect2.maf_segments, cached_maf_segments])
-        File normal_maf_segments = select_first([Mutect2.normal_maf_segments, cached_normal_maf_segments])
-        File mutect_stats = select_first([Mutect2.mutect_stats, cached_mutect_stats])
+        String mutect2_vcf = select_first([Mutect2.output_vcf, cached_mutect2_vcf])
+        String mutect2_vcf_idx = select_first([Mutect2.output_vcf_idx, cached_mutect2_vcf_idx])
+        String contigs_table = select_first([Mutect2.permutect_contigs_table, cached_contigs_table])
+        String maf_segments = select_first([Mutect2.maf_segments, cached_maf_segments])
+        String normal_maf_segments = select_first([Mutect2.normal_maf_segments, cached_normal_maf_segments])
+        String mutect_stats = select_first([Mutect2.mutect_stats, cached_mutect_stats])
 
         File? fn = PermutectConcordance.fn
         File? fn_idx = PermutectConcordance.fn_idx
