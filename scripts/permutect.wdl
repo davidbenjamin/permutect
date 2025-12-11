@@ -160,7 +160,7 @@ workflow Permutect {
         File output_vcf = PermutectFiltering.output_vcf
         File output_vcf_idx = PermutectFiltering.output_vcf_idx
         File tensorboard_report = PermutectFiltering.tensorboard_report
-        File test_dataset = select_first([Mutect2.permutect_test_dataset, cached_plain_text_test_dataset])
+        String test_dataset = select_first([Mutect2.permutect_test_dataset, cached_plain_text_test_dataset])
         String mutect2_vcf = select_first([Mutect2.output_vcf, cached_mutect2_vcf])
         String mutect2_vcf_idx = select_first([Mutect2.output_vcf_idx, cached_mutect2_vcf_idx])
         String contigs_table = select_first([Mutect2.permutect_contigs_table, cached_contigs_table])
