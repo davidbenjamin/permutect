@@ -16,7 +16,7 @@ workflow MakeTrainingDataset {
         File reads_index
 
         # NOTE: this is a HACK because call-caching on Terra is unreliable.
-        File? cached_plain_text_dataset
+        String? cached_plain_text_dataset
 
         File? gnomad
         File? gnomad_idx
@@ -101,7 +101,7 @@ workflow MakeTrainingDataset {
         File? mutect_stats = Mutect2.mutect_stats
         File? permutect_contigs_table = Mutect2.permutect_contigs_table
         File? permutect_read_groups_table = Mutect2.permutect_read_groups_table
-        File plain_text_dataset = select_first([cached_plain_text_dataset, Mutect2.permutect_training_dataset])
+        String plain_text_dataset = select_first([cached_plain_text_dataset, Mutect2.permutect_training_dataset])
         File train_tar = Preprocess.train_tar
     }
 
