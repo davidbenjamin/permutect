@@ -1,5 +1,6 @@
 import argparse
 from collections import defaultdict
+from typing import List
 
 import cyvcf2
 import numpy as np
@@ -33,8 +34,10 @@ from permutect.misc_utils import encode_variant
 from permutect.misc_utils import gpu_if_available
 from permutect.misc_utils import overlapping_filters
 from permutect.misc_utils import report_memory_usage
+from permutect.parameters import TrainingParameters
+from permutect.training.model_training import train_artifact_model
 from permutect.utils.allele_utils import find_variant_type
-from permutect.utils.enums import Call
+from permutect.utils.enums import Call, ParameterSet
 from permutect.utils.enums import Epoch
 from permutect.utils.enums import Label
 from permutect.utils.enums import Variation
@@ -64,6 +67,13 @@ def parse_arguments():
         "--" + constants.ARTIFACT_MODEL_NAME,
         required=True,
         help="Permutect artifact model from train_artifact_model.py",
+    )
+    parser.add_argument(
+        "--" + constants.TRAINABLE_PARAMETERS_NAME,
+        nargs="*",
+        type=str,
+        required=False,
+        help="zero or more parameter set types to be re-fit in test time domain adaptation",
     )
     parser.add_argument(
         "--" + constants.CONTIGS_TABLE_NAME,
@@ -183,8 +193,12 @@ def get_segmentation(segments_file) -> defaultdict:
 
 
 def main_without_parsing(args):
+    adaptation_parameter_set_strings = getattr(args, constants.ADAPTATION_PARAMETER_SETS_NAME)
+    adaptation_parameter_sets = [] if adaptation_parameter_set_strings is None \
+        else [ParameterSet.get_parameter_set(set_str) for set_str in adaptation_parameter_set_strings]
     make_filtered_vcf(
         artifact_model_path=getattr(args, constants.ARTIFACT_MODEL_NAME),
+        adaptation_parameter_sets=adaptation_parameter_sets,
         initial_log_variant_prior=getattr(args, constants.INITIAL_LOG_VARIANT_PRIOR_NAME),
         initial_log_artifact_prior=getattr(args, constants.INITIAL_LOG_ARTIFACT_PRIOR_NAME),
         test_dataset_file=getattr(args, constants.TEST_DATASET_NAME),
@@ -208,6 +222,7 @@ def main_without_parsing(args):
 
 def make_filtered_vcf(
     artifact_model_path,
+    adaptation_parameter_sets: List[ParameterSet],
     initial_log_variant_prior: float,
     initial_log_artifact_prior: float,
     test_dataset_file,
@@ -241,6 +256,28 @@ def make_filtered_vcf(
     device = gpu_if_available()
     model, artifact_log_priors, artifact_spectra_state_dict = load_model(artifact_model_path, device=device)
 
+    annotated_dataset = make_annotated_dataset(
+        dataset_file=test_dataset_file,
+        input_vcf=input_vcf,
+        contig_index_to_name_map=contig_index_to_name_map,
+        segmentation=segmentation,
+        normal_segmentation=normal_segmentation,
+    )
+
+    if adaptation_parameter_sets:
+        # TODO: num_epochs and epochs per evaluation is magic constant!
+        adaptation_training_params = TrainingParameters(batch_size=batch_size, num_epochs=10)
+        summary_writer = SummaryWriter(tensorboard_dir, filename_suffix="_adaptation")
+        train_artifact_model(
+            model=model,
+            train_dataset=annotated_dataset,
+            valid_dataset=None,
+            training_params=adaptation_training_params,
+            summary_writer=summary_writer,
+            epochs_per_evaluation=5,
+            trainable_params=adaptation_parameter_sets,
+        )
+
     posterior_model = PosteriorModel(
         initial_log_variant_prior,
         initial_log_artifact_prior,
@@ -248,14 +285,10 @@ def make_filtered_vcf(
         het_beta=het_beta,
     )
     posterior_data_loader = make_posterior_data_loader(
-        test_dataset_file,
-        input_vcf,
-        contig_index_to_name_map,
-        model,
-        batch_size,
+        annotated_dataset=annotated_dataset,
+        model=model,
+        batch_size=batch_size,
         num_workers=num_workers,
-        segmentation=segmentation,
-        normal_segmentation=normal_segmentation,
     )
 
     print("Learning AF spectra")
@@ -320,14 +353,10 @@ def generate_posterior_data(dataset, model: ArtifactModel, batch_size: int, num_
             yield output_datum
 
 
-@torch.inference_mode()
-def make_posterior_data_loader(
+def make_annotated_dataset(
     dataset_file,
     input_vcf,
     contig_index_to_name_map,
-    model: ArtifactModel,
-    batch_size: int,
-    num_workers: int,
     segmentation=None,
     normal_segmentation=None,
 ):
@@ -348,14 +377,22 @@ def make_posterior_data_loader(
         segmentation=segmentation,
         normal_segmentation=normal_segmentation,
     )
-    dataset = ReadsDataset(memory_mapped_data=annotated_mmap_data)
+    annotated_dataset = ReadsDataset(memory_mapped_data=annotated_mmap_data)
     annotation_timer.report("Time to annotate data with AF and MAF:")
+    return annotated_dataset
 
+@torch.inference_mode()
+def make_posterior_data_loader(
+        annotated_dataset: ReadsDataset,
+        model: ArtifactModel,
+        batch_size: int,
+        num_workers: int,
+):
     # Generate Datum objects without reads or haplotypes, where the INFO array is the embedding, and with the
     # cached artifact logit computed from the model
-    posterior_generator = generate_posterior_data(dataset, model, batch_size, num_workers)
+    posterior_generator = generate_posterior_data(annotated_dataset, model, batch_size, num_workers)
     posterior_mmap = MemoryMappedData.from_generator(
-        posterior_generator, estimated_num_data=len(dataset), estimated_num_reads=0
+        posterior_generator, estimated_num_data=len(annotated_dataset), estimated_num_reads=0
     )
     print(f"Size of filtering dataset: {len(posterior_mmap)}")
 

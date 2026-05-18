@@ -18,6 +18,7 @@ def test_filtering_on_dream1_chr20():
     setattr(filtering_args, constants.INPUT_NAME, MUTECT2_CHR20_FILTERED_VCF)
     setattr(filtering_args, constants.TEST_DATASET_NAME, DREAM_1_CHR20_PLAIN_TEXT_DATA)
     setattr(filtering_args, constants.ARTIFACT_MODEL_NAME, artifact_model)
+    setattr(filtering_args, constants.TRAINABLE_PARAMETERS_NAME, ["CLUSTERING"])
     setattr(filtering_args, constants.OUTPUT_NAME, permutect_vcf.name)
     setattr(filtering_args, constants.TENSORBOARD_DIR_NAME, tensorboard_dir.name)
     setattr(filtering_args, constants.BATCH_SIZE_NAME, 64)
