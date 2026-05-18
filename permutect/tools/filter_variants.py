@@ -193,7 +193,7 @@ def get_segmentation(segments_file) -> defaultdict:
 
 
 def main_without_parsing(args):
-    adaptation_parameter_set_strings = getattr(args, constants.ADAPTATION_PARAMETER_SETS_NAME)
+    adaptation_parameter_set_strings = getattr(args, constants.TRAINABLE_PARAMETERS_NAME)
     adaptation_parameter_sets = [] if adaptation_parameter_set_strings is None \
         else [ParameterSet.get_parameter_set(set_str) for set_str in adaptation_parameter_set_strings]
     make_filtered_vcf(
