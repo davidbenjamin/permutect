@@ -17,6 +17,7 @@ from permutect.parameters import add_training_params_to_parser
 from permutect.parameters import parse_training_params
 from permutect.training.model_training import train_artifact_model
 from permutect.utils.enums import Label
+from permutect.utils.enums import ParameterSet
 from permutect.utils.enums import Variation
 
 
@@ -87,6 +88,13 @@ def parse_arguments():
         help="Pretrained Permutect artifact model from train_artifact_model.py",
     )
     parser.add_argument(
+        "--" + constants.TRAINABLE_PARAMETERS_NAME,
+        nargs="*",
+        type=str,
+        required=False,
+        help="zero or more parameter set types to be re-fit in test time domain adaptation",
+    )
+    parser.add_argument(
         "--" + constants.OUTPUT_NAME,
         type=str,
         required=True,
@@ -110,6 +118,13 @@ def main_without_parsing(args):
 
     tensorboard_dir = getattr(args, constants.TENSORBOARD_DIR_NAME)
     summary_writer = SummaryWriter(tensorboard_dir)
+
+    adaptation_parameter_set_strings = getattr(args, constants.TRAINABLE_PARAMETERS_NAME)
+    adaptation_parameter_sets = (
+        [ParameterSet.WHOLE_MODEL]
+        if adaptation_parameter_set_strings is None
+        else [ParameterSet.get_parameter_set(set_str) for set_str in adaptation_parameter_set_strings]
+    )
 
     # artifact models has already been trained.  We're just refining it here.
     model, _, _ = load_model(getattr(args, constants.PRETRAINED_ARTIFACT_MODEL_NAME))
@@ -135,6 +150,7 @@ def main_without_parsing(args):
         training_params,
         summary_writer,
         epochs_per_evaluation=10,
+        trainable_params=adaptation_parameter_sets,
     )
 
     report_memory_usage("Finished training.")

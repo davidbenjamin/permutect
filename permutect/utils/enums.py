@@ -1,4 +1,5 @@
 import enum
+from functools import partial
 
 
 class Variation(enum.IntEnum):
@@ -31,6 +32,78 @@ class Epoch(enum.IntEnum):
     TRAIN = 0
     VALID = 1
     TEST = 2
+
+
+class ParameterSet(enum.Enum):
+    """
+    Types of parameter sets to be re-fit at test time.  Generally for domain adaptation but not necessarily so.
+    These are additive; hence the idea is to be able to specify different sets of parameter sets with a
+    --parameter_set flag that can be specified multiple times.
+    """
+
+    # the member.value of each enum element is a lambda whose argument is an artifact model, saying how to
+    # extract the iterable of relevant parameters from that artifact model.
+    # Wrapping the lambdas in functools.partial is necessary; otherwise members are treated as class functions,
+    # not elements of the enum
+
+    # the artifact model's read_embedding parameters
+    INITIAL_READ_EMBEDDING = partial(lambda model: model.read_embedding.parameters())
+
+    # the artifact model's info_embedding parameters
+    INFO = partial(lambda model: model.info_embedding.parameters())
+
+    # the artifact model's haplotypes_cnn parameter
+    HAPLOTYPES = partial(lambda model: model.haplotypes_cnn.parameters())
+
+    # the artifact model's ref_alt_reads_encoder parameter
+    GATED_MLP = partial(lambda model: model.ref_alt_reads_encoder.parameters())
+
+    # the artifact model's reducer parameter
+    REDUCER = partial(lambda model: model.reducer.parameters())
+
+    # the artifact model's Euclidean transformation prior to clustering
+    PRECLUSTERING = partial(lambda model: model.pre_clustering_transform.parameters())
+
+    # the shape of the presumed Gaussian distribution of nonartifact reads in the clustering model.  Currently
+    # the covariance is presumed diagonal, but that could change.  Careful -- the associated parameter nonartifact_stdev_e
+    # is handled via parametrize.register_parametrization.
+    NONARTIFACT_COVARIANCE = partial(
+        lambda model: [model.feature_clustering.parametrizations.nonartifact_stdev_e.original]
+    )
+
+    # the directions that artifacts point away from the centroid, associated with parameter artifact_directions_ke.
+    # Careful, it is also handled via parametrize.register_parametrization.
+    ARTIFACT_DIRECTIONS = partial(
+        lambda model: [model.feature_clustering.parametrizations.artifact_directions_ke.original]
+    )
+
+    # the exponentially modified Gaussian shape parameters for the 1D distribution of artifact reads along the projection
+    # onto the artifact direction vectors.  This is associated with the cluster model parameters mu_k, sigma_k, and
+    # lambda_k, of which lambda_k and sigma_k are handled via parametrize.register_parametrization.
+    ARTIFACT_EMG = partial(lambda model: model.feature_clustering.artifact_emg.parameters())
+
+    # the standard deviation (this is necessarily isotropic) of artifact reads in the subspace of dimensions other
+    # than the artifact vectors.  Also handled via parametrize.register_parametrization.
+    ARTIFACT_STDEV = partial(lambda model: [model.feature_clustering.parametrizations.artifact_stdev_k.original])
+
+    # predefined combinations of different sets for convenience
+
+    # all parameters of the clustering model
+    CLUSTERING = partial(lambda model: model.feature_clustering.parameters())
+
+    # the entire artifact model -- this could be convenient
+    WHOLE_MODEL = partial(lambda model: model.parameters())
+
+    @staticmethod
+    def get_parameter_set(set_str: str):
+        for parameter_set in ParameterSet:
+            if set_str == parameter_set.name:
+                return parameter_set
+
+        raise ValueError("parameter set type is invalid: %s" % set_str)
+
+    def get_parameters(self, artifact_model):
+        return self.value(artifact_model)
 
 
 class Label(enum.IntEnum):

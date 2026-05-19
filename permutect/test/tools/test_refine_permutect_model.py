@@ -21,6 +21,7 @@ def test_refine_artifact_model():
     setattr(train_model_args, constants.GENOMIC_SPAN_NAME, 100000)
     setattr(train_model_args, constants.TRAIN_TAR_NAME, PREPROCESSED_DATA)
     setattr(train_model_args, constants.PRETRAINED_ARTIFACT_MODEL_NAME, EXPERIMENTAL_MODEL)
+    setattr(train_model_args, constants.TRAINABLE_PARAMETERS_NAME, ["WHOLE_MODEL"])
     setattr(train_model_args, constants.BATCH_SIZE_NAME, 64)
     setattr(train_model_args, constants.INFERENCE_BATCH_SIZE_NAME, 64)
     setattr(train_model_args, constants.NUM_WORKERS_NAME, 0)
