@@ -37,9 +37,10 @@ from permutect.misc_utils import report_memory_usage
 from permutect.parameters import TrainingParameters
 from permutect.training.model_training import train_artifact_model
 from permutect.utils.allele_utils import find_variant_type
-from permutect.utils.enums import Call, ParameterSet
+from permutect.utils.enums import Call
 from permutect.utils.enums import Epoch
 from permutect.utils.enums import Label
+from permutect.utils.enums import ParameterSet
 from permutect.utils.enums import Variation
 from permutect.utils.math_utils import inverse_sigmoid
 from permutect.utils.math_utils import prob_to_logit
@@ -194,8 +195,11 @@ def get_segmentation(segments_file) -> defaultdict:
 
 def main_without_parsing(args):
     adaptation_parameter_set_strings = getattr(args, constants.TRAINABLE_PARAMETERS_NAME)
-    adaptation_parameter_sets = [] if adaptation_parameter_set_strings is None \
+    adaptation_parameter_sets = (
+        []
+        if adaptation_parameter_set_strings is None
         else [ParameterSet.get_parameter_set(set_str) for set_str in adaptation_parameter_set_strings]
+    )
     make_filtered_vcf(
         artifact_model_path=getattr(args, constants.ARTIFACT_MODEL_NAME),
         adaptation_parameter_sets=adaptation_parameter_sets,
@@ -381,12 +385,13 @@ def make_annotated_dataset(
     annotation_timer.report("Time to annotate data with AF and MAF:")
     return annotated_dataset
 
+
 @torch.inference_mode()
 def make_posterior_data_loader(
-        annotated_dataset: ReadsDataset,
-        model: ArtifactModel,
-        batch_size: int,
-        num_workers: int,
+    annotated_dataset: ReadsDataset,
+    model: ArtifactModel,
+    batch_size: int,
+    num_workers: int,
 ):
     # Generate Datum objects without reads or haplotypes, where the INFO array is the embedding, and with the
     # cached artifact logit computed from the model

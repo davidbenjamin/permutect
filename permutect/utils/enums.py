@@ -33,6 +33,7 @@ class Epoch(enum.IntEnum):
     VALID = 1
     TEST = 2
 
+
 class ParameterSet(enum.Enum):
     """
     Types of parameter sets to be re-fit at test time.  Generally for domain adaptation but not necessarily so.
@@ -66,11 +67,15 @@ class ParameterSet(enum.Enum):
     # the shape of the presumed Gaussian distribution of nonartifact reads in the clustering model.  Currently
     # the covariance is presumed diagonal, but that could change.  Careful -- the associated parameter nonartifact_stdev_e
     # is handled via parametrize.register_parametrization.
-    NONARTIFACT_COVARIANCE = partial(lambda model: [model.feature_clustering.parametrizations.nonartifact_stdev_e.original])
+    NONARTIFACT_COVARIANCE = partial(
+        lambda model: [model.feature_clustering.parametrizations.nonartifact_stdev_e.original]
+    )
 
     # the directions that artifacts point away from the centroid, associated with parameter artifact_directions_ke.
     # Careful, it is also handled via parametrize.register_parametrization.
-    ARTIFACT_DIRECTIONS = partial(lambda model: [model.feature_clustering.parametrizations.artifact_directions_ke.original])
+    ARTIFACT_DIRECTIONS = partial(
+        lambda model: [model.feature_clustering.parametrizations.artifact_directions_ke.original]
+    )
 
     # the exponentially modified Gaussian shape parameters for the 1D distribution of artifact reads along the projection
     # onto the artifact direction vectors.  This is associated with the cluster model parameters mu_k, sigma_k, and
@@ -99,6 +104,7 @@ class ParameterSet(enum.Enum):
 
     def get_parameters(self, artifact_model):
         return self.value(artifact_model)
+
 
 class Label(enum.IntEnum):
     ARTIFACT = 0

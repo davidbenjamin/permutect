@@ -16,7 +16,8 @@ from permutect.misc_utils import report_memory_usage
 from permutect.parameters import add_training_params_to_parser
 from permutect.parameters import parse_training_params
 from permutect.training.model_training import train_artifact_model
-from permutect.utils.enums import Label, ParameterSet
+from permutect.utils.enums import Label
+from permutect.utils.enums import ParameterSet
 from permutect.utils.enums import Variation
 
 
@@ -119,8 +120,11 @@ def main_without_parsing(args):
     summary_writer = SummaryWriter(tensorboard_dir)
 
     adaptation_parameter_set_strings = getattr(args, constants.TRAINABLE_PARAMETERS_NAME)
-    adaptation_parameter_sets = [ParameterSet.WHOLE_MODEL] if adaptation_parameter_set_strings is None \
+    adaptation_parameter_sets = (
+        [ParameterSet.WHOLE_MODEL]
+        if adaptation_parameter_set_strings is None
         else [ParameterSet.get_parameter_set(set_str) for set_str in adaptation_parameter_set_strings]
+    )
 
     # artifact models has already been trained.  We're just refining it here.
     model, _, _ = load_model(getattr(args, constants.PRETRAINED_ARTIFACT_MODEL_NAME))

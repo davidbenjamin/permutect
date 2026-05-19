@@ -4,7 +4,8 @@ import math
 import time
 from collections import defaultdict
 from queue import PriorityQueue
-from typing import Any, List
+from typing import Any
+from typing import List
 
 import torch
 from torch import device
@@ -41,8 +42,9 @@ from permutect.training.balancer import PlotType
 from permutect.training.checkpoint import Checkpoint
 from permutect.training.downsampler import Downsampler
 from permutect.training.loss_recorder import LossRecorder
-from permutect.utils.enums import Epoch, ParameterSet
+from permutect.utils.enums import Epoch
 from permutect.utils.enums import Label
+from permutect.utils.enums import ParameterSet
 from permutect.utils.enums import Variation
 
 WORST_OFFENDERS_QUEUE_SIZE = 100
@@ -84,7 +86,11 @@ def train_artifact_model(
     checkpoint = Checkpoint(device, model, train_optimizer)
 
     train_loader = train_dataset.make_data_loader(training_params.batch_size, is_cuda, training_params.num_workers)
-    valid_loader = None if valid_dataset is None else valid_dataset.make_data_loader(training_params.batch_size, is_cuda, training_params.num_workers)
+    valid_loader = (
+        None
+        if valid_dataset is None
+        else valid_dataset.make_data_loader(training_params.batch_size, is_cuda, training_params.num_workers)
+    )
     report_memory_usage("Loaders created, about to train.")
 
     first_epoch, last_epoch = 1, training_params.num_epochs + training_params.num_calibration_epochs
@@ -143,7 +149,7 @@ def train_one_epoch(
     train_optimizer: AdamW,
     train_scheduler: ReduceLROnPlateau,
     valid_loader: DataLoader[Any],
-    trainable_params: List[ParameterSet] = None
+    trainable_params: List[ParameterSet] = None,
 ):
     loss_recorder = LossRecorder(device, num_sources)
     model.set_epoch_type(epoch_type, trainable_params)

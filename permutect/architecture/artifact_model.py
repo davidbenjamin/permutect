@@ -28,7 +28,8 @@ from permutect.misc_utils import unfreeze
 from permutect.parameters import ModelParameters
 from permutect.sets.ragged_sets import RaggedSets
 from permutect.training.balancer import Balancer
-from permutect.utils.enums import Epoch, ParameterSet
+from permutect.utils.enums import Epoch
+from permutect.utils.enums import ParameterSet
 from permutect.utils.enums import Variation
 
 MAX_OUTLIER_LOGIT = 10
