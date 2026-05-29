@@ -40,9 +40,3 @@ with open(args.input, 'r') as reader, open(args.output, 'w') as writer:
             af_to_use = af if num_participants > 20 else RARE_VARIANT_AF
 
             writer.write(f"AF={af_to_use:.3e}\n")
-
-
-
-
-        # Perform logic if needed
-        writer.write(line)
