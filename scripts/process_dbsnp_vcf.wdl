@@ -33,7 +33,7 @@ task process {
 	>>>
 
     runtime {
-        docker: "continuumio/anaconda:latest"
+        docker: "continuumio/anaconda3:latest"
         disks: "local-disk " + 2000 + " SSD"
     }
 

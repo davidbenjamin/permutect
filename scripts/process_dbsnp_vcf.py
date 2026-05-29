@@ -39,12 +39,10 @@ with open(args.input, 'r') as reader, open(args.output, 'w') as writer:
             elif refseq_num == 24:
                 contig = "chrY"
 
-            # tokens 1 is position, tokens 2 if dbSNP ID which we discard and replace with ., tokens 3-4 are ref alt
-            # tokens
-            if contig is not None:
-                writer.write("\t".join([contig, tokens[1], '.', tokens[3], tokens[4], '.', '.']) + "\t")
+            alt_alleles = tokens[4].split(',')
+            alt_count = len(alt_alleles)
 
-            # INFO fields are semicolon-separated.  We care about the first four: AC, AN, AF, Hom
+            # INFO fields are semicolon-separated.  We only care about the FREQ field
             info_tokens = tokens[7].split(";")
 
             # example INFO
@@ -52,5 +50,22 @@ with open(args.input, 'r') as reader, open(args.output, 'w') as writer:
 
             freq_entry = next((token for token in reversed(info_tokens) if token.startswith("FREQ")), None)
 
+            # for an entry with e.g. one ref and two alt alleles, each AF token looks like, for example
+            # TOMMO:0.98,0.01,0.01
+            if freq_entry is None:
+                continue
             af_tokens = freq_entry.split('=')[-1].split('|')
-            writer.write(f"AF={af_to_use:.2e}\n")
+
+            max_alt_afs = list(0.0 for _ in range(alt_count))
+            for af_token in af_tokens:
+                alt_afs = map(lambda tok: 0.0 if tok == '.' else float(tok), af_token.split(':')[-1].split(',')[1:])
+                for n, af in enumerate(alt_afs):
+                    max_alt_afs[n] = max(max_alt_afs[n], af)
+
+            # each alt allele gets its own line
+            for n, alt_allele in enumerate(alt_alleles):
+                if max_alt_afs[n] > 0:
+                    # tokens 1 is position, tokens 2 if dbSNP ID which we discard and replace with ., tokens 3-4 are ref alt
+                    # tokens
+                    writer.write("\t".join([contig, tokens[1], '.', tokens[3], alt_allele, '.', '.']) + "\t")
+                    writer.write(f"AF={max_alt_afs[n]}\n")
