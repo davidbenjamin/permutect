@@ -39,4 +39,4 @@ with open(args.input, 'r') as reader, open(args.output, 'w') as writer:
             num_participants = ac - hom
             af_to_use = af if num_participants > 20 else RARE_VARIANT_AF
 
-            writer.write(f"AF={af_to_use:.3e}\n")
+            writer.write(f"AF={af_to_use:.2e}\n")
