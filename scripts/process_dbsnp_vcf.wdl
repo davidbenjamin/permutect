@@ -50,7 +50,7 @@ task compress_and_index {
 	command <<<
 		which bcftools
 		which tabix
-		
+
 		bcftools view -O z -o dbsnp.vcf.bgz ~{dbsnp_vcf}
 		tabix -p vcf dbsnp.vcf.bgz
 	>>>

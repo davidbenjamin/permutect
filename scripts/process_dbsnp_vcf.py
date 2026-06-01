@@ -39,6 +39,9 @@ with open(args.input, 'r') as reader, open(args.output, 'w') as writer:
             elif refseq_num == 24:
                 contig = "chrY"
 
+            if contig is None:
+                continue
+
             alt_alleles = tokens[4].split(',')
             alt_count = len(alt_alleles)
 
