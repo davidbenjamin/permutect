@@ -53,7 +53,7 @@ task compress_and_index {
 	>>>
 
     runtime {
-        docker: "biocontainers/bcftools"
+        docker: "biocontainers/bcftools:v1.9-1-deb_cv1"
         disks: "local-disk " + 1000 + " SSD"
     }
 
