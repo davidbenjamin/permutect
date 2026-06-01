@@ -29,8 +29,12 @@ with open(args.input, 'r') as reader, open(args.output, 'w') as writer:
             # contigs are refseq accession numbers like NC_000001.11
             # here the .11 means the hg38 version (it's not necessarily 11) and is ignored.  The numbers after
             # "NC_" are 1 for chr1. . . 22 for chr22, 23 for chrX, and 24 for chrY
+            refseq_string = tokens[0].split('.')[0].removeprefix("NC_")
 
-            refseq_num = int(tokens[0].split('.')[0].removeprefix("NC_"))
+            if not refseq_string.isdigit():
+                continue
+
+            refseq_num = int(refseq_string)
             contig = None
             if refseq_num <= 22:
                 contig = f"chr{refseq_num}"
