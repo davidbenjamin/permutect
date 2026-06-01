@@ -48,12 +48,15 @@ task compress_and_index {
 	}
 
 	command <<<
+		which bcftools
+		which tabix
+
 		bcftools view -O z -o aou.vcf.bgz ~{aou_vcf}
 		tabix -p vcf aou.vcf.bgz
 	>>>
 
     runtime {
-        docker: "biocontainers/bcftools:v1.9-1-deb_cv1"
+        docker: "staphb/bcftools:latest"
         disks: "local-disk " + 1000 + " SSD"
     }
 
