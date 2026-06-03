@@ -65,9 +65,15 @@ with open(args.input, 'r') as reader, open(args.output, 'w') as writer:
 
             max_alt_afs = list(0.0 for _ in range(alt_count))
             for af_token in af_tokens:
+                project = af_token.split(':')[0]
+
+                # AFs for the Simons Genetic Diversity Project are reported weirdly -- often as 1.0 for the minor
+                # allele, which is just wrong.  It's a cohort of 300 genomes.
+                max_alt_af = 1/300 if project.startswith("SGDP") else 0.99
+
                 alt_afs = map(lambda tok: 0.0 if tok == '.' else float(tok), af_token.split(':')[-1].split(',')[1:])
                 for n, af in enumerate(alt_afs):
-                    max_alt_afs[n] = max(max_alt_afs[n], af)
+                    max_alt_afs[n] = max(max_alt_afs[n], min(af, max_alt_af))
 
             # each alt allele gets its own line
             for n, alt_allele in enumerate(alt_alleles):
