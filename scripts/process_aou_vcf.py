@@ -28,9 +28,6 @@ with open(args.input, 'r') as reader, open(args.output, 'w') as writer:
                 print(f"Processed {line_count} lines")
                 print(f"Position is {tokens[0]}:{tokens[1]}.")
 
-            # the first 7 entries don't need to be changed.  Write them tab-separated.
-            writer.write("\t".join(tokens[:7]) + "\t")
-
             # INFO fields are semicolon-separated.  We care about the first four: AC, AN, AF, Hom
             info_tokens = tokens[7].split(";")
 
@@ -39,4 +36,9 @@ with open(args.input, 'r') as reader, open(args.output, 'w') as writer:
             num_participants = ac - hom
             af_to_use = af if num_participants > 20 else RARE_VARIANT_AF
 
+            if ac < 2:
+                continue
+
+            # the first 7 entries don't need to be changed.  Write them tab-separated.
+            writer.write("\t".join(tokens[:7]) + "\t")
             writer.write(f"AF={af_to_use:.2e}\n")
