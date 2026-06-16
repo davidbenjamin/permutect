@@ -158,7 +158,9 @@ task Liftover {
     command {
         set -e
 
-        bcftools +liftover -Ou ~{input_vcf} -- \
+        bcftools norm -f ~{source_ref_fasta} -m -any ~{input_vcf} --check-ref s -Oz -o normalized.vcf.gz
+
+        bcftools +liftover -Ou normalized.vcf.gz -- \
             -s ~{source_ref_fasta} \
             -f ~{target_ref_fasta} \
             -c ~{source_to_target_chain_file} \
