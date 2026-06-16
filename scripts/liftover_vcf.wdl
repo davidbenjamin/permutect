@@ -120,7 +120,7 @@ task RestrictVCF {
         gatk SelectVariants \
             -R ~{ref_fasta} \
             ~{"-L " + intervals} \
-            -V ~{input_vcf}
+            -V ~{input_vcf} \
             -O output.vcf.gz
     }
 
