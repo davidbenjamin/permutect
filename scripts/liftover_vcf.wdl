@@ -158,12 +158,11 @@ task Liftover {
     command {
         set -e
 
-        bcftools +liftover ~{input_vcf} -- \
-            -Oz -o lifted.vcf.gz
+        bcftools +liftover -Ou ~{input_vcf} -- \
             -s ~{source_ref_fasta} \
             -f ~{target_ref_fasta} \
             -c ~{source_to_target_chain_file} \
-            --reject rejected.vcf
+            --reject rejected.vcf | bcftools sort -Oz -o lifted.vcf.gz -W=tbi
     }
 
     runtime {
