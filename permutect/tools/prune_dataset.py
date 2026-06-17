@@ -33,106 +33,111 @@ def calculate_pruning_thresholds(
     label_art_frac: float,
     training_params: TrainingParameters,
 ) -> tuple[float, float]:
-    for fold in range(NUM_FOLDS):
-        average_artifact_confidence, average_nonartifact_confidence = (
-            StreamingAverage(),
-            StreamingAverage(),
-        )
-        # TODO: eventually this should all be segregated by variant type and maybe also alt count
+    average_artifact_confidence, average_nonartifact_confidence = (
+        StreamingAverage(),
+        StreamingAverage(),
+    )
+    # TODO: eventually this should all be segregated by variant type and maybe also alt count
 
-        # the 0th/1st element is a list of predicted probabilities that data labeled as non-artifact/artifact are actually non-artifact/artifact
-        probs_of_agreeing_with_label = [[], []]
-        print("calculating average confidence and gathering predicted probabilities")
-        batch: Batch
-        for batch in tqdm(
-            prefetch_generator(labeled_only_pruning_loader),
-            mininterval=60,
-            total=len(labeled_only_pruning_loader),
+    # the 0th/1st element is a list of predicted probabilities that data labeled as non-artifact/artifact are actually non-artifact/artifact
+    probs_of_agreeing_with_label = [[], []]
+    print("calculating average confidence and gathering predicted probabilities")
+    batch: Batch
+    for batch in tqdm(
+        prefetch_generator(labeled_only_pruning_loader),
+        mininterval=60,
+        total=len(labeled_only_pruning_loader),
+    ):
+        # TODO: should we use likelihoods as in evaluation or posteriors as in training???
+        # TODO: does it even matter??
+        art_probs_b = model.compute_batch_output(batch).artifact_probs_b.detach()
+        labels_b = batch.get_training_labels()
+        art_label_mask = labels_b > 0.5
+        nonart_label_mask = labels_b < 0.5
+        average_artifact_confidence.record_with_mask(art_probs_b, art_label_mask)
+        average_nonartifact_confidence.record_with_mask(1 - art_probs_b, nonart_label_mask)
+
+        for art_prob, labeled_as_art in zip(art_probs_b.tolist(), art_label_mask.tolist()):
+            agreement_prob = art_prob if labeled_as_art else (1 - art_prob)
+            probs_of_agreeing_with_label[1 if labeled_as_art else 0].append(agreement_prob)
+
+    # TODO: it is wasteful to run forward passes on all the data again when we can just record indices and logits
+    print("estimating error rates")
+    # The i,j element is the count of data labeled as i that pass the confidence threshold for j
+    # here 0 means non-artifact and 1 means artifact
+    confusion = [[0, 0], [0, 0]]
+    art_conf_threshold = average_artifact_confidence.get()
+    nonart_conf_threshold = average_nonartifact_confidence.get()
+    for batch in tqdm(
+        prefetch_generator(labeled_only_pruning_loader),
+        mininterval=60,
+        total=len(labeled_only_pruning_loader),
+    ):
+        predicted_artifact_probs = model.compute_batch_output(batch).artifact_probs_b.detach()
+
+        conf_art_mask = predicted_artifact_probs >= art_conf_threshold
+        conf_nonart_mask = (1 - predicted_artifact_probs) >= nonart_conf_threshold
+        art_label_mask = batch.get_training_labels() > 0.5
+
+        for conf_artifact, conf_nonartifact, artifact_label in zip(
+            conf_art_mask.tolist(), conf_nonart_mask.tolist(), art_label_mask.tolist()
         ):
-            # TODO: should we use likelihoods as in evaluation or posteriors as in training???
-            # TODO: does it even matter??
-            art_probs_b = model.compute_batch_output(batch).artifact_probs_b.detach()
-            labels_b = batch.get_training_labels()
-            art_label_mask = labels_b > 0.5
-            nonart_label_mask = labels_b < 0.5
-            average_artifact_confidence.record_with_mask(art_probs_b, art_label_mask)
-            average_nonartifact_confidence.record_with_mask(1 - art_probs_b, nonart_label_mask)
+            row = 1 if artifact_label else 0
+            if conf_artifact:
+                confusion[row][1] += 1
+            if conf_nonartifact:
+                confusion[row][0] += 1
 
-            for art_prob, labeled_as_art in zip(art_probs_b.tolist(), art_label_mask.tolist()):
-                agreement_prob = art_prob if labeled_as_art else (1 - art_prob)
-                probs_of_agreeing_with_label[1 if labeled_as_art else 0].append(agreement_prob)
-
-        # TODO: it is wasteful to run forward passes on all the data again when we can just record indices and logits
-        print("estimating error rates")
-        # The i,j element is the count of data labeled as i that pass the confidence threshold for j
-        # here 0 means non-artifact and 1 means artifact
-        confusion = [[0, 0], [0, 0]]
-        art_conf_threshold = average_artifact_confidence.get()
-        nonart_conf_threshold = average_nonartifact_confidence.get()
-        for batch in tqdm(
-            prefetch_generator(labeled_only_pruning_loader),
-            mininterval=60,
-            total=len(labeled_only_pruning_loader),
-        ):
-            predicted_artifact_probs = model.compute_batch_output(batch).artifact_probs_b.detach()
-
-            conf_art_mask = predicted_artifact_probs >= art_conf_threshold
-            conf_nonart_mask = (1 - predicted_artifact_probs) >= nonart_conf_threshold
-            art_label_mask = batch.get_training_labels() > 0.5
-
-            for conf_artifact, conf_nonartifact, artifact_label in zip(
-                conf_art_mask.tolist(), conf_nonart_mask.tolist(), art_label_mask.tolist()
-            ):
-                row = 1 if artifact_label else 0
-                if conf_artifact:
-                    confusion[row][1] += 1
-                if conf_nonartifact:
-                    confusion[row][0] += 1
-
-        # these are the probabilities of a true (hidden label) artifact/non-artifact being mislabeled as non-artifact/artifact
-        art_error_rate = confusion[0][1] / (confusion[0][1] + confusion[1][1])
-        nonart_error_rate = confusion[1][0] / (confusion[0][0] + confusion[1][0])
-
-        # fraction of labeled data that are labeled as artifact
-        label_nonart_frac = 1 - label_art_frac
-
-        # these are the inverse probabilities that something labeled as artifact/non-artifact was actually a mislabeled nonartifact/artifact
-        inv_art_error_rate = (
-            (nonart_error_rate / label_art_frac)
-            * (label_nonart_frac - art_error_rate)
-            / (1 - art_error_rate - nonart_error_rate)
+    # these are the probabilities of a true (hidden label) artifact/non-artifact being mislabeled as non-artifact/artifact
+    confident_art_total = confusion[0][1] + confusion[1][1]
+    confident_nonart_total = confusion[0][0] + confusion[1][0]
+    if confident_art_total == 0 or confident_nonart_total == 0:
+        raise ValueError(
+            "No data passed confidence thresholds; cannot estimate error rates. "
+            "This may indicate too little labeled data or a degenerate model."
         )
-        inv_nonart_error_rate = (
-            (art_error_rate / label_nonart_frac)
-            * (label_art_frac - nonart_error_rate)
-            / (1 - art_error_rate - nonart_error_rate)
+    art_error_rate = confusion[0][1] / confident_art_total
+    nonart_error_rate = confusion[1][0] / confident_nonart_total
+
+    # fraction of labeled data that are labeled as artifact
+    label_nonart_frac = 1 - label_art_frac
+
+    # these are the inverse probabilities that something labeled as artifact/non-artifact was actually a mislabeled nonartifact/artifact
+    error_rate_sum = art_error_rate + nonart_error_rate
+    if error_rate_sum >= 1.0:
+        raise ValueError(
+            f"Sum of error rates ({error_rate_sum:.3f}) >= 1.0; rank pruning model assumptions are violated."
         )
+    inv_art_error_rate = (
+        (nonart_error_rate / label_art_frac) * (label_nonart_frac - art_error_rate) / (1 - error_rate_sum)
+    )
+    inv_nonart_error_rate = (
+        (art_error_rate / label_nonart_frac) * (label_art_frac - nonart_error_rate) / (1 - error_rate_sum)
+    )
 
-        print("Estimated error rates: ")
-        print(f"artifact mislabeled as non-artifact: {art_error_rate:.3f}")
-        print(f"non-artifact mislabeled as artifact: {nonart_error_rate:.3f}")
+    print("Estimated error rates: ")
+    print(f"artifact mislabeled as non-artifact: {art_error_rate:.3f}")
+    print(f"non-artifact mislabeled as artifact: {nonart_error_rate:.3f}")
 
-        print("Estimated inverse error rates: ")
-        print(f"Labeled artifact was actually non-artifact: {inv_art_error_rate:.3f}")
-        print(f"Labeled non-artifact was actually artifact: {inv_nonart_error_rate:.3f}")
+    print("Estimated inverse error rates: ")
+    print(f"Labeled artifact was actually non-artifact: {inv_art_error_rate:.3f}")
+    print(f"Labeled non-artifact was actually artifact: {inv_nonart_error_rate:.3f}")
 
-        print("calculating rank pruning thresholds")
-        nonart_threshold = torch.quantile(torch.tensor(probs_of_agreeing_with_label[0]), inv_nonart_error_rate).item()
-        art_threshold = torch.quantile(torch.tensor(probs_of_agreeing_with_label[1]), inv_art_error_rate).item()
+    print("calculating rank pruning thresholds")
+    nonart_threshold = torch.quantile(torch.tensor(probs_of_agreeing_with_label[0]), inv_nonart_error_rate).item()
+    art_threshold = torch.quantile(torch.tensor(probs_of_agreeing_with_label[1]), inv_art_error_rate).item()
 
-        print("Rank pruning thresholds: ")
-        print(f"Labeled artifacts are pruned if predicted artifact probability is less than {art_threshold:.3f}")
-        print(
-            f"Labeled non-artifacts are pruned if predicted non-artifact probability is less than {nonart_threshold:.3f}"
-        )
+    print("Rank pruning thresholds: ")
+    print(f"Labeled artifacts are pruned if predicted artifact probability is less than {art_threshold:.3f}")
+    print(f"Labeled non-artifacts are pruned if predicted non-artifact probability is less than {nonart_threshold:.3f}")
 
-        return art_threshold, nonart_threshold
+    return art_threshold, nonart_threshold
 
 
 # generates data from the original dataset that *pass* the pruning thresholds
 def generated_pruned_data_for_fold(
     art_threshold: float, nonart_threshold: float, pruning_base_data_loader, model: ArtifactModel
-) -> List[int]:
+) -> Generator[Datum, None, None]:
     print("pruning the dataset")
     batch: Batch
     for batch in tqdm(
@@ -175,7 +180,7 @@ def generate_pruned_data_for_all_folds(
 
     for pruning_fold, fold_dataset in enumerate(fold_datasets):
         # validate against the cyclically next dataset
-        valid_dataset = fold_datasets[pruning_fold + 1 % len(fold_datasets)]
+        valid_dataset = fold_datasets[(pruning_fold + 1) % len(fold_datasets)]
 
         summary_writer = SummaryWriter(tensorboard_dir + "/fold_" + str(pruning_fold))
         report_memory_usage(f"Pruning data from fold {pruning_fold} of {NUM_FOLDS}.")
@@ -200,7 +205,7 @@ def generate_pruned_data_for_all_folds(
 
         # unlike when learning thresholds, we load labeled and unlabeled data here
         pruning_base_data_loader = fold_dataset.make_data_loader(
-            training_params.batch_size, use_gpu, training_params.num_epochs
+            training_params.batch_size, use_gpu, training_params.num_workers
         )
         for passing_reads_datum in generated_pruned_data_for_fold(
             art_threshold, nonart_threshold, pruning_base_data_loader, model
@@ -209,7 +214,7 @@ def generate_pruned_data_for_all_folds(
 
 
 def parse_arguments():
-    parser = argparse.ArgumentParser(description="train the Mutect3 artifact model")
+    parser = argparse.ArgumentParser(description="prune a training dataset using rank pruning")
 
     add_training_params_to_parser(parser)
 

@@ -49,7 +49,7 @@ def generate_edited_data(memory_mapped_datas, edit_type: str, source: int):
 
 
 def parse_arguments():
-    parser = argparse.ArgumentParser(description="train the Mutect3 artifact model")
+    parser = argparse.ArgumentParser(description="edit a training dataset by relabeling or removing data")
     parser.add_argument(
         "--" + constants.DATASET_EDIT_TYPE_NAME,
         type=str,
