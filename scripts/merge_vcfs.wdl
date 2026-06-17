@@ -15,14 +15,15 @@ workflow MergeVCFs {
 }
 
 task merge {
-    input {
-      Array[File] input_vcfs
-      Array[File] input_vcf_indices
-    }
+        input {
+            Array[File] input_vcfs
+            Array[File] input_vcf_indices
+            File ref_dict
+        }
 
     command {
         set -e
-        gatk MergeVcfs -I ~{sep=' -I ' input_vcfs} -O merged.vcf.gz
+        gatk MergeVcfs -I ~{sep=' -I ' input_vcfs} -D ~{ref_dict} -O merged.vcf.gz
     }
 
     runtime {
