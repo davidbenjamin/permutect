@@ -5,9 +5,10 @@ workflow Process {
 		File dbsnp_vcf
 		File dbsnp_vcf_idx
 		File python_script
+		String ref	# either hg38 or hg19
 	}
 
-	call process { input: dbsnp_vcf=dbsnp_vcf, dbsnp_vcf_idx=dbsnp_vcf_idx, python_script=python_script}
+	call process { input: dbsnp_vcf=dbsnp_vcf, dbsnp_vcf_idx=dbsnp_vcf_idx, python_script=python_script, ref = ref}
 
 	call compress_and_index { input: dbsnp_vcf=process.output_vcf}
 
@@ -22,6 +23,7 @@ task process {
 		File dbsnp_vcf
 		File dbsnp_vcf_idx
 		File python_script
+		String ref
 	}
 
 	command <<<
@@ -29,7 +31,7 @@ task process {
 
 		grep -v 'FREQ=dbGaP_PopFreq:1' unzipped.vcf > variants.vcf
 
-		python ~{python_script} variants.vcf dbsnp_processed.vcf
+		python ~{python_script} variants.vcf dbsnp_processed.vcf ~{ref}
 	>>>
 
     runtime {
