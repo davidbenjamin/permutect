@@ -1,7 +1,7 @@
 """
 We assume that the dbSNP VCF already has records AF=0 removed
 
-Run this script as python process_aou_vcf.py aou_input.vcf aou.vcf, where aou.vcf is the desired output file name
+Run this script as python process_aou_vcf.py aou_input.vcf aou.vcf hg38, where aou.vcf is the desired output file name
 """
 import argparse
 
@@ -10,7 +10,13 @@ parser = argparse.ArgumentParser()
 parser.add_argument('input', type=str, help='The name of the raw input dbSNP VCF')
 # second positional argument: output file name
 parser.add_argument('output', type=str, help='The name of the output file')
+# third positional argument: reference genome
+parser.add_argument('reference', type=str, help='The name of the reference, hg38 or hg19')
 args = parser.parse_args()
+
+assert args.reference in ["hg38", "hg19"]
+
+contig_prefix = "" if args.reference == "hg19" else "chr"
 
 
 with open(args.input, 'r') as reader, open(args.output, 'w') as writer:
@@ -37,11 +43,11 @@ with open(args.input, 'r') as reader, open(args.output, 'w') as writer:
             refseq_num = int(refseq_string)
             contig = None
             if refseq_num <= 22:
-                contig = f"chr{refseq_num}"
+                contig = f"{contig_prefix}{refseq_num}"
             elif refseq_num == 23:
-                contig = "chrX"
+                contig = f"{contig_prefix}X"
             elif refseq_num == 24:
-                contig = "chrY"
+                contig = f"{contig_prefix}Y"
 
             if contig is None:
                 continue
