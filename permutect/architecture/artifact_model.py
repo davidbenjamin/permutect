@@ -181,32 +181,7 @@ class ArtifactModel(torch.nn.Module):
         )
         self.alt_count_loss_func = torch.nn.MSELoss(reduction="none")
 
-        # used for unlabeled domain adaptation -- needs to be reset depending on the number of sources, as well as
-        # the particular sources used in training.  Note that we initialize as a trivial model with 1 source
-        self.source_predictor = Adversarial(
-            MLP(
-                [self.reducer.output_dimension()] + [1],
-                batch_normalize=params.batch_normalize,
-                dropout_p=params.dropout_p,
-            ),
-            adversarial_strength=0.01,
-        )
-        self.num_sources = 1
-
         self.to(device=self._device, dtype=self._dtype)
-
-    def reset_source_predictor(self, num_sources: int = 1):
-        source_prediction_hidden_layers = [] if num_sources == 1 else [-1, -1]
-        layers = [self.reducer.output_dimension()] + source_prediction_hidden_layers + [num_sources]
-        self.source_predictor = Adversarial(
-            MLP(
-                layers,
-                batch_normalize=self._params.batch_normalize,
-                dropout_p=self._params.dropout_p,
-            ),
-            adversarial_strength=0.01,
-        ).to(device=self._device, dtype=self._dtype)
-        self.num_sources = num_sources
 
     def ref_alt_seq_embedding_dimension(self) -> int:
         return self.haplotypes_cnn.output_dimension()
@@ -321,7 +296,6 @@ class ArtifactModel(torch.nn.Module):
 
     # save a model, optionally with artifact log priors and spectra
     def save_model(self, path, artifact_log_priors=None, artifact_spectra=None):
-        self.reset_source_predictor()  # this way it's always the same in save/load to avoid state_dict mismatches
         torch.save(self.make_dict_for_saving(artifact_log_priors, artifact_spectra), path)
 
 
