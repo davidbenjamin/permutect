@@ -1,4 +1,8 @@
 # Overview of Permutect
+[![install with bioconda](https://img.shields.io/badge/install%20with-bioconda-brightgreen.svg)](https://anaconda.org/bioconda/permutect)
+[![Anaconda-Server Badge](https://anaconda.org/bioconda/permutect/badges/version.svg)](https://anaconda.org/bioconda/permutect)
+[![Anaconda-Server Badge](https://anaconda.org/bioconda/permutect/badges/downloads.svg)](https://anaconda.org/bioconda/permutect)
+
 Permutect is a pipeline for calling and filtering variants from genomic sequencing data.  It takes a BAM or CRAM file (and, optionally, a matched normal sample BAM or CRAM) and outputs a filtered VCF.  Roughly speaking it comprises two parts: 1) permissive, unfiltered variant calling with Mutect2 and 2) a new deep learning-based filtering model.
 
 The greatest advantage of Permutect over the Mutect2/FilterMutectCalls pipeline is that the latter performs poorly without a "panel of normals", which is a blacklist VCF of common errors compiled from a very large number of samples.  Since the typical user does not have sufficient data (100+ WGS samples) the best practice is to use one of the Broad Institute's publicly-available panels and hope for the best.  While this usually works for short read Illumina sequencing it fails for novel sequencing platforms and library preparation, non-human data, highly-variable parts of the genome etc.  In contrast, the Permutect model is so efficient that it can be trained on a single WGS sample with no labeled truth data without overfitting.
@@ -8,6 +12,22 @@ In addition to working on a variety of sequencing platforms Permutect is designe
 Unlike the deep learning artifact model, the probabilistic model of biology does not have its own workflow below.  This is because it is sample-specific and rather than being trained ahead of time its parameters are learned during variant calling.
 
 We strongly recommend running the pipeline from the [Permutect Terra workspace](https://app.terra.bio/#workspaces/broad-firecloud-dsde/Permutect).
+
+# Installation
+Permutect is available as a [Bioconda](https://bioconda.github.io/) package. We recommend installing it into an isolated environment:
+
+```bash
+conda create -n permutect -c conda-forge -c bioconda permutect
+conda activate permutect
+```
+
+Or, to install into an existing environment:
+
+```bash
+conda install -c conda-forge -c bioconda permutect
+```
+
+This installs the command line tools (`filter_variants`, `train_artifact_model`, `preprocess_dataset`, `refine_artifact_model`, `edit_dataset`, `prune_dataset`) along with all dependencies.
 
 # Pipeline
 Here we described the workflows in the Terra workspace, most of which correspond to a WDL script in the /scripts directory of this repository and a command line tool in the /tools directory.
