@@ -40,7 +40,7 @@ RUN wget -q https://github.com/samtools/bcftools/releases/download/${bcftoolsVer
     && rm -rf bcftools-${bcftoolsVer}
 
 # install GATK launcher and jar
-RUN wget -q -O /root/gatk.jar https://storage.googleapis.com/broad-dsp-david-benjamin/gatk-builds/gatk-4-5-2025.jar
+RUN wget -q -O /root/gatk.jar https://storage.googleapis.com/broad-dsp-david-benjamin/gatk-builds/redo-active-6-30.jar
 RUN wget -q -O /bin/gatk https://raw.githubusercontent.com/broadinstitute/gatk/refs/heads/master/gatk \
     && chmod +x /bin/gatk
 ENV GATK_LOCAL_JAR=/root/gatk.jar
