@@ -4,7 +4,7 @@ name = "permutect"
 platforms = ["osx-arm64", "linux-64"]
 
 [dependencies]
-python = ">=3.10,<3.13"
+python = ">=3.10,<3.14"
 htslib = ">=1.19"
 libdeflate = ">=1.19"
 

@@ -53,7 +53,7 @@ environments:
       - pypi: https://files.pythonhosted.org/packages/a5/9f/bffa3362895e5437d9d12e3bbd242f86d91af1d7cd26f6e14ebb6376581b/cons-0.4.7-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/cc/8f/ec6289987824b29529d0dfda0d74a07cec60e54b9c92f3c9da4c0ac732de/contourpy-1.3.3-cp312-cp312-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl
       - pypi: https://files.pythonhosted.org/packages/e7/05/c19819d5e3d95294a6f5947fb9b9629efb316b96de511b418c53d245aae6/cycler-0.12.1-py3-none-any.whl
-      - pypi: https://files.pythonhosted.org/packages/66/cd/1b1162b2fae62116ee0fd18f603320b0b44706be5d3e0c932d87fefda95e/cyvcf2-0.31.4-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.whl
+      - pypi: https://files.pythonhosted.org/packages/01/a5/cf6a244d7a2d0d9cb6b64119f69dae4a02db399308044fe45e05db9c0e64/cyvcf2-0.33.0-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.whl
       - pypi: https://files.pythonhosted.org/packages/1e/77/dc8c558f7593132cf8fefec57c4f60c83b16941c574ac5f619abb3ae7933/dill-0.4.1-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/39/19/bf11636df040a9f9c3fd6959aedea5b5cfddd751272732278fb04ee0a78c/etuples-0.3.10-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/a4/a5/842ae8f0c08b61d6484b52f99a03510a3a72d23141942d216ebe81fefbce/filelock-3.25.2-py3-none-any.whl
@@ -148,7 +148,7 @@ environments:
       - pypi: https://files.pythonhosted.org/packages/a5/9f/bffa3362895e5437d9d12e3bbd242f86d91af1d7cd26f6e14ebb6376581b/cons-0.4.7-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/53/3e/405b59cfa13021a56bba395a6b3aca8cec012b45bf177b0eaf7a202cde2c/contourpy-1.3.3-cp312-cp312-macosx_11_0_arm64.whl
       - pypi: https://files.pythonhosted.org/packages/e7/05/c19819d5e3d95294a6f5947fb9b9629efb316b96de511b418c53d245aae6/cycler-0.12.1-py3-none-any.whl
-      - pypi: https://files.pythonhosted.org/packages/0b/2d/3be5fbfcb29e0fc340168d866e53b14aabbf06ff194e68357097eea013e7/cyvcf2-0.31.4-cp312-cp312-macosx_11_0_arm64.whl
+      - pypi: https://files.pythonhosted.org/packages/a9/e7/adeda7c5d3ebdf73523b6e4e7047d9cdfe733936453f3acfc190d87afbb0/cyvcf2-0.33.0-cp312-cp312-macosx_11_0_arm64.whl
       - pypi: https://files.pythonhosted.org/packages/1e/77/dc8c558f7593132cf8fefec57c4f60c83b16941c574ac5f619abb3ae7933/dill-0.4.1-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/39/19/bf11636df040a9f9c3fd6959aedea5b5cfddd751272732278fb04ee0a78c/etuples-0.3.10-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/a4/a5/842ae8f0c08b61d6484b52f99a03510a3a72d23141942d216ebe81fefbce/filelock-3.25.2-py3-none-any.whl
@@ -263,7 +263,7 @@ environments:
       - pypi: https://files.pythonhosted.org/packages/21/ac/6b34452a3836c9fbabcd360689a353409d15f500dd9d9ced7f837549e383/cuda_bindings-13.0.3-cp312-cp312-manylinux_2_24_x86_64.manylinux_2_28_x86_64.whl
       - pypi: https://files.pythonhosted.org/packages/c4/74/8c66861b873d8eed51fde56d3091baa4906a56f0d4390cae991f2d41dda5/cuda_pathfinder-1.5.1-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/e7/05/c19819d5e3d95294a6f5947fb9b9629efb316b96de511b418c53d245aae6/cycler-0.12.1-py3-none-any.whl
-      - pypi: https://files.pythonhosted.org/packages/66/cd/1b1162b2fae62116ee0fd18f603320b0b44706be5d3e0c932d87fefda95e/cyvcf2-0.31.4-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.whl
+      - pypi: https://files.pythonhosted.org/packages/01/a5/cf6a244d7a2d0d9cb6b64119f69dae4a02db399308044fe45e05db9c0e64/cyvcf2-0.33.0-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.whl
       - pypi: https://files.pythonhosted.org/packages/1e/77/dc8c558f7593132cf8fefec57c4f60c83b16941c574ac5f619abb3ae7933/dill-0.4.1-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/39/19/bf11636df040a9f9c3fd6959aedea5b5cfddd751272732278fb04ee0a78c/etuples-0.3.10-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/a4/a5/842ae8f0c08b61d6484b52f99a03510a3a72d23141942d216ebe81fefbce/filelock-3.25.2-py3-none-any.whl
@@ -549,24 +549,26 @@ packages:
   - pytest-cov ; extra == 'tests'
   - pytest-xdist ; extra == 'tests'
   requires_python: '>=3.8'
-- pypi: https://files.pythonhosted.org/packages/0b/2d/3be5fbfcb29e0fc340168d866e53b14aabbf06ff194e68357097eea013e7/cyvcf2-0.31.4-cp312-cp312-macosx_11_0_arm64.whl
+- pypi: https://files.pythonhosted.org/packages/01/a5/cf6a244d7a2d0d9cb6b64119f69dae4a02db399308044fe45e05db9c0e64/cyvcf2-0.33.0-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.whl
   name: cyvcf2
-  version: 0.31.4
-  sha256: f704db67aaa951185d5dfe7723ef93af1164802d42936e0d8dd687aacc6018ef
+  version: 0.33.0
+  sha256: 86684c2764df702a21ef0e81a1410e68538a5007783adb311897fe156b734f95
   requires_dist:
-  - numpy>=1.16.0
+  - numpy>=1.16.0 ; python_full_version < '3.9'
+  - numpy>=2.0.0 ; python_full_version >= '3.9'
   - coloredlogs
   - click
-  requires_python: '>=3.7'
-- pypi: https://files.pythonhosted.org/packages/66/cd/1b1162b2fae62116ee0fd18f603320b0b44706be5d3e0c932d87fefda95e/cyvcf2-0.31.4-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.whl
+  requires_python: '>=3.8'
+- pypi: https://files.pythonhosted.org/packages/a9/e7/adeda7c5d3ebdf73523b6e4e7047d9cdfe733936453f3acfc190d87afbb0/cyvcf2-0.33.0-cp312-cp312-macosx_11_0_arm64.whl
   name: cyvcf2
-  version: 0.31.4
-  sha256: fab3fdf48eadadd88411e10d6427b2a71b5090cfad1ebb149556673cbb8ec99a
+  version: 0.33.0
+  sha256: b13bc65a599b14717f87351321999302c7761dc99de042efc063aec48036fadc
   requires_dist:
-  - numpy>=1.16.0
+  - numpy>=1.16.0 ; python_full_version < '3.9'
+  - numpy>=2.0.0 ; python_full_version >= '3.9'
   - coloredlogs
   - click
-  requires_python: '>=3.7'
+  requires_python: '>=3.8'
 - pypi: https://files.pythonhosted.org/packages/1e/77/dc8c558f7593132cf8fefec57c4f60c83b16941c574ac5f619abb3ae7933/dill-0.4.1-py3-none-any.whl
   name: dill
   version: 0.4.1
@@ -1848,7 +1850,7 @@ packages:
 - pypi: ./
   name: permutect
   version: 0.1.0
-  sha256: 5d05deccc9e7337d9de8172c17cb04f748ac468a6c625730ce68db714fe65b8d
+  sha256: ec9bcb3b904d528c3d4fcd0805f93882c25afd0c2cf39d4352c58460d9fe3e8e
   requires_dist:
   - torch>=2.10.0,<2.11
   - tensorboard>=2.8.0
@@ -1857,14 +1859,14 @@ packages:
   - tqdm>=4.66.1
   - setuptools>=78.1.1
   - matplotlib>=3.8.2
-  - cyvcf2~=0.31.4
+  - cyvcf2>=0.32
   - intervaltree>=3.1.0
   - psutil>=5.9.2
   - scikit-learn>=1.3.2
   - dill>=0.3.7
   - pytest>=7.0 ; extra == 'dev'
   - ruff>=0.14 ; extra == 'dev'
-  requires_python: '>=3.10,<3.13'
+  requires_python: '>=3.10'
 - pypi: https://files.pythonhosted.org/packages/43/e3/fdc657359e919462369869f1c9f0e973f353f9a9ee295a39b1fea8ee1a77/pillow-12.2.0-cp312-cp312-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl
   name: pillow
   version: 12.2.0
