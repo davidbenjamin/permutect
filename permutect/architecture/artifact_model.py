@@ -335,7 +335,6 @@ def record_embeddings(model: ArtifactModel, loader, summary_writer: SummaryWrite
     batch: Batch
     for batch in tqdm(prefetch_generator(loader), mininterval=60, total=len(loader)):
         ref_bre, alt_bre, ref_alt_seq_embeddings_be = model.calculate_features(batch)
-
         alt_means_be = alt_bre.means_over_sets().cpu()
         ref_means_be = ref_bre.means_over_sets().cpu()
         ref_alt_seq_embeddings_be = ref_alt_seq_embeddings_be.cpu()
