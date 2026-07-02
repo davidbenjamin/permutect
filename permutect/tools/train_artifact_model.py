@@ -56,6 +56,7 @@ def main_without_parsing(args):
         training_params,
         summary_writer=summary_writer,
         epochs_per_evaluation=10,
+        trainable_params=training_params.trainable_parameter_sets,
     )
 
     summary_writer.close()
@@ -70,6 +71,7 @@ def parse_arguments():
 
     tar_kwargs = {"type": str, "required": True, "help": "dataset .tar.gz file produced by preprocess_dataset.py"}
     parser.add_argument("--" + constants.TRAIN_TAR_NAME, **tar_kwargs)
+
 
     parser.add_argument("--" + constants.OUTPUT_NAME, type=str, required=True, help="output artifact model file")
 
