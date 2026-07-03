@@ -36,7 +36,6 @@ BATCH_NORMALIZE_NAME = "batch_normalize"
 
 # training parameters
 TRAINABLE_PARAMETERS_NAME = "trainable_parameters"
-LEARN_ARTIFACT_SPECTRA_NAME = "learn_artifact_spectra"
 LEARNING_RATE_NAME = "learning_rate"
 BATCH_SIZE_NAME = "batch_size"
 NUM_EPOCHS_NAME = "num_epochs"
@@ -46,7 +45,7 @@ SPECTRUM_LEARNING_RATE_NAME = "spectrum_learning_rate"
 
 DATASET_EDIT_TYPE_NAME = "dataset_edit"
 
-# variant filtering paramerters
+# variant filtering parameters
 INITIAL_LOG_VARIANT_PRIOR_NAME = "initial_log_variant_prior"
 INITIAL_LOG_ARTIFACT_PRIOR_NAME = "initial_log_artifact_prior"
 CONTIGS_TABLE_NAME = "contigs_table"

@@ -1,6 +1,5 @@
 version 1.0
 
-
 workflow TrainArtifactModel {
     input {
         File train_tar

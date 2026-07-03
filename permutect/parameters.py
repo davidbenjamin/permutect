@@ -3,6 +3,30 @@ from typing import List
 from permutect import constants
 from permutect.utils.enums import ParameterSet
 
+DEFAULT_READ_LAYERS = [30,-2, -2, -2]
+DEFAULT_INFO_LAYERS = [20,-2,-2,-2]
+DEFAULT_AGGREGATION_LAYERS = [-2,-2,10]
+DEFAULT_SELF_ATTENTION_HIDDEN_DIMENSION = 20
+DEFAULT_NUM_SELF_ATTENTION_LAYERS = 6
+DEFAULT_NUM_ARTIFACT_CLUSTERS = 4
+DEFAULT_REF_SEQ_LAYER_STRINGS = ["convolution/kernel_size=3/out_channels=32",
+                                 "selu", "pool/kernel_size=2/stride=1",
+                                 "convolution/kernel_size=3/out_channels=32",
+                                 "selu", "pool/kernel_size=1",
+                                 "convolution/kernel_size=5/out_channels=32",
+                                 "selu", "pool/kernel_size=2",
+                                 "convolution/kernel_size=5/out_channels=32",
+                                 "selu",
+                                 "pool/kernel_size=2",
+                                 "flatten",
+                                 "linear/out_features=10"]
+
+DEFAULT_NUM_EPOCHS = 10
+DEFAULT_DROPOUT = 0.0
+DEFAULT_BATCH_SIZE = 1024
+DEFAULT_NUM_WORKERS = 0
+DEFAULT_WEIGHT_DECAY = 0.0
+DEFAULT_LEARNING_RATE = 0.001
 
 class ModelParameters:
     """
@@ -71,42 +95,47 @@ def add_model_params_to_parser(parser):
         "--" + constants.READ_LAYERS_NAME,
         nargs="+",
         type=int,
-        required=True,
+        required=False,
+        default=DEFAULT_READ_LAYERS,
         help="dimensions of hidden layers in the read embedding subnetwork, including the dimension of the embedding itself.  "
         "Negative values indicate residual skip connections",
-    )
-    parser.add_argument(
-        "--" + constants.SELF_ATTENTION_HIDDEN_DIMENSION_NAME,
-        type=int,
-        required=True,
-        help="hidden dimension of transformer keys and values",
-    )
-    parser.add_argument(
-        "--" + constants.NUM_SELF_ATTENTION_LAYERS_NAME,
-        type=int,
-        required=True,
-        help="number of symmetric gated MLP self-attention layers",
     )
     parser.add_argument(
         "--" + constants.INFO_LAYERS_NAME,
         nargs="+",
         type=int,
-        required=True,
+        required=False,
+        default=DEFAULT_INFO_LAYERS,
         help="dimensions of hidden layers in the info embedding subnetwork, including the dimension of the embedding itself.  "
-        "Negative values indicate residual skip connections",
+             "Negative values indicate residual skip connections",
     )
     parser.add_argument(
         "--" + constants.AGGREGATION_LAYERS_NAME,
         nargs="+",
         type=int,
-        required=True,
+        required=False,
+        default=DEFAULT_AGGREGATION_LAYERS,
         help="dimensions of hidden layers in the aggregation subnetwork, excluding the dimension of input from lower subnetworks "
         "and the dimension (1) of the output logit.  Negative values indicate residual skip connections",
     )
     parser.add_argument(
+        "--" + constants.SELF_ATTENTION_HIDDEN_DIMENSION_NAME,
+        type=int,
+        required=False,
+        default=DEFAULT_SELF_ATTENTION_HIDDEN_DIMENSION,
+        help="hidden dimension of transformer keys and values",
+    )
+    parser.add_argument(
+        "--" + constants.NUM_SELF_ATTENTION_LAYERS_NAME,
+        type=int,
+        required=False,
+        default=DEFAULT_NUM_SELF_ATTENTION_LAYERS,
+        help="number of symmetric gated MLP self-attention layers",
+    )
+    parser.add_argument(
         "--" + constants.NUM_ARTIFACT_CLUSTERS_NAME,
         type=int,
-        default=4,
+        default=DEFAULT_NUM_ARTIFACT_CLUSTERS,
         required=False,
         help="number of clusters for representing different types of artifact",
     )
@@ -114,7 +143,8 @@ def add_model_params_to_parser(parser):
         "--" + constants.REF_SEQ_LAYER_STRINGS_NAME,
         nargs="+",
         type=str,
-        required=True,
+        required=False,
+        default=DEFAULT_REF_SEQ_LAYER_STRINGS,
         help="list of strings specifying convolution layers of the reference sequence embedding.  For example "
         "convolution/kernel_size=3/out_channels=64 pool/kernel_size=2 leaky_relu "
         "convolution/kernel_size=3/dilation=2/out_channels=5 leaky_relu flatten linear/out_features=10",
@@ -189,29 +219,21 @@ def add_training_params_to_parser(parser):
     parser.add_argument(
         "--" + constants.LEARNING_RATE_NAME,
         type=float,
-        default=0.001,
-        required=False,
+        default=DEFAULT_LEARNING_RATE,
         help="learning rate",
     )
     parser.add_argument(
         "--" + constants.WEIGHT_DECAY_NAME,
         type=float,
-        default=0.0,
-        required=False,
-        help="learning rate",
+        default=DEFAULT_WEIGHT_DECAY,
+        help="weight decay",
     )
     parser.add_argument("--" + constants.BATCH_SIZE_NAME, type=int, default=64, required=False, help="batch size")
     parser.add_argument(
         "--" + constants.NUM_WORKERS_NAME,
         type=int,
-        default=0,
-        required=False,
+        default=DEFAULT_NUM_WORKERS,
         help="number of subprocesses devoted to data loading, which includes reading from memory map, "
         "collating batches, and transferring to GPU.",
     )
-    parser.add_argument(
-        "--" + constants.NUM_EPOCHS_NAME,
-        type=int,
-        required=True,
-        help="number of epochs for primary training loop",
-    )
+    parser.add_argument("--" + constants.NUM_EPOCHS_NAME, type=int, default=DEFAULT_NUM_EPOCHS, help="training epochs")
