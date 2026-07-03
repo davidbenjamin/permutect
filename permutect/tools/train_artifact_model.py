@@ -58,7 +58,6 @@ def main_without_parsing(args):
         training_params,
         summary_writer=summary_writer,
         epochs_per_evaluation=10,
-        trainable_params=training_params.trainable_parameter_sets,
     )
 
     summary_writer.close()
