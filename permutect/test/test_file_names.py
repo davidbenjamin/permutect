@@ -12,8 +12,7 @@ CONTIGS_TABLE = os.path.join(integration_test_dir, "contigs.table")
 SEGMENTS_TABLE = os.path.join(integration_test_dir, "segments.table")
 DREAM_1_CHR20_PLAIN_TEXT_DATA = os.path.join(integration_test_dir, "dream-1-chr-20-plain-text.dataset")
 
-ARTIFACT_MODEL_V_0_4_0 = os.path.join(integration_test_dir, "artifact-model-v0.4.0.pt")
-EXPERIMENTAL_MODEL = os.path.join(integration_test_dir, "experimental-model.pt")
+ARTIFACT_MODEL_V_0_9_2 = os.path.join(integration_test_dir, "artifact-model-v0.9.2.pt")
 
 MUTECT2_CHR20_FILTERED_VCF = os.path.join(integration_test_dir, "mutect2_chr20.vcf")
 
