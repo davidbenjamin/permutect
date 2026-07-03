@@ -23,7 +23,7 @@ def main_without_parsing(args):
     params = parse_model_params(args)
     training_params = parse_training_params(args)
     # optional pretrained model to use as initialization
-    pretrained_model_path = getattr(args, constants.PRETRAINED_ARTIFACT_MODEL_NAME)
+    pretrained_model_path = getattr(args, constants.PRETRAINED_MODEL_NAME)
 
     pretrained_model: ArtifactModel
     pretrained_model, _, _ = (None, None, None) if pretrained_model_path is None else load_model(pretrained_model_path)
@@ -73,10 +73,7 @@ def parse_arguments():
 
     tar_kwargs = {"type": str, "required": True, "help": "dataset .tar.gz file produced by preprocess_dataset.py"}
     parser.add_argument("--" + constants.TRAIN_TAR_NAME, **tar_kwargs)
-
-
     parser.add_argument("--" + constants.OUTPUT_NAME, type=str, required=True, help="output artifact model file")
-
     tensorboard_kwargs = {"type": str, "default": "tensorboard", "required": False, "help": "tensorboard directory"}
     parser.add_argument("--" + constants.TENSORBOARD_DIR_NAME, **tensorboard_kwargs)
 

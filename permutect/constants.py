@@ -19,7 +19,7 @@ TRAINING_DATASETS_NAME = "training_datasets"
 TRAIN_TAR_NAME = "train_tar"
 TEST_DATASET_NAME = "test_dataset"
 TENSORBOARD_DIR_NAME = "tensorboard_dir"
-PRETRAINED_ARTIFACT_MODEL_NAME = "pretrained_artifact_model"
+PRETRAINED_MODEL_NAME = "pretrained_artifact_model"
 ARTIFACT_MODEL_NAME = "artifact_model"
 
 # artifact model hyperparameters
