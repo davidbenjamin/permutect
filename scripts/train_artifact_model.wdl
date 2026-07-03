@@ -4,22 +4,20 @@ workflow TrainArtifactModel {
     input {
         File train_tar
         File? pretrained_model
+
+        Array[Int]? read_layers
+        Array[Int]? info_layers
+        Array[Int]? aggregation_layers
+        Array[String]? ref_seq_layer_strings
+        Int? self_attention_hidden_dimension
+        Int? num_self_attention_layers
         Int num_epochs
-        Int batch_size
+        Int? batch_size
         Int? num_workers
-        Float dropout_p
-        Array[Int] read_layers
-        Int self_attention_hidden_dimension
-        Int num_self_attention_layers
-        Array[Int] info_layers
-        Array[Int] aggregation_layers
-        Array[String] ref_seq_layer_strings
+        Float? dropout_p
         String? extra_args
-        Int? gpu_count
 
         String permutect_docker
-        Int? preemptible
-        Int? max_retries
     }
 
     call Train {
@@ -27,12 +25,9 @@ workflow TrainArtifactModel {
             train_tar = train_tar,
             pretrained_model = pretrained_model,
             permutect_docker = permutect_docker,
-            preemptible = preemptible,
-            max_retries = max_retries,
             num_epochs = num_epochs,
             batch_size = batch_size,
             num_workers = num_workers,
-            gpu_count = gpu_count,
             dropout_p = dropout_p,
             read_layers = read_layers,
             self_attention_hidden_dimension = self_attention_hidden_dimension,
@@ -55,18 +50,16 @@ task Train {
         File train_tar
         File? pretrained_model
 
+        Array[Int]? read_layers
+        Array[Int]? info_layers
+        Array[Int]? aggregation_layers
+        Array[String]? ref_seq_layer_strings
+        Int? self_attention_hidden_dimension
+        Int? num_self_attention_layers
         Int num_epochs
-        Int batch_size
+        Int? batch_size
         Int? num_workers
-        Int? gpu_count
-        Float dropout_p
-        Array[Int] read_layers
-        Int self_attention_hidden_dimension
-        Int num_self_attention_layers
-        Array[Int] info_layers
-        Array[Int] aggregation_layers
-        Array[String] ref_seq_layer_strings
-
+        Float? dropout_p
         String? extra_args
 
         String permutect_docker
@@ -74,6 +67,7 @@ task Train {
         Int? max_retries
         Int? disk_space
         Int? cpu
+        Int? gpu_count
         Int? mem
     }
 
@@ -87,14 +81,14 @@ task Train {
         train_artifact_model \
             --train_tar ~{train_tar} \
             ~{"--pretrained_artifact_model " + pretrained_model} \
-            --read_layers ~{sep=' ' read_layers} \
-            --self_attention_hidden_dimension ~{self_attention_hidden_dimension} \
-            --num_self_attention_layers ~{num_self_attention_layers} \
-            --info_layers ~{sep=' ' info_layers} \
-            --aggregation_layers ~{sep=' ' aggregation_layers} \
-            --ref_seq_layer_strings ~{sep=' ' ref_seq_layer_strings} \
-            --dropout_p ~{dropout_p} \
-            --batch_size ~{batch_size} \
+            ~{true="--read_layers " false="" defined(read_layers)}~{sep=" " read_layers} \
+            ~{true="--info_layers " false="" defined(info_layers)}~{sep=" " info_layers} \
+            ~{true="--aggregation_layers " false="" defined(aggregation_layers)}~{sep=" " aggregation_layers} \
+            ~{true="--ref_seq_layer_strings " false="" defined(ref_seq_layer_strings)}~{sep=" " ref_seq_layer_strings} \
+            ~{"--self_attention_hidden_dimension " + self_attention_hidden_dimension} \
+            ~{"--num_self_attention_layers " + num_self_attention_layers} \
+            ~{"--dropout_p " + dropout_p} \
+            ~{"--batch_size " + batch_size} \
             ~{"--num_workers " + num_workers} \
             --num_epochs ~{num_epochs} \
             --output artifact_model.pt \

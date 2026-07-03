@@ -152,7 +152,7 @@ def add_model_params_to_parser(parser):
     parser.add_argument(
         "--" + constants.DROPOUT_P_NAME,
         type=float,
-        default=0.0,
+        default=DEFAULT_DROPOUT,
         required=False,
         help="dropout probability",
     )
@@ -228,7 +228,7 @@ def add_training_params_to_parser(parser):
         default=DEFAULT_WEIGHT_DECAY,
         help="weight decay",
     )
-    parser.add_argument("--" + constants.BATCH_SIZE_NAME, type=int, default=64, required=False, help="batch size")
+    parser.add_argument("--" + constants.BATCH_SIZE_NAME, type=int, default=DEFAULT_BATCH_SIZE, required=False, help="batch size")
     parser.add_argument(
         "--" + constants.NUM_WORKERS_NAME,
         type=int,
