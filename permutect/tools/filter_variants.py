@@ -34,7 +34,9 @@ from permutect.misc_utils import encode_variant
 from permutect.misc_utils import gpu_if_available
 from permutect.misc_utils import overlapping_filters
 from permutect.misc_utils import report_memory_usage
-from permutect.parameters import TrainingParameters, add_training_params_to_parser, parse_training_params
+from permutect.parameters import TrainingParameters
+from permutect.parameters import add_training_params_to_parser
+from permutect.parameters import parse_training_params
 from permutect.training.model_training import train_artifact_model
 from permutect.utils.allele_utils import find_variant_type
 from permutect.utils.enums import Call
@@ -65,22 +67,12 @@ def parse_arguments():
         help="plain text dataset file corresponding to variants in input VCF",
     )
 
-    # in addition to batch size and num workers, which are used for inference, other optional
-    # artifact model training params are relevant to filtering variants because we may perform
-    # test time domain adaptation on the test dataset
-    add_training_params_to_parser(parser)
-
-
     parser.add_argument(
         "--" + constants.ARTIFACT_MODEL_NAME,
         required=True,
         help="Permutect artifact model from train_artifact_model.py",
     )
-    parser.add_argument(
-        "--" + constants.CONTIGS_TABLE_NAME,
-        required=True,
-        help="table of contig names vs integer indices",
-    )
+
     parser.add_argument("--" + constants.OUTPUT_NAME, required=True, help="path to output filtered VCF")
     parser.add_argument(
         "--" + constants.TENSORBOARD_DIR_NAME,
@@ -88,6 +80,17 @@ def parse_arguments():
         default="tensorboard",
         required=False,
         help="path to output tensorboard",
+    )
+
+    # in addition to batch size and num workers, which are used for inference, other optional
+    # artifact model training params are relevant to filtering variants because we may perform
+    # test time domain adaptation on the test dataset
+    add_training_params_to_parser(parser)
+
+    parser.add_argument(
+        "--" + constants.CONTIGS_TABLE_NAME,
+        required=True,
+        help="table of contig names vs integer indices",
     )
 
     parser.add_argument(
