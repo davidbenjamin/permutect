@@ -13,6 +13,10 @@ def test_filtering_on_dream1_chr20():
     tensorboard_dir = tempfile.TemporaryDirectory()
 
     filtering_args = Namespace()
+    setattr(filtering_args, constants.LEARNING_RATE_NAME, 0.001)
+    setattr(filtering_args, constants.WEIGHT_DECAY_NAME, 0.01)
+    setattr(filtering_args, constants.NUM_EPOCHS_NAME, 5)
+
     setattr(filtering_args, constants.INPUT_NAME, MUTECT2_CHR20_FILTERED_VCF)
     setattr(filtering_args, constants.TEST_DATASET_NAME, DREAM_1_CHR20_PLAIN_TEXT_DATA)
     setattr(filtering_args, constants.ARTIFACT_MODEL_NAME, artifact_model)

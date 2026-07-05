@@ -214,7 +214,6 @@ def main_without_parsing(args):
 def make_filtered_vcf(
     artifact_model_path,
     training_params: TrainingParameters,
-    adaptation_parameter_sets: List[ParameterSet],
     initial_log_variant_prior: float,
     initial_log_artifact_prior: float,
     test_dataset_file,
@@ -254,7 +253,7 @@ def make_filtered_vcf(
         normal_segmentation=normal_segmentation,
     )
 
-    if adaptation_parameter_sets:
+    if training_params.trainable_parameter_sets:
         summary_writer = SummaryWriter(tensorboard_dir, filename_suffix="_adaptation")
         train_artifact_model(
             model=model,
