@@ -4,6 +4,7 @@ from torch import Tensor
 from torch.distributions import Beta
 from torch.nn import Module
 from torch.nn import Parameter
+from torch.nn.parameter import Buffer
 from torch.nn.utils import parametrize
 
 from permutect import misc_utils
@@ -24,14 +25,14 @@ from permutect.utils.stats_utils import beta_binomial_log_lk
 
 class Downsampler(Module):
     # downsampling is done as a mixture of beta binomials with a *fixed* set of basis beta distributions
-    BETA_BASIS_SHAPES = torch.tensor([[1.0, 1.0], [1.0, 5.0], [5.0, 1.0], [5.0, 5.0]], requires_grad=False)
+    BETA_BASIS_SHAPES = torch.tensor([[1.0, 1.0], [1.0, 5.0], [5.0, 1.0], [5.0, 5.0]])
 
     def __init__(self, num_sources: int):
         super(Downsampler, self).__init__()
         self.num_sources = num_sources
 
         # copy this as a member so that it gets moved to the correct device with the downsampler
-        self.beta_basis = Parameter(Downsampler.BETA_BASIS_SHAPES, requires_grad=False)
+        self.beta_basis = Buffer(Downsampler.BETA_BASIS_SHAPES)
 
         # these are 3D -- with two dummy read count indices -- for broadcasting
         alpha_k11 = self.beta_basis[:, 0].view(-1, 1, 1)
@@ -84,16 +85,16 @@ class Downsampler(Module):
                 downalt_bin = 0 if downalt < MIN_ALT_COUNT else alt_count_bin_index(downalt)
                 binned_alt_trans_haz[:, alt_bin, downalt_bin] += alt_trans_haz[:, alt, downalt]
 
-        self.binned_ref_trans_kry = Parameter(binned_ref_trans_kry / COUNT_BIN_SKIP, requires_grad=False)
-        self.binned_alt_trans_haz = Parameter(binned_alt_trans_haz / COUNT_BIN_SKIP, requires_grad=False)
+        self.binned_ref_trans_kry = Buffer(binned_ref_trans_kry / COUNT_BIN_SKIP)
+        self.binned_alt_trans_haz = Buffer(binned_alt_trans_haz / COUNT_BIN_SKIP)
 
         # for each source/label/var type/ ref/alt bin we have mixture component weights for both ref and alt downsampling
         # 'k' and 'h' are both indices to denote the mixture components
         slvra_shape = BatchIndexedTensor.shape_without_logits(num_sources)
         slvrak_shape = slvra_shape + (len(self.beta_basis),)
-        self.log_ref_weights_slvrak = Parameter(torch.zeros(slvrak_shape), requires_grad=False)
+        self.log_ref_weights_slvrak = Buffer(torch.zeros(slvrak_shape))
         parametrize.register_parametrization(self, "log_ref_weights_slvrak", LogWeights())
-        self.log_alt_weights_slvrah = Parameter(torch.zeros(slvrak_shape), requires_grad=False)
+        self.log_alt_weights_slvrah = Buffer(torch.zeros(slvrak_shape))
         parametrize.register_parametrization(self, "log_alt_weights_slvrah", LogWeights())
 
     def weights_parameters(self):

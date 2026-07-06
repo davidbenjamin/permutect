@@ -5,6 +5,7 @@ from torch import log
 from torch import logsumexp
 from torch import nn
 from torch.nn import Parameter
+from torch.nn.parameter import Buffer
 from torch.nn.utils import parametrize
 
 from permutect.architecture.parameterizations import BoundedNumber
@@ -59,11 +60,11 @@ class SomaticSpectrum(nn.Module):
 
         # TODO: this is an arbitrary guess
         background_weight = 0.0001
-        self.log_background_weight = Parameter(log(torch.tensor(background_weight)), requires_grad=False)
-        self.log_non_background_weight = Parameter(log(torch.tensor(1 - background_weight)), requires_grad=False)
+        self.log_background_weight = Buffer(log(torch.tensor(background_weight)))
+        self.log_non_background_weight = Buffer(log(torch.tensor(1 - background_weight)))
 
-        self.background_alpha = Parameter(torch.tensor([1]), requires_grad=False)
-        self.background_beta = Parameter(torch.tensor([1]), requires_grad=False)
+        self.background_alpha = Buffer(torch.tensor([1]))
+        self.background_beta = Buffer(torch.tensor([1]))
 
     """
     here alt counts, depths, and minor allele fractions are 1D (batch size, ) tensors
