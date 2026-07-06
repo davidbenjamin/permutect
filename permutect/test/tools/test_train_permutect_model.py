@@ -22,7 +22,6 @@ def test_train_artifact_model():
     setattr(train_model_args, constants.INFO_LAYERS_NAME, [10, 10])
     setattr(train_model_args, constants.AGGREGATION_LAYERS_NAME, [20, 20, 20])
     setattr(train_model_args, constants.NUM_ARTIFACT_CLUSTERS_NAME, 4)
-    setattr(train_model_args, constants.CALIBRATION_LAYERS_NAME, [10, 10, 10])
     cnn_layer_strings = [
         "convolution/kernel_size=3/out_channels=64",
         "pool/kernel_size=2",
@@ -41,7 +40,6 @@ def test_train_artifact_model():
     # training hyperparameters
     setattr(train_model_args, constants.REWEIGHTING_RANGE_NAME, 0.3)
     setattr(train_model_args, constants.BATCH_SIZE_NAME, 64)
-    setattr(train_model_args, constants.INFERENCE_BATCH_SIZE_NAME, 64)
     setattr(train_model_args, constants.NUM_WORKERS_NAME, 2)
     setattr(train_model_args, constants.NUM_EPOCHS_NAME, 2)
     setattr(train_model_args, constants.NUM_CALIBRATION_EPOCHS_NAME, 0)

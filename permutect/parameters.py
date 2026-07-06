@@ -21,7 +21,6 @@ class ModelParameters:
         info_layers: List[int],
         aggregation_layers: List[int],
         num_artifact_clusters: int,
-        calibration_layers: List[int],
         ref_seq_layers_strings: List[str],
         dropout_p: float,
         reweighting_range: float,
@@ -34,7 +33,6 @@ class ModelParameters:
         self.num_self_attention_layers = num_self_attention_layers
         self.aggregation_layers = aggregation_layers
         self.num_artifact_clusters = num_artifact_clusters
-        self.calibration_layers = calibration_layers
         self.dropout_p = dropout_p
         self.reweighting_range = reweighting_range
         self.batch_normalize = batch_normalize
@@ -48,7 +46,6 @@ def parse_model_params(args) -> ModelParameters:
     num_self_attention_layers = getattr(args, constants.NUM_SELF_ATTENTION_LAYERS_NAME)
     aggregation_layers = getattr(args, constants.AGGREGATION_LAYERS_NAME)
     num_artifact_clusters = getattr(args, constants.NUM_ARTIFACT_CLUSTERS_NAME)
-    calibration_layers = getattr(args, constants.CALIBRATION_LAYERS_NAME)
     dropout_p = getattr(args, constants.DROPOUT_P_NAME)
     reweighting_range = getattr(args, constants.REWEIGHTING_RANGE_NAME)
     batch_normalize = getattr(args, constants.BATCH_NORMALIZE_NAME)
@@ -59,7 +56,6 @@ def parse_model_params(args) -> ModelParameters:
         info_layers,
         aggregation_layers,
         num_artifact_clusters,
-        calibration_layers,
         ref_seq_layer_strings,
         dropout_p,
         reweighting_range,
@@ -118,14 +114,6 @@ def add_model_params_to_parser(parser):
         help="number of clusters for representing different types of artifact",
     )
     parser.add_argument(
-        "--" + constants.CALIBRATION_LAYERS_NAME,
-        nargs="+",
-        type=int,
-        required=True,
-        help="dimensions of hidden layers in the calibration subnetwork, excluding the dimension (1) of input logit and) "
-        "and the dimension (also 1) of the output logit.",
-    )
-    parser.add_argument(
         "--" + constants.REF_SEQ_LAYER_STRINGS_NAME,
         nargs="+",
         type=str,
@@ -166,7 +154,6 @@ class TrainingParameters:
         weight_decay: float = 0.01,
         num_workers: int = 0,
         num_calibration_epochs: int = 0,
-        inference_batch_size: int = 8192,
     ):
         self.batch_size = batch_size
         self.num_epochs = num_epochs
@@ -174,7 +161,6 @@ class TrainingParameters:
         self.weight_decay = weight_decay
         self.num_workers = num_workers
         self.num_calibration_epochs = num_calibration_epochs
-        self.inference_batch_size = inference_batch_size
 
 
 def parse_training_params(args) -> TrainingParameters:
@@ -184,7 +170,6 @@ def parse_training_params(args) -> TrainingParameters:
     num_epochs = getattr(args, constants.NUM_EPOCHS_NAME)
     num_calibration_epochs = getattr(args, constants.NUM_CALIBRATION_EPOCHS_NAME)
     num_workers = getattr(args, constants.NUM_WORKERS_NAME)
-    inference_batch_size = getattr(args, constants.INFERENCE_BATCH_SIZE_NAME)
     return TrainingParameters(
         batch_size,
         num_epochs,
@@ -192,7 +177,6 @@ def parse_training_params(args) -> TrainingParameters:
         weight_decay,
         num_workers,
         num_calibration_epochs,
-        inference_batch_size,
     )
 
 
@@ -232,11 +216,4 @@ def add_training_params_to_parser(parser):
         default=0,
         required=False,
         help="number of calibration-only epochs",
-    )
-    parser.add_argument(
-        "--" + constants.INFERENCE_BATCH_SIZE_NAME,
-        type=int,
-        default=8192,
-        required=False,
-        help="batch size when performing model inference (not training)",
     )
