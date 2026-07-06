@@ -244,7 +244,7 @@ class ArtifactModel(torch.nn.Module):
     # here 'b' is the batch index, 'r' is the flattened read index, and 'e' means an embedding dimension
     # so, for example, "re" means a 2D tensor with all reads in the batch stacked and "bre" means a 3D tensor indexed
     # first by variant within the batch, then the read within the variant
-    def calculate_features(self, batch: Batch, weight_range: float = 0) -> tuple[RaggedSets, RaggedSets, Tensor]:
+    def calculate_features(self, batch: Batch) -> tuple[RaggedSets, RaggedSets, Tensor]:
         ref_counts_b, alt_counts_b = batch.get(Data.REF_COUNT), batch.get(Data.ALT_COUNT)
         total_ref = torch.sum(ref_counts_b).item()
 
@@ -385,9 +385,7 @@ def record_embeddings(model: ArtifactModel, loader, summary_writer: SummaryWrite
 
     batch: Batch
     for batch in tqdm(prefetch_generator(loader), mininterval=60, total=len(loader)):
-        ref_bre, alt_bre, ref_alt_seq_embeddings_be = model.calculate_features(
-            batch, weight_range=model._params.reweighting_range
-        )
+        ref_bre, alt_bre, ref_alt_seq_embeddings_be = model.calculate_features(batch)
 
         alt_means_be = alt_bre.means_over_sets().cpu()
         ref_means_be = ref_bre.means_over_sets().cpu()

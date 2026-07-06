@@ -23,7 +23,6 @@ class ModelParameters:
         num_artifact_clusters: int,
         ref_seq_layers_strings: List[str],
         dropout_p: float,
-        reweighting_range: float,
         batch_normalize: bool = False,
     ):
         self.read_layers = read_layers
@@ -34,7 +33,6 @@ class ModelParameters:
         self.aggregation_layers = aggregation_layers
         self.num_artifact_clusters = num_artifact_clusters
         self.dropout_p = dropout_p
-        self.reweighting_range = reweighting_range
         self.batch_normalize = batch_normalize
 
 
@@ -47,7 +45,6 @@ def parse_model_params(args) -> ModelParameters:
     aggregation_layers = getattr(args, constants.AGGREGATION_LAYERS_NAME)
     num_artifact_clusters = getattr(args, constants.NUM_ARTIFACT_CLUSTERS_NAME)
     dropout_p = getattr(args, constants.DROPOUT_P_NAME)
-    reweighting_range = getattr(args, constants.REWEIGHTING_RANGE_NAME)
     batch_normalize = getattr(args, constants.BATCH_NORMALIZE_NAME)
     return ModelParameters(
         read_layers,
@@ -58,7 +55,6 @@ def parse_model_params(args) -> ModelParameters:
         num_artifact_clusters,
         ref_seq_layer_strings,
         dropout_p,
-        reweighting_range,
         batch_normalize,
     )
 
@@ -128,14 +124,6 @@ def add_model_params_to_parser(parser):
         default=0.0,
         required=False,
         help="dropout probability",
-    )
-    parser.add_argument(
-        "--" + constants.REWEIGHTING_RANGE_NAME,
-        type=float,
-        default=0.3,
-        required=False,
-        help="magnitude of data augmentation by randomly weighted average of read embeddings.  "
-        "a value of x yields random weights between 1 - x and 1 + x",
     )
     parser.add_argument(
         "--" + constants.BATCH_NORMALIZE_NAME,
