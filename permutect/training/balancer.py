@@ -48,10 +48,6 @@ class Balancer(Module):
 
         # weights for unlabeled data, where index l is a guess for the correct label
         self.unlabeled_weights_slvra = Buffer(BatchIndexedTensor.ones(num_sources=num_sources))
-
-        # the overall weights for adversarial source prediction are the regular weights times the source weights
-        self.source_weights_s = Buffer(torch.ones(num_sources))
-
         self.to(device=device)
 
     def process_batch_and_compute_weights(self, batch: Batch, artifact_probs_b: Tensor):
@@ -91,19 +87,6 @@ class Balancer(Module):
                 lin_comb_slvra = attenuation * old_weights_slvra + (1 - attenuation) * new_weights_slvra
                 old_weights_slvra.copy_(lin_comb_slvra)
 
-            counts_slv = torch.sum(self.counts_slvra, dim=(-2, -1))
-
-            # TODO: here is old code for making total unlabeled weight at most equal to total labeled weight
-            # TODO: can it be thrown out?  Wha tis the right thing to do?  Maybe nothing?
-            # TODO: maybe it's the responsibility of the dataset?
-            # total_labeled_sv = counts_slv[:, Label.ARTIFACT] + counts_slv[:, Label.VARIANT]
-            # unlabeled_weight_sv = torch.clip(total_labeled_sv / counts_slv[:, Label.UNLABELED], 0, 1)
-            # new_weights_slvra[:, Label.UNLABELED] = unlabeled_weight_sv.view(self.num_sources, len(Variation), 1, 1)
-
-            counts_s = torch.sum(counts_slv, dim=(-2, -1))
-            total_s = torch.sum(counts_s, dim=0, keepdim=True)
-            new_source_weights_s = (total_s / counts_s) / self.num_sources
-            self.source_weights_s.copy_(attenuation * self.source_weights_s + (1 - attenuation) * new_source_weights_s)
             self.count_since_last_recomputation = 0
             # TODO: also attenuate counts -- multiply by an attenuation factor or something?
 
@@ -113,8 +96,7 @@ class Balancer(Module):
         unlabeled_weights_b = art_probs_b * pseudo_art_weights_b + (1 - art_probs_b) * pseudo_nonart_weights_b
         weights_b = unlabeled_mask * unlabeled_weights_b + (1 - unlabeled_mask) * labeled_weights_b
 
-        source_weights = self.source_weights_s[idx.sources]
-        return weights_b, source_weights
+        return weights_b
 
     # TODO: lots of code duplication with the plotting in loss_metrics.py
     def make_plot(self, label: Label, var_type: Variation, axis, source: int, plot_type: PlotType):
