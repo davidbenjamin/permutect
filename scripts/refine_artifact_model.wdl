@@ -8,7 +8,6 @@ workflow RefineArtifactModel {
         Int num_epochs
         Int num_calibration_epochs
         Int batch_size
-        Int inference_batch_size
         Int? num_workers
         Int? gpu_count
         String? extra_args
@@ -32,7 +31,6 @@ workflow RefineArtifactModel {
             num_epochs = num_epochs,
             num_calibration_epochs = num_calibration_epochs,
             batch_size = batch_size,
-            inference_batch_size = inference_batch_size,
             num_workers = num_workers,
             gpu_count = gpu_count,
             extra_args = extra_args,
@@ -56,7 +54,6 @@ task Refine {
         Int num_epochs
         Int num_calibration_epochs
         Int batch_size
-        Int inference_batch_size
         Int? num_workers
         Int? gpu_count
         Boolean learn_artifact_spectra
@@ -84,7 +81,6 @@ task Refine {
             --train_tar ~{train_tar} \
             --pretrained_artifact_model ~{pretrained_model} \
             --batch_size ~{batch_size} \
-            --inference_batch_size ~{inference_batch_size} \
             ~{"--num_workers " + num_workers} \
             --num_epochs ~{num_epochs} \
             --num_calibration_epochs ~{num_calibration_epochs} \

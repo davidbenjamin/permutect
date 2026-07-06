@@ -40,7 +40,6 @@ def test_train_artifact_model():
     # training hyperparameters
     setattr(train_model_args, constants.REWEIGHTING_RANGE_NAME, 0.3)
     setattr(train_model_args, constants.BATCH_SIZE_NAME, 64)
-    setattr(train_model_args, constants.INFERENCE_BATCH_SIZE_NAME, 64)
     setattr(train_model_args, constants.NUM_WORKERS_NAME, 2)
     setattr(train_model_args, constants.NUM_EPOCHS_NAME, 2)
     setattr(train_model_args, constants.NUM_CALIBRATION_EPOCHS_NAME, 0)

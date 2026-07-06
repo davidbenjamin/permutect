@@ -7,7 +7,6 @@ workflow TrainArtifactModel {
         File? pretrained_model
         Int num_epochs
         Int batch_size
-        Int inference_batch_size
         Int? num_workers
         Float dropout_p
         Float reweighting_range
@@ -34,7 +33,6 @@ workflow TrainArtifactModel {
             max_retries = max_retries,
             num_epochs = num_epochs,
             batch_size = batch_size,
-            inference_batch_size = inference_batch_size,
             num_workers = num_workers,
             gpu_count = gpu_count,
             dropout_p = dropout_p,
@@ -62,7 +60,6 @@ task Train {
 
         Int num_epochs
         Int batch_size
-        Int inference_batch_size
         Int? num_workers
         Int? gpu_count
         Float dropout_p
@@ -103,7 +100,6 @@ task Train {
             --dropout_p ~{dropout_p} \
             --reweighting_range ~{reweighting_range} \
             --batch_size ~{batch_size} \
-            --inference_batch_size ~{inference_batch_size} \
             ~{"--num_workers " + num_workers} \
             --num_epochs ~{num_epochs} \
             --output artifact_model.pt \
