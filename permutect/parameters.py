@@ -1,6 +1,7 @@
 from typing import List
 
 from permutect import constants
+from permutect.utils.enums import ParameterSet
 
 
 class ModelParameters:
@@ -141,12 +142,14 @@ class TrainingParameters:
         learning_rate: float = 0.001,
         weight_decay: float = 0.01,
         num_workers: int = 0,
+        trainable_parameter_sets: List[ParameterSet] = None,
     ):
         self.batch_size = batch_size
         self.num_epochs = num_epochs
         self.learning_rate = learning_rate
         self.weight_decay = weight_decay
         self.num_workers = num_workers
+        self.trainable_parameter_sets = trainable_parameter_sets if trainable_parameter_sets is not None else []
 
 
 def parse_training_params(args) -> TrainingParameters:
@@ -155,12 +158,21 @@ def parse_training_params(args) -> TrainingParameters:
     batch_size = getattr(args, constants.BATCH_SIZE_NAME)
     num_epochs = getattr(args, constants.NUM_EPOCHS_NAME)
     num_workers = getattr(args, constants.NUM_WORKERS_NAME)
+
+    training_parameter_strings = getattr(args, constants.TRAINABLE_PARAMETERS_NAME)
+    training_parameter_sets = (
+        [ParameterSet.WHOLE_MODEL]
+        if training_parameter_strings is None
+        else [ParameterSet.get_parameter_set(set_str) for set_str in training_parameter_strings]
+    )
+
     return TrainingParameters(
         batch_size,
         num_epochs,
         learning_rate,
         weight_decay,
         num_workers,
+        training_parameter_sets,
     )
 
 
@@ -193,4 +205,11 @@ def add_training_params_to_parser(parser):
         type=int,
         required=True,
         help="number of epochs for primary training loop",
+    )
+    parser.add_argument(
+        "--" + constants.TRAINABLE_PARAMETERS_NAME,
+        nargs="*",
+        type=str,
+        required=False,
+        help="zero or more parameter set types to be re-fit in test time domain adaptation",
     )
