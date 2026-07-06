@@ -92,9 +92,15 @@ class Downsampler(Module):
         # 'k' and 'h' are both indices to denote the mixture components
         slvra_shape = BatchIndexedTensor.shape_without_logits(num_sources)
         slvrak_shape = slvra_shape + (len(self.beta_basis),)
-        self.log_ref_weights_slvrak = Buffer(torch.zeros(slvrak_shape))
+
+        # the log weights tensors should never be changed when training a model and as such should usually never
+        # have gradients.  However, 1) defining them as parameters lets us parametrize them with LogWeights and
+        # 2) we do train them when fitting the downsampler.  Thus we define them as Parameters rather than Buffers
+        # BUT we always detach() them.  Furthermore, when training a model the optimizer should only involve the
+        # model's parameters, not the downsampler's
+        self.log_ref_weights_slvrak = Parameter(torch.zeros(slvrak_shape))
         parametrize.register_parametrization(self, "log_ref_weights_slvrak", LogWeights())
-        self.log_alt_weights_slvrah = Buffer(torch.zeros(slvrak_shape))
+        self.log_alt_weights_slvrah = Parameter(torch.zeros(slvrak_shape))
         parametrize.register_parametrization(self, "log_alt_weights_slvrah", LogWeights())
 
     def weights_parameters(self):
@@ -103,11 +109,12 @@ class Downsampler(Module):
             self.parametrizations.log_alt_weights_slvrah.original,
         ]
 
+    # this is used in model training, NOT for fitting the downsampler, so for security we detach the weights
     def calculate_downsampling_fractions(self, batch: Batch) -> tuple[Tensor, Tensor]:
         # we will flatten all the batch indices -- slvra, but not k -- to get a 2D tensor indexed by the batch's
         # flattened indices ('f') and the downsampler's mixture index k
-        ref_weights_fk = torch.exp(self.log_ref_weights_slvrak).view(-1, len(self.beta_basis))
-        alt_weights_fk = torch.exp(self.log_alt_weights_slvrah).view(-1, len(self.beta_basis))
+        ref_weights_fk = torch.exp(self.log_ref_weights_slvrak.detach()).view(-1, len(self.beta_basis))
+        alt_weights_fk = torch.exp(self.log_alt_weights_slvrah.detach()).view(-1, len(self.beta_basis))
 
         # use the weights for choosing from random samples
         ref_weights_bk = ref_weights_fk[batch.batch_indices().flattened_idx]
@@ -123,6 +130,7 @@ class Downsampler(Module):
         alt_fracs_b = Beta(alt_shapes_b2[:, 0], alt_shapes_b2[:, 1]).sample().view(-1)
         return ref_fracs_b, alt_fracs_b
 
+    # used to fit the downsampler, log weights are NOT detach()ed
     def calculate_expected_downsampled_counts(self, counts_slvra: BatchIndexedTensor):
         ref_weights_slvrak = torch.exp(self.log_ref_weights_slvrak)
         alt_weights_slvrah = torch.exp(self.log_alt_weights_slvrah)
@@ -140,7 +148,6 @@ class Downsampler(Module):
         return result_slvyz
 
     def optimize_downsampling_balance(self, counts_slvra: BatchIndexedTensor):
-        misc_utils.unfreeze(self.weights_parameters())
         optimizer = torch.optim.AdamW(self.parameters())
         # TODO: magic constant -- choose when to end optimization more intelligently
         for step in range(10000):
@@ -156,4 +163,3 @@ class Downsampler(Module):
             sums_of_squares_slv = torch.sum(torch.square(normalized_slvyz), dim=(-2, -1))
             loss = torch.sum(sums_of_squares_slv)
             backpropagate(optimizer, loss)
-        misc_utils.freeze(self.weights_parameters())
