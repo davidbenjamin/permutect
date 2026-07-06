@@ -218,12 +218,6 @@ class ArtifactModel(torch.nn.Module):
     def haplotypes_length(self) -> int:
         return self._haplotypes_length
 
-    def calibration_parameters(self):
-        return [
-            self.feature_clustering.parametrizations.nonartifact_stdev_e.original,
-            self.feature_clustering.parametrizations.artifact_stdev_k.original,
-        ]
-
     def set_epoch_type(self, epoch_type: Epoch, trainable_params: List[ParameterSet] = None):
         if epoch_type == Epoch.TRAIN:
             if trainable_params is None:
