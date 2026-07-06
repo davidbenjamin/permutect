@@ -9,7 +9,6 @@ workflow TrainArtifactModel {
         Int batch_size
         Int? num_workers
         Float dropout_p
-        Float reweighting_range
         Array[Int] read_layers
         Int self_attention_hidden_dimension
         Int num_self_attention_layers
@@ -36,7 +35,6 @@ workflow TrainArtifactModel {
             num_workers = num_workers,
             gpu_count = gpu_count,
             dropout_p = dropout_p,
-            reweighting_range = reweighting_range,
             read_layers = read_layers,
             self_attention_hidden_dimension = self_attention_hidden_dimension,
             num_self_attention_layers = num_self_attention_layers,
@@ -63,7 +61,6 @@ task Train {
         Int? num_workers
         Int? gpu_count
         Float dropout_p
-        Float reweighting_range
         Array[Int] read_layers
         Int self_attention_hidden_dimension
         Int num_self_attention_layers
@@ -98,7 +95,6 @@ task Train {
             --aggregation_layers ~{sep=' ' aggregation_layers} \
             --ref_seq_layer_strings ~{sep=' ' ref_seq_layer_strings} \
             --dropout_p ~{dropout_p} \
-            --reweighting_range ~{reweighting_range} \
             --batch_size ~{batch_size} \
             ~{"--num_workers " + num_workers} \
             --num_epochs ~{num_epochs} \
