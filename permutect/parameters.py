@@ -21,7 +21,6 @@ class ModelParameters:
         info_layers: List[int],
         aggregation_layers: List[int],
         num_artifact_clusters: int,
-        calibration_layers: List[int],
         ref_seq_layers_strings: List[str],
         dropout_p: float,
         reweighting_range: float,
@@ -34,7 +33,6 @@ class ModelParameters:
         self.num_self_attention_layers = num_self_attention_layers
         self.aggregation_layers = aggregation_layers
         self.num_artifact_clusters = num_artifact_clusters
-        self.calibration_layers = calibration_layers
         self.dropout_p = dropout_p
         self.reweighting_range = reweighting_range
         self.batch_normalize = batch_normalize
@@ -48,7 +46,6 @@ def parse_model_params(args) -> ModelParameters:
     num_self_attention_layers = getattr(args, constants.NUM_SELF_ATTENTION_LAYERS_NAME)
     aggregation_layers = getattr(args, constants.AGGREGATION_LAYERS_NAME)
     num_artifact_clusters = getattr(args, constants.NUM_ARTIFACT_CLUSTERS_NAME)
-    calibration_layers = getattr(args, constants.CALIBRATION_LAYERS_NAME)
     dropout_p = getattr(args, constants.DROPOUT_P_NAME)
     reweighting_range = getattr(args, constants.REWEIGHTING_RANGE_NAME)
     batch_normalize = getattr(args, constants.BATCH_NORMALIZE_NAME)
@@ -59,7 +56,6 @@ def parse_model_params(args) -> ModelParameters:
         info_layers,
         aggregation_layers,
         num_artifact_clusters,
-        calibration_layers,
         ref_seq_layer_strings,
         dropout_p,
         reweighting_range,
@@ -116,14 +112,6 @@ def add_model_params_to_parser(parser):
         default=4,
         required=False,
         help="number of clusters for representing different types of artifact",
-    )
-    parser.add_argument(
-        "--" + constants.CALIBRATION_LAYERS_NAME,
-        nargs="+",
-        type=int,
-        required=True,
-        help="dimensions of hidden layers in the calibration subnetwork, excluding the dimension (1) of input logit and) "
-        "and the dimension (also 1) of the output logit.",
     )
     parser.add_argument(
         "--" + constants.REF_SEQ_LAYER_STRINGS_NAME,
