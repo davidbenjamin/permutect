@@ -141,14 +141,12 @@ class TrainingParameters:
         learning_rate: float = 0.001,
         weight_decay: float = 0.01,
         num_workers: int = 0,
-        num_calibration_epochs: int = 0,
     ):
         self.batch_size = batch_size
         self.num_epochs = num_epochs
         self.learning_rate = learning_rate
         self.weight_decay = weight_decay
         self.num_workers = num_workers
-        self.num_calibration_epochs = num_calibration_epochs
 
 
 def parse_training_params(args) -> TrainingParameters:
@@ -156,7 +154,6 @@ def parse_training_params(args) -> TrainingParameters:
     weight_decay = getattr(args, constants.WEIGHT_DECAY_NAME)
     batch_size = getattr(args, constants.BATCH_SIZE_NAME)
     num_epochs = getattr(args, constants.NUM_EPOCHS_NAME)
-    num_calibration_epochs = getattr(args, constants.NUM_CALIBRATION_EPOCHS_NAME)
     num_workers = getattr(args, constants.NUM_WORKERS_NAME)
     return TrainingParameters(
         batch_size,
@@ -164,7 +161,6 @@ def parse_training_params(args) -> TrainingParameters:
         learning_rate,
         weight_decay,
         num_workers,
-        num_calibration_epochs,
     )
 
 
@@ -197,11 +193,4 @@ def add_training_params_to_parser(parser):
         type=int,
         required=True,
         help="number of epochs for primary training loop",
-    )
-    parser.add_argument(
-        "--" + constants.NUM_CALIBRATION_EPOCHS_NAME,
-        type=int,
-        default=0,
-        required=False,
-        help="number of calibration-only epochs",
     )

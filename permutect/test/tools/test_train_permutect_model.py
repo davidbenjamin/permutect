@@ -41,7 +41,6 @@ def test_train_artifact_model():
     setattr(train_model_args, constants.BATCH_SIZE_NAME, 64)
     setattr(train_model_args, constants.NUM_WORKERS_NAME, 2)
     setattr(train_model_args, constants.NUM_EPOCHS_NAME, 2)
-    setattr(train_model_args, constants.NUM_CALIBRATION_EPOCHS_NAME, 0)
     setattr(train_model_args, constants.LEARNING_RATE_NAME, 0.001)
     setattr(train_model_args, constants.WEIGHT_DECAY_NAME, 0.01)
 

@@ -93,11 +93,10 @@ def train_artifact_model(
     )
     report_memory_usage("Loaders created, about to train.")
 
-    first_epoch, last_epoch = 1, training_params.num_epochs + training_params.num_calibration_epochs
+    first_epoch, last_epoch = 1, training_params.num_epochs
     for epoch in trange(1, last_epoch + 1, desc="Epoch"):
         start_of_epoch = time.time()
         report_memory_usage(f"Epoch {epoch}.")
-        is_calibration_epoch = epoch > training_params.num_epochs
         model.source_predictor.set_adversarial_strength((2 / (1 + math.exp(-0.1 * (epoch - 1)))) - 1)
 
         for epoch_type in [Epoch.TRAIN] if valid_loader is None else [Epoch.TRAIN, Epoch.VALID]:
@@ -109,7 +108,6 @@ def train_artifact_model(
                 epoch,
                 epoch_type,
                 epochs_per_evaluation,
-                is_calibration_epoch,
                 last_epoch,
                 model,
                 num_sources,
@@ -140,7 +138,6 @@ def train_one_epoch(
     epoch: int,
     epoch_type: Epoch,
     epochs_per_evaluation: int,
-    is_calibration_epoch: bool,
     last_epoch: int,
     model: ArtifactModel,
     num_sources: int,
@@ -153,9 +150,6 @@ def train_one_epoch(
 ):
     loss_recorder = LossRecorder(device, num_sources)
     model.set_epoch_type(epoch_type, trainable_params)
-    if is_calibration_epoch and epoch_type == Epoch.TRAIN:
-        freeze(model.parameters())
-        unfreeze(model.calibration_parameters())  # unfreeze calibration but everything else stays frozen
     loader = train_loader if epoch_type == Epoch.TRAIN else valid_loader
 
     parent_batch: Batch
@@ -205,7 +199,7 @@ def train_one_epoch(
             report_worst=False,
         )
 
-    if not is_calibration_epoch and epoch_type == Epoch.TRAIN:
+    if epoch_type == Epoch.TRAIN:
         mean_loss = torch.mean(loss_recorder.primary_metrics.get_marginal(BatchProperty.LABEL))
         checkpoint.save_checkpoint_if_needed(epoch, mean_loss)
         checkpoint.load_checkpoint_if_needed(mean_loss)
