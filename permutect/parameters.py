@@ -3,6 +3,23 @@ from typing import List
 from permutect import constants
 from permutect.utils.enums import ParameterSet
 
+DEFAULT_REF_SEQ_LAYERS = [
+    "convolution/kernel_size=3/out_channels=32",
+    "selu",
+    "pool/kernel_size=2/stride=1",
+    "convolution/kernel_size=3/out_channels=32",
+    "selu",
+    "pool/kernel_size=1",
+    "convolution/kernel_size=5/out_channels=32",
+    "selu",
+    "pool/kernel_size=2",
+    "convolution/kernel_size=5/out_channels=32",
+    "selu",
+    "pool/kernel_size=2",
+    "flatten",
+    "linear/out_features=10",
+]
+
 
 class ModelParameters:
     """
@@ -71,27 +88,27 @@ def add_model_params_to_parser(parser):
         "--" + constants.READ_LAYERS_NAME,
         nargs="+",
         type=int,
-        required=True,
+        default=[30, -2, -2, -2],
         help="dimensions of hidden layers in the read embedding subnetwork, including the dimension of the embedding itself.  "
         "Negative values indicate residual skip connections",
     )
     parser.add_argument(
         "--" + constants.SELF_ATTENTION_HIDDEN_DIMENSION_NAME,
         type=int,
-        required=True,
+        default=20,
         help="hidden dimension of transformer keys and values",
     )
     parser.add_argument(
         "--" + constants.NUM_SELF_ATTENTION_LAYERS_NAME,
         type=int,
-        required=True,
+        default=6,
         help="number of symmetric gated MLP self-attention layers",
     )
     parser.add_argument(
         "--" + constants.INFO_LAYERS_NAME,
         nargs="+",
         type=int,
-        required=True,
+        default=[20, -2, -2, -2],
         help="dimensions of hidden layers in the info embedding subnetwork, including the dimension of the embedding itself.  "
         "Negative values indicate residual skip connections",
     )
@@ -99,7 +116,7 @@ def add_model_params_to_parser(parser):
         "--" + constants.AGGREGATION_LAYERS_NAME,
         nargs="+",
         type=int,
-        required=True,
+        default=[-2, -2, 10],
         help="dimensions of hidden layers in the aggregation subnetwork, excluding the dimension of input from lower subnetworks "
         "and the dimension (1) of the output logit.  Negative values indicate residual skip connections",
     )
@@ -107,14 +124,13 @@ def add_model_params_to_parser(parser):
         "--" + constants.NUM_ARTIFACT_CLUSTERS_NAME,
         type=int,
         default=4,
-        required=False,
         help="number of clusters for representing different types of artifact",
     )
     parser.add_argument(
         "--" + constants.REF_SEQ_LAYER_STRINGS_NAME,
         nargs="+",
         type=str,
-        required=True,
+        default=DEFAULT_REF_SEQ_LAYERS,
         help="list of strings specifying convolution layers of the reference sequence embedding.  For example "
         "convolution/kernel_size=3/out_channels=64 pool/kernel_size=2 leaky_relu "
         "convolution/kernel_size=3/dilation=2/out_channels=5 leaky_relu flatten linear/out_features=10",
@@ -123,7 +139,6 @@ def add_model_params_to_parser(parser):
         "--" + constants.DROPOUT_P_NAME,
         type=float,
         default=0.0,
-        required=False,
         help="dropout probability",
     )
     parser.add_argument(
