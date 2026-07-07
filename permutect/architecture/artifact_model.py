@@ -51,7 +51,6 @@ class BatchOutput:
         logits_b: Tensor,
         logits_bk: Tensor,
         weights: Tensor,
-        source_weights: Tensor,
     ):
         self.features_be = features_be
         self.ref_features_be = ref_features_be
@@ -59,7 +58,6 @@ class BatchOutput:
         self.artifact_probs_b = torch.sigmoid(logits_b)
         self.logits_bk = logits_bk
         self.weights = weights
-        self.source_weights = source_weights
         self.outlier_binary_logits = self._outlier_binary_logits()
 
     def _outlier_binary_logits(self) -> Tensor:
@@ -82,13 +80,11 @@ class BatchLosses:
         supervised_losses_b: Tensor,
         unsupervised_losses_b: Tensor,
         alt_count_losses_b: Tensor,
-        source_prediction_losses_b: Tensor,
         total_losses_b: Tensor,
     ):
         self.supervised_losses_b = supervised_losses_b
         self.unsupervised_losses_b = unsupervised_losses_b
         self.alt_count_losses_b = alt_count_losses_b
-        self.source_prediction_losses_b = source_prediction_losses_b
         self.total_losses_b = total_losses_b
         self.total_loss = torch.sum(total_losses_b)
 
@@ -266,15 +262,6 @@ class ArtifactModel(torch.nn.Module):
 
         return final_ref_bre, final_alt_bre, ref_seq_embeddings_be  # ref seq embeddings are useful later
 
-    def compute_source_prediction_losses(self, features_be: Tensor, batch: Batch) -> Tensor:
-        if self.num_sources > 1:
-            source_logits_bs = self.source_predictor.adversarial_forward(features_be)
-            source_probs_bs = torch.nn.functional.softmax(source_logits_bs, dim=-1)
-            source_targets_bs = torch.nn.functional.one_hot(batch.get(Data.SOURCE).long(), self.num_sources)
-            return torch.sum(torch.square(source_probs_bs - source_targets_bs), dim=-1)
-        else:
-            return torch.zeros(batch.size(), device=self._device, dtype=self._dtype)
-
     def compute_alt_count_losses(self, features_be: Tensor, batch: Batch):
         alt_count_pred_b = torch.sigmoid(self.alt_count_predictor.adversarial_forward(features_be).view(-1))
         alt_count_target_b = batch.get(Data.ALT_COUNT).to(dtype=alt_count_pred_b.dtype) / MAX_ALT_COUNT
@@ -284,8 +271,8 @@ class ArtifactModel(torch.nn.Module):
         ref_bre, alt_bre, _ = self.calculate_features(batch)  # ragged sets of reduced and transformed reads
         logits_b, logits_bk = self.feature_clustering.calculate_logits(alt_bre, batch)
 
-        weights_b, source_weights_b = (
-            (torch.ones_like(logits_b), torch.ones_like(logits_b))
+        weights_b = (
+            torch.ones_like(logits_b)
             if balancer is None
             else balancer.process_batch_and_compute_weights(batch, artifact_probs_b=torch.sigmoid(logits_b).detach())
         )
@@ -295,7 +282,6 @@ class ArtifactModel(torch.nn.Module):
             logits_b=logits_b,
             logits_bk=logits_bk,
             weights=weights_b,
-            source_weights=weights_b * source_weights_b,
         )
 
     def compute_batch_losses(self, output: BatchOutput, batch: Batch):
@@ -312,17 +298,12 @@ class ArtifactModel(torch.nn.Module):
 
         unsupervised_losses_b = (1 - is_labeled_b) * outlier_losses_b
         alt_count_losses_b = self.compute_alt_count_losses(output.features_be, batch)
-        source_losses_b = self.compute_source_prediction_losses(output.features_be, batch)
 
-        total_losses_b = (
-            output.weights * (supervised_losses_b + unsupervised_losses_b + alt_count_losses_b)
-            + output.source_weights * source_losses_b
-        )
+        total_losses_b = output.weights * (supervised_losses_b + unsupervised_losses_b + alt_count_losses_b)
         return BatchLosses(
             supervised_losses_b=supervised_losses_b,
             unsupervised_losses_b=unsupervised_losses_b,
             alt_count_losses_b=alt_count_losses_b,
-            source_prediction_losses_b=source_losses_b,
             total_losses_b=total_losses_b,
         )
 
