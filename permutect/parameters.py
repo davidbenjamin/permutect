@@ -181,30 +181,27 @@ def add_training_params_to_parser(parser):
         "--" + constants.LEARNING_RATE_NAME,
         type=float,
         default=0.001,
-        required=False,
         help="learning rate",
     )
     parser.add_argument(
         "--" + constants.WEIGHT_DECAY_NAME,
         type=float,
         default=0.0,
-        required=False,
-        help="learning rate",
+        help="weight decay",
     )
-    parser.add_argument("--" + constants.BATCH_SIZE_NAME, type=int, default=64, required=False, help="batch size")
+    parser.add_argument("--" + constants.BATCH_SIZE_NAME, type=int, default=2048, required=False, help="batch size")
     parser.add_argument(
         "--" + constants.NUM_WORKERS_NAME,
         type=int,
         default=0,
-        required=False,
         help="number of subprocesses devoted to data loading, which includes reading from memory map, "
         "collating batches, and transferring to GPU.",
     )
     parser.add_argument(
         "--" + constants.NUM_EPOCHS_NAME,
         type=int,
-        required=True,
-        help="number of epochs for primary training loop",
+        default=10,
+        help="number of epochs for training model",
     )
     parser.add_argument(
         "--" + constants.TRAINABLE_PARAMETERS_NAME,
