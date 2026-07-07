@@ -7,7 +7,6 @@ from torch.nn import Parameter
 from torch.nn.parameter import Buffer
 from torch.nn.utils import parametrize
 
-from permutect import misc_utils
 from permutect.architecture.parameterizations import LogWeights
 from permutect.data.batch import Batch
 from permutect.data.batch import BatchIndexedTensor

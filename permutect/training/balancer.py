@@ -7,7 +7,6 @@ import torch
 from matplotlib import pyplot as plt
 from torch import Tensor
 from torch.nn import Module
-from torch.nn import Parameter
 from torch.nn.parameter import Buffer
 from torch.utils.tensorboard import SummaryWriter
 
