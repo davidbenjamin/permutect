@@ -4,6 +4,7 @@ from typing import List
 import torch
 import torch.nn.functional as F
 from torch import nn
+from torch.nn.parameter import Buffer
 from torch.nn.utils import parametrize
 
 from permutect.architecture.parameterizations import BoundedNumber
@@ -45,7 +46,7 @@ class MonoDenseLayer(nn.Module):
         # mask has -1's for decreasing features, otherwise 1's
         # in the forward pass we multiply by the mask for convenience so that monotonically increasing AND decreasing can both
         # be treated as increasing
-        self.mask = nn.Parameter(torch.ones(input_dimension), requires_grad=False)
+        self.mask = Buffer(torch.ones(input_dimension))
         self.mask[num_increasing : num_increasing + num_decreasing] = -1
 
         self.monotonic_W = nn.Parameter(torch.empty((output_dimension, self.num_constrained)))

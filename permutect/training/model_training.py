@@ -33,9 +33,7 @@ from permutect.metrics.evaluation_metrics import EvaluationMetrics
 from permutect.misc_utils import Timer
 from permutect.misc_utils import backpropagate
 from permutect.misc_utils import check_for_nan
-from permutect.misc_utils import freeze
 from permutect.misc_utils import report_memory_usage
-from permutect.misc_utils import unfreeze
 from permutect.parameters import TrainingParameters
 from permutect.training.balancer import Balancer
 from permutect.training.balancer import PlotType

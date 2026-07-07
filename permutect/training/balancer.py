@@ -7,7 +7,7 @@ import torch
 from matplotlib import pyplot as plt
 from torch import Tensor
 from torch.nn import Module
-from torch.nn import Parameter
+from torch.nn.parameter import Buffer
 from torch.utils.tensorboard import SummaryWriter
 
 from permutect.data.batch import Batch
@@ -35,22 +35,22 @@ class Balancer(Module):
         self.count_since_last_recomputation = 0
 
         # not weighted, just the actual counts of data seen
-        self.counts_slvra = Parameter(BatchIndexedTensor.zeros(num_sources=num_sources), requires_grad=False)
+        self.counts_slvra = Buffer(BatchIndexedTensor.zeros(num_sources=num_sources))
 
         # same, but here unlabeled data are probabilistically assigned to artifact or non-artifact based on
         # the model output.  This lets us balance training when, for example, the preponderance of unlabeled
         # data are non-artifacts.  (Very often unlabeled data are sequencing errors, which are not artifacts.
         # also, in test-time adaptation of somatic calls most data are germline variants, which are not artifacts).
-        self.pseudo_counts_slvra = Parameter(BatchIndexedTensor.zeros(num_sources=num_sources), requires_grad=False)
+        self.pseudo_counts_slvra = Buffer(BatchIndexedTensor.zeros(num_sources=num_sources))
 
         # weights for labeled data, initialized flat
-        self.weights_slvra = Parameter(BatchIndexedTensor.ones(num_sources=num_sources), requires_grad=False)
+        self.weights_slvra = Buffer(BatchIndexedTensor.ones(num_sources=num_sources))
 
         # weights for unlabeled data, where index l is a guess for the correct label
-        self.unlabeled_weights_slvra = Parameter(BatchIndexedTensor.ones(num_sources=num_sources), requires_grad=False)
+        self.unlabeled_weights_slvra = Buffer(BatchIndexedTensor.ones(num_sources=num_sources))
 
         # the overall weights for adversarial source prediction are the regular weights times the source weights
-        self.source_weights_s = Parameter(torch.ones(num_sources), requires_grad=False)
+        self.source_weights_s = Buffer(torch.ones(num_sources))
 
         self.to(device=device)
 
