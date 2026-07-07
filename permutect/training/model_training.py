@@ -55,7 +55,6 @@ def train_artifact_model(
     training_params: TrainingParameters,
     summary_writer: SummaryWriter,
     epochs_per_evaluation: int = 5,
-    trainable_params: List[ParameterSet] = None,
 ):
     device, dtype = model._device, model._dtype
     balancer = Balancer(num_sources=train_dataset.num_sources(), device=device).to(device=device, dtype=dtype)
@@ -114,7 +113,7 @@ def train_artifact_model(
                 train_optimizer,
                 train_scheduler,
                 valid_loader,
-                trainable_params,
+                training_params.trainable_parameter_sets,
             )
 
         # done with training and validation for this epoch

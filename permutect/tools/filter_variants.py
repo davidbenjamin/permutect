@@ -270,7 +270,9 @@ def make_filtered_vcf(
 
     if adaptation_parameter_sets:
         # TODO: num_epochs and epochs per evaluation is magic constant!
-        adaptation_training_params = TrainingParameters(batch_size=batch_size, num_epochs=10)
+        adaptation_training_params = TrainingParameters(
+            batch_size=batch_size, num_epochs=10, trainable_parameter_sets=adaptation_parameter_sets
+        )
         summary_writer = SummaryWriter(tensorboard_dir, filename_suffix="_adaptation")
         train_artifact_model(
             model=model,
@@ -279,7 +281,6 @@ def make_filtered_vcf(
             training_params=adaptation_training_params,
             summary_writer=summary_writer,
             epochs_per_evaluation=5,
-            trainable_params=adaptation_parameter_sets,
         )
 
     posterior_model = PosteriorModel(
