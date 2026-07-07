@@ -262,7 +262,6 @@ class ArtifactModel(torch.nn.Module):
 
         return final_ref_bre, final_alt_bre, ref_seq_embeddings_be  # ref seq embeddings are useful later
 
-
     def compute_alt_count_losses(self, features_be: Tensor, batch: Batch):
         alt_count_pred_b = torch.sigmoid(self.alt_count_predictor.adversarial_forward(features_be).view(-1))
         alt_count_target_b = batch.get(Data.ALT_COUNT).to(dtype=alt_count_pred_b.dtype) / MAX_ALT_COUNT
@@ -272,7 +271,7 @@ class ArtifactModel(torch.nn.Module):
         ref_bre, alt_bre, _ = self.calculate_features(batch)  # ragged sets of reduced and transformed reads
         logits_b, logits_bk = self.feature_clustering.calculate_logits(alt_bre, batch)
 
-        weights_b= (
+        weights_b = (
             torch.ones_like(logits_b)
             if balancer is None
             else balancer.process_batch_and_compute_weights(batch, artifact_probs_b=torch.sigmoid(logits_b).detach())
