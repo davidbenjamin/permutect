@@ -26,7 +26,7 @@ def main_without_parsing(args):
     # optional pretrained model to use as initialization
     pretrained_model_path = getattr(args, constants.PRETRAINED_ARTIFACT_MODEL_NAME)
 
-    pretrained_model, _, _ = (None, None, None) if pretrained_model_path is None else load_model(pretrained_model_path)
+    pretrained_model = None if pretrained_model_path is None else load_model(pretrained_model_path)
 
     tensorboard_dir = getattr(args, constants.TENSORBOARD_DIR_NAME)
     summary_writer = SummaryWriter(tensorboard_dir)

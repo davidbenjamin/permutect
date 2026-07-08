@@ -181,32 +181,9 @@ class ArtifactModel(torch.nn.Module):
         )
         self.alt_count_loss_func = torch.nn.MSELoss(reduction="none")
 
-        # used for unlabeled domain adaptation -- needs to be reset depending on the number of sources, as well as
-        # the particular sources used in training.  Note that we initialize as a trivial model with 1 source
-        self.source_predictor = Adversarial(
-            MLP(
-                [self.reducer.output_dimension()] + [1],
-                batch_normalize=params.batch_normalize,
-                dropout_p=params.dropout_p,
-            ),
-            adversarial_strength=0.01,
-        )
         self.num_sources = 1
 
         self.to(device=self._device, dtype=self._dtype)
-
-    def reset_source_predictor(self, num_sources: int = 1):
-        source_prediction_hidden_layers = [] if num_sources == 1 else [-1, -1]
-        layers = [self.reducer.output_dimension()] + source_prediction_hidden_layers + [num_sources]
-        self.source_predictor = Adversarial(
-            MLP(
-                layers,
-                batch_normalize=self._params.batch_normalize,
-                dropout_p=self._params.dropout_p,
-            ),
-            adversarial_strength=0.01,
-        ).to(device=self._device, dtype=self._dtype)
-        self.num_sources = num_sources
 
     def ref_alt_seq_embedding_dimension(self) -> int:
         return self.haplotypes_cnn.output_dimension()
@@ -307,22 +284,18 @@ class ArtifactModel(torch.nn.Module):
             total_losses_b=total_losses_b,
         )
 
-    def make_dict_for_saving(self, artifact_log_priors=None, artifact_spectra=None):
-        spectra_dict = artifact_spectra.state_dict() if artifact_spectra is not None else None
+    def make_dict_for_saving(self):
         return {
             constants.STATE_DICT_NAME: self.state_dict(),
             constants.HYPERPARAMS_NAME: self._params,
             constants.NUM_READ_FEATURES_NAME: self.read_embedding.input_dimension(),
             constants.NUM_INFO_FEATURES_NAME: self.info_embedding.input_dimension(),
             constants.REF_SEQUENCE_LENGTH_NAME: self.haplotypes_length(),
-            constants.ARTIFACT_LOG_PRIORS_NAME: artifact_log_priors,
-            constants.ARTIFACT_SPECTRA_STATE_DICT_NAME: spectra_dict,
         }
 
     # save a model, optionally with artifact log priors and spectra
-    def save_model(self, path, artifact_log_priors=None, artifact_spectra=None):
-        self.reset_source_predictor()  # this way it's always the same in save/load to avoid state_dict mismatches
-        torch.save(self.make_dict_for_saving(artifact_log_priors, artifact_spectra), path)
+    def save_model(self, path):
+        torch.save(self.make_dict_for_saving(), path)
 
 
 def load_model(path, device: torch.device = None):
@@ -346,10 +319,8 @@ def load_model(path, device: torch.device = None):
     # in case the state dict had the wrong dtype for the device we're on now eg base model was pretrained on GPU
     # and we're now on CPU
     model.to(model._dtype)
-    artifact_log_priors = saved[constants.ARTIFACT_LOG_PRIORS_NAME]  # possibly None
-    artifact_spectra_state_dict = saved[constants.ARTIFACT_SPECTRA_STATE_DICT_NAME]  # possibly None
 
-    return model, artifact_log_priors, artifact_spectra_state_dict
+    return model
 
 
 # after training for visualizing clustering etc of base model embeddings
