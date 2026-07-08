@@ -38,17 +38,18 @@ def main_without_parsing(args):
     valid_dataset = ReadsDataset(memory_mapped_data, num_folds=num_folds, folds_to_use=last_fold_only(num_folds))
     subset_timer.report("Time to create training and validation datasets")
 
-    model = (
-        pretrained_model
-        if (pretrained_model is not None)
-        else ArtifactModel(
+    model: ArtifactModel
+    if pretrained_model is not None:
+        pretrained_model.assert_compatible(train_dataset)
+        model = pretrained_model
+    else:
+        model = ArtifactModel(
             params=params,
             num_read_features=train_dataset.num_read_features(),
             num_info_features=train_dataset.num_info_features(),
             haplotypes_length=train_dataset.haplotypes_length(),
             device=gpu_if_available(),
         )
-    )
 
     train_artifact_model(
         model,
