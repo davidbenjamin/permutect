@@ -21,6 +21,7 @@ from permutect.data.datum import DEFAULT_CPU_FLOAT
 from permutect.data.datum import DEFAULT_GPU_FLOAT
 from permutect.data.datum import Data
 from permutect.data.prefetch_generator import prefetch_generator
+from permutect.data.reads_dataset import ReadsDataset
 from permutect.metrics.evaluation_metrics import EmbeddingMetrics
 from permutect.misc_utils import freeze
 from permutect.misc_utils import gpu_if_available
@@ -184,6 +185,20 @@ class ArtifactModel(torch.nn.Module):
         self.num_sources = 1
 
         self.to(device=self._device, dtype=self._dtype)
+
+    def is_compatible(self, dataset: ReadsDataset):
+        return (
+            self.read_embedding.input_dimension() == dataset.num_read_features()
+            and self.info_embedding.input_dimension() == dataset.num_info_features()
+            and self.haplotypes_length() == dataset.haplotypes_length()
+        )
+
+    def assert_compatible(self, dataset: ReadsDataset):
+        assert self.is_compatible(dataset), (
+            "Model is incompatible with dataset"
+            + "Model and dataset may pertain to very different sequencing platforms, "
+            + "or perhaps were generated with different versions of Permutect."
+        )
 
     def ref_alt_seq_embedding_dimension(self) -> int:
         return self.haplotypes_cnn.output_dimension()
