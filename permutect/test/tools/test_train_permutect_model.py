@@ -61,6 +61,7 @@ def test_train_artifact_model():
     loaded_model = load_model(saved_model)
     assert loaded_model is not None
 
+
 def test_refine_artifact_model():
     # NOTE: EXPERIMENTAL_MODEL does not currently exist in the repo, so this
     # test will fail with FileNotFoundError until a compatible model is committed.
