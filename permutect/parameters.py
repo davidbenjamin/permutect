@@ -167,7 +167,7 @@ class TrainingParameters:
         self.trainable_parameter_sets = trainable_parameter_sets
 
 
-def parse_training_params(args, default_training_params : List[ParameterSet]) -> TrainingParameters:
+def parse_training_params(args, default_training_params: List[ParameterSet]) -> TrainingParameters:
     learning_rate = getattr(args, constants.LEARNING_RATE_NAME)
     weight_decay = getattr(args, constants.WEIGHT_DECAY_NAME)
     batch_size = getattr(args, constants.BATCH_SIZE_NAME)

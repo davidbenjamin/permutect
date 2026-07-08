@@ -1,6 +1,5 @@
 import argparse
 from collections import defaultdict
-from typing import List
 
 import cyvcf2
 import numpy as np
@@ -34,13 +33,14 @@ from permutect.misc_utils import encode_variant
 from permutect.misc_utils import gpu_if_available
 from permutect.misc_utils import overlapping_filters
 from permutect.misc_utils import report_memory_usage
-from permutect.parameters import TrainingParameters, parse_training_params, add_training_params_to_parser
+from permutect.parameters import TrainingParameters
+from permutect.parameters import add_training_params_to_parser
+from permutect.parameters import parse_training_params
 from permutect.training.model_training import train_artifact_model
 from permutect.utils.allele_utils import find_variant_type
 from permutect.utils.enums import Call
 from permutect.utils.enums import Epoch
 from permutect.utils.enums import Label
-from permutect.utils.enums import ParameterSet
 from permutect.utils.enums import Variation
 from permutect.utils.math_utils import inverse_sigmoid
 from permutect.utils.math_utils import prob_to_logit
@@ -58,7 +58,7 @@ FILTER_NAMES = [call_type.name.lower() for call_type in Call]
 
 def parse_arguments():
     parser = argparse.ArgumentParser()
-    add_training_params_to_parser(parser)   # most of these are only relevant in case of test time adaptation
+    add_training_params_to_parser(parser)  # most of these are only relevant in case of test time adaptation
     parser.add_argument("--" + constants.INPUT_NAME, required=True, help="unfiltered input Mutect2 VCF")
     parser.add_argument(
         "--" + constants.TEST_DATASET_NAME,
