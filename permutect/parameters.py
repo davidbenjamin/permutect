@@ -154,20 +154,20 @@ class TrainingParameters:
         self,
         batch_size: int,
         num_epochs: int,
-        learning_rate: float = 0.001,
-        weight_decay: float = 0.01,
-        num_workers: int = 0,
-        trainable_parameter_sets: List[ParameterSet] = None,
+        learning_rate: float,
+        weight_decay: float,
+        num_workers: int,
+        trainable_parameter_sets: List[ParameterSet],
     ):
         self.batch_size = batch_size
         self.num_epochs = num_epochs
         self.learning_rate = learning_rate
         self.weight_decay = weight_decay
         self.num_workers = num_workers
-        self.trainable_parameter_sets = trainable_parameter_sets if trainable_parameter_sets is not None else []
+        self.trainable_parameter_sets = trainable_parameter_sets
 
 
-def parse_training_params(args) -> TrainingParameters:
+def parse_training_params(args, default_training_params : List[ParameterSet]) -> TrainingParameters:
     learning_rate = getattr(args, constants.LEARNING_RATE_NAME)
     weight_decay = getattr(args, constants.WEIGHT_DECAY_NAME)
     batch_size = getattr(args, constants.BATCH_SIZE_NAME)
@@ -176,7 +176,7 @@ def parse_training_params(args) -> TrainingParameters:
 
     training_parameter_strings = getattr(args, constants.TRAINABLE_PARAMETERS_NAME)
     training_parameter_sets = (
-        [ParameterSet.WHOLE_MODEL]
+        default_training_params
         if training_parameter_strings is None
         else [ParameterSet.get_parameter_set(set_str) for set_str in training_parameter_strings]
     )

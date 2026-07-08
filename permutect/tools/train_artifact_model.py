@@ -17,11 +17,12 @@ from permutect.parameters import add_training_params_to_parser
 from permutect.parameters import parse_model_params
 from permutect.parameters import parse_training_params
 from permutect.training.model_training import train_artifact_model
+from permutect.utils.enums import ParameterSet
 
 
 def main_without_parsing(args):
     params = parse_model_params(args)
-    training_params = parse_training_params(args)
+    training_params = parse_training_params(args, default_training_params=[ParameterSet.WHOLE_MODEL])
     # optional pretrained model to use as initialization
     pretrained_model_path = getattr(args, constants.PRETRAINED_ARTIFACT_MODEL_NAME)
 
