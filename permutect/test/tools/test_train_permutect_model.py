@@ -58,7 +58,7 @@ def test_train_artifact_model():
     events = EventAccumulator(training_tensorboard_dir.name)
     events.Reload()
 
-    loaded_model, _, _ = load_model(saved_model)
+    loaded_model = load_model(saved_model)
 
 
 def test_refine_artifact_model():
@@ -69,7 +69,6 @@ def test_refine_artifact_model():
 
     train_model_args = Namespace()
     setattr(train_model_args, constants.CALIBRATION_SOURCES_NAME, None)
-    setattr(train_model_args, constants.LEARN_ARTIFACT_SPECTRA_NAME, False)
     setattr(train_model_args, constants.GENOMIC_SPAN_NAME, 100000)
     setattr(train_model_args, constants.TRAIN_TAR_NAME, PREPROCESSED_DATA)
     setattr(train_model_args, constants.PRETRAINED_ARTIFACT_MODEL_NAME, EXPERIMENTAL_MODEL)

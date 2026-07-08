@@ -54,26 +54,6 @@ class ArtifactSpectra(nn.Module):
         result_b = beta_binomial_log_lk(n=depths_b, k=alt_counts_b, alpha=alpha_b, beta=beta_b)
         return result_b
 
-    # TODO: utter code duplication with somatic spectrum
-    def fit(
-        self,
-        num_epochs: int,
-        types_b: IntTensor,
-        depths_b: IntTensor,
-        alt_counts_b: IntTensor,
-        batch_size: int = 64,
-    ):
-        optimizer = torch.optim.Adam(self.parameters())
-        num_batches = math.ceil(len(alt_counts_b) / batch_size)
-
-        for epoch in range(num_epochs):
-            for batch in range(num_batches):
-                batch_start = batch * batch_size
-                batch_end = min(batch_start + batch_size, len(alt_counts_b))
-                batch_slice = slice(batch_start, batch_end)
-                loss = -torch.mean(self.forward(types_b[batch_slice], depths_b[batch_slice], alt_counts_b[batch_slice]))
-                backpropagate(optimizer, loss)
-
     """
     get raw data for a spectrum plot of probability density vs allele fraction for a particular variant type
     """

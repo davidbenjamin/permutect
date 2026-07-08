@@ -63,7 +63,6 @@ def train_artifact_model(
 
     num_sources = train_dataset.validate_sources()
     train_dataset.report_totals()
-    model.reset_source_predictor(num_sources)
     is_cuda = device.type == "cuda"
     print(f"Is CUDA available? {is_cuda}")
 
@@ -94,7 +93,6 @@ def train_artifact_model(
     for epoch in trange(1, last_epoch + 1, desc="Epoch"):
         start_of_epoch = time.time()
         report_memory_usage(f"Epoch {epoch}.")
-        model.source_predictor.set_adversarial_strength((2 / (1 + math.exp(-0.1 * (epoch - 1)))) - 1)
 
         for epoch_type in [Epoch.TRAIN] if valid_loader is None else [Epoch.TRAIN, Epoch.VALID]:
             train_one_epoch(

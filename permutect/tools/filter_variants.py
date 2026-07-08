@@ -236,7 +236,7 @@ def make_filtered_vcf(
             contig_index_to_name_map[int(index)] = contig
 
     device = gpu_if_available()
-    model, artifact_log_priors, artifact_spectra_state_dict = load_model(artifact_model_path, device=device)
+    model = load_model(artifact_model_path, device=device)
 
     annotated_dataset = make_annotated_dataset(
         dataset_file=test_dataset_file,
