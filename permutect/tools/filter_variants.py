@@ -34,7 +34,7 @@ from permutect.misc_utils import encode_variant
 from permutect.misc_utils import gpu_if_available
 from permutect.misc_utils import overlapping_filters
 from permutect.misc_utils import report_memory_usage
-from permutect.parameters import TrainingParameters
+from permutect.parameters import TrainingParameters, parse_training_params, add_training_params_to_parser
 from permutect.training.model_training import train_artifact_model
 from permutect.utils.allele_utils import find_variant_type
 from permutect.utils.enums import Call
@@ -58,6 +58,7 @@ FILTER_NAMES = [call_type.name.lower() for call_type in Call]
 
 def parse_arguments():
     parser = argparse.ArgumentParser()
+    add_training_params_to_parser(parser)   # most of these are only relevant in case of test time adaptation
     parser.add_argument("--" + constants.INPUT_NAME, required=True, help="unfiltered input Mutect2 VCF")
     parser.add_argument(
         "--" + constants.TEST_DATASET_NAME,
@@ -68,13 +69,6 @@ def parse_arguments():
         "--" + constants.ARTIFACT_MODEL_NAME,
         required=True,
         help="Permutect artifact model from train_artifact_model.py",
-    )
-    parser.add_argument(
-        "--" + constants.TRAINABLE_PARAMETERS_NAME,
-        nargs="*",
-        type=str,
-        required=False,
-        help="zero or more parameter set types to be re-fit in test time domain adaptation",
     )
     parser.add_argument(
         "--" + constants.CONTIGS_TABLE_NAME,
@@ -88,15 +82,6 @@ def parse_arguments():
         default="tensorboard",
         required=False,
         help="path to output tensorboard",
-    )
-    parser.add_argument("--" + constants.BATCH_SIZE_NAME, type=int, default=64, required=False, help="batch size")
-    parser.add_argument(
-        "--" + constants.NUM_WORKERS_NAME,
-        type=int,
-        default=0,
-        required=False,
-        help="number of subprocesses devoted to data loading, which includes reading from memory map, "
-        "collating batches, and transferring to GPU.",
     )
     parser.add_argument(
         "--" + constants.NUM_SPECTRUM_ITERATIONS_NAME,
@@ -194,23 +179,18 @@ def get_segmentation(segments_file) -> defaultdict:
 
 
 def main_without_parsing(args):
-    adaptation_parameter_set_strings = getattr(args, constants.TRAINABLE_PARAMETERS_NAME)
-    adaptation_parameter_sets = (
-        []
-        if adaptation_parameter_set_strings is None
-        else [ParameterSet.get_parameter_set(set_str) for set_str in adaptation_parameter_set_strings]
-    )
+    # default for filtering is not to retrain any of the model on test data
+    training_params = parse_training_params(args, default_training_params=[])
+
     make_filtered_vcf(
         artifact_model_path=getattr(args, constants.ARTIFACT_MODEL_NAME),
-        adaptation_parameter_sets=adaptation_parameter_sets,
+        training_params=training_params,
         initial_log_variant_prior=getattr(args, constants.INITIAL_LOG_VARIANT_PRIOR_NAME),
         initial_log_artifact_prior=getattr(args, constants.INITIAL_LOG_ARTIFACT_PRIOR_NAME),
         test_dataset_file=getattr(args, constants.TEST_DATASET_NAME),
         contigs_table=getattr(args, constants.CONTIGS_TABLE_NAME),
         input_vcf=getattr(args, constants.INPUT_NAME),
         output_vcf=getattr(args, constants.OUTPUT_NAME),
-        batch_size=getattr(args, constants.BATCH_SIZE_NAME),
-        num_workers=getattr(args, constants.NUM_WORKERS_NAME),
         num_spectrum_iterations=getattr(args, constants.NUM_SPECTRUM_ITERATIONS_NAME),
         spectrum_learning_rate=getattr(args, constants.SPECTRUM_LEARNING_RATE_NAME),
         tensorboard_dir=getattr(args, constants.TENSORBOARD_DIR_NAME),
@@ -226,15 +206,13 @@ def main_without_parsing(args):
 
 def make_filtered_vcf(
     artifact_model_path,
-    adaptation_parameter_sets: List[ParameterSet],
+    training_params: TrainingParameters,
     initial_log_variant_prior: float,
     initial_log_artifact_prior: float,
     test_dataset_file,
     contigs_table,
     input_vcf,
     output_vcf,
-    batch_size: int,
-    num_workers: int,
     num_spectrum_iterations: int,
     spectrum_learning_rate: float,
     tensorboard_dir,
@@ -268,17 +246,14 @@ def make_filtered_vcf(
         normal_segmentation=normal_segmentation,
     )
 
-    if adaptation_parameter_sets:
-        # TODO: num_epochs and epochs per evaluation is magic constant!
-        adaptation_training_params = TrainingParameters(
-            batch_size=batch_size, num_epochs=10, trainable_parameter_sets=adaptation_parameter_sets
-        )
+    # optional test-time domain adaptation
+    if training_params.trainable_parameter_sets:
         summary_writer = SummaryWriter(tensorboard_dir, filename_suffix="_adaptation")
         train_artifact_model(
             model=model,
             train_dataset=annotated_dataset,
             valid_dataset=None,
-            training_params=adaptation_training_params,
+            training_params=training_params,
             summary_writer=summary_writer,
             epochs_per_evaluation=5,
         )
@@ -292,8 +267,8 @@ def make_filtered_vcf(
     posterior_data_loader = make_posterior_data_loader(
         annotated_dataset=annotated_dataset,
         model=model,
-        batch_size=batch_size,
-        num_workers=num_workers,
+        batch_size=training_params.batch_size,
+        num_workers=training_params.num_workers,
     )
 
     print("Learning AF spectra")
