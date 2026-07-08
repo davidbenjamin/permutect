@@ -9,7 +9,6 @@ from torch.nn.utils import parametrize
 
 from permutect.architecture.parameterizations import PositiveNumber
 from permutect.metrics.plotting import simple_plot
-from permutect.misc_utils import backpropagate
 from permutect.utils.array_utils import index_tensor
 from permutect.utils.enums import Variation
 from permutect.utils.stats_utils import beta_binomial_log_lk
