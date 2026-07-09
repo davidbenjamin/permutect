@@ -34,6 +34,7 @@ from permutect.misc_utils import gpu_if_available
 from permutect.misc_utils import overlapping_filters
 from permutect.misc_utils import report_memory_usage
 from permutect.parameters import TrainingParameters
+from permutect.parameters import add_posterior_model_params_to_parser
 from permutect.parameters import add_training_params_to_parser
 from permutect.parameters import parse_training_params
 from permutect.training.model_training import train_artifact_model
@@ -59,6 +60,7 @@ FILTER_NAMES = [call_type.name.lower() for call_type in Call]
 def parse_arguments():
     parser = argparse.ArgumentParser()
     add_training_params_to_parser(parser)  # most of these are only relevant in case of test time adaptation
+    add_posterior_model_params_to_parser(parser)
     parser.add_argument("--" + constants.INPUT_NAME, required=True, help="unfiltered input Mutect2 VCF")
     parser.add_argument(
         "--" + constants.TEST_DATASET_NAME,
@@ -98,20 +100,6 @@ def parse_arguments():
         help="learning rate for fitting allele fraction spectra",
     )
     parser.add_argument(
-        "--" + constants.INITIAL_LOG_VARIANT_PRIOR_NAME,
-        type=float,
-        default=-10.0,
-        required=False,
-        help="initial value for natural log prior of somatic variants",
-    )
-    parser.add_argument(
-        "--" + constants.INITIAL_LOG_ARTIFACT_PRIOR_NAME,
-        type=float,
-        default=-10.0,
-        required=False,
-        help="initial value for natural log prior of artifacts",
-    )
-    parser.add_argument(
         "--" + constants.GENOMIC_SPAN_NAME,
         type=float,
         required=True,
@@ -129,13 +117,6 @@ def parse_arguments():
         required=False,
         help="copy-number segmentation file from GATK containing minor allele fractions in the normal/control sample",
     )
-
-    parser.add_argument(
-        "--" + constants.GERMLINE_MODE_NAME,
-        action="store_true",
-        help="flag for genotyping both somatic and somatic variants distinctly but considering both "
-        "as non-errors (true positives), which affects the posterior threshold set by optimal F1 score",
-    )
     parser.add_argument(
         "--" + constants.RECALL_WEIGHT_NAME,
         type=float,
@@ -144,18 +125,10 @@ def parse_arguments():
         help="Relative weight of recall vs precision in optimizing F_beta score.",
     )
     parser.add_argument(
-        "--" + constants.HET_BETA_NAME,
-        type=float,
-        required=False,
-        help="beta shape parameter for germline spectrum beta binomial if we want to override binomial",
-    )
-
-    parser.add_argument(
-        "--" + constants.NO_GERMLINE_MODE_NAME,
+        "--" + constants.GERMLINE_MODE_NAME,
         action="store_true",
-        help="flag for not genotyping germline events so that the only possibilities considered are "
-        "somatic, artifact, and sequencing error.  This is useful for certain validation where "
-        "pseudo-somatic events are created by mixing germline events at varying fractions",
+        help="flag for genotyping both somatic and somatic variants distinctly but considering both "
+             "as non-errors (true positives), which affects the posterior threshold set by optimal F1 score",
     )
     return parser.parse_args()
 

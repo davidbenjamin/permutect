@@ -225,3 +225,30 @@ def add_training_params_to_parser(parser):
         required=False,
         help="zero or more parameter set types to be re-fit in test time domain adaptation",
     )
+
+def add_posterior_model_params_to_parser(parser):
+    parser.add_argument(
+        "--" + constants.INITIAL_LOG_VARIANT_PRIOR_NAME,
+        type=float,
+        default=-10.0,
+        help="initial value for natural log prior of somatic variants",
+    )
+    parser.add_argument(
+        "--" + constants.INITIAL_LOG_ARTIFACT_PRIOR_NAME,
+        type=float,
+        default=-10.0,
+        help="initial value for natural log prior of artifacts",
+    )
+    parser.add_argument(
+        "--" + constants.NO_GERMLINE_MODE_NAME,
+        action="store_true",
+        help="flag for not genotyping germline events so that the only possibilities considered are "
+             "somatic, artifact, and sequencing error.  This is useful for certain validation where "
+             "pseudo-somatic events are created by mixing germline events at varying fractions",
+    )
+    parser.add_argument(
+        "--" + constants.HET_BETA_NAME,
+        type=float,
+        required=False,
+        help="beta shape parameter for germline spectrum beta binomial if we want to override binomial",
+    )
