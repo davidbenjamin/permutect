@@ -44,6 +44,8 @@ def test_train_artifact_model():
     setattr(train_model_args, constants.NUM_EPOCHS_NAME, 2)
     setattr(train_model_args, constants.LEARNING_RATE_NAME, 0.001)
     setattr(train_model_args, constants.WEIGHT_DECAY_NAME, 0.01)
+    setattr(train_model_args, constants.NUM_SPECTRUM_ITERATIONS_NAME, 0)
+    setattr(train_model_args, constants.SPECTRUM_LEARNING_RATE_NAME, 0.001)
 
     # path to saved model
     setattr(
@@ -78,6 +80,8 @@ def test_refine_artifact_model():
     setattr(train_model_args, constants.NUM_WORKERS_NAME, 0)
     setattr(train_model_args, constants.NUM_EPOCHS_NAME, 2)
     setattr(train_model_args, constants.LEARNING_RATE_NAME, 0.001)
+    setattr(train_model_args, constants.NUM_SPECTRUM_ITERATIONS_NAME, 2)
+    setattr(train_model_args, constants.SPECTRUM_LEARNING_RATE_NAME, 0.001)
     setattr(train_model_args, constants.WEIGHT_DECAY_NAME, 0.01)
     setattr(train_model_args, constants.OUTPUT_NAME, saved_model.name)
     setattr(train_model_args, constants.TENSORBOARD_DIR_NAME, training_tensorboard_dir.name)

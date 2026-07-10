@@ -88,20 +88,6 @@ def parse_arguments():
         help="path to output tensorboard",
     )
     parser.add_argument(
-        "--" + constants.NUM_SPECTRUM_ITERATIONS_NAME,
-        type=int,
-        default=10,
-        required=False,
-        help="number of epochs for fitting allele fraction spectra",
-    )
-    parser.add_argument(
-        "--" + constants.SPECTRUM_LEARNING_RATE_NAME,
-        type=float,
-        default=0.001,
-        required=False,
-        help="learning rate for fitting allele fraction spectra",
-    )
-    parser.add_argument(
         "--" + constants.GENOMIC_SPAN_NAME,
         type=float,
         required=True,
@@ -166,8 +152,6 @@ def main_without_parsing(args):
         contigs_table=getattr(args, constants.CONTIGS_TABLE_NAME),
         input_vcf=getattr(args, constants.INPUT_NAME),
         output_vcf=getattr(args, constants.OUTPUT_NAME),
-        num_spectrum_iterations=getattr(args, constants.NUM_SPECTRUM_ITERATIONS_NAME),
-        spectrum_learning_rate=getattr(args, constants.SPECTRUM_LEARNING_RATE_NAME),
         tensorboard_dir=getattr(args, constants.TENSORBOARD_DIR_NAME),
         genomic_span=getattr(args, constants.GENOMIC_SPAN_NAME),
         germline_mode=getattr(args, constants.GERMLINE_MODE_NAME),
@@ -185,8 +169,6 @@ def make_filtered_vcf(
     contigs_table,
     input_vcf,
     output_vcf,
-    num_spectrum_iterations: int,
-    spectrum_learning_rate: float,
     tensorboard_dir,
     genomic_span: int,
     germline_mode: bool = False,
@@ -246,10 +228,10 @@ def make_filtered_vcf(
 
     posterior_model.learn_priors_and_spectra(
         posterior_data_loader,
-        num_iterations=num_spectrum_iterations,
+        num_iterations=training_params.num_spectrum_iterations,
         summary_writer=summary_writer,
         ignored_to_non_ignored_ratio=num_ignored_sites / len(posterior_data_loader.dataset),
-        learning_rate=spectrum_learning_rate,
+        learning_rate=training_params.spectrum_learning_rate,
     )
 
     print("Calculating optimal logit threshold")

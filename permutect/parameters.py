@@ -158,6 +158,8 @@ class TrainingParameters:
         weight_decay: float,
         num_workers: int,
         trainable_parameter_sets: List[ParameterSet],
+        num_spectrum_iterations: int,
+        spectrum_learning_rate: float,
     ):
         self.batch_size = batch_size
         self.num_epochs = num_epochs
@@ -165,6 +167,8 @@ class TrainingParameters:
         self.weight_decay = weight_decay
         self.num_workers = num_workers
         self.trainable_parameter_sets = trainable_parameter_sets
+        self.num_spectrum_iterations = num_spectrum_iterations
+        self.spectrum_learning_rate = spectrum_learning_rate
 
 
 def parse_training_params(args, default_training_params: List[ParameterSet]) -> TrainingParameters:
@@ -173,6 +177,8 @@ def parse_training_params(args, default_training_params: List[ParameterSet]) -> 
     batch_size = getattr(args, constants.BATCH_SIZE_NAME)
     num_epochs = getattr(args, constants.NUM_EPOCHS_NAME)
     num_workers = getattr(args, constants.NUM_WORKERS_NAME)
+    num_spectrum_iterations = getattr(args, constants.NUM_SPECTRUM_ITERATIONS_NAME)
+    spectrum_learning_rate = getattr(args, constants.SPECTRUM_LEARNING_RATE_NAME)
 
     training_parameter_strings = getattr(args, constants.TRAINABLE_PARAMETERS_NAME)
     training_parameter_sets = (
@@ -188,6 +194,8 @@ def parse_training_params(args, default_training_params: List[ParameterSet]) -> 
         weight_decay,
         num_workers,
         training_parameter_sets,
+        num_spectrum_iterations,
+        spectrum_learning_rate,
     )
 
 
@@ -224,6 +232,20 @@ def add_training_params_to_parser(parser):
         type=str,
         required=False,
         help="zero or more parameter set types to be re-fit in test time domain adaptation",
+    )
+    parser.add_argument(
+        "--" + constants.NUM_SPECTRUM_ITERATIONS_NAME,
+        type=int,
+        default=10,
+        required=False,
+        help="number of epochs for fitting allele fraction spectra",
+    )
+    parser.add_argument(
+        "--" + constants.SPECTRUM_LEARNING_RATE_NAME,
+        type=float,
+        default=0.001,
+        required=False,
+        help="learning rate for fitting allele fraction spectra",
     )
 
 def add_posterior_model_params_to_parser(parser):
