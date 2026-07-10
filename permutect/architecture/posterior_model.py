@@ -21,6 +21,7 @@ from permutect.metrics import plotting
 from permutect.misc_utils import StreamingAverage
 from permutect.misc_utils import backpropagate
 from permutect.misc_utils import gpu_if_available
+from permutect.parameters import PosteriorModelParameters
 from permutect.utils.enums import Call
 from permutect.utils.enums import Variation
 
@@ -28,23 +29,15 @@ from permutect.utils.enums import Variation
 class PosteriorModel(torch.nn.Module):
     """ """
 
-    def __init__(
-        self,
-        variant_log_prior: float,
-        artifact_log_prior: float,
-        no_germline_mode: bool = False,
-        device=gpu_if_available(),
-        het_beta: float = None,
-    ):
+    def __init__(self, posterior_params: PosteriorModelParameters, device=gpu_if_available()):
         super(PosteriorModel, self).__init__()
 
         self._device = device
         self._dtype = DEFAULT_GPU_FLOAT if device != torch.device("cpu") else DEFAULT_CPU_FLOAT
-        self.no_germline_mode = no_germline_mode
-        self.het_beta = het_beta
+        self.no_germline_mode = posterior_params.no_germline_mode
 
-        self.spectra = PosteriorModelSpectra(het_beta=het_beta)
-        self.priors = PosteriorModelPriors(variant_log_prior, artifact_log_prior, no_germline_mode, device)
+        self.spectra = PosteriorModelSpectra(het_beta=posterior_params.het_beta)
+        self.priors = PosteriorModelPriors(posterior_params, device)
 
         self.to(device=self._device, dtype=self._dtype)
 

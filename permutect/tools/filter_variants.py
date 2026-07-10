@@ -33,9 +33,11 @@ from permutect.misc_utils import encode_variant
 from permutect.misc_utils import gpu_if_available
 from permutect.misc_utils import overlapping_filters
 from permutect.misc_utils import report_memory_usage
+from permutect.parameters import PosteriorModelParameters
 from permutect.parameters import TrainingParameters
 from permutect.parameters import add_posterior_model_params_to_parser
 from permutect.parameters import add_training_params_to_parser
+from permutect.parameters import parse_posterior_model_params
 from permutect.parameters import parse_training_params
 from permutect.training.model_training import train_artifact_model
 from permutect.utils.allele_utils import find_variant_type
@@ -154,12 +156,12 @@ def get_segmentation(segments_file) -> defaultdict:
 def main_without_parsing(args):
     # default for filtering is not to retrain any of the model on test data
     training_params = parse_training_params(args, default_training_params=[])
+    posterior_params = parse_posterior_model_params(args)
 
     make_filtered_vcf(
         artifact_model_path=getattr(args, constants.ARTIFACT_MODEL_NAME),
         training_params=training_params,
-        initial_log_variant_prior=getattr(args, constants.INITIAL_LOG_VARIANT_PRIOR_NAME),
-        initial_log_artifact_prior=getattr(args, constants.INITIAL_LOG_ARTIFACT_PRIOR_NAME),
+        posterior_params=posterior_params,
         test_dataset_file=getattr(args, constants.TEST_DATASET_NAME),
         contigs_table=getattr(args, constants.CONTIGS_TABLE_NAME),
         input_vcf=getattr(args, constants.INPUT_NAME),
@@ -170,8 +172,6 @@ def main_without_parsing(args):
         genomic_span=getattr(args, constants.GENOMIC_SPAN_NAME),
         germline_mode=getattr(args, constants.GERMLINE_MODE_NAME),
         recall_weight=getattr(args, constants.RECALL_WEIGHT_NAME),
-        no_germline_mode=getattr(args, constants.NO_GERMLINE_MODE_NAME),
-        het_beta=getattr(args, constants.HET_BETA_NAME),
         segmentation=get_segmentation(getattr(args, constants.MAF_SEGMENTS_NAME)),
         normal_segmentation=get_segmentation(getattr(args, constants.NORMAL_MAF_SEGMENTS_NAME)),
     )
@@ -180,8 +180,7 @@ def main_without_parsing(args):
 def make_filtered_vcf(
     artifact_model_path,
     training_params: TrainingParameters,
-    initial_log_variant_prior: float,
-    initial_log_artifact_prior: float,
+    posterior_params: PosteriorModelParameters,
     test_dataset_file,
     contigs_table,
     input_vcf,
@@ -192,8 +191,6 @@ def make_filtered_vcf(
     genomic_span: int,
     germline_mode: bool = False,
     recall_weight: float = 1.0,
-    no_germline_mode: bool = False,
-    het_beta: float = None,
     segmentation=None,
     normal_segmentation=None,
 ):
@@ -233,12 +230,7 @@ def make_filtered_vcf(
             epochs_per_evaluation=5,
         )
 
-    posterior_model = PosteriorModel(
-        initial_log_variant_prior,
-        initial_log_artifact_prior,
-        no_germline_mode=no_germline_mode,
-        het_beta=het_beta,
-    )
+    posterior_model = PosteriorModel(posterior_params)
     posterior_data_loader = make_posterior_data_loader(
         annotated_dataset=annotated_dataset,
         model=model,

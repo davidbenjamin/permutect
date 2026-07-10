@@ -252,3 +252,30 @@ def add_posterior_model_params_to_parser(parser):
         required=False,
         help="beta shape parameter for germline spectrum beta binomial if we want to override binomial",
     )
+
+# common parameters for training models
+class PosteriorModelParameters:
+    def __init__(
+        self,
+        initial_log_variant_prior: float,
+        initial_log_artifact_prior: float,
+        het_beta: float,
+        no_germline_mode: bool,
+    ):
+        self.initial_log_variant_prior = initial_log_variant_prior
+        self.intial_log_artifact_prior = initial_log_artifact_prior
+        self.het_beta = het_beta
+        self.no_germline_mode = no_germline_mode
+
+def parse_posterior_model_params(args) -> PosteriorModelParameters:
+    initial_log_variant_prior = getattr(args, constants.INITIAL_LOG_VARIANT_PRIOR_NAME)
+    initial_log_artifact_prior = getattr(args, constants.INITIAL_LOG_ARTIFACT_PRIOR_NAME)
+    het_beta = getattr(args, constants.HET_BETA_NAME)
+    no_germline_mode = getattr(args, constants.NO_GERMLINE_MODE_NAME)
+
+    return PosteriorModelParameters(
+        initial_log_variant_prior,
+        initial_log_artifact_prior,
+        het_beta,
+        no_germline_mode,
+    )

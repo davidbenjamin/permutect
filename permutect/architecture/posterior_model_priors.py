@@ -12,6 +12,7 @@ from permutect.data.batch import Batch
 from permutect.data.datum import Data
 from permutect.metrics import plotting
 from permutect.misc_utils import gpu_if_available
+from permutect.parameters import PosteriorModelParameters
 from permutect.utils.array_utils import add_at_index
 from permutect.utils.array_utils import index_tensor
 from permutect.utils.enums import Call
@@ -68,17 +69,14 @@ class PosteriorModelPriors(nn.Module):
     Mutect2) to distinguish.
     """
 
-    def __init__(
-        self,
-        variant_log_prior: float,
-        artifact_log_prior: float,
-        no_germline_mode: bool,
-        device=gpu_if_available(),
-    ):
+    def __init__(self, posterior_params: PosteriorModelParameters, device=gpu_if_available()):
         super(PosteriorModelPriors, self).__init__()
-        self.no_germline_mode = no_germline_mode
+        self.no_germline_mode = posterior_params.no_germline_mode
         self._device = device
         self.use_context_dependent_snv_priors = True
+
+        variant_log_prior = posterior_params.initial_log_variant_prior
+        artifact_log_prior = posterior_params.intial_log_artifact_prior
 
         # pre-softmax priors of different call types [log P(variant), log P(artifact), log P(seq error)] for each variant type
         # although these vectors are defined for all variant types, somatic SNVs are handled separately
