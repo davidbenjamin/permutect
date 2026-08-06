@@ -1,7 +1,9 @@
 # keys for saving and loading datasets, models, optimizers
 STATE_DICT_NAME = "model_state_dict"
+POSTERIOR_STATE_DICT_NAME = "posterior_model_state_dict"
 OPTIMIZER_STATE_DICT_NAME = "optimizer_state_dict"
 HYPERPARAMS_NAME = "hyperparams"
+POSTERIOR_PARAMS_NAME = "posterior_params"
 NUM_READ_FEATURES_NAME = "num_read_features"
 NUM_INFO_FEATURES_NAME = "num_info_features"
 REF_SEQUENCE_LENGTH_NAME = "ref_sequence_length"

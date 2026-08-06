@@ -33,6 +33,7 @@ class PosteriorModel(torch.nn.Module):
         super(PosteriorModel, self).__init__()
 
         self._device = device
+        self._params = posterior_params
         self._dtype = DEFAULT_GPU_FLOAT if device != torch.device("cpu") else DEFAULT_CPU_FLOAT
         self.no_germline_mode = posterior_params.no_germline_mode
 
