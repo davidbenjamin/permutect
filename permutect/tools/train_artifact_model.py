@@ -4,7 +4,9 @@ from torch.utils.tensorboard import SummaryWriter
 
 from permutect import constants
 from permutect.architecture.artifact_model import ArtifactModel
-from permutect.architecture.artifact_model import load_model
+from permutect.architecture.permutect_model import PermutectModel
+from permutect.architecture.permutect_model import load_model
+from permutect.architecture.posterior_model import PosteriorModel
 from permutect.data.memory_mapped_data import MemoryMappedData
 from permutect.data.reads_dataset import ReadsDataset
 from permutect.data.reads_dataset import all_but_last_fold
@@ -13,8 +15,10 @@ from permutect.misc_utils import Timer
 from permutect.misc_utils import gpu_if_available
 from permutect.misc_utils import report_memory_usage
 from permutect.parameters import add_model_params_to_parser
+from permutect.parameters import add_posterior_model_params_to_parser
 from permutect.parameters import add_training_params_to_parser
 from permutect.parameters import parse_model_params
+from permutect.parameters import parse_posterior_model_params
 from permutect.parameters import parse_training_params
 from permutect.training.model_training import train_artifact_model
 from permutect.utils.enums import ParameterSet
@@ -23,9 +27,9 @@ from permutect.utils.enums import ParameterSet
 def main_without_parsing(args):
     params = parse_model_params(args)
     training_params = parse_training_params(args, default_training_params=[ParameterSet.WHOLE_MODEL])
+    posterior_params = parse_posterior_model_params(args)
     # optional pretrained model to use as initialization
     pretrained_model_path = getattr(args, constants.PRETRAINED_ARTIFACT_MODEL_NAME)
-
     pretrained_model = None if pretrained_model_path is None else load_model(pretrained_model_path)
 
     tensorboard_dir = getattr(args, constants.TENSORBOARD_DIR_NAME)
@@ -38,18 +42,19 @@ def main_without_parsing(args):
     valid_dataset = ReadsDataset(memory_mapped_data, num_folds=num_folds, folds_to_use=last_fold_only(num_folds))
     subset_timer.report("Time to create training and validation datasets")
 
-    model: ArtifactModel
+    model: PermutectModel
     if pretrained_model is not None:
         pretrained_model.assert_compatible(train_dataset)
         model = pretrained_model
     else:
-        model = ArtifactModel(
+        artifact_model = ArtifactModel(
             params=params,
             num_read_features=train_dataset.num_read_features(),
             num_info_features=train_dataset.num_info_features(),
-            haplotypes_length=train_dataset.haplotypes_length(),
-            device=gpu_if_available(),
+            haplotypes_length=train_dataset.haplotypes_length()
         )
+        posterior_model = PosteriorModel(posterior_params)
+        model = PermutectModel(artifact_model, posterior_model, device=gpu_if_available())
 
     train_artifact_model(
         model,
@@ -69,6 +74,7 @@ def parse_arguments():
     parser = argparse.ArgumentParser(description="train the Permutect artifact model")
     add_model_params_to_parser(parser)
     add_training_params_to_parser(parser)
+    add_posterior_model_params_to_parser(parser)
 
     tar_kwargs = {"type": str, "required": True, "help": "dataset .tar.gz file produced by preprocess_dataset.py"}
     parser.add_argument("--" + constants.TRAIN_TAR_NAME, **tar_kwargs)

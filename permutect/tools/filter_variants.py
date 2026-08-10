@@ -10,7 +10,7 @@ from tqdm.autonotebook import tqdm
 
 from permutect import constants
 from permutect.architecture.artifact_model import ArtifactModel
-from permutect.architecture.artifact_model import load_model
+from permutect.architecture.permutect_model import load_model
 from permutect.architecture.posterior_model import PosteriorModel
 from permutect.data import plain_text_data
 from permutect.data.batch import Batch
@@ -212,10 +212,11 @@ def make_filtered_vcf(
             epochs_per_evaluation=5,
         )
 
-    posterior_model = PosteriorModel(posterior_params)
+    # TODO: reset model.posterior_model to values specified in posterior_params
+
     posterior_data_loader = make_posterior_data_loader(
         annotated_dataset=annotated_dataset,
-        model=model,
+        model=model.artifact_model,
         batch_size=training_params.batch_size,
         num_workers=training_params.num_workers,
     )
@@ -226,7 +227,7 @@ def make_filtered_vcf(
     num_ignored_sites = genomic_span - len(posterior_data_loader.dataset)
     # here is where pretrained artifact priors and spectra are used if given
 
-    posterior_model.learn_priors_and_spectra(
+    model.posterior_model.learn_priors_and_spectra(
         posterior_data_loader,
         num_iterations=training_params.num_spectrum_iterations,
         summary_writer=summary_writer,
@@ -235,7 +236,7 @@ def make_filtered_vcf(
     )
 
     print("Calculating optimal logit threshold")
-    error_probability_thresholds = posterior_model.calculate_probability_thresholds(
+    error_probability_thresholds = model.posterior_model.calculate_probability_thresholds(
         posterior_data_loader, summary_writer, germline_mode=germline_mode, recall_weight=recall_weight
     )
     print(f"Optimal probability threshold: {error_probability_thresholds}")
@@ -245,7 +246,7 @@ def make_filtered_vcf(
         contig_index_to_name_map,
         error_probability_thresholds,
         posterior_data_loader,
-        posterior_model,
+        model.posterior_model,
         summary_writer=summary_writer,
         germline_mode=germline_mode,
     )
@@ -320,6 +321,7 @@ def make_posterior_data_loader(
 ):
     # Generate Datum objects without reads or haplotypes, where the INFO array is the embedding, and with the
     # cached artifact logit computed from the model
+    # TODO: posterior data should include information about clustering once artifact clusters have their own spectra
     posterior_generator = generate_posterior_data(annotated_dataset, model, batch_size, num_workers)
     posterior_mmap = MemoryMappedData.from_generator(
         posterior_generator, estimated_num_data=len(annotated_dataset), estimated_num_reads=0
