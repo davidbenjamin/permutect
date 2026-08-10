@@ -11,7 +11,6 @@ from tqdm.autonotebook import tqdm
 from permutect import constants
 from permutect.architecture.artifact_model import ArtifactModel
 from permutect.architecture.permutect_model import load_model
-from permutect.architecture.posterior_model import PosteriorModel
 from permutect.data import plain_text_data
 from permutect.data.batch import Batch
 from permutect.data.count_binning import MAX_ALT_COUNT

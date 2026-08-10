@@ -17,6 +17,7 @@ from tqdm import trange
 
 from permutect.architecture.artifact_model import ArtifactModel
 from permutect.architecture.artifact_model import record_embeddings
+from permutect.architecture.permutect_model import PermutectModel
 from permutect.data.batch import Batch
 from permutect.data.batch import BatchProperty
 from permutect.data.batch import DownsampledBatch
@@ -48,7 +49,7 @@ WORST_OFFENDERS_QUEUE_SIZE = 100
 
 
 def train_artifact_model(
-    model: ArtifactModel,
+    model: PermutectModel,
     train_dataset: ReadsDataset,
     valid_dataset: ReadsDataset | None,
     training_params: TrainingParameters,
@@ -120,7 +121,7 @@ def train_artifact_model(
     # done with training
     report_memory_usage("Training complete, recording embeddings for tensorboard.")
     embeddings_timer = Timer("Creating training and validation datasets")
-    record_embeddings(model, train_loader, summary_writer)
+    record_embeddings(model.artifact_model, train_loader, summary_writer)
     embeddings_timer.report("Time to record embeddings for tensorboard.")
 
 
@@ -133,7 +134,7 @@ def train_one_epoch(
     epoch_type: Epoch,
     epochs_per_evaluation: int,
     last_epoch: int,
-    model: ArtifactModel,
+    model: PermutectModel,
     num_sources: int,
     summary_writer: SummaryWriter,
     train_loader: DataLoader[Any],
@@ -143,7 +144,7 @@ def train_one_epoch(
     trainable_params: List[ParameterSet] = None,
 ):
     loss_recorder = LossRecorder(device, num_sources)
-    model.set_epoch_type(epoch_type, trainable_params)
+    model.artifact_model.set_epoch_type(epoch_type, trainable_params)
     loader = train_loader if epoch_type == Epoch.TRAIN else valid_loader
 
     parent_batch: Batch
@@ -152,8 +153,8 @@ def train_one_epoch(
         for downsampling_iteration in range(2):
             ref_fracs_b, alt_fracs_b = downsampler.calculate_downsampling_fractions(parent_batch)
             batch = DownsampledBatch(parent_batch, ref_fracs_b, alt_fracs_b)
-            output = model.compute_batch_output(batch, balancer)
-            losses = model.compute_batch_losses(output, batch)
+            output = model.artifact_model.compute_batch_output(batch, balancer)
+            losses = model.artifact_model.compute_batch_losses(output, batch)
             loss_recorder.record(output, losses, batch)
 
             if epoch_type == Epoch.TRAIN:
@@ -181,7 +182,7 @@ def train_one_epoch(
     print(f"performing evaluation on epoch {epoch}")
     if epoch_type == Epoch.VALID:
         evaluate_model(
-            model,
+            model.artifact_model,
             epoch,
             num_sources,
             balancer,
