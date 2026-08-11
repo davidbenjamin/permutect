@@ -76,10 +76,9 @@ def test_refine_artifact_model():
     training_tensorboard_dir = tempfile.TemporaryDirectory()
 
     train_model_args = Namespace()
-    setattr(train_model_args, constants.CALIBRATION_SOURCES_NAME, None)
     setattr(train_model_args, constants.GENOMIC_SPAN_NAME, 100000)
     setattr(train_model_args, constants.TRAIN_TAR_NAME, PREPROCESSED_DATA)
-    setattr(train_model_args, constants.PRETRAINED_ARTIFACT_MODEL_NAME, EXPERIMENTAL_MODEL)
+    setattr(train_model_args, constants.PRETRAINED_ARTIFACT_MODEL_NAME, SMALL_ARTIFACT_MODEL)
     setattr(train_model_args, constants.TRAINABLE_PARAMETERS_NAME, ["WHOLE_MODEL"])
     setattr(train_model_args, constants.BATCH_SIZE_NAME, 64)
     setattr(train_model_args, constants.NUM_WORKERS_NAME, 0)
@@ -90,6 +89,29 @@ def test_refine_artifact_model():
     setattr(train_model_args, constants.WEIGHT_DECAY_NAME, 0.01)
     setattr(train_model_args, constants.OUTPUT_NAME, saved_model.name)
     setattr(train_model_args, constants.TENSORBOARD_DIR_NAME, training_tensorboard_dir.name)
+
+    setattr(train_model_args, constants.READ_LAYERS_NAME, [10, 10, 10])
+    setattr(train_model_args, constants.SELF_ATTENTION_HIDDEN_DIMENSION_NAME, 20)
+    setattr(train_model_args, constants.NUM_SELF_ATTENTION_LAYERS_NAME, 2)
+    setattr(train_model_args, constants.INFO_LAYERS_NAME, [10, 10])
+    setattr(train_model_args, constants.AGGREGATION_LAYERS_NAME, [20, 20, 20])
+    setattr(train_model_args, constants.TRAINABLE_PARAMETERS_NAME, ["WHOLE_MODEL"])
+    setattr(train_model_args, constants.NUM_ARTIFACT_CLUSTERS_NAME, 4)
+    cnn_layer_strings = [
+        "convolution/kernel_size=3/out_channels=64",
+        "pool/kernel_size=2",
+        "leaky_relu",
+        "flatten",
+        "linear/out_features=10",
+    ]
+    setattr(train_model_args, constants.REF_SEQ_LAYER_STRINGS_NAME, cnn_layer_strings)
+    setattr(train_model_args, constants.DROPOUT_P_NAME, 0.0)
+    setattr(train_model_args, constants.BATCH_NORMALIZE_NAME, False)
+
+    setattr(train_model_args, constants.HET_BETA_NAME, 10)
+    setattr(train_model_args, constants.INITIAL_LOG_VARIANT_PRIOR_NAME, -10.0)
+    setattr(train_model_args, constants.INITIAL_LOG_ARTIFACT_PRIOR_NAME, -10.0)
+    setattr(train_model_args, constants.NO_GERMLINE_MODE_NAME, False)
 
     train_artifact_model.main_without_parsing(train_model_args)
 

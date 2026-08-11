@@ -44,7 +44,7 @@ def main_without_parsing(args):
 
     model: PermutectModel
     if pretrained_model is not None:
-        pretrained_model.assert_compatible(train_dataset)
+        pretrained_model.artifact_model.assert_compatible(train_dataset)
         model = pretrained_model
     else:
         artifact_model = ArtifactModel(
