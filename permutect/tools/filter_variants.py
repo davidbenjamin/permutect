@@ -197,7 +197,7 @@ def make_filtered_vcf(
         normal_segmentation=normal_segmentation,
     )
 
-    model.assert_compatible(annotated_dataset)
+    model.artifact_model.assert_compatible(annotated_dataset)
 
     # optional test-time domain adaptation
     if training_params.trainable_parameter_sets:

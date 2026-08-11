@@ -9,7 +9,7 @@ from permutect.tools import filter_variants
 def test_filtering_on_dream1_chr20():
     # NOTE: EXPERIMENTAL_MODEL does not currently exist in the repo, so this
     # test will fail with FileNotFoundError until a compatible model is committed.
-    artifact_model = EXPERIMENTAL_MODEL
+    artifact_model = SMALL_ARTIFACT_MODEL
 
     permutect_vcf = tempfile.NamedTemporaryFile()
     tensorboard_dir = tempfile.TemporaryDirectory()
