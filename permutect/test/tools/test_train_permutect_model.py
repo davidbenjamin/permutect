@@ -34,6 +34,11 @@ def test_train_artifact_model():
     setattr(train_model_args, constants.DROPOUT_P_NAME, 0.0)
     setattr(train_model_args, constants.BATCH_NORMALIZE_NAME, False)
 
+    setattr(train_model_args, constants.HET_BETA_NAME, 10)
+    setattr(train_model_args, constants.INITIAL_LOG_VARIANT_PRIOR_NAME, -10.0)
+    setattr(train_model_args, constants.INITIAL_LOG_ARTIFACT_PRIOR_NAME, -10.0)
+    setattr(train_model_args, constants.NO_GERMLINE_MODE_NAME, False)
+
     # Training data inputs
     setattr(train_model_args, constants.TRAIN_TAR_NAME, PREPROCESSED_DATA)
     setattr(train_model_args, constants.PRETRAINED_ARTIFACT_MODEL_NAME, None)
