@@ -23,11 +23,6 @@
 # - The sites file (common_sites) should be a Picard or GATK-style interval list.  This is a list of sites
 #   of known variation at which allelic counts will be collected for use in modeling minor-allele fractions.
 #
-# - If you opt to run FuncotateSegments (i.e. set `is_run_funcotator` to `true`), then please also ensure that you have
-#       the correct value for `funcotator_ref_version`.  Treat `funcotator_ref_version` as required if
-#       `is_run_funcotator` is `true`.  Valid values for `funcotator_ref_version` are `hg38` and `hg19`.
-#       The latter includes GRCh37.
-#
 #
 # - Example invocation:
 #
@@ -38,8 +33,6 @@
 version 1.0
 
 import "../cnv_common_tasks.wdl" as CNVTasks
-import "cnv_somatic_oncotator_workflow.wdl" as CNVOncotator
-import "cnv_somatic_funcotate_seg_workflow.wdl" as CNVFuncotateSegments
 
 workflow CNVSomaticPairWorkflow {
 
@@ -59,14 +52,7 @@ workflow CNVSomaticPairWorkflow {
       File ref_fasta_fai
       File ref_fasta
       String gatk_docker
-
-      ##################################
-      #### optional basic arguments ####
-      ##################################
-       # For running oncotator
-      Boolean? is_run_oncotator
-       # For running funcotator
-      Boolean? is_run_funcotator
+        
 
       File? gatk4_jar_override
       Int? preemptible_attempts
@@ -144,31 +130,6 @@ workflow CNVSomaticPairWorkflow {
       Float? point_size_copy_ratio
       Float? point_size_allele_fraction
       Int? mem_gb_for_plotting
-
-      ##########################################
-      #### optional arguments for Oncotator ####
-      ##########################################
-      String? additional_args_for_oncotator
-      String? oncotator_docker
-      Int? mem_gb_for_oncotator
-      Int? boot_disk_space_gb_for_oncotator
-
-      ##################################################
-      #### optional arguments for FuncotateSegments ####
-      ##################################################
-      String? additional_args_for_funcotator
-      String? funcotator_ref_version
-      Int? mem_gb_for_funcotator
-      File? funcotator_transcript_selection_list
-      File? funcotator_data_sources_tar_gz
-      String? funcotator_transcript_selection_mode
-      Array[String]? funcotator_annotation_defaults
-      Array[String]? funcotator_annotation_overrides
-      Array[String]? funcotator_excluded_fields
-      Boolean? funcotator_is_removing_untared_datasources
-      Int? funcotator_disk_space_gb
-      Boolean? funcotator_use_ssd
-      Int? funcotator_cpu
     }
 
     Int ref_size = ceil(size(ref_fasta, "GB") + size(ref_fasta_dict, "GB") + size(ref_fasta_fai, "GB"))
@@ -475,42 +436,6 @@ workflow CNVSomaticPairWorkflow {
         }
     }
 
-    if (select_first([is_run_oncotator, false])) {
-        call CNVOncotator.CNVOncotatorWorkflow as CNVOncotatorWorkflow {
-            input:
-                 called_file = CallCopyRatioSegmentsTumor.called_copy_ratio_segments,
-                 additional_args = additional_args_for_oncotator,
-                 oncotator_docker = oncotator_docker,
-                 mem_gb_for_oncotator = mem_gb_for_oncotator,
-                 boot_disk_space_gb_for_oncotator = boot_disk_space_gb_for_oncotator,
-                 preemptible_attempts = preemptible_attempts
-        }
-    }
-    if (select_first([is_run_funcotator, false])) {
-        call CNVFuncotateSegments.CNVFuncotateSegmentsWorkflow as CNVFuncotateSegmentsWorkflow {
-            input:
-                 input_seg_file = CallCopyRatioSegmentsTumor.called_copy_ratio_segments,
-                 funcotator_ref_version = select_first([funcotator_ref_version, "hg19"]),
-                 extra_args = additional_args_for_funcotator,
-                 ref_fasta = ref_fasta,
-                 ref_fasta_fai = ref_fasta_fai,
-                 ref_fasta_dict = ref_fasta_dict,
-                 transcript_selection_list = funcotator_transcript_selection_list,
-                 funcotator_data_sources_tar_gz = funcotator_data_sources_tar_gz,
-                 gatk4_jar_override = gatk4_jar_override,
-                 gatk_docker = gatk_docker,
-                 mem_gb = mem_gb_for_funcotator,
-                 preemptible_attempts = preemptible_attempts,
-                 transcript_selection_mode = funcotator_transcript_selection_mode,
-                 annotation_defaults = funcotator_annotation_defaults,
-                 annotation_overrides = funcotator_annotation_overrides,
-                 funcotator_excluded_fields = funcotator_excluded_fields,
-                 is_removing_untared_datasources = funcotator_is_removing_untared_datasources,
-                 disk_space_gb = funcotator_disk_space_gb,
-                 use_ssd = funcotator_use_ssd,
-                 cpu = funcotator_cpu
-        }
-    }
 
     output {
         File preprocessed_intervals = PreprocessIntervals.preprocessed_intervals
@@ -574,11 +499,6 @@ workflow CNVSomaticPairWorkflow {
         File? scaled_delta_MAD_normal = PlotDenoisedCopyRatiosNormal.scaled_delta_MAD
         Float? scaled_delta_MAD_value_normal = PlotDenoisedCopyRatiosNormal.scaled_delta_MAD_value
         File? modeled_segments_plot_normal = PlotModeledSegmentsNormal.modeled_segments_plot
-
-        File oncotated_called_file_tumor = select_first([CNVOncotatorWorkflow.oncotated_called_file, "null"])
-        File oncotated_called_gene_list_file_tumor = select_first([CNVOncotatorWorkflow.oncotated_called_gene_list_file, "null"])
-        File funcotated_called_file_tumor = select_first([CNVFuncotateSegmentsWorkflow.funcotated_seg_simple_tsv, "null"])
-        File funcotated_called_gene_list_file_tumor = select_first([CNVFuncotateSegmentsWorkflow.funcotated_gene_list_tsv, "null"])
     }
 }
 
