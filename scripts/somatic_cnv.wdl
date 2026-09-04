@@ -32,8 +32,6 @@
 
 version 1.0
 
-import "../cnv_common_tasks.wdl" as CNVTasks
-
 workflow CNVSomaticPairWorkflow {
 
     input {
@@ -145,7 +143,7 @@ workflow CNVSomaticPairWorkflow {
     File final_normal_bam_idx = select_first([normal_bam_idx, "null"])
 
     Int preprocess_intervals_disk = ref_size + disk_pad
-    call CNVTasks.PreprocessIntervals {
+    call PreprocessIntervals {
         input:
             intervals = intervals,
             blacklist_intervals = blacklist_intervals,
@@ -162,7 +160,7 @@ workflow CNVSomaticPairWorkflow {
     }
 
     Int collect_counts_tumor_disk = tumor_bam_size + ceil(size(PreprocessIntervals.preprocessed_intervals, "GB")) + disk_pad
-    call CNVTasks.CollectCounts as CollectCountsTumor {
+    call CollectCounts as CollectCountsTumor {
         input:
             intervals = PreprocessIntervals.preprocessed_intervals,
             bam = tumor_bam,
@@ -181,7 +179,7 @@ workflow CNVSomaticPairWorkflow {
     }
 
     Int collect_allelic_counts_tumor_disk = tumor_bam_size + ref_size + disk_pad
-    call CNVTasks.CollectAllelicCounts as CollectAllelicCountsTumor {
+    call CollectAllelicCounts as CollectAllelicCountsTumor {
         input:
             common_sites = common_sites,
             bam = tumor_bam,
@@ -301,7 +299,7 @@ workflow CNVSomaticPairWorkflow {
 
     Int collect_counts_normal_disk = normal_bam_size + ceil(size(PreprocessIntervals.preprocessed_intervals, "GB")) + disk_pad
     if (defined(normal_bam)) {
-        call CNVTasks.CollectCounts as CollectCountsNormal {
+        call CollectCounts as CollectCountsNormal {
             input:
                 intervals = PreprocessIntervals.preprocessed_intervals,
                 bam = final_normal_bam,
@@ -320,7 +318,7 @@ workflow CNVSomaticPairWorkflow {
         }
 
         Int collect_allelic_counts_normal_disk = normal_bam_size + ref_size + disk_pad
-        call CNVTasks.CollectAllelicCounts as CollectAllelicCountsNormal {
+        call CollectAllelicCounts as CollectAllelicCountsNormal {
             input:
                 common_sites = common_sites,
                 bam = final_normal_bam,
@@ -499,6 +497,243 @@ workflow CNVSomaticPairWorkflow {
         File? scaled_delta_MAD_normal = PlotDenoisedCopyRatiosNormal.scaled_delta_MAD
         Float? scaled_delta_MAD_value_normal = PlotDenoisedCopyRatiosNormal.scaled_delta_MAD_value
         File? modeled_segments_plot_normal = PlotModeledSegmentsNormal.modeled_segments_plot
+    }
+}
+
+task PreprocessIntervals {
+    input {
+      File? intervals
+      File? blacklist_intervals
+      File ref_fasta
+      File ref_fasta_fai
+      File ref_fasta_dict
+      Int? padding
+      Int? bin_length
+      File? gatk4_jar_override
+
+      # Runtime parameters
+      String gatk_docker
+      Int? mem_gb
+      Int? disk_space_gb
+      Boolean use_ssd = false
+      Int? cpu
+      Int? preemptible_attempts
+    }
+
+    Int machine_mem_mb = select_first([mem_gb, 2]) * 1000
+    Int command_mem_mb = machine_mem_mb - 500
+
+    # Determine output filename
+    String filename = select_first([intervals, "wgs"])
+    String base_filename = basename(filename, ".interval_list")
+
+    command <<<
+        set -eu
+        export GATK_LOCAL_JAR=~{default="/root/gatk.jar" gatk4_jar_override}
+
+        gatk --java-options "-Xmx~{command_mem_mb}m" PreprocessIntervals \
+            ~{"-L " + intervals} \
+            ~{"-XL " + blacklist_intervals} \
+            --reference ~{ref_fasta} \
+            --padding ~{default="250" padding} \
+            --bin-length ~{default="1000" bin_length} \
+            --interval-merging-rule OVERLAPPING_ONLY \
+            --output ~{base_filename}.preprocessed.interval_list
+    >>>
+
+    runtime {
+        docker: gatk_docker
+        memory: machine_mem_mb + " MB"
+        disks: "local-disk " + select_first([disk_space_gb, 40]) + if use_ssd then " SSD" else " HDD"
+        cpu: select_first([cpu, 1])
+        preemptible: select_first([preemptible_attempts, 5])
+    }
+
+    output {
+        File preprocessed_intervals = "~{base_filename}.preprocessed.interval_list"
+    }
+}
+
+task CollectCounts {
+    input {
+      File intervals
+      File bam
+      File bam_idx
+      File ref_fasta
+      File ref_fasta_fai
+      File ref_fasta_dict
+      Array[String]? disabled_read_filters
+      Boolean? enable_indexing
+      String? format
+      File? gatk4_jar_override
+      String? gcs_project_for_requester_pays
+
+      # Runtime parameters
+      String gatk_docker
+      Int? mem_gb
+      Int? disk_space_gb
+      Boolean use_ssd = false
+      Int? cpu
+      Int? preemptible_attempts
+    }
+
+    parameter_meta {
+      bam: {
+        localization_optional: true
+      }
+      bam_idx: {
+        localization_optional: true
+      }
+    }
+
+    Int machine_mem_mb = select_first([mem_gb, 7]) * 1000
+    Int command_mem_mb = machine_mem_mb - 1000
+
+    Boolean enable_indexing_ = select_first([enable_indexing, false])
+
+    Array[String] disabled_read_filters_arr = if defined(disabled_read_filters) then prefix("--disable-read-filter ", select_first([disabled_read_filters])) else []
+
+    # Sample name is derived from the bam filename
+    String base_filename = basename(bam, ".bam")
+    String format_ = select_first([format, "HDF5"])
+    String hdf5_or_tsv_or_null_format =
+        if format_ == "HDF5" then "HDF5" else
+        (if format_ == "TSV" then "TSV" else
+        (if format_ == "TSV_GZ" then "TSV" else "null")) # until we can write TSV_GZ in CollectReadCounts, we write TSV and use bgzip
+    String counts_filename_extension =
+        if format_ == "HDF5" then "counts.hdf5" else
+        (if format_ == "TSV" then "counts.tsv" else
+        (if format_ == "TSV_GZ" then "counts.tsv.gz" else "null"))
+    String counts_index_filename_extension =
+        if format_ == "HDF5" then "null" else
+        (if format_ == "TSV" then "counts.tsv.idx" else
+        (if format_ == "TSV_GZ" then "counts.tsv.gz.tbi" else "null"))
+    Boolean do_block_compression =
+        if format_ == "HDF5" then false else
+        (if format_ == "TSV" then false else
+        (if format_ == "TSV_GZ" then true else false))
+    String counts_filename = "~{base_filename}.~{counts_filename_extension}"
+    String counts_filename_for_collect_read_counts = basename(counts_filename, ".gz")
+
+    command <<<
+        set -eu
+        export GATK_LOCAL_JAR=~{default="/root/gatk.jar" gatk4_jar_override}
+
+        case ~{format_} in
+            HDF5 | TSV | TSV_GZ)
+                ;;
+            *)
+                echo "ERROR: Unknown format specified. Format must be one of HDF5, TSV, or TSV_GZ."
+                exit 1
+                ;;
+        esac
+
+        if [ ~{format_} = "HDF5" ] && [ ~{enable_indexing_} = "true" ]; then
+            echo "ERROR: Incompatible WDL parameters. Cannot have format = HDF5 and enable_indexing = true."
+            exit 1
+        fi
+
+        if [ ~{hdf5_or_tsv_or_null_format} = "null" ]; then
+            echo "ERROR: Should never reach here."
+            exit 1
+        fi
+
+        gatk --java-options "-Xmx~{command_mem_mb}m" CollectReadCounts \
+            -L ~{intervals} \
+            --input ~{bam} \
+            --reference ~{ref_fasta} \
+            --format ~{default="HDF5" hdf5_or_tsv_or_null_format} \
+            --interval-merging-rule OVERLAPPING_ONLY \
+            --output ~{counts_filename_for_collect_read_counts} \
+            ~{"--gcs-project-for-requester-pays " + gcs_project_for_requester_pays} \
+            ~{sep=' ' disabled_read_filters_arr}
+
+        if [ ~{do_block_compression} = "true" ]; then
+            bgzip ~{counts_filename_for_collect_read_counts}
+        fi
+
+        if [ ~{enable_indexing_} = "true" ]; then
+            gatk --java-options "-Xmx~{command_mem_mb}m" IndexFeatureFile \
+                -I ~{counts_filename}
+        fi
+    >>>
+
+    runtime {
+        docker: gatk_docker
+        memory: machine_mem_mb + " MB"
+        disks: "local-disk " + select_first([disk_space_gb, ceil(size(bam, "GB")) + 50]) + if use_ssd then " SSD" else " HDD"
+        cpu: select_first([cpu, 1])
+        preemptible: select_first([preemptible_attempts, 5])
+    }
+
+    output {
+        String entity_id = base_filename
+        File counts = counts_filename
+    }
+}
+
+task CollectAllelicCounts {
+    input {
+      File common_sites
+      File bam
+      File bam_idx
+      File ref_fasta
+      File ref_fasta_fai
+      File ref_fasta_dict
+      Int? minimum_base_quality
+      File? gatk4_jar_override
+      String? gcs_project_for_requester_pays
+
+      # Runtime parameters
+      String gatk_docker
+      Int? mem_gb
+      Int? disk_space_gb
+      Boolean use_ssd = false
+      Int? cpu
+      Int? preemptible_attempts
+    }
+
+    parameter_meta {
+      bam: {
+        localization_optional: true
+      }
+      bam_idx: {
+        localization_optional: true
+      }
+    }
+
+    Int machine_mem_mb = select_first([mem_gb, 13]) * 1000
+    Int command_mem_mb = machine_mem_mb - 1000
+
+    # Sample name is derived from the bam filename
+    String base_filename = basename(bam, ".bam")
+
+    String allelic_counts_filename = "~{base_filename}.allelicCounts.tsv"
+
+    command <<<
+        set -eu
+        export GATK_LOCAL_JAR=~{default="/root/gatk.jar" gatk4_jar_override}
+
+        gatk --java-options "-Xmx~{command_mem_mb}m" CollectAllelicCounts \
+            -L ~{common_sites} \
+            --input ~{bam} \
+            --reference ~{ref_fasta} \
+            --minimum-base-quality ~{default="20" minimum_base_quality} \
+            --output ~{allelic_counts_filename} \
+            ~{"--gcs-project-for-requester-pays " + gcs_project_for_requester_pays}
+    >>>
+
+    runtime {
+        docker: gatk_docker
+        memory: machine_mem_mb + " MB"
+        disks: "local-disk " + select_first([disk_space_gb, ceil(size(bam, "GB")) + 50]) + if use_ssd then " SSD" else " HDD"
+        cpu: select_first([cpu, 1])
+        preemptible: select_first([preemptible_attempts, 5])
+    }
+
+    output {
+        String entity_id = base_filename
+        File allelic_counts = allelic_counts_filename
     }
 }
 
