@@ -207,7 +207,7 @@ workflow CNVSomaticPairWorkflow {
         }
 
         # The F=files from other tasks are small enough to just combine into one disk variable and pass to the tumor plotting tasks
-        Int plot_tumor_disk = ref_size + ceil(size(DenoiseReadCountsTumor.standardized_copy_ratios, "GB")) + ceil(size(DenoiseReadCountsTumor.denoised_copy_ratios, "GB")) + ceil(size(ModelSegmentsTumor.het_allelic_counts, "GB")) + ceil(size(ModelSegmentsTumor.modeled_segments, "GB")) + disk_pad
+        Int plot_tumor_copy_ratios_disk = ref_size + ceil(size(DenoiseReadCountsTumor.standardized_copy_ratios, "GB")) + ceil(size(DenoiseReadCountsTumor.denoised_copy_ratios, "GB")) + disk_pad
         call PlotDenoisedCopyRatios as PlotDenoisedCopyRatiosTumor {
             input:
                 entity_id = "tumor",
@@ -220,7 +220,7 @@ workflow CNVSomaticPairWorkflow {
                 gatk4_jar_override = gatk4_jar_override,
                 gatk_docker = gatk_docker,
                 mem_gb = mem_gb_for_plotting,
-                disk_space_gb = plot_tumor_disk,
+                disk_space_gb = plot_tumor_copy_ratios_disk,
                 preemptible_attempts = preemptible_attempts
         }
     }
@@ -261,6 +261,8 @@ workflow CNVSomaticPairWorkflow {
             preemptible_attempts = preemptible_attempts
     }
 
+    Int tumor_cr_size = select_first([ceil(size(DenoiseReadCountsTumor.standardized_copy_ratios, "GB")), 0]) + select_first([ceil(size(DenoiseReadCountsTumor.denoised_copy_ratios, "GB")), 0])
+    Int plot_tumor_disk = ref_size + tumor_cr_size + ceil(size(ModelSegmentsTumor.het_allelic_counts, "GB")) + ceil(size(ModelSegmentsTumor.modeled_segments, "GB")) + disk_pad
     call PlotModeledSegments as PlotModeledSegmentsTumor {
         input:
             entity_id = "tumor",
@@ -333,7 +335,7 @@ workflow CNVSomaticPairWorkflow {
             }
 
             # The files from other tasks are small enough to just combine into one disk variable and pass to the normal plotting tasks
-            Int plot_normal_disk = ref_size + ceil(size(DenoiseReadCountsNormal.standardized_copy_ratios, "GB")) + ceil(size(DenoiseReadCountsNormal.denoised_copy_ratios, "GB")) + ceil(size(ModelSegmentsNormal.het_allelic_counts, "GB")) + ceil(size(ModelSegmentsNormal.modeled_segments, "GB")) + disk_pad
+            Int plot_normal_disk = ref_size + ceil(size(DenoiseReadCountsNormal.standardized_copy_ratios, "GB")) + ceil(size(DenoiseReadCountsNormal.denoised_copy_ratios, "GB")) + disk_pad
             call PlotDenoisedCopyRatios as PlotDenoisedCopyRatiosNormal {
                 input:
                     entity_id = "normal",
@@ -385,6 +387,7 @@ workflow CNVSomaticPairWorkflow {
         }
 
 
+        Int plot_normal_segments_disk = select_first([DenoiseReadCountsNormal.denoised_copy_ratios, 0]) + ref_size + ceil(size(ModelSegmentsNormal.het_allelic_counts, "GB")) + ceil(size(ModelSegmentsNormal.modeled_segments, "GB")) + disk_pad
         call PlotModeledSegments as PlotModeledSegmentsNormal {
             input:
                 entity_id = "normal",
