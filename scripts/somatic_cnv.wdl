@@ -195,7 +195,7 @@ workflow CNVSomaticPairWorkflow {
         Int denoise_read_counts_tumor_disk = read_count_pon_size + ceil(size(CollectCountsTumor.counts, "GB")) + disk_pad
         call DenoiseReadCounts as DenoiseReadCountsTumor {
             input:
-                entity_id = CollectCountsTumor.entity_id,
+                entity_id = "tumor",
                 read_counts = CollectCountsTumor.counts,
                 read_count_pon = read_count_pon,
                 number_of_eigensamples = number_of_eigensamples,
@@ -210,7 +210,7 @@ workflow CNVSomaticPairWorkflow {
         Int plot_tumor_disk = ref_size + ceil(size(DenoiseReadCountsTumor.standardized_copy_ratios, "GB")) + ceil(size(DenoiseReadCountsTumor.denoised_copy_ratios, "GB")) + ceil(size(ModelSegmentsTumor.het_allelic_counts, "GB")) + ceil(size(ModelSegmentsTumor.modeled_segments, "GB")) + disk_pad
         call PlotDenoisedCopyRatios as PlotDenoisedCopyRatiosTumor {
             input:
-                entity_id = CollectCountsTumor.entity_id,
+                entity_id = "tumor",
                 standardized_copy_ratios = DenoiseReadCountsTumor.standardized_copy_ratios,
                 denoised_copy_ratios = DenoiseReadCountsTumor.denoised_copy_ratios,
                 ref_fasta_dict = ref_fasta_dict,
@@ -229,7 +229,7 @@ workflow CNVSomaticPairWorkflow {
     Int model_segments_tumor_disk = ceil(size(DenoiseReadCountsTumor.denoised_copy_ratios, "GB")) + ceil(size(CollectAllelicCountsTumor.allelic_counts, "GB")) + model_segments_normal_portion + disk_pad
     call ModelSegments as ModelSegmentsTumor {
         input:
-            entity_id = CollectCountsTumor.entity_id,
+            entity_id = "tumor",
             denoised_copy_ratios = DenoiseReadCountsTumor.denoised_copy_ratios,
             allelic_counts = CollectAllelicCountsTumor.allelic_counts,
             normal_allelic_counts = CollectAllelicCountsNormal.allelic_counts,
@@ -262,7 +262,7 @@ workflow CNVSomaticPairWorkflow {
 
     call PlotModeledSegments as PlotModeledSegmentsTumor {
         input:
-            entity_id = CollectCountsTumor.entity_id,
+            entity_id = "tumor",
             denoised_copy_ratios = DenoiseReadCountsTumor.denoised_copy_ratios,
             het_allelic_counts = ModelSegmentsTumor.het_allelic_counts,
             modeled_segments = ModelSegmentsTumor.modeled_segments,
@@ -320,7 +320,7 @@ workflow CNVSomaticPairWorkflow {
             Int denoise_read_counts_normal_disk = read_count_pon_size + ceil(size(CollectCountsNormal.counts, "GB")) + disk_pad
             call DenoiseReadCounts as DenoiseReadCountsNormal {
                 input:
-                    entity_id = CollectCountsNormal.entity_id,
+                    entity_id = "normal",
                     read_counts = CollectCountsNormal.counts,
                     read_count_pon = read_count_pon,
                     number_of_eigensamples = number_of_eigensamples,
@@ -335,7 +335,7 @@ workflow CNVSomaticPairWorkflow {
             Int plot_normal_disk = ref_size + ceil(size(DenoiseReadCountsNormal.standardized_copy_ratios, "GB")) + ceil(size(DenoiseReadCountsNormal.denoised_copy_ratios, "GB")) + ceil(size(ModelSegmentsNormal.het_allelic_counts, "GB")) + ceil(size(ModelSegmentsNormal.modeled_segments, "GB")) + disk_pad
             call PlotDenoisedCopyRatios as PlotDenoisedCopyRatiosNormal {
                 input:
-                    entity_id = CollectCountsNormal.entity_id,
+                    entity_id = "normal",
                     standardized_copy_ratios = DenoiseReadCountsNormal.standardized_copy_ratios,
                     denoised_copy_ratios = DenoiseReadCountsNormal.denoised_copy_ratios,
                     ref_fasta_dict = ref_fasta_dict,
@@ -353,7 +353,7 @@ workflow CNVSomaticPairWorkflow {
         Int model_segments_normal_disk = ceil(size(DenoiseReadCountsNormal.denoised_copy_ratios, "GB")) + ceil(size(CollectAllelicCountsNormal.allelic_counts, "GB")) + disk_pad
         call ModelSegments as ModelSegmentsNormal {
             input:
-                entity_id = CollectCountsNormal.entity_id,
+                entity_id = "normal",
                 denoised_copy_ratios = DenoiseReadCountsNormal.denoised_copy_ratios,
                 allelic_counts = CollectAllelicCountsNormal.allelic_counts,
                 max_num_segments_per_chromosome = max_num_segments_per_chromosome,
@@ -385,7 +385,7 @@ workflow CNVSomaticPairWorkflow {
 
         call PlotModeledSegments as PlotModeledSegmentsNormal {
             input:
-                entity_id = CollectCountsNormal.entity_id,
+                entity_id = "normal",
                 denoised_copy_ratios = DenoiseReadCountsNormal.denoised_copy_ratios,
                 het_allelic_counts = ModelSegmentsNormal.het_allelic_counts,
                 modeled_segments = ModelSegmentsNormal.modeled_segments,
