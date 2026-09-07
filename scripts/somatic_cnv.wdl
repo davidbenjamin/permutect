@@ -226,7 +226,8 @@ workflow CNVSomaticPairWorkflow {
     }
 
     Int model_segments_normal_portion = if defined(normal_bam) then ceil(size(CollectAllelicCountsNormal.allelic_counts, "GB")) else 0
-    Int model_segments_tumor_disk = ceil(size(DenoiseReadCountsTumor.denoised_copy_ratios, "GB")) + ceil(size(CollectAllelicCountsTumor.allelic_counts, "GB")) + model_segments_normal_portion + disk_pad
+    Int model_segments_tumor_counts_portion = if (use_read_counts) then ceil(size(DenoiseReadCountsTumor.denoised_copy_ratios, "GB")) else 0
+    Int model_segments_tumor_disk = model_segments_tumor_counts_portion + ceil(size(CollectAllelicCountsTumor.allelic_counts, "GB")) + model_segments_normal_portion + disk_pad
     call ModelSegments as ModelSegmentsTumor {
         input:
             entity_id = "tumor",
@@ -350,7 +351,8 @@ workflow CNVSomaticPairWorkflow {
             }
         }
 
-        Int model_segments_normal_disk = ceil(size(DenoiseReadCountsNormal.denoised_copy_ratios, "GB")) + ceil(size(CollectAllelicCountsNormal.allelic_counts, "GB")) + disk_pad
+        Int model_segments_normal_counts_portion = if (use_read_counts) then ceil(size(DenoiseReadCountsNormal.denoised_copy_ratios, "GB")) else 0
+        Int model_segments_normal_disk = model_segments_normal_counts_portion + ceil(size(CollectAllelicCountsNormal.allelic_counts, "GB")) + disk_pad
         call ModelSegments as ModelSegmentsNormal {
             input:
                 entity_id = "normal",
