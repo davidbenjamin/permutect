@@ -387,7 +387,8 @@ workflow CNVSomaticPairWorkflow {
         }
 
 
-        Int plot_normal_segments_disk = select_first([DenoiseReadCountsNormal.denoised_copy_ratios, 0]) + ref_size + ceil(size(ModelSegmentsNormal.het_allelic_counts, "GB")) + ceil(size(ModelSegmentsNormal.modeled_segments, "GB")) + disk_pad
+        Int normal_cr_size = if (use_read_counts) then ceil(size(DenoiseReadCountsNormal.denoised_copy_ratios, "GB")) else 0
+        Int plot_normal_segments_disk = normal_cr_size + ref_size + ceil(size(ModelSegmentsNormal.het_allelic_counts, "GB")) + ceil(size(ModelSegmentsNormal.modeled_segments, "GB")) + disk_pad
         call PlotModeledSegments as PlotModeledSegmentsNormal {
             input:
                 entity_id = "normal",
@@ -402,7 +403,7 @@ workflow CNVSomaticPairWorkflow {
                 gatk4_jar_override = gatk4_jar_override,
                 gatk_docker = gatk_docker,
                 mem_gb = mem_gb_for_plotting,
-                disk_space_gb = plot_normal_disk,
+                disk_space_gb = plot_normal_segments_disk,
                 preemptible_attempts = preemptible_attempts
         }
     }
