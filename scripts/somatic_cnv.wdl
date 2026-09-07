@@ -172,37 +172,39 @@ workflow CNVSomaticPairWorkflow {
             gcs_project_for_requester_pays = gcs_project_for_requester_pays
     }
 
-    Int collect_counts_tumor_disk = tumor_bam_size + ceil(size(PreprocessIntervals.preprocessed_intervals, "GB")) + disk_pad
-    call CollectCounts as CollectCountsTumor {
-        input:
-            intervals = PreprocessIntervals.preprocessed_intervals,
-            bam = tumor_bam,
-            bam_idx = tumor_bam_idx,
-            ref_fasta = ref_fasta,
-            ref_fasta_fai = ref_fasta_fai,
-            ref_fasta_dict = ref_fasta_dict,
-            format = collect_counts_format,
-            enable_indexing = false,
-            gatk4_jar_override = gatk4_jar_override,
-            gatk_docker = gatk_docker,
-            mem_gb = mem_gb_for_collect_counts,
-            disk_space_gb = collect_counts_tumor_disk,
-            preemptible_attempts = preemptible_attempts,
-            gcs_project_for_requester_pays = gcs_project_for_requester_pays
-    }
+    if (use_read_counts) {
+        Int collect_counts_tumor_disk = tumor_bam_size + ceil(size(PreprocessIntervals.preprocessed_intervals, "GB")) + disk_pad
+        call CollectCounts as CollectCountsTumor {
+            input:
+                intervals = PreprocessIntervals.preprocessed_intervals,
+                bam = tumor_bam,
+                bam_idx = tumor_bam_idx,
+                ref_fasta = ref_fasta,
+                ref_fasta_fai = ref_fasta_fai,
+                ref_fasta_dict = ref_fasta_dict,
+                format = collect_counts_format,
+                enable_indexing = false,
+                gatk4_jar_override = gatk4_jar_override,
+                gatk_docker = gatk_docker,
+                mem_gb = mem_gb_for_collect_counts,
+                disk_space_gb = collect_counts_tumor_disk,
+                preemptible_attempts = preemptible_attempts,
+                gcs_project_for_requester_pays = gcs_project_for_requester_pays
+        }
 
-    Int denoise_read_counts_tumor_disk = read_count_pon_size + ceil(size(CollectCountsTumor.counts, "GB")) + disk_pad
-    call DenoiseReadCounts as DenoiseReadCountsTumor {
-        input:
-            entity_id = CollectCountsTumor.entity_id,
-            read_counts = CollectCountsTumor.counts,
-            read_count_pon = read_count_pon,
-            number_of_eigensamples = number_of_eigensamples,
-            gatk4_jar_override = gatk4_jar_override,
-            gatk_docker = gatk_docker,
-            mem_gb = mem_gb_for_denoise_read_counts,
-            disk_space_gb = denoise_read_counts_tumor_disk,
-            preemptible_attempts = preemptible_attempts
+        Int denoise_read_counts_tumor_disk = read_count_pon_size + ceil(size(CollectCountsTumor.counts, "GB")) + disk_pad
+        call DenoiseReadCounts as DenoiseReadCountsTumor {
+            input:
+                entity_id = CollectCountsTumor.entity_id,
+                read_counts = CollectCountsTumor.counts,
+                read_count_pon = read_count_pon,
+                number_of_eigensamples = number_of_eigensamples,
+                gatk4_jar_override = gatk4_jar_override,
+                gatk_docker = gatk_docker,
+                mem_gb = mem_gb_for_denoise_read_counts,
+                disk_space_gb = denoise_read_counts_tumor_disk,
+                preemptible_attempts = preemptible_attempts
+        }
     }
 
     Int model_segments_normal_portion = if defined(normal_bam) then ceil(size(CollectAllelicCountsNormal.allelic_counts, "GB")) else 0
@@ -278,24 +280,6 @@ workflow CNVSomaticPairWorkflow {
 
     Int collect_counts_normal_disk = normal_bam_size + ceil(size(PreprocessIntervals.preprocessed_intervals, "GB")) + disk_pad
     if (defined(normal_bam)) {
-        call CollectCounts as CollectCountsNormal {
-            input:
-                intervals = PreprocessIntervals.preprocessed_intervals,
-                bam = final_normal_bam,
-                bam_idx = final_normal_bam_idx,
-                ref_fasta = ref_fasta,
-                ref_fasta_fai = ref_fasta_fai,
-                ref_fasta_dict = ref_fasta_dict,
-                format = collect_counts_format,
-                enable_indexing = false,
-                gatk4_jar_override = gatk4_jar_override,
-                gatk_docker = gatk_docker,
-                mem_gb = mem_gb_for_collect_counts,
-                disk_space_gb = collect_counts_normal_disk,
-                preemptible_attempts = preemptible_attempts,
-                gcs_project_for_requester_pays = gcs_project_for_requester_pays
-        }
-
         Int collect_allelic_counts_normal_disk = normal_bam_size + ref_size + disk_pad
         call CollectAllelicCounts as CollectAllelicCountsNormal {
             input:
@@ -314,18 +298,38 @@ workflow CNVSomaticPairWorkflow {
                 gcs_project_for_requester_pays = gcs_project_for_requester_pays
         }
 
-        Int denoise_read_counts_normal_disk = read_count_pon_size + ceil(size(CollectCountsNormal.counts, "GB")) + disk_pad
-        call DenoiseReadCounts as DenoiseReadCountsNormal {
-            input:
-                entity_id = CollectCountsNormal.entity_id,
-                read_counts = CollectCountsNormal.counts,
-                read_count_pon = read_count_pon,
-                number_of_eigensamples = number_of_eigensamples,
-                gatk4_jar_override = gatk4_jar_override,
-                gatk_docker = gatk_docker,
-                mem_gb = mem_gb_for_denoise_read_counts,
-                disk_space_gb = denoise_read_counts_normal_disk,
-                preemptible_attempts = preemptible_attempts
+        if (use_read_counts) {
+            call CollectCounts as CollectCountsNormal {
+                input:
+                    intervals = PreprocessIntervals.preprocessed_intervals,
+                    bam = final_normal_bam,
+                    bam_idx = final_normal_bam_idx,
+                    ref_fasta = ref_fasta,
+                    ref_fasta_fai = ref_fasta_fai,
+                    ref_fasta_dict = ref_fasta_dict,
+                    format = collect_counts_format,
+                    enable_indexing = false,
+                    gatk4_jar_override = gatk4_jar_override,
+                    gatk_docker = gatk_docker,
+                    mem_gb = mem_gb_for_collect_counts,
+                    disk_space_gb = collect_counts_normal_disk,
+                    preemptible_attempts = preemptible_attempts,
+                    gcs_project_for_requester_pays = gcs_project_for_requester_pays
+            }
+
+            Int denoise_read_counts_normal_disk = read_count_pon_size + ceil(size(CollectCountsNormal.counts, "GB")) + disk_pad
+            call DenoiseReadCounts as DenoiseReadCountsNormal {
+                input:
+                    entity_id = CollectCountsNormal.entity_id,
+                    read_counts = CollectCountsNormal.counts,
+                    read_count_pon = read_count_pon,
+                    number_of_eigensamples = number_of_eigensamples,
+                    gatk4_jar_override = gatk4_jar_override,
+                    gatk_docker = gatk_docker,
+                    mem_gb = mem_gb_for_denoise_read_counts,
+                    disk_space_gb = denoise_read_counts_normal_disk,
+                    preemptible_attempts = preemptible_attempts
+            }
         }
 
         Int model_segments_normal_disk = ceil(size(DenoiseReadCountsNormal.denoised_copy_ratios, "GB")) + ceil(size(CollectAllelicCountsNormal.allelic_counts, "GB")) + disk_pad
