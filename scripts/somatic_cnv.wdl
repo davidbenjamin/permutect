@@ -927,7 +927,7 @@ task PlotDenoisedCopyRatios {
 task PlotModeledSegments {
     input {
       String entity_id
-      File denoised_copy_ratios
+      File? denoised_copy_ratios
       File het_allelic_counts
       File modeled_segments
       File ref_fasta_dict
@@ -958,7 +958,7 @@ task PlotModeledSegments {
         export GATK_LOCAL_JAR=~{default="/root/gatk.jar" gatk4_jar_override}
 
         gatk --java-options "-Xmx~{command_mem_mb}m" PlotModeledSegments \
-            --denoised-copy-ratios ~{denoised_copy_ratios} \
+            ~{"--denoised-copy-ratios " + denoised_copy_ratios} \
             --allelic-counts ~{het_allelic_counts} \
             --segments ~{modeled_segments} \
             --sequence-dictionary ~{ref_fasta_dict} \
