@@ -406,8 +406,9 @@ workflow CNVSomaticPairWorkflow {
     output {
         File preprocessed_intervals = PreprocessIntervals.preprocessed_intervals
 
-        File read_counts_entity_id_tumor = CollectCountsTumor.entity_id
-        File read_counts_tumor = CollectCountsTumor.counts
+        File? read_counts_entity_id_tumor = CollectCountsTumor.entity_id
+        File? read_counts_tumor = CollectCountsTumor.counts
+
         File allelic_counts_entity_id_tumor = CollectAllelicCountsTumor.entity_id
         File allelic_counts_tumor = CollectAllelicCountsTumor.allelic_counts
         File denoised_copy_ratios_tumor = DenoiseReadCountsTumor.denoised_copy_ratios
@@ -423,15 +424,17 @@ workflow CNVSomaticPairWorkflow {
         File modeled_segments_tumor = ModelSegmentsTumor.modeled_segments
         File copy_ratio_parameters_tumor = ModelSegmentsTumor.copy_ratio_parameters
         File allele_fraction_parameters_tumor = ModelSegmentsTumor.allele_fraction_parameters
-        File denoised_copy_ratios_plot_tumor = PlotDenoisedCopyRatiosTumor.denoised_copy_ratios_plot
-        File standardized_MAD_tumor = PlotDenoisedCopyRatiosTumor.standardized_MAD
-        Float standardized_MAD_value_tumor = PlotDenoisedCopyRatiosTumor.standardized_MAD_value
-        File denoised_MAD_tumor = PlotDenoisedCopyRatiosTumor.denoised_MAD
-        Float denoised_MAD_value_tumor = PlotDenoisedCopyRatiosTumor.denoised_MAD_value
-        File delta_MAD_tumor = PlotDenoisedCopyRatiosTumor.delta_MAD
-        Float delta_MAD_value_tumor = PlotDenoisedCopyRatiosTumor.delta_MAD_value
-        File scaled_delta_MAD_tumor = PlotDenoisedCopyRatiosTumor.scaled_delta_MAD
-        Float scaled_delta_MAD_value_tumor = PlotDenoisedCopyRatiosTumor.scaled_delta_MAD_value
+
+        File? denoised_copy_ratios_plot_tumor = PlotDenoisedCopyRatiosTumor.denoised_copy_ratios_plot
+        File? standardized_MAD_tumor = PlotDenoisedCopyRatiosTumor.standardized_MAD
+        Float? standardized_MAD_value_tumor = PlotDenoisedCopyRatiosTumor.standardized_MAD_value
+        File? denoised_MAD_tumor = PlotDenoisedCopyRatiosTumor.denoised_MAD
+        Float? denoised_MAD_value_tumor = PlotDenoisedCopyRatiosTumor.denoised_MAD_value
+        File? delta_MAD_tumor = PlotDenoisedCopyRatiosTumor.delta_MAD
+        Float? delta_MAD_value_tumor = PlotDenoisedCopyRatiosTumor.delta_MAD_value
+        File? scaled_delta_MAD_tumor = PlotDenoisedCopyRatiosTumor.scaled_delta_MAD
+        Float? scaled_delta_MAD_value_tumor = PlotDenoisedCopyRatiosTumor.scaled_delta_MAD_value
+
         File modeled_segments_plot_tumor = PlotModeledSegmentsTumor.modeled_segments_plot
 
         File? read_counts_entity_id_normal = CollectCountsNormal.entity_id
@@ -451,6 +454,7 @@ workflow CNVSomaticPairWorkflow {
         File? modeled_segments_normal = ModelSegmentsNormal.modeled_segments
         File? copy_ratio_parameters_normal = ModelSegmentsNormal.copy_ratio_parameters
         File? allele_fraction_parameters_normal = ModelSegmentsNormal.allele_fraction_parameters
+
         File? denoised_copy_ratios_plot_normal = PlotDenoisedCopyRatiosNormal.denoised_copy_ratios_plot
         File? standardized_MAD_normal = PlotDenoisedCopyRatiosNormal.standardized_MAD
         Float? standardized_MAD_value_normal = PlotDenoisedCopyRatiosNormal.standardized_MAD_value
@@ -460,6 +464,7 @@ workflow CNVSomaticPairWorkflow {
         Float? delta_MAD_value_normal = PlotDenoisedCopyRatiosNormal.delta_MAD_value
         File? scaled_delta_MAD_normal = PlotDenoisedCopyRatiosNormal.scaled_delta_MAD
         Float? scaled_delta_MAD_value_normal = PlotDenoisedCopyRatiosNormal.scaled_delta_MAD_value
+        
         File? modeled_segments_plot_normal = PlotModeledSegmentsNormal.modeled_segments_plot
     }
 }
