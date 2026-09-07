@@ -416,8 +416,8 @@ workflow CNVSomaticPairWorkflow {
 
         #File allelic_counts_entity_id_tumor = CollectAllelicCountsTumor.entity_id
         File allelic_counts_tumor = CollectAllelicCountsTumor.allelic_counts
-        File denoised_copy_ratios_tumor = DenoiseReadCountsTumor.denoised_copy_ratios
-        File standardized_copy_ratios_tumor = DenoiseReadCountsTumor.standardized_copy_ratios
+        File? denoised_copy_ratios_tumor = DenoiseReadCountsTumor.denoised_copy_ratios
+        File? standardized_copy_ratios_tumor = DenoiseReadCountsTumor.standardized_copy_ratios
         File het_allelic_counts_tumor = ModelSegmentsTumor.het_allelic_counts
         File normal_het_allelic_counts_tumor = ModelSegmentsTumor.normal_het_allelic_counts
         #File copy_ratio_only_segments_tumor = ModelSegmentsTumor.copy_ratio_only_segments
