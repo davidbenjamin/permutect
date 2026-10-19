@@ -151,6 +151,8 @@ workflow Permutect {
             mutect2_vcf = SplitMultiallelics.output_vcf,
             mutect2_vcf_idx = SplitMultiallelics.output_vcf_idx,
             artifact_model = artifact_model,
+            ref_fasta = ref_fasta,
+            ref_fai = ref_fai,
             test_dataset = select_first([Mutect2.permutect_test_dataset, cached_dataset_hack]),
             contigs_table = select_first([Mutect2.permutect_contigs_table, cached_contigs_table_hack]),
             maf_segments = select_first([Mutect2.maf_segments, cached_maf_segments_hack]),
@@ -223,6 +225,8 @@ workflow Permutect {
  task PermutectFiltering {
     input {
         File artifact_model
+        File ref_fasta
+        File ref_fai
         File test_dataset
         File contigs_table
         File mutect2_vcf
@@ -256,6 +260,7 @@ workflow Permutect {
         filter_variants --input ~{mutect2_vcf} --test_dataset ~{test_dataset} \
             --artifact_model ~{artifact_model} \
             --contigs_table ~{contigs_table} \
+            --reference ~{ref_fasta} \
             --output permutect-filtered.vcf \
             --tensorboard_dir tensorboard \
             --batch_size ~{batch_size} --num_workers ~{num_workers} \

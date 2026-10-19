@@ -3,6 +3,8 @@ from collections import defaultdict
 
 import cyvcf2
 import numpy as np
+import pysam
+import seqfold  # noqa: F401
 import torch
 from intervaltree import IntervalTree
 from torch.utils.tensorboard import SummaryWriter
@@ -74,6 +76,11 @@ def parse_arguments():
         "--" + constants.CONTIGS_TABLE_NAME,
         required=True,
         help="table of contig names vs integer indices",
+    )
+    parser.add_argument(
+        "--" + constants.REFERENCE_NAME,
+        required=True,
+        help="reference genome .fasta file, accompanied by a .fai index",
     )
     parser.add_argument("--" + constants.OUTPUT_NAME, required=True, help="path to output filtered VCF")
     parser.add_argument(
@@ -189,6 +196,7 @@ def main_without_parsing(args):
         initial_log_artifact_prior=getattr(args, constants.INITIAL_LOG_ARTIFACT_PRIOR_NAME),
         test_dataset_file=getattr(args, constants.TEST_DATASET_NAME),
         contigs_table=getattr(args, constants.CONTIGS_TABLE_NAME),
+        ref_fasta=getattr(args, constants.REFERENCE_NAME),
         input_vcf=getattr(args, constants.INPUT_NAME),
         output_vcf=getattr(args, constants.OUTPUT_NAME),
         num_spectrum_iterations=getattr(args, constants.NUM_SPECTRUM_ITERATIONS_NAME),
@@ -211,6 +219,7 @@ def make_filtered_vcf(
     initial_log_artifact_prior: float,
     test_dataset_file,
     contigs_table,
+    ref_fasta,
     input_vcf,
     output_vcf,
     num_spectrum_iterations: int,
@@ -234,6 +243,8 @@ def make_filtered_vcf(
         while line := file.readline().strip():
             contig, index = line.split()
             contig_index_to_name_map[int(index)] = contig
+
+    reference = pysam.FastaFile(ref_fasta)
 
     device = gpu_if_available()
     model = load_model(artifact_model_path, device=device)

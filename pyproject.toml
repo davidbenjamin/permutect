@@ -24,6 +24,8 @@ dependencies = [
     "psutil>=5.9.2",
     "scikit-learn>=1.3.2",
     "dill>=0.3.7",
+    "pysam>=0.24.1",
+    "seqfold>=0.10.2",
 ]
 
 [project.optional-dependencies]
@@ -70,6 +72,7 @@ unfixable = ["B"]
 
 [tool.ruff.lint.isort]
 force-single-line = true
+known-third-party = ["seqfold"]  # don't mistake a local seqfold/ directory for first-party code
 
 [tool.ruff.lint.per-file-ignores]
 "permutect/test/**.py" = ["F403", "F405"]
