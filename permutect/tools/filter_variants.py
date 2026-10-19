@@ -538,6 +538,7 @@ def apply_filtering_to_vcf(
     for n, filter_name in enumerate(FILTER_NAMES):
         if n != passing_call_type:
             unfiltered_vcf.add_filter_to_header({"ID": filter_name, "Description": filter_name})
+    unfiltered_vcf.add_filter_to_header({"ID": "hairpin", "Description": "near low-alt-fraction stem-loop"})
 
     writer = cyvcf2.Writer(output_vcf, unfiltered_vcf)  # input vcf is a template for the header
     pbar = tqdm(enumerate(unfiltered_vcf), mininterval=60)
@@ -557,11 +558,23 @@ def apply_filtering_to_vcf(
         downstream_end = min(contig_length, variant_start + 5)
         downstream_sequence = reference.fetch(v.CHROM, downstream_start, downstream_end)
         upstream_structure = consolidate_adjacent_stacks(
-            seqfold.fold(upstream_sequence, temp=70), upstream_start, upstream_sequence
+            seqfold.fold(upstream_sequence, temp=70), v.CHROM, upstream_start, upstream_sequence
         )
         downstream_structure = consolidate_adjacent_stacks(
-            seqfold.fold(downstream_sequence, temp=70), downstream_start, downstream_sequence
+            seqfold.fold(downstream_sequence, temp=70), v.CHROM, downstream_start, downstream_sequence
         )
+        variant_near_stem_loop = any(
+            stem_loop.contains_near(v.CHROM, v.start, dist=1) and stem_loop.total_energy < 1
+            for stem_loop in upstream_structure + downstream_structure
+        )
+        tumor_allele_depths = v.format("AD")[tumor_sample_index]
+        total_alt_depth = np.sum(tumor_allele_depths[1:])
+        total_depth = tumor_allele_depths[0] + total_alt_depth
+        variant_near_stem_loop_low_alt_fraction = (
+            variant_near_stem_loop and total_depth > 0 and total_alt_depth / total_depth < 0.1
+        )
+        if variant_near_stem_loop_low_alt_fraction:
+            filters.add("hairpin")
 
         # TODO: in germline mode, somatic doesn't exist (or is just highly irrelevant) and germline is not an error!
         encoding = encode_variant(v, zero_based=True)  # cyvcf2 is zero-based
