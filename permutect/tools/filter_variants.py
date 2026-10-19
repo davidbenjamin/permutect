@@ -46,6 +46,7 @@ from permutect.utils.enums import Label
 from permutect.utils.enums import Variation
 from permutect.utils.math_utils import inverse_sigmoid
 from permutect.utils.math_utils import prob_to_logit
+from permutect.utils.sequence_utils import consolidate_adjacent_stacks
 
 TRUSTED_M2_FILTERS = {"contamination", "slippage"}
 
@@ -555,8 +556,8 @@ def apply_filtering_to_vcf(
         downstream_sequence = reference.fetch(
             v.CHROM, max(0, variant_start - 20), min(contig_length, variant_start + 5)
         )
-        upstream_structure = seqfold.fold(upstream_sequence, temp=70)
-        downstream_structure = seqfold.fold(downstream_sequence, temp=70)
+        upstream_structure = consolidate_adjacent_stacks(seqfold.fold(upstream_sequence, temp=70))
+        downstream_structure = consolidate_adjacent_stacks(seqfold.fold(downstream_sequence, temp=70))
 
         # TODO: in germline mode, somatic doesn't exist (or is just highly irrelevant) and germline is not an error!
         encoding = encode_variant(v, zero_based=True)  # cyvcf2 is zero-based
