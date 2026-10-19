@@ -550,14 +550,18 @@ def apply_filtering_to_vcf(
 
         variant_start = v.start
         contig_length = reference.get_reference_length(v.CHROM)
-        upstream_sequence = reference.fetch(
-            v.CHROM, max(0, variant_start - 5), min(contig_length, variant_start + 20)
+        upstream_start = max(0, variant_start - 5)
+        upstream_end = min(contig_length, variant_start + 20)
+        upstream_sequence = reference.fetch(v.CHROM, upstream_start, upstream_end)
+        downstream_start = max(0, variant_start - 20)
+        downstream_end = min(contig_length, variant_start + 5)
+        downstream_sequence = reference.fetch(v.CHROM, downstream_start, downstream_end)
+        upstream_structure = consolidate_adjacent_stacks(
+            seqfold.fold(upstream_sequence, temp=70), upstream_start, upstream_sequence
         )
-        downstream_sequence = reference.fetch(
-            v.CHROM, max(0, variant_start - 20), min(contig_length, variant_start + 5)
+        downstream_structure = consolidate_adjacent_stacks(
+            seqfold.fold(downstream_sequence, temp=70), downstream_start, downstream_sequence
         )
-        upstream_structure = consolidate_adjacent_stacks(seqfold.fold(upstream_sequence, temp=70))
-        downstream_structure = consolidate_adjacent_stacks(seqfold.fold(downstream_sequence, temp=70))
 
         # TODO: in germline mode, somatic doesn't exist (or is just highly irrelevant) and germline is not an error!
         encoding = encode_variant(v, zero_based=True)  # cyvcf2 is zero-based
