@@ -84,3 +84,17 @@ def test_filtering_on_seqc2_wes_chr20():
     )
 
     filter_variants.main_without_parsing(filtering_args)
+
+    target_records = []
+    with open(permutect_vcf.name) as output_vcf:
+        for line in output_vcf:
+            if line.startswith("#"):
+                continue
+            fields = line.rstrip("\n").split("\t")
+            if fields[0] == "chr20" and fields[1] == "4932703":
+                target_records.append(fields)
+
+    assert len(target_records) == 1
+    assert "hairpin" in target_records[0][6].split(";"), (
+        "chr20:4932703 did not receive the hairpin filter; inspect its nearby StemLoop energy threshold"
+    )

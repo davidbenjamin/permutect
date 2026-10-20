@@ -126,6 +126,13 @@ def parse_arguments(argv=None):
         "Necessary for learning priors since otherwise rates of artifacts and variants would be overinflated.",
     )
     parser.add_argument(
+        "--stem-loop-max-energy",
+        dest=constants.STEM_LOOP_MAX_ENERGY_NAME,
+        type=float,
+        default=1.5,
+        help="maximum total stem-loop energy for applying the hairpin filter (strictly less than this value)",
+    )
+    parser.add_argument(
         "--" + constants.MAF_SEGMENTS_NAME,
         required=False,
         help="copy-number segmentation file from GATK containing minor allele fractions.  "
@@ -209,6 +216,7 @@ def main_without_parsing(args):
         het_beta=getattr(args, constants.HET_BETA_NAME),
         segmentation=get_segmentation(getattr(args, constants.MAF_SEGMENTS_NAME)),
         normal_segmentation=get_segmentation(getattr(args, constants.NORMAL_MAF_SEGMENTS_NAME)),
+        stem_loop_max_energy=getattr(args, constants.STEM_LOOP_MAX_ENERGY_NAME),
     )
 
 
@@ -232,6 +240,7 @@ def make_filtered_vcf(
     het_beta: float = None,
     segmentation=None,
     normal_segmentation=None,
+    stem_loop_max_energy: float = 1.5,
 ):
     if segmentation is None:
         segmentation = defaultdict(IntervalTree)
@@ -313,6 +322,7 @@ def make_filtered_vcf(
         summary_writer=summary_writer,
         reference=reference,
         germline_mode=germline_mode,
+        stem_loop_max_energy=stem_loop_max_energy,
     )
 
 
@@ -408,6 +418,7 @@ def apply_filtering_to_vcf(
     summary_writer: SummaryWriter,
     reference: pysam.FastaFile,
     germline_mode: bool = False,
+    stem_loop_max_energy: float = 1.5,
 ):
     print("Computing final error probabilities")
     passing_call_type = Call.GERMLINE if germline_mode else Call.SOMATIC
@@ -550,7 +561,9 @@ def apply_filtering_to_vcf(
     for n, v in pbar:
         filters = overlapping_filters(v, TRUSTED_M2_FILTERS)
 
-        variant_near_stem_loop = is_near_stem_loop(reference, v.CHROM, v.start)
+        variant_near_stem_loop = is_near_stem_loop(
+            reference, v.CHROM, v.start, max_energy=stem_loop_max_energy
+        )
         tumor_allele_depths = v.format("AD")[tumor_sample_index]
         total_alt_depth = np.sum(tumor_allele_depths[1:])
         total_depth = tumor_allele_depths[0] + total_alt_depth

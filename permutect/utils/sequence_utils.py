@@ -67,17 +67,26 @@ def consolidate_adjacent_stacks(structures, contig: str, start_position: int, se
         if not is_stack and not is_hairpin:
             continue
 
+        if is_stack:
+            top_bases, bottom_bases = structure.desc.removeprefix("STACK:").split("/")
+            stack_span = len(top_bases) - 1
+            structure_indices = [
+                (structure.ij[0][0] + offset, structure.ij[0][1] - offset) for offset in range(stack_span)
+            ]
+        else:
+            structure_indices = []
+
         is_adjacent = (
             stack_indices
-            and structure.ij[0][0] == stack_indices[-1][0] + 1
-            and structure.ij[0][1] == stack_indices[-1][1] - 1
+            and structure_indices
+            and structure_indices[0][0] == stack_indices[-1][0] + 1
+            and structure_indices[0][1] == stack_indices[-1][1] - 1
         )
         if not is_stack or (stack_indices and not is_adjacent):
             flush_stack()
         if is_stack:
-            stack_indices.extend(structure.ij)
+            stack_indices.extend(structure_indices)
             stack_energy += structure.e
-            top_bases, bottom_bases = structure.desc.removeprefix("STACK:").split("/")
             stack_top_bases.append(top_bases if not stack_top_bases else top_bases[1:])
             stack_bottom_bases.append(bottom_bases if not stack_bottom_bases else bottom_bases[1:])
         else:  # hairpin
@@ -118,7 +127,7 @@ def fold_sequence(sequence: str, contig: str, start_position: int) -> list[StemL
 
 
 def contains_near_stem_loop(
-    stem_loops: list[StemLoop], contig: str, position: int, dist: int = 3, max_energy: float = 1
+    stem_loops: list[StemLoop], contig: str, position: int, dist: int = 3, max_energy: float = 1.5
 ) -> bool:
     return any(
         stem_loop.contains_near(contig, position, dist=dist) and stem_loop.total_energy < max_energy
@@ -126,7 +135,7 @@ def contains_near_stem_loop(
     )
 
 
-def is_near_stem_loop(reference, contig: str, position: int, dist: int = 3, max_energy: float = 1) -> bool:
+def is_near_stem_loop(reference, contig: str, position: int, dist: int = 3, max_energy: float = 1.5) -> bool:
     contig_length = reference.get_reference_length(contig)
     if not 0 <= position < contig_length:
         return False
