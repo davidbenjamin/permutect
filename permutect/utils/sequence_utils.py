@@ -1,5 +1,7 @@
 from typing import NamedTuple
 
+import seqfold
+
 
 class StemLoopPart(NamedTuple):
     bounds: list[tuple[int, int]]
@@ -20,7 +22,7 @@ class StemLoop(NamedTuple):
         hairpin_energy = 0.0 if self.hairpin is None else self.hairpin.energy
         return stack_energy + hairpin_energy
 
-    def contains_near(self, contig: str, position: int, dist: int) -> bool:
+    def contains_near(self, contig: str, position: int, dist: int = 3) -> bool:
         return (
             contig == self.contig
             and bool(self.stacks)
@@ -108,3 +110,36 @@ def consolidate_adjacent_stacks(structures, contig: str, start_position: int, se
             )
         )
     return stem_loops
+
+
+def fold_sequence(sequence: str, contig: str, start_position: int) -> list[StemLoop]:
+    structures = seqfold.fold(sequence, temp=70)
+    return consolidate_adjacent_stacks(structures, contig, start_position, sequence)
+
+
+def contains_near_stem_loop(
+    stem_loops: list[StemLoop], contig: str, position: int, dist: int = 3, max_energy: float = 1
+) -> bool:
+    return any(
+        stem_loop.contains_near(contig, position, dist=dist) and stem_loop.total_energy < max_energy
+        for stem_loop in stem_loops
+    )
+
+
+def is_near_stem_loop(reference, contig: str, position: int, dist: int = 3, max_energy: float = 1) -> bool:
+    contig_length = reference.get_reference_length(contig)
+    if not 0 <= position < contig_length:
+        return False
+
+    upstream_start = max(0, position - 5)
+    upstream_end = min(contig_length, position + 20)
+    upstream_sequence = reference.fetch(contig, upstream_start, upstream_end)
+    downstream_start = max(0, position - 20)
+    downstream_end = min(contig_length, position + 5)
+    downstream_sequence = reference.fetch(contig, downstream_start, downstream_end)
+
+    upstream_structure = fold_sequence(upstream_sequence, contig, upstream_start)
+    downstream_structure = fold_sequence(downstream_sequence, contig, downstream_start)
+    return contains_near_stem_loop(
+        upstream_structure + downstream_structure, contig, position, dist=dist, max_energy=max_energy
+    )

@@ -4,7 +4,6 @@ from collections import defaultdict
 import cyvcf2
 import numpy as np
 import pysam
-import seqfold  # noqa: F401
 import torch
 from intervaltree import IntervalTree
 from torch.utils.tensorboard import SummaryWriter
@@ -46,7 +45,7 @@ from permutect.utils.enums import Label
 from permutect.utils.enums import Variation
 from permutect.utils.math_utils import inverse_sigmoid
 from permutect.utils.math_utils import prob_to_logit
-from permutect.utils.sequence_utils import consolidate_adjacent_stacks
+from permutect.utils.sequence_utils import is_near_stem_loop
 
 TRUSTED_M2_FILTERS = {"contamination", "slippage"}
 
@@ -551,27 +550,7 @@ def apply_filtering_to_vcf(
     for n, v in pbar:
         filters = overlapping_filters(v, TRUSTED_M2_FILTERS)
 
-        variant_start = v.start
-        contig_length = reference.get_reference_length(v.CHROM)
-        upstream_structure = []
-        downstream_structure = []
-        if variant_start < contig_length:
-            upstream_start = max(0, variant_start - 5)
-            upstream_end = min(contig_length, variant_start + 20)
-            upstream_sequence = reference.fetch(v.CHROM, upstream_start, upstream_end)
-            downstream_start = max(0, variant_start - 20)
-            downstream_end = min(contig_length, variant_start + 5)
-            downstream_sequence = reference.fetch(v.CHROM, downstream_start, downstream_end)
-            upstream_structure = consolidate_adjacent_stacks(
-                seqfold.fold(upstream_sequence, temp=70), v.CHROM, upstream_start, upstream_sequence
-            )
-            downstream_structure = consolidate_adjacent_stacks(
-                seqfold.fold(downstream_sequence, temp=70), v.CHROM, downstream_start, downstream_sequence
-            )
-        variant_near_stem_loop = any(
-            stem_loop.contains_near(v.CHROM, v.start, dist=1) and stem_loop.total_energy < 1
-            for stem_loop in upstream_structure + downstream_structure
-        )
+        variant_near_stem_loop = is_near_stem_loop(reference, v.CHROM, v.start)
         tumor_allele_depths = v.format("AD")[tumor_sample_index]
         total_alt_depth = np.sum(tumor_allele_depths[1:])
         total_depth = tumor_allele_depths[0] + total_alt_depth
