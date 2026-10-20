@@ -59,7 +59,7 @@ NORMAL_LOG_LIKELIHOOD_INFO_KEY = "NORMLL"
 FILTER_NAMES = [call_type.name.lower() for call_type in Call]
 
 
-def parse_arguments():
+def parse_arguments(argv=None):
     parser = argparse.ArgumentParser()
     add_training_params_to_parser(parser)  # most of these are only relevant in case of test time adaptation
     parser.add_argument("--" + constants.INPUT_NAME, required=True, help="unfiltered input Mutect2 VCF")
@@ -165,7 +165,7 @@ def parse_arguments():
         "somatic, artifact, and sequencing error.  This is useful for certain validation where "
         "pseudo-somatic events are created by mixing germline events at varying fractions",
     )
-    return parser.parse_args()
+    return parser.parse_args(argv)
 
 
 def get_segmentation(segments_file) -> defaultdict:
