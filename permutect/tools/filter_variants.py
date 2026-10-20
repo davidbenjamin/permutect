@@ -312,6 +312,7 @@ def make_filtered_vcf(
         posterior_data_loader,
         posterior_model,
         summary_writer=summary_writer,
+        reference=reference,
         germline_mode=germline_mode,
     )
 
@@ -406,6 +407,7 @@ def apply_filtering_to_vcf(
     posterior_loader,
     posterior_model,
     summary_writer: SummaryWriter,
+    reference: pysam.FastaFile,
     germline_mode: bool = False,
 ):
     print("Computing final error probabilities")
