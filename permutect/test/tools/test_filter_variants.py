@@ -8,18 +8,10 @@ from permutect.tools import filter_variants
 
 
 def test_filtering_on_dream1_chr20():
-    # NOTE: EXPERIMENTAL_MODEL does not currently exist in the repo, so this
-    # test will fail with FileNotFoundError until a compatible model is committed.
-    artifact_model = EXPERIMENTAL_MODEL
+    artifact_model = PERMUTECT_V0_9_2_ARTIFACT_MODEL
 
     permutect_vcf = tempfile.NamedTemporaryFile()
     tensorboard_dir = tempfile.TemporaryDirectory()
-
-    # placeholder reference -- pysam creates the .fai index alongside it
-    reference_dir = tempfile.TemporaryDirectory()
-    ref_fasta = os.path.join(reference_dir.name, "placeholder.fasta")
-    with open(ref_fasta, "w") as file:
-        file.write(">20\nACGTACGTACGTACGTACGT\n")
 
     filtering_args = Namespace()
     setattr(filtering_args, constants.INPUT_NAME, MUTECT2_CHR20_FILTERED_VCF)
@@ -37,7 +29,7 @@ def test_filtering_on_dream1_chr20():
     setattr(filtering_args, constants.GENOMIC_SPAN_NAME, 60000000)
     setattr(filtering_args, constants.MAF_SEGMENTS_NAME, None)
     setattr(filtering_args, constants.CONTIGS_TABLE_NAME, CONTIGS_TABLE)
-    setattr(filtering_args, constants.REFERENCE_NAME, ref_fasta)
+    setattr(filtering_args, constants.REFERENCE_NAME, HG19_CHR20_REFERENCE)
     setattr(filtering_args, constants.NORMAL_MAF_SEGMENTS_NAME, None)
     setattr(filtering_args, constants.GERMLINE_MODE_NAME, False)
     setattr(filtering_args, constants.NO_GERMLINE_MODE_NAME, False)

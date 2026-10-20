@@ -553,18 +553,21 @@ def apply_filtering_to_vcf(
 
         variant_start = v.start
         contig_length = reference.get_reference_length(v.CHROM)
-        upstream_start = max(0, variant_start - 5)
-        upstream_end = min(contig_length, variant_start + 20)
-        upstream_sequence = reference.fetch(v.CHROM, upstream_start, upstream_end)
-        downstream_start = max(0, variant_start - 20)
-        downstream_end = min(contig_length, variant_start + 5)
-        downstream_sequence = reference.fetch(v.CHROM, downstream_start, downstream_end)
-        upstream_structure = consolidate_adjacent_stacks(
-            seqfold.fold(upstream_sequence, temp=70), v.CHROM, upstream_start, upstream_sequence
-        )
-        downstream_structure = consolidate_adjacent_stacks(
-            seqfold.fold(downstream_sequence, temp=70), v.CHROM, downstream_start, downstream_sequence
-        )
+        upstream_structure = []
+        downstream_structure = []
+        if variant_start < contig_length:
+            upstream_start = max(0, variant_start - 5)
+            upstream_end = min(contig_length, variant_start + 20)
+            upstream_sequence = reference.fetch(v.CHROM, upstream_start, upstream_end)
+            downstream_start = max(0, variant_start - 20)
+            downstream_end = min(contig_length, variant_start + 5)
+            downstream_sequence = reference.fetch(v.CHROM, downstream_start, downstream_end)
+            upstream_structure = consolidate_adjacent_stacks(
+                seqfold.fold(upstream_sequence, temp=70), v.CHROM, upstream_start, upstream_sequence
+            )
+            downstream_structure = consolidate_adjacent_stacks(
+                seqfold.fold(downstream_sequence, temp=70), v.CHROM, downstream_start, downstream_sequence
+            )
         variant_near_stem_loop = any(
             stem_loop.contains_near(v.CHROM, v.start, dist=1) and stem_loop.total_energy < 1
             for stem_loop in upstream_structure + downstream_structure
