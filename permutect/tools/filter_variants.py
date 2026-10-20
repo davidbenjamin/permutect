@@ -45,7 +45,7 @@ from permutect.utils.enums import Label
 from permutect.utils.enums import Variation
 from permutect.utils.math_utils import inverse_sigmoid
 from permutect.utils.math_utils import prob_to_logit
-from permutect.utils.sequence_utils import is_near_stem_loop
+from permutect.utils.sequence_utils import find_near_stem_loop
 
 TRUSTED_M2_FILTERS = {"contamination", "slippage"}
 
@@ -54,6 +54,8 @@ ARTIFACT_LOD_INFO_KEY = "ARTLOD"
 LOG_PRIOR_INFO_KEY = "PRIOR"
 SPECTRA_LOG_LIKELIHOOD_INFO_KEY = "SPECLL"
 NORMAL_LOG_LIKELIHOOD_INFO_KEY = "NORMLL"
+STEM_LOOP_FREE_ENERGY_INFO_KEY = "SLFE"
+STEM_LOOP_DISTANCE_INFO_KEY = "SLDIST"
 
 FILTER_NAMES = [call_type.name.lower() for call_type in Call]
 
@@ -546,6 +548,22 @@ def apply_filtering_to_vcf(
             "Number": "A",
         }
     )
+    unfiltered_vcf.add_info_to_header(
+        {
+            "ID": STEM_LOOP_FREE_ENERGY_INFO_KEY,
+            "Description": "Total free energy of the selected nearby stem loop",
+            "Type": "Float",
+            "Number": "1",
+        }
+    )
+    unfiltered_vcf.add_info_to_header(
+        {
+            "ID": STEM_LOOP_DISTANCE_INFO_KEY,
+            "Description": "Distance in bases from variant start to the selected stem",
+            "Type": "Integer",
+            "Number": "1",
+        }
+    )
 
     for n, filter_name in enumerate(FILTER_NAMES):
         if n != passing_call_type:
@@ -561,17 +579,20 @@ def apply_filtering_to_vcf(
     for n, v in pbar:
         filters = overlapping_filters(v, TRUSTED_M2_FILTERS)
 
-        variant_near_stem_loop = is_near_stem_loop(
+        nearby_stem_loop = find_near_stem_loop(
             reference, v.CHROM, v.start, max_energy=stem_loop_max_energy
         )
         tumor_allele_depths = v.format("AD")[tumor_sample_index]
         total_alt_depth = np.sum(tumor_allele_depths[1:])
         total_depth = tumor_allele_depths[0] + total_alt_depth
         variant_near_stem_loop_low_alt_fraction = (
-            variant_near_stem_loop and total_depth > 0 and total_alt_depth / total_depth < 0.1
+            nearby_stem_loop is not None and total_depth > 0 and total_alt_depth / total_depth < 0.1
         )
         if variant_near_stem_loop_low_alt_fraction:
+            stem_loop, stem_distance = nearby_stem_loop
             filters.add("hairpin")
+            v.INFO[STEM_LOOP_FREE_ENERGY_INFO_KEY] = stem_loop.total_energy
+            v.INFO[STEM_LOOP_DISTANCE_INFO_KEY] = stem_distance
 
         # TODO: in germline mode, somatic doesn't exist (or is just highly irrelevant) and germline is not an error!
         encoding = encode_variant(v, zero_based=True)  # cyvcf2 is zero-based

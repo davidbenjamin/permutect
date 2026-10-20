@@ -1,6 +1,8 @@
 import os
 import tempfile
 
+import pytest
+
 from permutect import constants
 from permutect.test.test_file_names import *
 from permutect.tools import filter_variants
@@ -98,3 +100,10 @@ def test_filtering_on_seqc2_wes_chr20():
     assert "hairpin" in target_records[0][6].split(";"), (
         "chr20:4932703 did not receive the hairpin filter; inspect its nearby StemLoop energy threshold"
     )
+    info_fields = dict(
+        field.split("=", 1)
+        for field in target_records[0][7].split(";")
+        if "=" in field
+    )
+    assert float(info_fields["SLFE"]) == pytest.approx(1.3)
+    assert int(info_fields["SLDIST"]) == 0

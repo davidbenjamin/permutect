@@ -23,15 +23,16 @@ class StemLoop(NamedTuple):
         return stack_energy + hairpin_energy
 
     def contains_near(self, contig: str, position: int, dist: int = 3) -> bool:
-        return (
-            contig == self.contig
-            and bool(self.stacks)
-            and self.hairpin is not None
-            and any(
-                start - dist <= position <= end + dist
-                for stack in self.stacks
-                for start, end in stack.bounds
-            )
+        distance = self.distance_to_stem(contig, position)
+        return distance is not None and self.hairpin is not None and distance <= dist
+
+    def distance_to_stem(self, contig: str, position: int) -> int | None:
+        if contig != self.contig or not self.stacks:
+            return None
+        return min(
+            max(start - position, position - end, 0)
+            for stack in self.stacks
+            for start, end in stack.bounds
         )
 
 
@@ -135,10 +136,12 @@ def contains_near_stem_loop(
     )
 
 
-def is_near_stem_loop(reference, contig: str, position: int, dist: int = 3, max_energy: float = 1.5) -> bool:
+def find_near_stem_loop(
+    reference, contig: str, position: int, dist: int = 3, max_energy: float = 1.5
+) -> tuple[StemLoop, int] | None:
     contig_length = reference.get_reference_length(contig)
     if not 0 <= position < contig_length:
-        return False
+        return None
 
     upstream_start = max(0, position - 5)
     upstream_end = min(contig_length, position + 20)
@@ -149,6 +152,13 @@ def is_near_stem_loop(reference, contig: str, position: int, dist: int = 3, max_
 
     upstream_structure = fold_sequence(upstream_sequence, contig, upstream_start)
     downstream_structure = fold_sequence(downstream_sequence, contig, downstream_start)
-    return contains_near_stem_loop(
-        upstream_structure + downstream_structure, contig, position, dist=dist, max_energy=max_energy
-    )
+    candidates = []
+    for stem_loop in upstream_structure + downstream_structure:
+        distance = stem_loop.distance_to_stem(contig, position)
+        if stem_loop.hairpin is not None and distance is not None and distance <= dist and stem_loop.total_energy < max_energy:
+            candidates.append((stem_loop, distance))
+    return min(candidates, key=lambda candidate: candidate[0].total_energy, default=None)
+
+
+def is_near_stem_loop(reference, contig: str, position: int, dist: int = 3, max_energy: float = 1.5) -> bool:
+    return find_near_stem_loop(reference, contig, position, dist=dist, max_energy=max_energy) is not None
