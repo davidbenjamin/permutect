@@ -29,11 +29,7 @@ class StemLoop(NamedTuple):
     def distance_to_stem(self, contig: str, position: int) -> int | None:
         if contig != self.contig or not self.stacks:
             return None
-        return min(
-            max(start - position, position - end, 0)
-            for stack in self.stacks
-            for start, end in stack.bounds
-        )
+        return min(max(start - position, position - end, 0) for stack in self.stacks for start, end in stack.bounds)
 
 
 def consolidate_adjacent_stacks(structures, contig: str, start_position: int, sequence: str):
@@ -95,9 +91,7 @@ def consolidate_adjacent_stacks(structures, contig: str, start_position: int, se
                 StemLoop(
                     stacks=pending_stacks.copy(),
                     hairpin=StemLoopPart(
-                        bounds=[
-                            (start_position + structure.ij[0][0], start_position + structure.ij[0][1])
-                        ],
+                        bounds=[(start_position + structure.ij[0][0], start_position + structure.ij[0][1])],
                         energy=structure.e,
                         desc=structure.desc,
                     ),
@@ -155,7 +149,12 @@ def find_near_stem_loop(
     candidates = []
     for stem_loop in upstream_structure + downstream_structure:
         distance = stem_loop.distance_to_stem(contig, position)
-        if stem_loop.hairpin is not None and distance is not None and distance <= dist and stem_loop.total_energy < max_energy:
+        if (
+            stem_loop.hairpin is not None
+            and distance is not None
+            and distance <= dist
+            and stem_loop.total_energy < max_energy
+        ):
             candidates.append((stem_loop, distance))
     return min(candidates, key=lambda candidate: candidate[0].total_energy, default=None)
 

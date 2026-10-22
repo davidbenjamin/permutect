@@ -73,7 +73,7 @@ class Data(enum.Enum):
     ALLELE_FREQUENCY = (FLOAT_DTYPE, 2)
     MAF = (FLOAT_DTYPE, 3)
     NORMAL_MAF = (FLOAT_DTYPE, 4)
-    CACHED_ARTIFACT_LOGIT = (FLOAT_DTYPE, 5)
+    CACHED_ARTIFACT_LOGIT = (FLOAT_DTYPE, 5)  # +inf marks a known artifact, eg from a trusted upstream filter
     # TODO: left off here -- I added these constants to the enum but haven't yet initialized them in the constructor
     # TODO: nor have I cleaned up how they interact with the posterior datum
     # after this, at the end of the float16 array comes the sub-array containing the INFO vector

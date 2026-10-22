@@ -1,3 +1,4 @@
+import math
 from collections import defaultdict
 from itertools import chain
 from typing import List
@@ -94,7 +95,8 @@ class EvaluationMetrics:
                 ac_data = [pr.alt_count for pr in posterior_results]
                 plotting.simple_histograms_on_axis(ac_axes[row_idx, var_type], [ac_data], [""], 20)
 
-                logit_data = [pr.artifact_logit for pr in posterior_results]
+                # known artifacts have infinite artifact logits, which can't be histogrammed
+                logit_data = [pr.artifact_logit for pr in posterior_results if math.isfinite(pr.artifact_logit)]
                 plotting.simple_histograms_on_axis(logit_axes[row_idx, var_type], [logit_data], [""], 20)
 
                 # posterior probability assigned to this incorrect call

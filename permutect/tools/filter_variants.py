@@ -1,9 +1,9 @@
 import argparse
+import math
 from collections import defaultdict
 
 import cyvcf2
 import numpy as np
-import pysam
 import torch
 from intervaltree import IntervalTree
 from torch.utils.tensorboard import SummaryWriter
@@ -31,12 +31,14 @@ from permutect.metrics.posterior_result import PosteriorResult
 from permutect.misc_utils import Timer
 from permutect.misc_utils import encode_datum
 from permutect.misc_utils import encode_variant
+from permutect.misc_utils import get_tumor_sample_index
 from permutect.misc_utils import gpu_if_available
 from permutect.misc_utils import overlapping_filters
 from permutect.misc_utils import report_memory_usage
 from permutect.parameters import TrainingParameters
 from permutect.parameters import add_training_params_to_parser
 from permutect.parameters import parse_training_params
+from permutect.tools.pre_permutect_filtering import HAIRPIN_FILTER
 from permutect.training.model_training import train_artifact_model
 from permutect.utils.allele_utils import find_variant_type
 from permutect.utils.enums import Call
@@ -45,17 +47,19 @@ from permutect.utils.enums import Label
 from permutect.utils.enums import Variation
 from permutect.utils.math_utils import inverse_sigmoid
 from permutect.utils.math_utils import prob_to_logit
-from permutect.utils.sequence_utils import find_near_stem_loop
 
-TRUSTED_M2_FILTERS = {"contamination", "slippage"}
+# Trusted filters in the input VCF come from Mutect2, except for hairpin, which comes from pre_permutect_filtering.
+# Variants with these non-artifact filters are skipped by the posterior model and written to the output VCF unchanged.
+TRUSTED_NON_ARTIFACT_FILTERS = {"contamination"}
+# Variants with these artifact filters keep them, and the posterior model sees them as definite artifacts (or normal
+# artifacts) regardless of the artifact model, so that they inform the artifact spectra and priors.
+TRUSTED_ARTIFACT_FILTERS = {"slippage", HAIRPIN_FILTER}
 
 POST_PROB_INFO_KEY = "POST"
 ARTIFACT_LOD_INFO_KEY = "ARTLOD"
 LOG_PRIOR_INFO_KEY = "PRIOR"
 SPECTRA_LOG_LIKELIHOOD_INFO_KEY = "SPECLL"
 NORMAL_LOG_LIKELIHOOD_INFO_KEY = "NORMLL"
-STEM_LOOP_FREE_ENERGY_INFO_KEY = "SLFE"
-STEM_LOOP_DISTANCE_INFO_KEY = "SLDIST"
 
 FILTER_NAMES = [call_type.name.lower() for call_type in Call]
 
@@ -78,11 +82,6 @@ def parse_arguments(argv=None):
         "--" + constants.CONTIGS_TABLE_NAME,
         required=True,
         help="table of contig names vs integer indices",
-    )
-    parser.add_argument(
-        "--" + constants.REFERENCE_NAME,
-        required=True,
-        help="reference genome .fasta file, accompanied by a .fai index",
     )
     parser.add_argument("--" + constants.OUTPUT_NAME, required=True, help="path to output filtered VCF")
     parser.add_argument(
@@ -126,13 +125,6 @@ def parse_arguments(argv=None):
         required=True,
         help="number of sites considered by Mutect2, including those lacking variation or artifacts, hence absent from input dataset.  "
         "Necessary for learning priors since otherwise rates of artifacts and variants would be overinflated.",
-    )
-    parser.add_argument(
-        "--stem-loop-max-energy",
-        dest=constants.STEM_LOOP_MAX_ENERGY_NAME,
-        type=float,
-        default=1.5,
-        help="maximum total stem-loop energy for applying the hairpin filter (strictly less than this value)",
     )
     parser.add_argument(
         "--" + constants.MAF_SEGMENTS_NAME,
@@ -205,7 +197,6 @@ def main_without_parsing(args):
         initial_log_artifact_prior=getattr(args, constants.INITIAL_LOG_ARTIFACT_PRIOR_NAME),
         test_dataset_file=getattr(args, constants.TEST_DATASET_NAME),
         contigs_table=getattr(args, constants.CONTIGS_TABLE_NAME),
-        ref_fasta=getattr(args, constants.REFERENCE_NAME),
         input_vcf=getattr(args, constants.INPUT_NAME),
         output_vcf=getattr(args, constants.OUTPUT_NAME),
         num_spectrum_iterations=getattr(args, constants.NUM_SPECTRUM_ITERATIONS_NAME),
@@ -218,7 +209,6 @@ def main_without_parsing(args):
         het_beta=getattr(args, constants.HET_BETA_NAME),
         segmentation=get_segmentation(getattr(args, constants.MAF_SEGMENTS_NAME)),
         normal_segmentation=get_segmentation(getattr(args, constants.NORMAL_MAF_SEGMENTS_NAME)),
-        stem_loop_max_energy=getattr(args, constants.STEM_LOOP_MAX_ENERGY_NAME),
     )
 
 
@@ -229,7 +219,6 @@ def make_filtered_vcf(
     initial_log_artifact_prior: float,
     test_dataset_file,
     contigs_table,
-    ref_fasta,
     input_vcf,
     output_vcf,
     num_spectrum_iterations: int,
@@ -242,7 +231,6 @@ def make_filtered_vcf(
     het_beta: float = None,
     segmentation=None,
     normal_segmentation=None,
-    stem_loop_max_energy: float = 1.5,
 ):
     if segmentation is None:
         segmentation = defaultdict(IntervalTree)
@@ -254,8 +242,6 @@ def make_filtered_vcf(
         while line := file.readline().strip():
             contig, index = line.split()
             contig_index_to_name_map[int(index)] = contig
-
-    reference = pysam.FastaFile(ref_fasta)
 
     device = gpu_if_available()
     model = load_model(artifact_model_path, device=device)
@@ -322,9 +308,7 @@ def make_filtered_vcf(
         posterior_data_loader,
         posterior_model,
         summary_writer=summary_writer,
-        reference=reference,
         germline_mode=germline_mode,
-        stem_loop_max_energy=stem_loop_max_energy,
     )
 
 
@@ -354,7 +338,9 @@ def generate_posterior_data(dataset, model: ArtifactModel, batch_size: int, num_
             )
             output_datum.set(Data.REF_COUNT, 0)
             output_datum.set(Data.ALT_COUNT, 0)
-            output_datum.set(Data.CACHED_ARTIFACT_LOGIT, logit)
+            # known artifacts were marked with an infinite logit when annotated from the VCF, which overrides the model
+            if not np.isposinf(output_datum.get(Data.CACHED_ARTIFACT_LOGIT)):
+                output_datum.set(Data.CACHED_ARTIFACT_LOGIT, logit)
             output_datum.set_info_1d(embedding)
             yield output_datum
 
@@ -379,7 +365,8 @@ def make_annotated_dataset(
     annotated_mmap_data = normalized_mmap_data.make_vcf_annotate_memory_mapped_data(
         input_vcf,
         contig_index_to_name_map,
-        filters_to_exclude=TRUSTED_M2_FILTERS,
+        filters_to_exclude=TRUSTED_NON_ARTIFACT_FILTERS,
+        artifact_filters=TRUSTED_ARTIFACT_FILTERS,
         segmentation=segmentation,
         normal_segmentation=normal_segmentation,
     )
@@ -418,9 +405,7 @@ def apply_filtering_to_vcf(
     posterior_loader,
     posterior_model,
     summary_writer: SummaryWriter,
-    reference: pysam.FastaFile,
     germline_mode: bool = False,
-    stem_loop_max_energy: float = 1.5,
 ):
     print("Computing final error probabilities")
     passing_call_type = Call.GERMLINE if germline_mode else Call.SOMATIC
@@ -488,23 +473,7 @@ def apply_filtering_to_vcf(
 
     print("Applying threshold")
     unfiltered_vcf = cyvcf2.VCF(input_vcf)
-
-    # This is specific to Mutect2, which outputs a line:
-    # ##tumor_sample=___________
-    tumor_sample_name = ""
-    all_samples = []
-    for header_line in unfiltered_vcf.raw_header.split("\n"):
-        if header_line.startswith("##tumor_sample"):
-            tumor_sample_name = header_line.split("=")[-1]
-            print(tumor_sample_name)
-        elif header_line.startswith("#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\t"):
-            prefix = "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\t"
-            all_samples = header_line[len(prefix) :].split()
-    tumor_sample_index = 0
-    for n, sample in enumerate(all_samples):
-        if sample == tumor_sample_name:
-            print(f"tumor sample found in VCF header: name {sample}, index {n}")
-            tumor_sample_index = n
+    tumor_sample_index = get_tumor_sample_index(unfiltered_vcf)
 
     all_types = [call_type.name for call_type in Call]
     unfiltered_vcf.add_format_to_header({"ID": "DP", "Description": "depth", "Type": "Integer", "Number": "1"})
@@ -548,27 +517,10 @@ def apply_filtering_to_vcf(
             "Number": "A",
         }
     )
-    unfiltered_vcf.add_info_to_header(
-        {
-            "ID": STEM_LOOP_FREE_ENERGY_INFO_KEY,
-            "Description": "Total free energy of the selected nearby stem loop",
-            "Type": "Float",
-            "Number": "1",
-        }
-    )
-    unfiltered_vcf.add_info_to_header(
-        {
-            "ID": STEM_LOOP_DISTANCE_INFO_KEY,
-            "Description": "Distance in bases from variant start to the selected stem",
-            "Type": "Integer",
-            "Number": "1",
-        }
-    )
 
     for n, filter_name in enumerate(FILTER_NAMES):
         if n != passing_call_type:
             unfiltered_vcf.add_filter_to_header({"ID": filter_name, "Description": filter_name})
-    unfiltered_vcf.add_filter_to_header({"ID": "hairpin", "Description": "near low-alt-fraction stem-loop"})
 
     writer = cyvcf2.Writer(output_vcf, unfiltered_vcf)  # input vcf is a template for the header
     pbar = tqdm(enumerate(unfiltered_vcf), mininterval=60)
@@ -577,22 +529,12 @@ def apply_filtering_to_vcf(
 
     missing_encodings = []
     for n, v in pbar:
-        filters = overlapping_filters(v, TRUSTED_M2_FILTERS)
+        # variants with trusted non-artifact filters were excluded from the posterior model
+        if overlapping_filters(v, TRUSTED_NON_ARTIFACT_FILTERS):
+            writer.write_record(v)
+            continue
 
-        nearby_stem_loop = find_near_stem_loop(
-            reference, v.CHROM, v.start, max_energy=stem_loop_max_energy
-        )
-        tumor_allele_depths = v.format("AD")[tumor_sample_index]
-        total_alt_depth = np.sum(tumor_allele_depths[1:])
-        total_depth = tumor_allele_depths[0] + total_alt_depth
-        variant_near_stem_loop_low_alt_fraction = (
-            nearby_stem_loop is not None and total_depth > 0 and total_alt_depth / total_depth < 0.1
-        )
-        if variant_near_stem_loop_low_alt_fraction:
-            stem_loop, stem_distance = nearby_stem_loop
-            filters.add("hairpin")
-            v.INFO[STEM_LOOP_FREE_ENERGY_INFO_KEY] = stem_loop.total_energy
-            v.INFO[STEM_LOOP_DISTANCE_INFO_KEY] = stem_distance
+        filters = overlapping_filters(v, TRUSTED_ARTIFACT_FILTERS)
 
         # TODO: in germline mode, somatic doesn't exist (or is just highly irrelevant) and germline is not an error!
         encoding = encode_variant(v, zero_based=True)  # cyvcf2 is zero-based
@@ -604,7 +546,9 @@ def apply_filtering_to_vcf(
             v.INFO[SPECTRA_LOG_LIKELIHOOD_INFO_KEY] = ",".join(
                 map(lambda ll: "{:.3f}".format(ll), posterior_result.spectra_lls)
             )
-            v.INFO[ARTIFACT_LOD_INFO_KEY] = "{:.3f}".format(posterior_result.artifact_logit)
+            # known artifacts have an infinite artifact logit, which doesn't come from the artifact model
+            if math.isfinite(posterior_result.artifact_logit):
+                v.INFO[ARTIFACT_LOD_INFO_KEY] = "{:.3f}".format(posterior_result.artifact_logit)
             v.INFO[NORMAL_LOG_LIKELIHOOD_INFO_KEY] = ",".join(
                 map(lambda ll: "{:.3f}".format(ll), posterior_result.normal_lls)
             )
