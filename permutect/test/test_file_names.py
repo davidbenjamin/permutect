@@ -14,7 +14,11 @@ SEGMENTS_TABLE = os.path.join(integration_test_dir, "segments.table")
 DREAM_1_CHR20_PLAIN_TEXT_DATA = os.path.join(integration_test_dir, "dream-1-chr-20-plain-text.dataset")
 HG19_CHR20_REFERENCE = os.path.join(integration_test_dir, "Homo_sapiens_assembly19_chr20.fasta")
 HG38_CHR20_REFERENCE = os.path.join(integration_test_dir, "Homo_sapiens_assembly38_chr20.fasta")
+HG38_CHR20_REFERENCE_INDEX = HG38_CHR20_REFERENCE + ".fai"
+HG38_CHR20_REFERENCE_DICT = os.path.join(integration_test_dir, "Homo_sapiens_assembly38_chr20.dict")
 SEQC2_WES_PLAIN_TEXT_DATA = os.path.join(integration_test_dir, "seqc2-wes-chr20-plain-text.dataset")
+# a uniform minor allele fraction of 0.5, the same as having no segmentation
+SEQC2_WES_SEGMENTS_TABLE = os.path.join(integration_test_dir, "seqc2-wes-chr20-segments.table")
 
 ARTIFACT_MODEL_V_0_4_0 = os.path.join(integration_test_dir, "artifact-model-v0.4.0.pt")
 PERMUTECT_V0_9_2_ARTIFACT_MODEL = os.path.join(integration_test_dir, "permutect-v0.9.2-artifact-model.pt")
@@ -22,6 +26,8 @@ EXPERIMENTAL_MODEL = os.path.join(integration_test_dir, "experimental-model.pt")
 
 MUTECT2_CHR20_FILTERED_VCF = os.path.join(integration_test_dir, "mutect2_chr20.vcf")
 MUTECT2_SEQC2_WES_VCF = os.path.join(integration_test_dir, "mutect2_seqc2_wes_chr20.vcf")
+MUTECT2_SEQC2_WES_VCF_INDEX = MUTECT2_SEQC2_WES_VCF + ".idx"
+MUTECT2_SEQC2_WES_STATS = MUTECT2_SEQC2_WES_VCF + ".stats"
 
 # for testing SNV-dependent priors, this VCF only has true _ -> T substitution.
 MUTECT2_CHR20_FILTERED_VCF_ONLY_T_SNVS = os.path.join(integration_test_dir, "mutect2_chr20_only_T_snvs.vcf")
