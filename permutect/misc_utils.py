@@ -156,6 +156,13 @@ def overlapping_filters(v: cyvcf2.Variant, filters_set: Set[str]) -> Set[str]:
     return set([]) if v.FILTER is None else set(v.FILTER.split(";")).intersection(filters_set)
 
 
+def declare_format_dp(vcf: cyvcf2.VCF):
+    # GATK SelectVariants -DGA DP, as in the SplitMultiallelics task of permutect.wdl, removes the FORMAT/DP header line
+    # but not the DP values.  htslib flags the undeclared tag in each record, and cyvcf2 refuses to write such records.
+    # This must be called before reading any records, and it does nothing if the header already declares DP.
+    vcf.add_format_to_header({"ID": "DP", "Description": "depth", "Type": "Integer", "Number": "1"})
+
+
 def get_tumor_sample_index(vcf: cyvcf2.VCF) -> int:
     # This is specific to Mutect2, which outputs a line:
     # ##tumor_sample=___________

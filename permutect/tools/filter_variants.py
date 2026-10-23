@@ -29,6 +29,7 @@ from permutect.metrics.evaluation_metrics import EvaluationMetrics
 from permutect.metrics.loss_metrics import AccuracyMetrics
 from permutect.metrics.posterior_result import PosteriorResult
 from permutect.misc_utils import Timer
+from permutect.misc_utils import declare_format_dp
 from permutect.misc_utils import encode_datum
 from permutect.misc_utils import encode_variant
 from permutect.misc_utils import get_tumor_sample_index
@@ -476,7 +477,7 @@ def apply_filtering_to_vcf(
     tumor_sample_index = get_tumor_sample_index(unfiltered_vcf)
 
     all_types = [call_type.name for call_type in Call]
-    unfiltered_vcf.add_format_to_header({"ID": "DP", "Description": "depth", "Type": "Integer", "Number": "1"})
+    declare_format_dp(unfiltered_vcf)
     unfiltered_vcf.add_info_to_header(
         {
             "ID": POST_PROB_INFO_KEY,
