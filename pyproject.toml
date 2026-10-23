@@ -24,6 +24,8 @@ dependencies = [
     "psutil>=5.9.2",
     "scikit-learn>=1.3.2",
     "dill>=0.3.7",
+    "pysam>=0.24.1",
+    "seqfold>=0.10.2",
 ]
 
 [project.optional-dependencies]
@@ -36,6 +38,7 @@ dev = [
 refine_artifact_model = "permutect.tools.refine_artifact_model:main"
 train_artifact_model = "permutect.tools.train_artifact_model:main"
 filter_variants = "permutect.tools.filter_variants:main"
+pre_permutect_filtering = "permutect.tools.pre_permutect_filtering:main"
 preprocess_dataset = "permutect.tools.preprocess_dataset:main"
 edit_dataset = "permutect.tools.edit_dataset:main"
 prune_dataset = "permutect.tools.prune_dataset:main"
@@ -70,6 +73,7 @@ unfixable = ["B"]
 
 [tool.ruff.lint.isort]
 force-single-line = true
+known-third-party = ["seqfold"]  # don't mistake a local seqfold/ directory for first-party code
 
 [tool.ruff.lint.per-file-ignores]
 "permutect/test/**.py" = ["F403", "F405"]

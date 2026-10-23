@@ -125,7 +125,8 @@ class MemoryMappedData:
     Add allele frequency (AF), minor allele frequency (MAF), and normal minor allele frequency (normal MAF) to the
     float array of the output MemoryMappedData using information in a VCF and a segmentation.
     
-    Additionally, skip data that have a given set of filters in the VCF.
+    Additionally, skip data that have a given set of filters in the VCF, and mark data that have a given set of
+    artifact filters in the VCF as known artifacts with an infinite cached artifact logit.
     """
 
     def generate_vcf_annotated_data(
@@ -133,11 +134,13 @@ class MemoryMappedData:
         input_vcf,
         contig_index_to_name_map,
         filters_to_exclude: Set[str],
+        artifact_filters: Set[str],
         segmentation=defaultdict(IntervalTree),
         normal_segmentation=defaultdict(IntervalTree),
     ) -> Generator[Datum, None, None]:
         allele_frequencies = {}
         encodings_to_exclude = set()
+        artifact_encodings = set()
 
         print("recording filters and allele frequencies from input VCF")
         pbar = tqdm(enumerate(cyvcf2.VCF(input_vcf)), mininterval=60)
@@ -146,6 +149,8 @@ class MemoryMappedData:
             allele_frequencies[encoding] = 10 ** (-get_first_numeric_element(v, "POPAF"))
             if overlapping_filters(v, filters_to_exclude):
                 encodings_to_exclude.add(encoding)
+            if overlapping_filters(v, artifact_filters):
+                artifact_encodings.add(encoding)
 
         for datum in self.generate():
             contig_name = contig_index_to_name_map[datum.get(Data.CONTIG)]
@@ -172,6 +177,8 @@ class MemoryMappedData:
                 new_datum.set(Data.ALLELE_FREQUENCY, allele_frequency)
                 new_datum.set(Data.MAF, maf)
                 new_datum.set(Data.NORMAL_MAF, normal_maf)
+                if encoding in artifact_encodings:
+                    new_datum.set(Data.CACHED_ARTIFACT_LOGIT, np.inf)
                 yield new_datum
 
     def make_vcf_annotate_memory_mapped_data(
@@ -179,6 +186,7 @@ class MemoryMappedData:
         input_vcf,
         contig_index_to_name_map,
         filters_to_exclude: Set[str],
+        artifact_filters: Set[str],
         segmentation=defaultdict(IntervalTree),
         normal_segmentation=defaultdict(IntervalTree),
     ) -> MemoryMappedData:
@@ -186,6 +194,7 @@ class MemoryMappedData:
             input_vcf=input_vcf,
             contig_index_to_name_map=contig_index_to_name_map,
             filters_to_exclude=filters_to_exclude,
+            artifact_filters=artifact_filters,
             segmentation=segmentation,
             normal_segmentation=normal_segmentation,
         )

@@ -27,6 +27,7 @@ workflow Permutect {
         String? realignment_extra_args
         Boolean skip_m2_filtering = true
         Boolean run_orientation_bias_mixture_model_filter = false
+        Boolean filter_pcr_errors = false   # run pre_permutect_filtering, which applies the hairpin filter
         String? m2_extra_args
         String? split_intervals_extra_args
         Int batch_size
@@ -146,10 +147,20 @@ workflow Permutect {
             gatk_docker = permutect_docker
     }
 
+    if (filter_pcr_errors) {
+        call PrePermutectFiltering {
+            input:
+                input_vcf = SplitMultiallelics.output_vcf,
+                ref_fasta = ref_fasta,
+                ref_fai = ref_fai,
+                permutect_docker = permutect_docker
+        }
+    }
+
     call PermutectFiltering {
         input:
-            mutect2_vcf = SplitMultiallelics.output_vcf,
-            mutect2_vcf_idx = SplitMultiallelics.output_vcf_idx,
+            mutect2_vcf = select_first([PrePermutectFiltering.output_vcf, SplitMultiallelics.output_vcf]),
+            mutect2_vcf_idx = select_first([PrePermutectFiltering.output_vcf_idx, SplitMultiallelics.output_vcf_idx]),
             artifact_model = artifact_model,
             test_dataset = select_first([Mutect2.permutect_test_dataset, cached_dataset_hack]),
             contigs_table = select_first([Mutect2.permutect_contigs_table, cached_contigs_table_hack]),
@@ -290,6 +301,47 @@ workflow Permutect {
         File output_vcf = "permutect-filtered.vcf.gz"
         File output_vcf_idx = "permutect-filtered.vcf.gz.tbi"
         File tensorboard_report = "tensorboard.tar"
+    }
+}
+
+task PrePermutectFiltering {
+    input {
+        File input_vcf
+        File ref_fasta
+        File ref_fai
+        String permutect_docker
+        Int? preemptible
+        Int max_retries = 0
+        Int disk_space = 100
+        Int cpu = 1
+        Int mem = 4
+    }
+
+    # Mem is in units of GB but our command and memory runtime values are in MB
+    Int machine_mem = mem * 1000
+    Int command_mem = machine_mem - 500
+
+    command <<<
+        set -e
+
+        pre_permutect_filtering --input ~{input_vcf} --reference ~{ref_fasta} --output pre-filtered.vcf
+
+        gatk --java-options "-Xmx~{command_mem}m" IndexFeatureFile -I pre-filtered.vcf
+    >>>
+
+    runtime {
+        docker: permutect_docker
+        bootDiskSizeGb: 12
+        memory: machine_mem + " MB"
+        disks: "local-disk " + disk_space + " SSD"
+        preemptible: select_first([preemptible, 0])
+        maxRetries: max_retries
+        cpu: cpu
+    }
+
+    output {
+        File output_vcf = "pre-filtered.vcf"
+        File output_vcf_idx = "pre-filtered.vcf.idx"
     }
 }
 

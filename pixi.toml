@@ -20,9 +20,23 @@ system-requirements = { cuda = "13.0" }
 permutect = { path = ".", editable = true, extras = ["dev"] }
 torch = { version = ">=2.10.0,<2.11", index = "https://download.pytorch.org/whl/cu130" }
 
+# for running scripts/permutect.wdl locally with Cromwell, which needs Java 17
+[feature.wdl.dependencies]
+openjdk = "17.*"
+
+[feature.wdl.tasks]
+# not Cromwell 92, whose Local backend fails every task with a docker runtime attribute:
+# "No coercion defined from '<image>' of type 'cromwell.backend.validation.Containers' to 'String?'"
+download-cromwell = { cmd = "mkdir -p .cromwell && curl -fsSL -o .cromwell/cromwell-91.jar https://github.com/broadinstitute/cromwell/releases/download/91/cromwell-91.jar", outputs = [".cromwell/cromwell-91.jar"] }
+# the CUDA base image only exists for linux/amd64, which Docker emulates on Apple silicon
+build-test-docker = "docker build --platform linux/amd64 -t permutect:wdl-test ."
+# tests the image from build-test-docker unless PERMUTECT_TEST_DOCKER names another one
+test-wdl = { cmd = "pytest permutect/test/wdl -v", depends-on = ["download-cromwell"], env = { CROMWELL_JAR = ".cromwell/cromwell-91.jar" } }
+
 [environments]
-default = { features = ["cpu"] }
+default = { features = ["cpu"], solve-group = "default" }
 gpu = { features = ["gpu"], solve-group = "gpu" }
+wdl = { features = ["cpu", "wdl"], solve-group = "default" }
 
 [tasks]
 test = "pytest permutect/test -x -v"

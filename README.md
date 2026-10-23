@@ -27,7 +27,7 @@ Or, to install into an existing environment:
 conda install -c conda-forge -c bioconda permutect
 ```
 
-This installs the command line tools (`filter_variants`, `train_artifact_model`, `preprocess_dataset`, `refine_artifact_model`, `edit_dataset`, `prune_dataset`) along with all dependencies.
+This installs the command line tools (`pre_permutect_filtering`, `filter_variants`, `train_artifact_model`, `preprocess_dataset`, `refine_artifact_model`, `edit_dataset`, `prune_dataset`) along with all dependencies.
 
 # Pipeline
 Here we described the workflows in the Terra workspace, most of which correspond to a WDL script in the /scripts directory of this repository and a command line tool in the /tools directory.

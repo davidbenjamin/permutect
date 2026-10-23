@@ -156,6 +156,33 @@ def overlapping_filters(v: cyvcf2.Variant, filters_set: Set[str]) -> Set[str]:
     return set([]) if v.FILTER is None else set(v.FILTER.split(";")).intersection(filters_set)
 
 
+def declare_format_dp(vcf: cyvcf2.VCF):
+    # GATK SelectVariants -DGA DP, as in the SplitMultiallelics task of permutect.wdl, removes the FORMAT/DP header line
+    # but not the DP values.  htslib flags the undeclared tag in each record, and cyvcf2 refuses to write such records.
+    # This must be called before reading any records, and it does nothing if the header already declares DP.
+    vcf.add_format_to_header({"ID": "DP", "Description": "depth", "Type": "Integer", "Number": "1"})
+
+
+def get_tumor_sample_index(vcf: cyvcf2.VCF) -> int:
+    # This is specific to Mutect2, which outputs a line:
+    # ##tumor_sample=___________
+    tumor_sample_name = ""
+    all_samples = []
+    for header_line in vcf.raw_header.split("\n"):
+        if header_line.startswith("##tumor_sample"):
+            tumor_sample_name = header_line.split("=")[-1]
+            print(tumor_sample_name)
+        elif header_line.startswith("#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\t"):
+            prefix = "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\t"
+            all_samples = header_line[len(prefix) :].split()
+    tumor_sample_index = 0
+    for n, sample in enumerate(all_samples):
+        if sample == tumor_sample_name:
+            print(f"tumor sample found in VCF header: name {sample}, index {n}")
+            tumor_sample_index = n
+    return tumor_sample_index
+
+
 def check_for_nan(model: torch.nn.Module):
     nan_found = False
     for name, param in model.named_parameters():

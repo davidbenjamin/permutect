@@ -23,6 +23,7 @@ build/
 
 # Testing
 .pytest_cache/
+.cromwell/
 
 # Tensorboard
 runs/

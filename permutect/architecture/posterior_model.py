@@ -83,8 +83,18 @@ class PosteriorModel(torch.nn.Module):
         spectra_log_lks_bc, normal_log_lks_bc = self.spectra.spectra_log_likelihoods_bc(batch)
 
         log_posteriors_bc = log_priors_bc + spectra_log_lks_bc + normal_log_lks_bc
-        log_posteriors_bc[:, Call.ARTIFACT] += batch.get(Data.CACHED_ARTIFACT_LOGIT)
-        log_posteriors_bc[:, Call.NORMAL_ARTIFACT] += batch.get(Data.CACHED_ARTIFACT_LOGIT)
+
+        # an infinite artifact logit marks a known artifact, eg a variant with a trusted upstream artifact filter, which
+        # can only be an artifact or a normal artifact.  Since both get the same logit, any finite value works for them.
+        artifact_logits_b = batch.get(Data.CACHED_ARTIFACT_LOGIT)
+        known_artifacts_b = torch.isposinf(artifact_logits_b)
+        artifact_logits_b = torch.where(known_artifacts_b, 0, artifact_logits_b)
+        log_posteriors_bc[:, Call.ARTIFACT] += artifact_logits_b
+        log_posteriors_bc[:, Call.NORMAL_ARTIFACT] += artifact_logits_b
+        for non_artifact_call in (Call.SOMATIC, Call.SEQ_ERROR, Call.GERMLINE):
+            log_posteriors_bc[:, non_artifact_call] = torch.where(
+                known_artifacts_b, -9999, log_posteriors_bc[:, non_artifact_call]
+            )
 
         # TODO: HACK / EXPERIMENT: make it impossible to call an artifact when the artifact logits are negative
         log_posteriors_bc[:, Call.ARTIFACT] = torch.where(

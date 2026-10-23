@@ -1,4 +1,5 @@
 import argparse
+import math
 from collections import defaultdict
 
 import cyvcf2
@@ -28,14 +29,17 @@ from permutect.metrics.evaluation_metrics import EvaluationMetrics
 from permutect.metrics.loss_metrics import AccuracyMetrics
 from permutect.metrics.posterior_result import PosteriorResult
 from permutect.misc_utils import Timer
+from permutect.misc_utils import declare_format_dp
 from permutect.misc_utils import encode_datum
 from permutect.misc_utils import encode_variant
+from permutect.misc_utils import get_tumor_sample_index
 from permutect.misc_utils import gpu_if_available
 from permutect.misc_utils import overlapping_filters
 from permutect.misc_utils import report_memory_usage
 from permutect.parameters import TrainingParameters
 from permutect.parameters import add_training_params_to_parser
 from permutect.parameters import parse_training_params
+from permutect.tools.pre_permutect_filtering import HAIRPIN_FILTER
 from permutect.training.model_training import train_artifact_model
 from permutect.utils.allele_utils import find_variant_type
 from permutect.utils.enums import Call
@@ -45,7 +49,12 @@ from permutect.utils.enums import Variation
 from permutect.utils.math_utils import inverse_sigmoid
 from permutect.utils.math_utils import prob_to_logit
 
-TRUSTED_M2_FILTERS = {"contamination", "slippage"}
+# Trusted filters in the input VCF come from Mutect2, except for hairpin, which comes from pre_permutect_filtering.
+# Variants with these non-artifact filters are skipped by the posterior model and written to the output VCF unchanged.
+TRUSTED_NON_ARTIFACT_FILTERS = {"contamination"}
+# Variants with these artifact filters keep them, and the posterior model sees them as definite artifacts (or normal
+# artifacts) regardless of the artifact model, so that they inform the artifact spectra and priors.
+TRUSTED_ARTIFACT_FILTERS = {"slippage", HAIRPIN_FILTER}
 
 POST_PROB_INFO_KEY = "POST"
 ARTIFACT_LOD_INFO_KEY = "ARTLOD"
@@ -56,7 +65,7 @@ NORMAL_LOG_LIKELIHOOD_INFO_KEY = "NORMLL"
 FILTER_NAMES = [call_type.name.lower() for call_type in Call]
 
 
-def parse_arguments():
+def parse_arguments(argv=None):
     parser = argparse.ArgumentParser()
     add_training_params_to_parser(parser)  # most of these are only relevant in case of test time adaptation
     parser.add_argument("--" + constants.INPUT_NAME, required=True, help="unfiltered input Mutect2 VCF")
@@ -157,7 +166,7 @@ def parse_arguments():
         "somatic, artifact, and sequencing error.  This is useful for certain validation where "
         "pseudo-somatic events are created by mixing germline events at varying fractions",
     )
-    return parser.parse_args()
+    return parser.parse_args(argv)
 
 
 def get_segmentation(segments_file) -> defaultdict:
@@ -330,7 +339,9 @@ def generate_posterior_data(dataset, model: ArtifactModel, batch_size: int, num_
             )
             output_datum.set(Data.REF_COUNT, 0)
             output_datum.set(Data.ALT_COUNT, 0)
-            output_datum.set(Data.CACHED_ARTIFACT_LOGIT, logit)
+            # known artifacts were marked with an infinite logit when annotated from the VCF, which overrides the model
+            if not np.isposinf(output_datum.get(Data.CACHED_ARTIFACT_LOGIT)):
+                output_datum.set(Data.CACHED_ARTIFACT_LOGIT, logit)
             output_datum.set_info_1d(embedding)
             yield output_datum
 
@@ -355,7 +366,8 @@ def make_annotated_dataset(
     annotated_mmap_data = normalized_mmap_data.make_vcf_annotate_memory_mapped_data(
         input_vcf,
         contig_index_to_name_map,
-        filters_to_exclude=TRUSTED_M2_FILTERS,
+        filters_to_exclude=TRUSTED_NON_ARTIFACT_FILTERS,
+        artifact_filters=TRUSTED_ARTIFACT_FILTERS,
         segmentation=segmentation,
         normal_segmentation=normal_segmentation,
     )
@@ -462,26 +474,10 @@ def apply_filtering_to_vcf(
 
     print("Applying threshold")
     unfiltered_vcf = cyvcf2.VCF(input_vcf)
-
-    # This is specific to Mutect2, which outputs a line:
-    # ##tumor_sample=___________
-    tumor_sample_name = ""
-    all_samples = []
-    for header_line in unfiltered_vcf.raw_header.split("\n"):
-        if header_line.startswith("##tumor_sample"):
-            tumor_sample_name = header_line.split("=")[-1]
-            print(tumor_sample_name)
-        elif header_line.startswith("#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\t"):
-            prefix = "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\t"
-            all_samples = header_line[len(prefix) :].split()
-    tumor_sample_index = 0
-    for n, sample in enumerate(all_samples):
-        if sample == tumor_sample_name:
-            print(f"tumor sample found in VCF header: name {sample}, index {n}")
-            tumor_sample_index = n
+    tumor_sample_index = get_tumor_sample_index(unfiltered_vcf)
 
     all_types = [call_type.name for call_type in Call]
-    unfiltered_vcf.add_format_to_header({"ID": "DP", "Description": "depth", "Type": "Integer", "Number": "1"})
+    declare_format_dp(unfiltered_vcf)
     unfiltered_vcf.add_info_to_header(
         {
             "ID": POST_PROB_INFO_KEY,
@@ -534,7 +530,12 @@ def apply_filtering_to_vcf(
 
     missing_encodings = []
     for n, v in pbar:
-        filters = overlapping_filters(v, TRUSTED_M2_FILTERS)
+        # variants with trusted non-artifact filters were excluded from the posterior model
+        if overlapping_filters(v, TRUSTED_NON_ARTIFACT_FILTERS):
+            writer.write_record(v)
+            continue
+
+        filters = overlapping_filters(v, TRUSTED_ARTIFACT_FILTERS)
 
         # TODO: in germline mode, somatic doesn't exist (or is just highly irrelevant) and germline is not an error!
         encoding = encode_variant(v, zero_based=True)  # cyvcf2 is zero-based
@@ -546,7 +547,9 @@ def apply_filtering_to_vcf(
             v.INFO[SPECTRA_LOG_LIKELIHOOD_INFO_KEY] = ",".join(
                 map(lambda ll: "{:.3f}".format(ll), posterior_result.spectra_lls)
             )
-            v.INFO[ARTIFACT_LOD_INFO_KEY] = "{:.3f}".format(posterior_result.artifact_logit)
+            # known artifacts have an infinite artifact logit, which doesn't come from the artifact model
+            if math.isfinite(posterior_result.artifact_logit):
+                v.INFO[ARTIFACT_LOD_INFO_KEY] = "{:.3f}".format(posterior_result.artifact_logit)
             v.INFO[NORMAL_LOG_LIKELIHOOD_INFO_KEY] = ",".join(
                 map(lambda ll: "{:.3f}".format(ll), posterior_result.normal_lls)
             )
