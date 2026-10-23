@@ -1,0 +1,63 @@
+name: WDL integration tests
+
+# Runs on pull requests, on pushes to main, and on pushes to other branches that change the Dockerfile or scripts/.
+# Push filters can't express "main or these paths", so the changes job checks the paths.
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      wdl: ${{ steps.filter.outputs.wdl }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+
+      # for pushes, this compares against the commit before the push.  The first push of a branch is compared against
+      # main, so that only the branch's own commits count.
+      - uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d  # v4.0.3
+        id: filter
+        with:
+          base: ${{ github.ref }}
+          filters: |
+            wdl:
+              - "Dockerfile"
+              - "scripts/**"
+
+  wdl:
+    needs: changes
+    if: github.event_name == 'pull_request' || github.ref == 'refs/heads/main' || needs.changes.outputs.wdl == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+
+      # the CUDA base image takes several GB, and the tests need the built image loaded into Docker
+      - name: Free disk space
+        run: sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+
+      - uses: docker/setup-buildx-action@b5ca514318bd6ebac0fb2aedd5d36ec1b5c232a2  # v3.10.0
+
+      - name: Build Docker image
+        uses: docker/build-push-action@14487ce63c7a62a4a324b0bfb37086795e31c6c1  # v6.16.0
+        with:
+          context: .
+          push: false
+          load: true
+          tags: permutect:wdl-test
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - uses: prefix-dev/setup-pixi@a0af7a228712d6121d37aba47adf55c1332c9c2e  # v0.9.4
+        with:
+          cache: true
+          environments: wdl
+
+      - name: Run WDL integration tests
+        run: pixi run -e wdl test-wdl
